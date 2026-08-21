@@ -437,3 +437,28 @@ test("the title is derived, and the foot names the source", () => {
   const sh = parseCalendarConfig("source: {{Holdings}}\ndate: bought");
   assert.equal(calendarSourceDesc(sh), "sheet: Holdings");
 });
+
+test("parseCalendarBlocks: an unclosed fence is a banner, not a silent zero", () => {
+  const blocks = parseCalendarBlocks("```calendar\nsource: release\ndate: released\n");
+  assert.equal(blocks.length, 1);
+  assert.equal(blocks[0].config, null);
+  assert.match(blocks[0].error ?? "", /```calendar fence is never closed — add a closing ``` line/);
+  assert.match(
+    parseCalendarBlocks("```calendar \nsource: release\n")[0]?.error ?? "",
+    /never closed/
+  );
+});
+
+test("parseCalendarBlocks: no banner over a month the board just drew", () => {
+  const config = "source: release\ndate: released";
+  for (const body of [
+    "```calendar\n" + config + "\n  ```\n",
+    "```calendar\n" + config + "\n```js\n",
+    "```calendar\n" + config + "\n```\n\n```ts\nconst x = 1;\n",
+  ]) {
+    const blocks = parseCalendarBlocks(body);
+    assert.equal(blocks.length, 1, body);
+    assert.equal(blocks[0].error, null, body);
+  }
+  assert.deepEqual(parseCalendarBlocks("~~~\n```calendar\n" + config + "\n~~~\n"), []);
+});

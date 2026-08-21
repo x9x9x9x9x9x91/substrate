@@ -1649,6 +1649,16 @@ fence in body order; a malformed fence renders its parse error in place — it n
 breaks the others, and fixing the text fixes the chart.
 Hub bodies host the same fence with the same parser and renderer (§5.2).
 
+An opener with **no closing line** matches no fence at all, so it used to be
+invisible: the board counted zero and drew nothing, which reads as "you have
+written no charts" over a note that plainly holds one. Every fence parser
+(`chart`, `heatmap`, `progress`, `calendar`, `tile`) now reports an unterminated
+opener as a block-shaped error naming the missing line, so the board renders one
+failed fence rather than an honest-looking zero.
+In a note with no `dashboard:` prop, that error is also what the body scan sees:
+one unclosed ` ```chart ` opener makes it a charts dashboard showing the failed
+fence, not the yield fallback (§5.2).
+
 Every series of a `by` split shares the chart's x axis: a bar series carries the
 whole (zero-filled) axis so stacks line up, and a line series omits keys it has
 no rows for rather than drawing a fabricated zero. The chart's own point count
@@ -2366,14 +2376,36 @@ export default {
 
 `mount(el, ctx)` is called **once per pane mount**, with `el` an empty element
 the kind owns outright. Its return value, when it returns one, is a cleanup
-function run on unmount — detach listeners and cancel timers there. Returning
-one is optional to the *host*, not to the kind: on unmount the host takes away
-the element it gave you, the stylesheet it injected for you and its own
-`ctx.onChange` subscriptions, and nothing else. Everything you started outside
-`el` is yours to stop — timers, `window`/`document` listeners, observers,
-in-flight requests — and a kind that returns nothing leaves all of it running
-after its pane is gone. A cleanup that throws is caught and warned; the kind
-goes away either way.
+function run on unmount — detach listeners and cancel timers there. Return
+one anyway: on unmount the host takes away the element it gave you, the
+stylesheet it injected for you, its own `ctx.onChange` subscriptions, and the
+timers, animation frames and `window`/`document` listeners you armed **while
+`mount` was running** (including those armed later from inside one of those
+timers' callbacks). What it cannot see it cannot take: anything you register
+after `mount` has returned by another route — from a `fetch` or `await`
+continuation, an event handler, an observer callback — outlives the pane
+unless your cleanup stops it, and so do observers on other targets, in-flight
+requests and anything you hung on a global. A cleanup that throws is caught
+and warned; the kind goes away either way. The reverse case is rarer and
+worth knowing: reclamation follows the stack, so if you make the app itself
+run code during your `mount` by a route other than a `ctx` call — dispatching
+a `window` event the app listens for is the reachable one — a timer the app
+arms in answer to it is taken away with your pane. Call `ctx`; do not poke
+the app through the document.
+
+Two further limits the host enforces rather than trusts:
+
+- **Draw inside `el`.** The app watches the document while `mount` runs; a
+  kind that adds or removes nodes outside the element it was handed has those
+  writes undone — torn-out app chrome is put back where it was — and the pane
+  shows a card naming the escape instead of the kind. Attributes, text and
+  inline styles overwritten in place on existing nodes are *not* restored, so
+  the rule is a rule and not only a net.
+- **Finish, or say why.** If `mount` returns a promise that has neither
+  settled nor drawn anything after five seconds, the pane replaces the wait
+  with a card naming the kind and the stall — a kind waiting on something that
+  never arrives leaves a message, not a blank pane. Draw a placeholder inside
+  `el` first and the wait is yours to keep.
 
 The kind does **not** re-mount on every vault change: it subscribes with
 `ctx.onChange` and redraws itself. `el` itself is stable across those redraws — only its

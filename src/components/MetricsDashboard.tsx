@@ -9,6 +9,7 @@ import { MetricCardStrip, useCardValues } from "./MetricCards";
 import { usdEurFrom } from "../lib/fx";
 import { useFxRates } from "./useFx";
 import { DashHead, DashPrintButton } from "./DashHead";
+import { DashEmpty } from "./DashNotice";
 
 interface MetricsDashboardProps {
   meta: NoteMeta;
@@ -69,7 +70,7 @@ export default function MetricsDashboard({
 
   const cardsSurface =
     cards.length === 0 ? (
-      <div className="dash-foot">
+      <DashEmpty>
         {embed ? (
           <>No cards yet — add cards with a label and a {"{{Sheet.summary}}"} binding.</>
         ) : (
@@ -78,7 +79,7 @@ export default function MetricsDashboard({
             a {"{{Sheet.summary}}"} binding.
           </>
         )}
-      </div>
+      </DashEmpty>
     ) : (
       <MetricCardStrip cards={cards} sharp={sharp} cardValue={cardValue} />
     );

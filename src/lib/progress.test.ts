@@ -362,3 +362,28 @@ test("pace is pure calendar arithmetic across a DST boundary", () => {
   assert.equal(p.daysLeft, 7);
   assert.equal(p.expected, 5);
 });
+
+test("parseProgressBlocks: an unclosed fence is a banner, not a silent zero", () => {
+  const blocks = parseProgressBlocks("```progress\nlabel: A\nvalue: {{S.a}}\ntarget: 10\n");
+  assert.equal(blocks.length, 1);
+  assert.equal(blocks[0].config, null);
+  assert.match(blocks[0].error ?? "", /```progress fence is never closed — add a closing ``` line/);
+  assert.match(
+    parseProgressBlocks("```progress \nlabel: A\n")[0]?.error ?? "",
+    /never closed/
+  );
+});
+
+test("parseProgressBlocks: no banner over a goal the board just drew", () => {
+  const config = "label: A\nvalue: {{S.a}}\ntarget: 10";
+  for (const body of [
+    "```progress\n" + config + "\n  ```\n",
+    "```progress\n" + config + "\n```js\n",
+    "```progress\n" + config + "\n```\n\n```ts\nconst x = 1;\n",
+  ]) {
+    const blocks = parseProgressBlocks(body);
+    assert.equal(blocks.length, 1, body);
+    assert.equal(blocks[0].error, null, body);
+  }
+  assert.deepEqual(parseProgressBlocks("~~~\n```progress\n" + config + "\n~~~\n"), []);
+});

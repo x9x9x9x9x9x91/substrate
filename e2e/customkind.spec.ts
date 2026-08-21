@@ -136,7 +136,7 @@ test("an enabled bundle mounts and renders behind the standard head", async ({ p
   // the head is the app's, not the kind's: title, ctx.setState's dot, source
   await expect(page.locator(".dash-title")).toHaveText("Overview");
   await expect(page.locator(".dash-state")).toHaveText("3 racks");
-  await expect(page.locator(".chart-err")).toHaveCount(0);
+  await expect(page.locator(".dash-alert")).toHaveCount(0);
   await noFallback(page);
 
   await page.locator(".dash-source").click();
@@ -186,7 +186,7 @@ test("enabling from the review mounts the kind immediately, with no reload", asy
   await expect(body.locator(".dash-hero")).toHaveText("gear rack: Overview");
   await expect(page.locator("[data-testid=kind-review]")).toHaveCount(0);
   await expect(page.locator(".dash-state")).toHaveText("3 racks");
-  await expect(page.locator(".chart-err")).toHaveCount(0);
+  await expect(page.locator(".dash-alert")).toHaveCount(0);
   await noFallback(page);
 });
 
@@ -290,7 +290,7 @@ test("a bundle written for a newer api offers no way to enable it", async ({ pag
   await expect(page.locator("[data-testid=kind-enable]")).toHaveCount(0);
   await expect(page.locator("[data-testid=kind-trust]")).toHaveCount(0);
 
-  const err = page.locator(".chart-err");
+  const err = page.locator(".dash-alert");
   await expect(err).toContainText("api 99");
   await expect(err).toContainText("api 1");
   await expect(page.locator(".dash-state")).toHaveText("needs a newer Substrate");
@@ -303,7 +303,7 @@ test("a bundle that throws at mount shows the runtime card with the head intact"
 }) => {
   await openKind(page, { entry: THROWS });
 
-  const err = page.locator(".chart-err");
+  const err = page.locator(".dash-alert");
   await expect(err).toHaveCount(1);
   await expect(err).toContainText("gear-log");
   await expect(err).toContainText("index.js");
@@ -346,7 +346,7 @@ test("a kind rewritten after it failed recovers in place, without a relaunch", a
   // leaves every later run bailing on a null ref, and the stale error card
   // stays until the user navigates away and back.
   await openKind(page, { entry: THROWS });
-  await expect(page.locator(".chart-err")).toContainText("rack.map is not a function");
+  await expect(page.locator(".dash-alert")).toContainText("rack.map is not a function");
   await expect(page.locator(".dash-state")).toHaveText("kind failed");
 
   await rewriteKind(page, COUNTS_CLEANUP);
@@ -354,7 +354,7 @@ test("a kind rewritten after it failed recovers in place, without a relaunch", a
   // same pane, never left: the rewritten code runs and the card is gone
   const body = page.locator(".kind-host .kind-body");
   await expect(body.locator(".dash-hero")).toHaveText("rewritten: Overview");
-  await expect(page.locator(".chart-err")).toHaveCount(0);
+  await expect(page.locator(".dash-alert")).toHaveCount(0);
   await expect(page.locator(".dash-title")).toHaveText("Overview");
   await noFallback(page);
 });
@@ -369,7 +369,7 @@ test("a working kind rewritten to a broken one shows a card that names it", asyn
 
   await rewriteKind(page, THROWS);
 
-  const err = page.locator(".chart-err");
+  const err = page.locator(".dash-alert");
   await expect(err).toHaveCount(1);
   await expect(err).toContainText("gear-log");
   await expect(err).toContainText("index.js");
@@ -395,7 +395,7 @@ test("a mid-life failure runs the kind's cleanup and drops its subscriptions", a
   ).toBe(0);
 
   await rewriteKind(page, SUBSCRIBES_THEN_THROWS);
-  await expect(page.locator(".chart-err")).toContainText("rack.map is not a function");
+  await expect(page.locator(".dash-alert")).toContainText("rack.map is not a function");
 
   // the first kind's cleanup ran on the way out — exactly once
   expect(
@@ -405,7 +405,7 @@ test("a mid-life failure runs the kind's cleanup and drops its subscriptions", a
   // and the failed kind's own onChange, subscribed before it threw, is gone:
   // a vault change fires no handler behind the error card
   await page.evaluate(() => window.__mockEmit?.("vault:changed", ["Dashboards/Overview.md"]));
-  await expect(page.locator(".chart-err")).toContainText("rack.map is not a function");
+  await expect(page.locator(".dash-alert")).toContainText("rack.map is not a function");
   expect(await page.evaluate(() => (window as never as { __gearTicks?: number }).__gearTicks)).toBe(
     0,
   );
@@ -456,7 +456,7 @@ test("a custom kind renders as a workbook page too", async ({ page }) => {
   await expect(body.locator(".dash-hero")).toHaveText("gear rack: Overview");
   // the tab strip is still the workbook's, and the page has its own head
   await expect(page.locator(".wb-tabs")).toHaveCount(1);
-  await expect(page.locator(".chart-err")).toHaveCount(0);
+  await expect(page.locator(".dash-alert")).toHaveCount(0);
 });
 
 test("a disabled kind on a workbook page shows its review, not the fallback", async ({ page }) => {

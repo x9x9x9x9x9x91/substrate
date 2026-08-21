@@ -77,7 +77,7 @@ test("the board shape carries the empty sentence the list shape has", async (t) 
   // the column rail stays — those are the drop targets
   assert.equal(rendered.all(".tasks-col").length, 1);
   // …and the empty state is real text, not an aria-hidden placeholder
-  const empty = rendered.one(".tasks-empty");
+  const empty = rendered.one(".dash-empty");
   assert.ok(empty, "the board shape renders an empty line");
   assert.ok((empty.textContent ?? "").trim().length > 0);
   assert.equal(empty.getAttribute("aria-hidden"), null);

@@ -1,8 +1,7 @@
 import type { MutableRefObject } from "react";
 import type { NoteMeta, SavedView, SchemaConfig } from "../lib/types";
-import { foldedPropStr } from "../lib/types";
 import { parseChartBlocks } from "../lib/chart";
-import { resolveDashboardKind, resolveDispatchTail } from "../lib/kinds";
+import { dashboardProp, resolveDashboardKind, resolveDispatchTail } from "../lib/kinds";
 import { parseHeatmapBlocks } from "../lib/heatmap";
 import { parseCalendarBlocks } from "../lib/calendarfence";
 import { resolveKindPane } from "../lib/kindpane";
@@ -28,6 +27,7 @@ import type { EmbedEdit } from "./EmbedViewTable";
 import { parsePages } from "../lib/pages";
 import type { DashUndoStore } from "./useDashUndo";
 import { useNoteBody } from "../hooks/useNoteBody";
+import { DashAlert } from "./DashNotice";
 
 interface DashboardPaneProps {
   meta: NoteMeta;
@@ -85,9 +85,9 @@ function heatmapAfter(props: DashboardPaneProps, body: string) {
 }
 
 /** An unrecognized `dashboard:` value: a quiet inline card naming
-    the reason, in the `.chart-err` idiom the view fences already use for an
-    unknown database. Never the yield tracker — that fallback belongs to
-    notes that name no kind at all. */
+    the reason, in the one `DashAlert` voice every board's errors speak —
+    the same banner a view fence gives an unknown database. Never the yield
+    tracker: that fallback belongs to notes that name no kind at all. */
 function UnknownKindDashboard({ message, ...props }: DashboardPaneProps & { message: string }) {
   return (
     <div className="note">
@@ -98,7 +98,7 @@ function UnknownKindDashboard({ message, ...props }: DashboardPaneProps & { mess
           sourcePath={props.meta.path}
           onOpenSource={props.onOpenSource}
         />
-        <div className="chart-err">{message}</div>
+        <DashAlert>{message}</DashAlert>
       </div>
     </div>
   );
@@ -110,7 +110,7 @@ function UnknownKindDashboard({ message, ...props }: DashboardPaneProps & { mess
     unreachable in a shipped build — it exists because the alternative when it
     isn't is the chart-fence dashboard with nothing in it, and "empty" is a
     different claim from "this build can't render this". Same quiet
-    `.chart-err` card the unknown-kind path uses. */
+    `DashAlert` card the unknown-kind path uses. */
 function MissingKindDashboard({ message, ...props }: DashboardPaneProps & { message: string }) {
   return (
     <div className="note">
@@ -121,7 +121,7 @@ function MissingKindDashboard({ message, ...props }: DashboardPaneProps & { mess
           sourcePath={props.meta.path}
           onOpenSource={props.onOpenSource}
         />
-        <div className="chart-err">{message}</div>
+        <DashAlert>{message}</DashAlert>
       </div>
     </div>
   );
@@ -150,7 +150,7 @@ function ChartOrYield(props: DashboardPaneProps) {
 /** One dashboard note rendered by its dashboard: kind — the single dispatch
     both the plain pane and workbook pages go through. */
 function DashboardBody(props: DashboardPaneProps) {
-  const named = foldedPropStr(props.meta.props, "dashboard");
+  const named = dashboardProp(props.meta.props);
   const resolved = resolveDashboardKind(named);
   // only a name the app doesn't render itself can be a vault-resident bundle
   const custom = resolved.dispatch === "unknown";

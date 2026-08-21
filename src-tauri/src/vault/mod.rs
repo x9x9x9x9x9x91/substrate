@@ -4466,6 +4466,27 @@ mod tests {
     }
 
     #[test]
+    fn bare_key_frontmatter_reaches_the_app_as_a_present_null() {
+        /* A note whose author typed `dashboard:` and stopped is one keystroke
+           from `dashboard: metrics`, and the app has to be able to tell it
+           apart from a note with no such key — the two render different
+           things. The shape it arrives in is null under a present key, and
+           nothing downstream can recover the distinction if this collapses
+           to an absent key here. */
+        let (mut e, dir) = temp_vault("fmbarekey");
+        fs::write(dir.join("Overview.md"), "---\ntype: dashboard\ndashboard:\n---\nBody.\n").unwrap();
+        e.rescan();
+        let c = e.read("Overview.md").unwrap();
+        assert!(c.props.contains_key("dashboard"), "the bare key was dropped on the way in");
+        assert_eq!(
+            c.props.get("dashboard"),
+            Some(&serde_json::Value::Null),
+            "a valueless key arrived as something other than null"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn fm_raw_reports_block_health() {
         // None / healthy / duplicate-keys / invalid-YAML / not-a-map
         let (mut e, dir) = temp_vault("fmraw");

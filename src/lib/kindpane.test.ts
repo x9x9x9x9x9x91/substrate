@@ -62,8 +62,16 @@ function custom(d: KindPaneDispatch): Extract<KindPaneDispatch, { pane: "custom"
 
 test("dispatch: no dashboard prop scans the body, with or without bundles", () => {
   assert.deepEqual(resolveKindPane(undefined, []), { pane: "body-scan" });
-  assert.deepEqual(resolveKindPane("", [enabled()]), { pane: "body-scan" });
-  assert.deepEqual(resolveKindPane("   ", [enabled()]), { pane: "body-scan" });
+});
+
+test("dispatch: a blank dashboard value is a card, not a body scan", () => {
+  // A bundle id can never be blank (KIND_ID_RE), so no bundle can claim this
+  // value — it is the unknown card by construction, and the message says why.
+  for (const v of ["", "   "]) {
+    const d = resolveKindPane(v, [enabled()]);
+    assert.equal(d.pane, "unknown", JSON.stringify(v));
+    assert.match(d.pane === "unknown" ? d.message : "", /blank text/);
+  }
 });
 
 test("dispatch: a built-in kind takes the built-in path", () => {

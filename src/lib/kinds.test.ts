@@ -4,6 +4,7 @@ import {
   BUILT_IN_KINDS,
   KIND_API,
   KIND_API_MIN,
+  dashboardProp,
   hashKindBundle,
   isValidKindId,
   kindApiFit,
@@ -389,8 +390,44 @@ test("state: the charts name collides too", async () => {
 // ---------- dashboard: dispatch ----------
 
 test("dispatch: no dashboard prop at all keeps the body scan", () => {
-  for (const v of [undefined, "", "   "]) {
-    assert.equal(resolveDashboardKind(v).dispatch, "body-scan", `${JSON.stringify(v)}`);
+  assert.equal(resolveDashboardKind(undefined).dispatch, "body-scan");
+});
+
+test("dispatch: a blank dashboard value names the miss instead of picking for you", () => {
+  // The audit's F3: `dashboard: "   "` used to reach the body scan, which on a
+  // note with no chart fences is the yield tracker — a dashboard nobody asked
+  // for, chosen silently, from a property that plainly meant to name one.
+  for (const v of ["", "   ", "\t", "\n "]) {
+    const d = resolveDashboardKind(v);
+    assert.equal(d.dispatch, "unknown", `${JSON.stringify(v)}`);
+    assert.match(d.dispatch === "unknown" ? d.message : "", /blank text/);
+    assert.match(d.dispatch === "unknown" ? d.message : "", /known kinds:/);
+  }
+});
+
+test("dispatch: a key typed with no value is the same miss as blank text", () => {
+  /* The shape a note's frontmatter actually arrives in. `dashboard:` with
+     nothing after it parses to null under a present key (the engine's own
+     test holds that end), and reading it with the plain string helper gave
+     back `undefined` — indistinguishable from a note that never mentioned a
+     dashboard, and so the body scan and whatever it happens to pick. */
+  const fromNote = JSON.parse('{"type":"dashboard","dashboard":null}') as Record<string, unknown>;
+  const named = dashboardProp(fromNote);
+  assert.equal(named, "", "a present-but-empty dashboard key read as absent");
+  const d = resolveDashboardKind(named);
+  assert.equal(d.dispatch, "unknown", "a valueless dashboard key fell through to the body scan");
+  assert.match(d.dispatch === "unknown" ? d.message : "", /blank text/);
+
+  // and the two neighbours it must stay distinct from
+  assert.equal(dashboardProp({ type: "dashboard" }), undefined);
+  assert.equal(resolveDashboardKind(dashboardProp({ type: "dashboard" })).dispatch, "body-scan");
+  assert.equal(dashboardProp({ Dashboard: null }), "", "the folded key was not read");
+  assert.equal(dashboardProp({ dashboard: "metrics" }), "metrics");
+});
+
+test("dispatch: padding around a real name is not a miss", () => {
+  for (const v of [" metrics", "metrics ", "  metrics  ", "\tmetrics\n"]) {
+    assert.deepEqual(resolveDashboardKind(v), { dispatch: "built-in", kind: "metrics" }, v);
   }
 });
 

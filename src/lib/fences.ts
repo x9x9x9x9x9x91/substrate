@@ -151,3 +151,78 @@ export const MACHINE_FENCE_RE = new RegExp(
 export function stripMachineFences(body: string): string {
   return body.replace(MACHINE_FENCE_RE, (m) => "\n".repeat((m.match(/\n/g) ?? []).length));
 }
+
+/** A body with every `~~~` block's lines blanked, so a fence opener QUOTED
+    inside one is prose rather than a fence. The parsers themselves do not do
+    this — they would read a ```chart opener written inside a ~~~ example as a
+    real fence — but a note demonstrating fence syntax is the one place an
+    opener is written on purpose and never meant to close, and telling its
+    author their fence is broken is a wrong sentence about a note that is
+    fine. Narrower than the parsers, so the cost of the divergence is silence,
+    never a false accusation. */
+function blankQuotedFences(body: string): string {
+  let quoted = false;
+  return body
+    .split("\n")
+    .map((raw) => {
+      const line = raw.replace(/\r$/, "");
+      if (!/^\s*~~~/.test(line)) return quoted ? "" : raw;
+      quoted = !quoted;
+      return "";
+    })
+    .join("\n");
+}
+
+/** True when the body opens a ```<lang> fence that never closes.
+
+    The fence parsers all match "```<lang>\n … ```" and drop anything without
+    a closing line, so an unterminated fence is not a broken chart — it is no
+    chart at all, and the board said "0 charts" over an empty pane. That is
+    the one answer a reader cannot act on: it names a state the note is not in
+    and gives them nothing to fix. Each parser asks this after its scan and
+    turns a yes into a block-shaped error, so the fence gets a banner in the
+    place it was written.
+
+    Answers the question the way the PARSERS answer it, walking the same
+    openers and closers they do, because the banner and the fence it accuses
+    have to agree: a board that draws a chart while telling its reader the
+    chart's fence never closed is worse than the silence it replaced. So:
+
+    - the closer is the next "```" ANYWHERE after the opener line, not a bare
+      "```" line — an indented closer and a closer carrying an info string
+      (```js) both close a fence for "match to the next ```", so neither may
+      raise a banner over a fence the board just drew;
+    - openers are looked for anywhere the parsers' unanchored patterns find
+      them, indented ones included;
+    - only openers of THIS language are looked for, so an unrelated block
+      left open elsewhere in the note is not this fence's problem;
+    - the opener tolerates trailing spaces (```chart␠), which is the likeliest
+      way to write one by hand and which every parser here rejects — so the
+      note that most needs the banner is the one that used to go silent.
+
+    `foldCase` follows the parser's own opener — heatmap dispatches
+    case-insensitively, the rest do not. */
+export function hasUnclosedFence(body: string, lang: string, foldCase = false): boolean {
+  const want = foldCase ? lang.toLowerCase() : lang;
+  const source = blankQuotedFences(body);
+  const openers = /```([^\r\n]*)\r?\n/g;
+  // mirrors the parsers' own lastIndex: each closer is where the search for
+  // the next opener resumes
+  let from = 0;
+  while (from <= source.length) {
+    openers.lastIndex = from;
+    let opener: RegExpExecArray | null = null;
+    for (let m = openers.exec(source); m !== null; m = openers.exec(source)) {
+      const first = m[1].trim().split(/[ \t]+/)[0] ?? "";
+      if ((foldCase ? first.toLowerCase() : first) === want) {
+        opener = m;
+        break;
+      }
+    }
+    if (opener === null) return false;
+    const closer = source.indexOf("```", opener.index + opener[0].length);
+    if (closer === -1) return true;
+    from = closer + 3;
+  }
+  return false;
+}

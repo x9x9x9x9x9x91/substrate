@@ -1466,3 +1466,49 @@ test("unknownDbSource: a type nothing declares and nothing carries is named", ()
   // …and so is one the notes carry without a schema entry, case-folded
   assert.equal(unknownDbSource(notes, schema, "Release"), null);
 });
+
+test("parseChartBlocks: an unclosed fence is a banner, not a silent zero", () => {
+  // the reader used to get "0 charts" over an empty pane for a fence that is
+  // plainly written in the note — the one answer they cannot act on
+  const blocks = parseChartBlocks("```chart\nsource: release\nx: released:month\ny: count\n");
+  assert.equal(blocks.length, 1);
+  assert.equal(blocks[0].config, null);
+  assert.match(blocks[0].error ?? "", /```chart fence is never closed — add a closing ``` line/);
+  // the likeliest typo — a trailing space on the opener — is rejected by the
+  // parser too, so it gets the same banner instead of the same silence
+  assert.match(
+    parseChartBlocks("```chart \nsource: release\n")[0]?.error ?? "",
+    /never closed/
+  );
+});
+
+test("parseChartBlocks: no banner over a chart the board just drew", () => {
+  const drawn = (body: string) => {
+    const blocks = parseChartBlocks(body);
+    assert.equal(blocks.length, 1, body);
+    assert.equal(blocks[0].error, null, body);
+  };
+  const config = "source: release\nx: released:month\ny: count";
+  // the parsers close on the next ``` anywhere: an indented closer and one
+  // carrying an info string both close the fence they are told to close
+  drawn("```chart\n" + config + "\n  ```\n");
+  drawn("```chart\n" + config + "\n```js\n");
+  // someone else's block left open elsewhere in the note is not this fence's
+  // problem
+  drawn("```chart\n" + config + "\n```\n\n```ts\nconst x = 1;\n");
+  // and a note QUOTING fence syntax inside a ~~~ block is writing prose
+  assert.deepEqual(parseChartBlocks("~~~\n```chart\n" + config + "\n~~~\n"), []);
+});
+
+test("parseChartBlocks: an unclosed fence claims the body scan on purpose", () => {
+  // `ChartOrYield` in DashboardPane.tsx asks exactly this question of a note
+  // with no `dashboard:` prop. A note whose only fence is an unclosed ```chart
+  // opener therefore lands on the charts dashboard — showing the banner — and
+  // NOT on the yield tracker, which would answer a chart note with a financial
+  // instrument nobody asked for. Deliberate: the banner is the note's own text.
+  const body = "```chart\nsource: release\nx: released:month\ny: count\n";
+  assert.ok(parseChartBlocks(body).length > 0);
+  // …and a note that only QUOTES the opener keeps the fallback: no fence, no
+  // claim on the dispatch
+  assert.equal(parseChartBlocks("~~~\n```chart\nsource: release\n~~~\n").length, 0);
+});

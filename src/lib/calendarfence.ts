@@ -21,6 +21,7 @@ import { calendarEntries, compareEntryTime, isoDay, monthGridDays } from "./cale
 import type { CalEntry, CalWindow } from "./calendar.ts";
 import { dateOf, sheetRows } from "./chart.ts";
 import type { ChartRow } from "./chart.ts";
+import { hasUnclosedFence } from "./fences.ts";
 import { typeSchemaFor } from "./schemalookup.ts";
 import type { SheetEval, SheetModel } from "./sheet.ts";
 import { filterByQuery } from "./views.ts";
@@ -102,6 +103,11 @@ export function parseCalendarBlocks(body: string): CalendarBlock[] {
       out.push({ config: null, error: e instanceof Error ? e.message : String(e) });
     }
   }
+  // an opener with no closing line matched nothing above, so the board would
+  // have counted zero and said nothing; the fence gets a banner instead
+  if (hasUnclosedFence(body, "calendar"))
+    out.push({ config: null, error: "This ```calendar fence is never closed — add a closing ``` line so the calendar can be read." });
+
   return out;
 }
 

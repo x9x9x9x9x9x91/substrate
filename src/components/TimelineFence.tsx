@@ -7,6 +7,7 @@ import {
   timelineItemLabel,
 } from "../lib/timeline";
 import { useTodayIso } from "./useTodayIso";
+import { DashAlert, DashEmpty } from "./DashNotice";
 
 interface TimelineFenceProps {
   inner: string;
@@ -31,9 +32,9 @@ export default function TimelineFence({ inner, notes, schema, onOpenSource }: Ti
     }
   }, [inner, notes, schema, today]);
 
-  if (result.data.error) return <div className="hub-timeline-err">{result.data.error}</div>;
+  if (result.data.error) return <DashAlert>{result.data.error}</DashAlert>;
   if (!result.layout || !result.config) {
-    return <div className="hub-timeline-empty">No dated {result.config?.source ?? "timeline"} entries.</div>;
+    return <DashEmpty>No dated {result.config?.source ?? "timeline"} entries.</DashEmpty>;
   }
 
   const { layout, config } = result;

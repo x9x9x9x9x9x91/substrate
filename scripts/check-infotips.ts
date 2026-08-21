@@ -200,7 +200,7 @@ export function paneSource(file: string, files: string[], read: (p: string) => s
 
 /** Whether a class name is rendered in that text. A hyphen counts as part of
     the name rather than as a boundary, so `grid-tile` is not satisfied by a
-    file that only renders `grid-tile-err` — class names here are built by
+    file that only renders `grid-tiles` — class names here are built by
     suffixing, which is exactly where a word boundary would wave a rename
     through. */
 export function rendersClass(src: string, cls: string): boolean {

@@ -6,6 +6,7 @@ import { filterWorkJobs, fmtSizeMb, groupWork, parseWorkJobs, WORK_VIEWS } from 
 import type { WorkView } from "../lib/musicwork";
 import { DashHead } from "./DashHead";
 import SwitchGroup from "./SwitchGroup";
+import { DashAlert, DashEmpty } from "./DashNotice";
 
 interface MusicWorkDashboardProps {
   meta: NoteMeta;
@@ -142,14 +143,14 @@ export default function MusicWorkDashboard({
           onOpenSource={indexPath !== null ? onOpenSource : undefined}
         />
 
-        {readErr && <div className="sync-action-err">{readErr}</div>}
+        {readErr && <DashAlert>{readErr}</DashAlert>}
 
         {missing ? (
-          <div className="dash-foot">No '{indexName}' sheet yet — the scanner writes it.</div>
+          <DashEmpty>No '{indexName}' sheet yet — the scanner writes it.</DashEmpty>
         ) : body !== null && jobs.length === 0 ? (
-          <div className="dash-foot">Nothing indexed yet — '{indexName}' has no jobs.</div>
+          <DashEmpty>Nothing indexed yet — '{indexName}' has no jobs.</DashEmpty>
         ) : groups.length === 0 && filtering ? (
-          <div className="dash-foot">No job matches '{query.trim()}'.</div>
+          <DashEmpty>No job matches '{query.trim()}'.</DashEmpty>
         ) : (
           <div className="mw-board">
             {groups.map((g) => (

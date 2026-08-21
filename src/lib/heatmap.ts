@@ -33,6 +33,7 @@ import {
   type ChartSource,
 } from "./chart.ts";
 import { daysInMonth, MONTHS, toIso, todayIso } from "./dates.ts";
+import { hasUnclosedFence } from "./fences.ts";
 import { typeSchemaFor } from "./schemalookup.ts";
 import { foldedPropStr } from "./types.ts";
 import type { NoteMeta, SchemaConfig } from "./types.ts";
@@ -124,6 +125,11 @@ export function parseHeatmapBlocks(body: string): HeatmapBlock[] {
       out.push({ config: null, error: e instanceof Error ? e.message : String(e) });
     }
   }
+  // an opener with no closing line matched nothing above, so the board would
+  // have counted zero and said nothing; the fence gets a banner instead
+  if (hasUnclosedFence(body, "heatmap", true))
+    out.push({ config: null, error: "This ```heatmap fence is never closed — add a closing ``` line so the heatmap can be read." });
+
   return out;
 }
 

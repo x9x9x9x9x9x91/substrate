@@ -501,3 +501,29 @@ test("the source line names the source and any query", () => {
   );
   assert.equal(heatmapSourceDesc(cfg("source: {{Time Log}}\ndate: d\nvalue: count")), "sheet: Time Log");
 });
+
+test("parseHeatmapBlocks: an unclosed fence is a banner, not a silent zero", () => {
+  const blocks = parseHeatmapBlocks("```heatmap\nsource: session\ndate: logged\nvalue: count\n");
+  assert.equal(blocks.length, 1);
+  assert.equal(blocks[0].config, null);
+  assert.match(blocks[0].error ?? "", /```heatmap fence is never closed — add a closing ``` line/);
+  // the opener folds case here, exactly as this parser's own opener does
+  assert.match(
+    parseHeatmapBlocks("```HeatMap\nsource: session\n")[0]?.error ?? "",
+    /never closed/
+  );
+});
+
+test("parseHeatmapBlocks: no banner over a grid the board just drew", () => {
+  const config = "source: session\ndate: logged\nvalue: count";
+  for (const body of [
+    "```heatmap\n" + config + "\n  ```\n",
+    "```heatmap\n" + config + "\n```js\n",
+    "```heatmap\n" + config + "\n```\n\n```ts\nconst x = 1;\n",
+  ]) {
+    const blocks = parseHeatmapBlocks(body);
+    assert.equal(blocks.length, 1, body);
+    assert.equal(blocks[0].error, null, body);
+  }
+  assert.deepEqual(parseHeatmapBlocks("~~~\n```heatmap\n" + config + "\n~~~\n"), []);
+});

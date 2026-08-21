@@ -37,6 +37,7 @@ import type { ChartSize } from "../lib/styletokens";
 import { useHistoryLanes } from "./useHistory";
 import { DashHead, DashPrintButton } from "./DashHead";
 import { optionColor } from "./SelectMenu";
+import { DashAlert, DashEmpty } from "./DashNotice";
 
 interface ChartsDashboardProps {
   meta: NoteMeta;
@@ -704,7 +705,7 @@ function ChartSection({
     return (
       <div>
         <div className="dash-section-label">Chart block</div>
-        <div className="chart-err">{block.error ?? "invalid chart block"}</div>
+        <DashAlert>{block.error ?? "invalid chart block"}</DashAlert>
       </div>
     );
   }
@@ -735,7 +736,7 @@ function ChartSection({
       <div className="dash-section-label">{chartTitle(c)}</div>
       {notice ? <div className="chart-note">{notice}</div> : null}
       {loadError ? (
-        <div className="chart-err">{loadError}</div>
+        <DashAlert>{loadError}</DashAlert>
       ) : series === null ? (
         <div className="dash-foot" style={{ margin: "4px 0 0" }}>
           …
@@ -745,11 +746,11 @@ function ChartSection({
         // like a LOOKUP miss or a `series:` binding to a non-summary — "check
         // the property names" is the app knowing the answer and not saying it
         // A renamed column lands here; genuine zero-match below.
-        <div className="chart-err">{series.missing}</div>
+        <DashAlert>{series.missing}</DashAlert>
       ) : splitError ? (
-        <div className="chart-err">{splitError}</div>
+        <DashAlert>{splitError}</DashAlert>
       ) : series.points.length === 0 ? (
-        <div className="dash-foot" style={{ margin: "4px 0 0" }}>
+        <DashEmpty>
           {c.bind === "history"
             ? // historySeries always says WHY it drew nothing — no snapshots at
               // all, no value ever recorded for this key, or a window that ends
@@ -757,7 +758,7 @@ function ChartSection({
               // mask one of those.
               series.note
             : "No rows matched — check the source and property names."}
-        </div>
+        </DashEmpty>
       ) : (
         <>
           {/* the legend sits above the plot: it names what the marks mean, so
@@ -1085,6 +1086,10 @@ export default function ChartsDashboard({
             />
           );
         })}
+
+        {blocks.length === 0 && (
+          <DashEmpty>No charts yet — add a ```chart fence to this note.</DashEmpty>
+        )}
 
         {after}
 

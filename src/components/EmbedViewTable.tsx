@@ -30,6 +30,7 @@ import { foldedPropKey, foldedPropStr, type PropValue } from "../lib/types";
 import CellEditor from "./CellEditor";
 import { anchorFrom, OptionPill, type AnchorRect } from "./SelectMenu";
 import { useFreshness } from "../hooks/useFreshness";
+import { DashEmpty } from "./DashNotice";
 import { ageCell, reviewWindow } from "../lib/agecell";
 import { factRefKey } from "../lib/freshcache";
 
@@ -225,7 +226,7 @@ export default function EmbedViewTable({
           fences use for the same condition, minus the source half — an
           unknown database is already its own error above this. */}
       {result.rows.length === 0 && (
-        <div className="dash-foot">No rows matched — check the query and property names.</div>
+        <DashEmpty>No rows matched — check the query and property names.</DashEmpty>
       )}
       {/* Why the table is short, said honestly. An author's `limit:`
           and the surface's safety cap are different facts: the first is the

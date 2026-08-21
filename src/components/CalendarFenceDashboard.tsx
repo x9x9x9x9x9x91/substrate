@@ -29,6 +29,7 @@ import { iconForType, iconsByType, typeTint } from "../lib/dbicons";
 import { ChevronLeftIcon, ChevronRightIcon, RepeatIcon } from "./Icons";
 import { DashHead, DashPrintButton } from "./DashHead";
 import { useTodayIso } from "./useTodayIso";
+import { DashAlert, DashEmpty } from "./DashNotice";
 
 interface CalendarFenceDashboardProps {
   meta: NoteMeta;
@@ -105,7 +106,7 @@ function CalendarSection({
     return (
       <div>
         <div className="dash-section-label">Calendar block</div>
-        <div className="chart-err">{block.error ?? "invalid calendar block"}</div>
+        <DashAlert>{block.error ?? "invalid calendar block"}</DashAlert>
       </div>
     );
   }
@@ -135,7 +136,7 @@ function CalendarSection({
         </div>
       </div>
       {data.error ? (
-        <div className="chart-err">{data.error}</div>
+        <DashAlert>{data.error}</DashAlert>
       ) : (
         <div className="cal-grid-scroll calfence-scroll">
           <div className="cal-weekdays">
@@ -338,6 +339,9 @@ export default function CalendarFenceDashboard({
           onOpenSource={onOpenSource}
         />
         {sections}
+        {blocks.length === 0 && (
+          <DashEmpty>No calendars yet — add a ```calendar fence to this note.</DashEmpty>
+        )}
         <div className="dash-foot">
           Calendars are calendar fences in this note — edit the text to reconfigure them. Repeating
           notes expand inside the month on view; clicking an entry opens it.

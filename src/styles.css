@@ -4448,6 +4448,35 @@ body.agenda-window .palette:focus-visible {
   background: var(--hairline-accent) bottom / 100% 1.5px no-repeat;
 }
 
+/* ————— one header rhythm —————
+   Whatever a kind puts first — a card strip, a tile grid, a titled section, a
+   banner — it starts the same distance under the head's rule. The kinds split
+   into two families before this: the ones whose first block is content
+   (24px, the majority) and the ones that open with a titled section, whose
+   label carried the 32px it uses BETWEEN sections up to the top of the page.
+   Read in sequence the difference was the most visible incoherence in the
+   set, and neither family was wrong — having both was.
+
+   The gap is declared once, on the head, and the first block is zeroed into
+   it — its own first child included. That second rule is not belt-and-braces:
+   a block's leading child either collapses its top margin through the block
+   (a titled section pushing the page's whole opening down to its
+   between-sections spacing) or stacks it on top of the head's gap (a strip
+   wrapper landing the cards 48px down instead of 24). Both were live here.
+   e2e/dashrhythm.spec.ts measures the box AND the ink for every config in
+   the matrix corpus, which is the only place the difference is visible. */
+.dash-inner > .dash-head {
+  margin-bottom: 24px;
+}
+
+.dash-inner > .dash-head + * {
+  margin-top: 0;
+}
+
+.dash-inner > .dash-head + * > *:first-child {
+  margin-top: 0;
+}
+
 .dash-title {
   font-size: 15px;
   font-weight: 650;
@@ -5432,11 +5461,6 @@ body.agenda-window .palette:focus-visible {
   margin-top: 2px;
 }
 
-.chart-err {
-  font-size: 12.5px;
-  color: var(--danger);
-}
-
 /* The consent review a custom kind waits behind. A pane in the
    dashboard frame, so it takes the page's own measure rather than a dialog's:
    full-width prose, the facts as a definition list, the decision at the
@@ -5811,11 +5835,10 @@ body.agenda-window .palette:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
-/* one broken fence, one error, siblings untouched — the chart error's voice */
-.progress-err {
+/* one broken fence, one error, siblings untouched: the shared banner sits
+   tight under the fence's own label rather than at page rhythm */
+.progress-fence .dash-alert {
   margin-top: 6px;
-  font-size: 12.5px;
-  color: var(--danger);
 }
 
 /* a narrow pane stacks the label and its percent rather than squeezing both
@@ -6061,12 +6084,53 @@ body.agenda-window .palette:focus-visible {
   color: var(--text-4);
 }
 
-/* shared dashboard write/action error line — named for the sync manager
-   that introduced it, but used by the food, feed and yield surfaces too */
+/* ————— the one empty voice and the one error voice —————
+   Every dashboard kind speaks these two sentences and nothing else when it
+   has no content to draw. Before this there were four dialects of empty (a
+   faint --text-4 footer line, a centred sentence, a board-local class, a dot
+   and a sentence) and six near-identical error classes, one per kind.
+
+   `.dash-empty` is the calm one: a dot at reading size and one sentence in
+   the house voice. --text-4 is documented as plot-axis and page-footer ink,
+   so an empty board's ONLY line was being drawn in the quietest ink the
+   system owns — the message a reader most needs set as the one they can
+   least see.
+
+   `.dash-alert` is the visible banner: the weight the write and action
+   failures have always used, now carrying every kind's failures too — a
+   fence that would not parse, a source that is not there, a read that threw —
+   and marked with the rule the readiness board's banners carried, because a
+   bare red line is a sentence that happens to be red and a marked one is a
+   banner. That board had the strongest of the two dresses, so the fold goes
+   UP to it rather than down. `.sync-action-err` is the name the weight grew
+   up under and stays a live alias, so the panes outside the dashboard kinds
+   speak the same one voice without each naming it separately. */
+.dash-empty {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  font: var(--dash-sentence);
+  color: var(--text-2);
+}
+
+.dash-alert,
 .sync-action-err {
   margin-top: 12px;
+  padding-left: 10px;
+  border-left: 2px solid var(--danger);
   font: var(--dash-data);
   color: var(--danger);
+}
+
+/* the tile variant: a broken fence inside a grid cell holds the cell open at
+   the height a rendered tile would have, so its neighbours do not reflow
+   around the failure */
+.dash-alert.is-fill {
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+  margin-top: 0;
 }
 
 /* Sync manager (dashboard: sync) — control surface over a machine's
@@ -7468,12 +7532,6 @@ body.agenda-window .palette:focus-visible {
   opacity: 1;
 }
 
-.tasks-empty {
-  margin-top: 28px;
-  color: var(--text-3);
-  font: var(--dash-sentence);
-}
-
 @container (max-width: 560px) {
   .tasks-board,
   .tasks-snoozed {
@@ -7620,14 +7678,6 @@ body.agenda-window .palette:focus-visible {
    the one board that leaves the app on paper, so it stays plain: ruled tiles,
    a category table, and a checklist whose rings are marks rather than
    controls (the books are where a document actually gets filed). */
-.tax-alert {
-  margin-top: 12px;
-  padding-left: 10px;
-  border-left: 2px solid var(--danger);
-  font: var(--dash-data);
-  color: var(--text-2);
-}
-
 .tax-strip {
   margin-top: 24px;
 }
@@ -7640,15 +7690,6 @@ body.agenda-window .palette:focus-visible {
 .tax-table .tax-num {
   text-align: right;
   font-variant-numeric: tabular-nums;
-}
-
-.tax-clear {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 4px;
-  font: var(--dash-sentence);
-  color: var(--text-2);
 }
 
 .tax-missing {
@@ -7855,10 +7896,11 @@ body.agenda-window .palette:focus-visible {
   margin: 0 0 16px;
 }
 
-.hub-view-err {
+/* the hub body stacks its blocks on bottom margins, so the shared banner
+   takes the same gap-below rhythm its neighbours use rather than the page's
+   gap-above one */
+.hub-body .dash-alert {
   margin: 0 0 12px;
-  font-size: 12.5px;
-  color: var(--danger);
 }
 
 /* a ```chart fence — the charts dashboard renders it embedded, so
@@ -7899,13 +7941,6 @@ body.agenda-window .palette:focus-visible {
 /* a ```cards fence's strip sits in the flow like the view tables do */
 .hub-body .metrics-strip {
   margin: 0 0 16px;
-}
-
-/* one broken fence, one error, siblings untouched — same voice as .hub-view-err */
-.hub-cards-err {
-  margin: 0 0 12px;
-  font-size: 12.5px;
-  color: var(--danger);
 }
 
 /* A timeline fence is one open instrument, not a nested dashboard card. The
@@ -8061,17 +8096,6 @@ body.agenda-window .palette:focus-visible {
 
 .hub-timeline-foot {
   margin-top: 7px;
-}
-
-.hub-timeline-err,
-.hub-timeline-empty {
-  margin: 0 0 12px;
-  font-size: 12.5px;
-  color: var(--danger);
-}
-
-.hub-timeline-empty {
-  color: var(--text-3);
 }
 
 .hub-pre {
@@ -13710,9 +13734,10 @@ span.asset-thumb svg {
     background: #f6f7f8;
   }
 
-  #print-surface .hub-view-err,
-  #print-surface .hub-cards-err,
-  #print-surface .hub-timeline-err {
+  /* the one banner, the one paper red. --danger is re-slotted to this exact
+     value above, so this only pins the surfaces that used to carry their own
+     hue and keeps the page at one red. */
+  #print-surface .dash-alert {
     color: #a33636;
   }
 

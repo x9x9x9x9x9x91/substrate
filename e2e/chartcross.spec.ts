@@ -99,7 +99,7 @@ test("a chart over a cross-referencing sheet plots real values (SUB-671)", async
 
   // none of the pre-fix failure modes: no all-rows-skipped notice, no error
   // banner, no stringified error object as a bar label, no skipped rows
-  await expect(page.locator(".chart-err")).toHaveCount(0);
+  await expect(page.locator(".dash-alert")).toHaveCount(0);
   await expect(page.getByText("No rows matched")).toHaveCount(0);
   await expect(page.getByText("object Object")).toHaveCount(0);
   await expect(page.locator(".dash-foot", { hasText: "rows skipped" })).toHaveCount(0);

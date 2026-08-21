@@ -212,7 +212,7 @@ test("a source that cannot be read names the failure, not the Error class", asyn
   );
   win.__mockFail.delete("vault_read");
 
-  const banners = rendered.all(".tax-alert").map((el) => el.textContent ?? "");
+  const banners = rendered.all(".dash-alert").map((el) => el.textContent ?? "");
   assert.ok(
     banners.some((b) => /Category breakdown unavailable — mock failure: vault_read/.test(b)),
     `the breakdown banner names the failure: ${banners.join(" | ")}`

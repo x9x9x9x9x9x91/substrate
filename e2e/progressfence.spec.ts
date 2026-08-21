@@ -81,7 +81,7 @@ test("a malformed fence errors in place while its siblings render", async ({ pag
   await openGoals(page);
 
   const broken = page.locator(".hub-body .hub-progress").nth(2);
-  await expect(broken.locator(".progress-err")).toHaveText(/value: count needs a source/);
+  await expect(broken.locator(".dash-alert")).toHaveText(/value: count needs a source/);
   await expect(broken.locator(".progress-track")).toHaveCount(0);
 
   // the two above it are untouched
@@ -112,7 +112,7 @@ test("a hub body hosts the same thermometer between its other blocks", async ({ 
   await expect(bound.locator(".progress-foot")).not.toContainText("ahead by");
 
   // the broken fence errors in place; the hub's other surfaces are untouched
-  await expect(fences.nth(1).locator(".progress-err")).toHaveText(/value: count needs a source/);
+  await expect(fences.nth(1).locator(".dash-alert")).toHaveText(/value: count needs a source/);
   await expect(page.locator(".hub-body .metrics-strip .dash-card")).toHaveCount(3);
   await expect(page.locator(".hub-body .hub-view .embed-view-table")).toHaveCount(1);
 

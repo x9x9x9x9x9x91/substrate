@@ -48,6 +48,7 @@
 
 import { parseStrictNumber } from "./aggregate.ts";
 import { isIsoDate, MONTHS, todayIso, toIso } from "./dates.ts";
+import { hasUnclosedFence } from "./fences.ts";
 import { isErr } from "./formula.ts";
 import { endOfLocalDay, isoDayOf, valueAt } from "./history-facts.ts";
 import { propSchemaFor, typeSchemaFor } from "./schemalookup.ts";
@@ -323,6 +324,11 @@ export function parseChartBlocks(body: string): ChartBlock[] {
       out.push({ config: null, error: e instanceof Error ? e.message : String(e) });
     }
   }
+  // an opener with no closing line matched nothing above, so the board would
+  // have counted zero and said nothing; the fence gets a banner instead
+  if (hasUnclosedFence(body, "chart"))
+    out.push({ config: null, error: "This ```chart fence is never closed — add a closing ``` line so the chart can be read." });
+
   return out;
 }
 

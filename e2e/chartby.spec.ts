@@ -55,7 +55,7 @@ test("by: stacks each x into one slice per value, with a legend (SUB-941)", asyn
   await openOverview(page, SPLIT);
 
   await expect(page.locator(".dash-section-label", { hasText: "Value by quarter" })).toBeVisible();
-  await expect(page.locator(".chart-err")).toHaveCount(0);
+  await expect(page.locator(".dash-alert")).toHaveCount(0);
 
   // two x buckets, each a stack of the two series
   const bars = page.locator(".dash-bar-col");
@@ -100,7 +100,7 @@ test("a chart without by: is untouched — no legend, no slices (SUB-941)", asyn
 test("a split line chart draws one path per series (SUB-941)", async ({ page }) => {
   await openOverview(page, SPLIT.replace("kind: bar", "kind: line"));
 
-  await expect(page.locator(".chart-err")).toHaveCount(0);
+  await expect(page.locator(".dash-alert")).toHaveCount(0);
   await expect(page.locator(".chart-line-path")).toHaveCount(2);
   await expect(page.locator(".chart-legend .chart-legend-item")).toHaveCount(2);
 
@@ -115,7 +115,7 @@ test("a split line chart draws one path per series (SUB-941)", async ({ page }) 
 test("a by: naming nothing says which column is missing (SUB-941)", async ({ page }) => {
   await openOverview(page, BAD);
 
-  const err = page.locator(".chart-err");
+  const err = page.locator(".dash-alert");
   await expect(err).toHaveCount(1);
   await expect(err).toHaveText(
     "no column “sector” on Holdings (has: asset, bucket, quarter, value_eur)"
@@ -170,7 +170,7 @@ test("four series each get their own colour, in both stacked bars and lines (SUB
 }) => {
   await openOverview(page, SPLIT, FOUR);
 
-  await expect(page.locator(".chart-err")).toHaveCount(0);
+  await expect(page.locator(".dash-alert")).toHaveCount(0);
   const bars = page.locator(".dash-bar-col");
   await expect(bars).toHaveCount(2);
   await expect(bars.nth(0).locator(".dash-bar-slice")).toHaveCount(4);
@@ -231,7 +231,7 @@ test("a sixth series stops honestly instead of repeating a hue (SUB-952)", async
   );
   await openOverview(page, SPLIT, sixBands);
 
-  await expect(page.locator(".chart-err")).toHaveText(
+  await expect(page.locator(".dash-alert")).toHaveText(
     "This split has 6 series; the chart ramp distinguishes 5."
   );
   await expect(page.locator(".chart-legend, .dash-chart")).toHaveCount(0);
@@ -241,7 +241,7 @@ test("a negative split cannot masquerade as a positive stacked bar (SUB-941)", a
   const negative = HOLDINGS.replace("BBB,crypto,Q1,20", "BBB,crypto,Q1,-20");
   await openOverview(page, SPLIT, negative);
 
-  await expect(page.locator(".chart-err")).toHaveText(
+  await expect(page.locator(".dash-alert")).toHaveText(
     "Stacked bars cannot represent negative split values — use kind: line."
   );
   await expect(page.locator(".chart-legend, .dash-chart")).toHaveCount(0);

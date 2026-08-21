@@ -108,9 +108,10 @@ test("a fence naming an unknown database fails in place, siblings unaffected", a
 }) => {
   await openHub(page);
   // the error sits where the fence was — a quiet line, not a code box
-  const err = page.locator(".hub-body .hub-view-err");
+  // every kind speaks one error voice now, so the fixture's other broken
+  // fences share the class — the view fence is named by its own sentence
+  const err = page.locator(".hub-body .dash-alert", { hasText: "Unknown database" });
   await expect(err).toHaveCount(1);
-  await expect(err).toHaveText(/Unknown database/);
   // and the rest of the hub is untouched: cards, table, and the good fence
   await expect(page.locator(".dash-cards.hub-cards .dash-card")).toHaveCount(3);
   await expect(page.locator(".hub-body .dash-table")).toHaveCount(2);
@@ -146,7 +147,7 @@ test("one hub body renders markdown, cards, chart, view and timeline fences toge
   const good = chart.first();
   await expect(good.locator(".dash-section-label")).toHaveText("Holdings by bucket");
   await expect(good.locator(".dash-bar-col")).toHaveCount(2);
-  await expect(good.locator(".chart-err")).toHaveCount(0);
+  await expect(good.locator(".dash-alert")).toHaveCount(0);
 
   // ```view: the live database table
   await expect(page.locator(".hub-body .hub-view .embed-view-table tbody tr")).toHaveCount(4);
@@ -154,7 +155,9 @@ test("one hub body renders markdown, cards, chart, view and timeline fences toge
   // ```timeline: the grouped horizontal time view; the malformed
   // one renders its parse error in place, never a code box
   await expect(page.locator(".hub-body .hub-timeline")).toHaveCount(1);
-  await expect(page.locator(".hub-body .hub-timeline-err")).toHaveCount(1);
+  await expect(
+    page.locator(".hub-body .dash-alert", { hasText: 'missing required key "label"' })
+  ).toHaveCount(1);
 
   // and none of them fell through to a top-level code box; the four code
   // boxes are deliberately nested in a quote/callout, never live fences
@@ -206,7 +209,7 @@ test("a malformed chart fence errors in place while its siblings render (SUB-964
   await openHub(page);
 
   // the broken `y:` fails where it sits, naming the mistake
-  const err = page.locator(".hub-body .hub-chart .chart-err");
+  const err = page.locator(".hub-body .hub-chart .dash-alert");
   await expect(err).toHaveCount(1);
   await expect(err).toHaveText(/y must be count, sum:<prop> or avg:<prop>/);
 
@@ -237,9 +240,8 @@ test("a timeline fence draws grouped bars, opens notes, and isolates malformed s
   await expect(page.locator(".note-title")).toHaveValue("Slow Bloom EP");
 
   await openHub(page);
-  const err = page.locator(".hub-timeline-err");
+  const err = page.locator(".dash-alert", { hasText: 'missing required key "label"' });
   await expect(err).toHaveCount(1);
-  await expect(err).toHaveText(/missing required key "label"/);
   await expect(page.locator(".hub-view .embed-view-table")).toHaveCount(1);
   await expect(page.locator(".hub-chart .dash-bar-col").first()).toBeVisible();
 });

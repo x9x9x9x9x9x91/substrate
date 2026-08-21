@@ -1104,6 +1104,30 @@ a `dash-metric`, on a `dash-table` or on an element of your own paints
 nothing, and paints nothing silently, so a kind that wants hue elsewhere puts
 it there with its own CSS and accepts that it no longer follows the theme.
 
+## When a board has nothing to draw
+
+Every kind speaks the same two sentences, so a reader — or an agent iterating
+on a config — can tell the two apart at a glance without knowing the kind.
+
+- **Nothing here, and nothing is wrong**: a quiet dot and one sentence in the
+  page's reading voice, saying what this board still wants. A board that filters
+  to nothing, a sheet that has no rows yet, a note with no fences in it. Where
+  the emptiness is itself the good news — the readiness board with nothing left
+  to file — the dot is green and the sentence says so.
+- **Something failed**: a banner, marked with a rule and set in the page's data
+  voice. A fence that would not parse, a source that names nothing, a file that
+  could not be read, a write that did not land. It always says what broke and,
+  where the app knows it, what to change.
+
+The distinction is load-bearing rather than decorative: an empty board is a
+board waiting for content, and a failed one is a board whose config or data is
+wrong. Rendering the second as the first — "no rows matched" over a database
+that does not exist — is the one answer these surfaces refuse to give.
+
+A fence that is opened and never closed is a failure, not an absence: the
+board would otherwise count zero fences and say nothing about the one plainly
+written in the note. It gets the banner, naming the missing closing line.
+
 ## Workbook pages — tabs at the bottom
 
 Any dashboard can grow pages: add a `pages:` list to its frontmatter and the
@@ -1208,7 +1232,16 @@ missing-key rule are in the contract
 ([vault-format.md §5.8](vault-format.md#58-custom-kind-bundles--vaultkindsid)).
 `ctx.onChange` is the redraw
 signal — `mount` runs once, and the returned function is your cleanup on
-unmount. `el` stays the same element across redraws while your `innerHTML`
+unmount. The host reclaims what it can see: the element, the stylesheet, its
+own subscriptions, and the timers and `window`/`document` listeners you armed
+while `mount` was running. Anything registered later, from an `await` or a
+callback, is yours to stop — and, the other way round, a timer the app arms
+because your mount dispatched a `window` event it listens for is taken away
+with your pane, so reach the app through `ctx` rather than through the
+document. Two things it enforces rather than trusts — write
+outside `el` and the app undoes it and shows a card instead of your kind, and
+a `mount` promise that neither settles nor draws for five seconds becomes a
+card naming the stall rather than a pane that stays blank. `el` stays the same element across redraws while your `innerHTML`
 replaces its children, so wire clicks as one delegated listener on `el`, not
 on children that vanish with the next draw. `ctx.setState({ color, label })`
 lights the dot in the header — `color` is any CSS color; `null` keeps it

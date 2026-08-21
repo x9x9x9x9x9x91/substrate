@@ -220,7 +220,7 @@ test("both seeded charts plot bars — over the trip notes and over the sheet", 
   await expect(sections.filter({ hasText: "Pages per book" })).toBeVisible();
 
   // no chart reported a parse error or an unresolved binding
-  await expect(page.locator(".chart-err")).toHaveCount(0);
+  await expect(page.locator(".dash-alert")).toHaveCount(0);
 
   // three status bars (one per seeded trip) and five page-count bars; the
   // heights come from real values, so a zero-height chart would be a failure

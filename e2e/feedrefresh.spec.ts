@@ -43,7 +43,7 @@ test("feed refresh: the run lands a curated row and a fresh curated stamp", asyn
   await expect(page.locator(".feed-title").first()).toContainText("Freshly curated");
   await expect(page.locator(".feed-curated")).not.toHaveText(stampBefore);
   await expect(btn).toHaveText("↻ refresh");
-  await expect(page.locator(".sync-action-err")).toHaveCount(0);
+  await expect(page.locator(".dash-alert")).toHaveCount(0);
 });
 
 test("feed refresh: clicking the busy button cancels the run, nothing lands", async ({ page }) => {
@@ -54,7 +54,7 @@ test("feed refresh: clicking the busy button cancels the run, nothing lands", as
   await btn.click(); // cancel
   await expect(btn).toHaveText("↻ refresh");
   // the cancelled run reports "cancelled" and the stream stays as it was
-  await expect(page.locator(".sync-action-err")).toContainText("cancelled");
+  await expect(page.locator(".dash-alert")).toContainText("cancelled");
   await expect(page.locator(".dash-state")).toContainText("5 items");
   // a fresh click dispatches again — the slot was freed
   await btn.click();
@@ -68,7 +68,7 @@ test("feed refresh: a dispatch failure surfaces as the error banner", async ({ p
     window.__mockFail = new Set(["curator_refresh"]);
   });
   await page.locator(".feed-refresh").click();
-  await expect(page.locator(".sync-action-err")).toContainText("curator_refresh");
+  await expect(page.locator(".dash-alert")).toContainText("curator_refresh");
   // no spinner — nothing dispatched
   await expect(page.locator(".sync-spinner")).toHaveCount(0);
 });

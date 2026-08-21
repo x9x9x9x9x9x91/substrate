@@ -26,6 +26,7 @@ import {
 } from "../lib/progress";
 import { readBind, useSheetStates, type SheetState } from "./MetricCards";
 import { useTodayIso } from "./useTodayIso";
+import { DashAlert } from "./DashNotice";
 
 interface ProgressDashboardProps {
   meta: NoteMeta;
@@ -66,7 +67,7 @@ function ProgressSection({
     return (
       <div className="progress-fence">
         <div className="dash-section-label">Progress block</div>
-        <div className="progress-err">{block.error ?? "invalid progress block"}</div>
+        <DashAlert>{block.error ?? "invalid progress block"}</DashAlert>
       </div>
     );
   }
@@ -93,7 +94,7 @@ function ProgressSection({
     return (
       <div className="progress-fence" data-accent={accent}>
         {head}
-        <div className="progress-err">{err}</div>
+        <DashAlert>{err}</DashAlert>
       </div>
     );
   }

@@ -77,3 +77,26 @@ test("a failed read names the failure without its class name", async (t) => {
   assert.match(rendered.text(), /launchd unreadable — mock failure: jobs_read/);
   assert.doesNotMatch(rendered.text(), /Error:/);
 });
+
+test("the arriving board wears the loading dialect, not the empty one", async (t) => {
+  // three states, three voices: the settled-empty dot-and-sentence must not
+  // stand in for "still reading", which reads as "you have no jobs" over a
+  // board that is one IPC away from a full table
+  win.__mockHoldCommand?.("jobs_read");
+  try {
+    const { default: JobsDashboard } = await import("../components/JobsDashboard.tsx");
+    const rendered = await renderComponent(
+      t,
+      createElement(JobsDashboard, {
+        meta: board(),
+        vaultEpoch: 0,
+        onOpenSource: () => {},
+      })
+    );
+    assert.match(rendered.text(), /reading launchd…/);
+    assert.equal(rendered.one(".dash-empty"), null, "loading is not the empty state");
+    assert.ok(rendered.one(".dash-foot"), "loading is a foot line");
+  } finally {
+    win.__mockReleaseCommand?.("jobs_read");
+  }
+});

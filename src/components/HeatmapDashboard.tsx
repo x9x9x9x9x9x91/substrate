@@ -5,7 +5,7 @@
 
     The idiom is ChartsDashboard's, deliberately: the same embed/full split (so
     a hub can host a fence in the slot it was written into), the same
-    `.chart-err` in-place error (a broken fence never takes its siblings down),
+    `DashAlert` in-place error (a broken fence never takes its siblings down),
     the same provenance foot. */
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
@@ -32,6 +32,7 @@ import { useNumberLocale } from "../hooks/useNumberLocale";
 import { DashHead, DashPrintButton } from "./DashHead";
 import { dashboardSheets, type DashboardSheetState } from "../lib/dashboardSheets";
 import { useFxRates } from "./useFx";
+import { DashAlert, DashEmpty } from "./DashNotice";
 
 interface HeatmapDashboardProps {
   meta: NoteMeta;
@@ -257,7 +258,7 @@ function HeatmapSection({
     return (
       <div>
         <div className="dash-section-label">Heatmap block</div>
-        <div className="chart-err">{block.error ?? "invalid heatmap block"}</div>
+        <DashAlert>{block.error ?? "invalid heatmap block"}</DashAlert>
       </div>
     );
   }
@@ -266,7 +267,7 @@ function HeatmapSection({
     <div>
       <div className="dash-section-label">{heatmapTitle(c)}</div>
       {loadError ? (
-        <div className="chart-err">{loadError}</div>
+        <DashAlert>{loadError}</DashAlert>
       ) : tally === null ? (
         <div className="dash-foot" style={{ margin: "4px 0 0" }}>
           …
@@ -274,7 +275,7 @@ function HeatmapSection({
       ) : tally.missing ? (
         // a bound property that exists nowhere in the source is a named error,
         // not an empty year — the same call the chart makes
-        <div className="chart-err">{tally.missing}</div>
+        <DashAlert>{tally.missing}</DashAlert>
       ) : (
         <HeatmapPlot config={c} tally={tally} />
       )}
@@ -368,6 +369,10 @@ export default function HeatmapDashboard({
         />
 
         {sections}
+
+        {blocks.length === 0 && (
+          <DashEmpty>No heatmaps yet — add a ```heatmap fence to this note.</DashEmpty>
+        )}
 
         <div className="dash-foot">
           Heatmaps are heatmap fences in this note — edit the text to reconfigure them.

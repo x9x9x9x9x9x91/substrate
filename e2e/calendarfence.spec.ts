@@ -60,7 +60,7 @@ test("a standalone calendar fence draws the month with its entries on their days
 
   // the foot states the source it read and how much it found
   await expect(page.locator(".calfence .dash-foot")).toContainText("event · date");
-  await expect(page.locator(".chart-err")).toHaveCount(0);
+  await expect(page.locator(".dash-alert")).toHaveCount(0);
 });
 
 test("a malformed calendar fence errors in place and leaves its sibling standing", async ({
@@ -69,7 +69,7 @@ test("a malformed calendar fence errors in place and leaves its sibling standing
   await openDash(page, DASH);
 
   // the bad fence names the key it does not know…
-  const err = page.locator(".chart-err");
+  const err = page.locator(".dash-alert");
   await expect(err).toHaveCount(1);
   await expect(err).toContainText("colour");
 
@@ -181,8 +181,8 @@ test("a bare calendar fence in a hub body renders live; a quoted or tailed one s
   await expect(pre.last()).toContainText("source: event");
 
   // and the broken sibling errors in place without touching the live one
-  await expect(page.locator(".hub-body .chart-err")).toHaveCount(1);
-  await expect(cal.first().locator(".chart-err")).toHaveCount(0);
+  await expect(page.locator(".hub-body .dash-alert")).toHaveCount(1);
+  await expect(cal.first().locator(".dash-alert")).toHaveCount(0);
 
   // clicking through from the hub opens the note, same as standalone
   await cal
