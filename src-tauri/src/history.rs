@@ -336,6 +336,7 @@ impl History {
         crate::githist::history_sheets_at(&self.root, instants)
     }
 
+
     #[cfg(not(mobile))]
     fn git_env(&self, args: &[&str], envs: &[(&str, &str)]) -> Result<String, String> {
         let mut c = Command::new("git");

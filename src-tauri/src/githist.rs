@@ -754,6 +754,7 @@ pub(crate) fn history_sheets_at(root: &Path, instants: &[u64]) -> Result<Vec<She
     Ok(out)
 }
 
+
 /// Read the markdown and config blobs used by the historical projection
 /// without touching the working tree. A vault can track large unrelated
 /// files; the scrubber must not load those into memory just to ignore them.
@@ -2356,4 +2357,5 @@ mod tests {
         assert!(lane.points.is_empty());
         assert_eq!(lane.oldest_ts_ms, Some(noon_ms("2026-01-01")));
     }
+
 }

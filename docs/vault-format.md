@@ -2635,6 +2635,7 @@ the column or handle it matched, and opens that note.
 An external writer needs no support beyond writing the prop: it is an ordinary
 frontmatter key (§2), preserved and round-tripped like any other.
 
+
 ## 5b. `.vault/format.json` — config format versions (covers §6–§8b)
 
 One sidecar records which format version each hidden config file is in
