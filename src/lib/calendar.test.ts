@@ -12,6 +12,7 @@ import {
   datePropFor,
   dateRangeValue,
   dayColumn,
+  droppedRangeStart,
   entriesForNote,
   folderFor,
   humanDay,
@@ -907,6 +908,63 @@ test("shiftedRangeEnd: day-only spans and untimed drops keep whole-day shifts", 
     shiftedRangeEnd({ day: "2026-08-10", endDay: "bogus" }, { day: "2026-08-12" }),
     null
   );
+});
+
+test("droppedRangeStart: a grab on the range's own start lands under the pointer", () => {
+  // no grabDay at all — an ordinary single-day move
+  assert.equal(droppedRangeStart({ day: "2026-08-10" }, "2026-08-14"), "2026-08-14");
+  // the span was taken hold of by its first day: same placement
+  assert.equal(
+    droppedRangeStart({ day: "2026-08-10", grabDay: "2026-08-10" }, "2026-08-14"),
+    "2026-08-14"
+  );
+});
+
+test("droppedRangeStart: a grab on a continuation day slides the whole range", () => {
+  const span = { day: "2026-08-10", grabDay: "2026-08-12" };
+  // day three dropped one day on: the START moves one day, not onto the drop day
+  assert.equal(droppedRangeStart(span, "2026-08-13"), "2026-08-11");
+  // ... and two days on moves the start two days
+  assert.equal(droppedRangeStart(span, "2026-08-14"), "2026-08-12");
+  // backwards travels the same way
+  assert.equal(droppedRangeStart(span, "2026-08-11"), "2026-08-09");
+  // dropped back on the day it was grabbed: nothing moves
+  assert.equal(droppedRangeStart(span, "2026-08-12"), "2026-08-10");
+});
+
+test("droppedRangeStart: slides across month, year and clock-change boundaries", () => {
+  // the tail sits in September, the start in August: dropping the tail on the
+  // 1st pulls the start back over the month seam
+  assert.equal(
+    droppedRangeStart({ day: "2026-08-30", grabDay: "2026-09-02" }, "2026-09-01"),
+    "2026-08-29"
+  );
+  // forward over a month end
+  assert.equal(
+    droppedRangeStart({ day: "2026-08-29", grabDay: "2026-08-31" }, "2026-09-02"),
+    "2026-08-31"
+  );
+  // over new year, and far enough back that the start leaves the grid's month
+  assert.equal(
+    droppedRangeStart({ day: "2025-12-30", grabDay: "2026-01-02" }, "2026-01-10"),
+    "2026-01-07"
+  );
+  assert.equal(
+    droppedRangeStart({ day: "2026-03-02", grabDay: "2026-03-04" }, "2026-01-05"),
+    "2026-01-03"
+  );
+  // Europe's spring-forward Sunday inside the travel — whole calendar days,
+  // so the 23-hour day counts as one like any other
+  assert.equal(
+    droppedRangeStart({ day: "2026-03-27", grabDay: "2026-03-28" }, "2026-03-31"),
+    "2026-03-30"
+  );
+});
+
+test("droppedRangeStart: an endpoint that isn't a real day falls back to the drop", () => {
+  assert.equal(droppedRangeStart({ day: "bogus", grabDay: "2026-08-12" }, "2026-08-14"), "2026-08-14");
+  assert.equal(droppedRangeStart({ day: "2026-08-10", grabDay: "nope" }, "2026-08-14"), "2026-08-14");
+  assert.equal(droppedRangeStart({ day: "2026-02-30", grabDay: "2026-03-02" }, "2026-03-04"), "2026-03-04");
 });
 
 test("dateRangeValue: two same-day times out of order swap (SUB-631)", () => {

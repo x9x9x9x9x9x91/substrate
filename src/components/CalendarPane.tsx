@@ -30,6 +30,7 @@ import {
   datePropFor,
   dateRangeValue,
   dayColumn,
+  droppedRangeStart,
   entryEndDay,
   folderFor,
   humanDay,
@@ -56,6 +57,23 @@ import {
   snapMinutes,
   timeToMinutes,
 } from "../lib/weekgrid";
+import {
+  AGENDA_DAYS_MIN,
+  AGENDA_HEIGHT_DEFAULT,
+  AGENDA_HEIGHT_MAX,
+  AGENDA_HEIGHT_MIN,
+  AGENDA_PREFS_EVENT,
+  AGENDA_WIDTH_DEFAULT,
+  AGENDA_WIDTH_MIN,
+  agendaWindowDays,
+  clampAgendaHeight,
+  clampRailWidth,
+  effectivePlacement,
+  railWidthMax,
+  readAgendaPrefs,
+  writeAgendaPrefs,
+  type AgendaPrefs,
+} from "../lib/calagenda";
 import { formatDateHuman } from "../lib/dates";
 import { calendarFeedsRead, vaultCreate, vaultTemplateRead } from "../lib/ipc";
 import { listen } from "../lib/tauri";
@@ -202,8 +220,8 @@ export default function CalendarPane({
   // the entry cards' subtitles carry formatted numbers — the dial
   // is not threaded into this pane, so read it from the store
   const numberLocale = useNumberLocale();
-  // The Upcoming rail is a fixed 168px against the viewport bottom,
-  // so a full agenda cut its last row in half with nothing saying more was
+  // Upcoming is a bounded strip (or rail) however far it is dragged open, so
+  // a full agenda cut its last row in half with nothing saying more was
   // below it.
   const agendaFade = useEdgeFade<HTMLDivElement>();
   // An expanded "+N more" cell scrolls its full list (`.cal-day.expanded`),
@@ -227,6 +245,173 @@ export default function CalendarPane({
       difference is how many columns `days` holds — so nothing below this line
       forks per layout, it reads the column set. */
   const onCanvas = layout !== "month";
+  /** Upcoming's placement, fold and size — stated preferences like the layout,
+      so they persist per window in localStorage rather than in the vault. The
+      settings sheet writes the same record while this pane is mounted behind
+      it, and a same-window write fires no `storage` event, so the write
+      announces itself and the pane listens. */
+  const [agenda, setAgenda] = useState<AgendaPrefs>(() => readAgendaPrefs());
+  const agendaRef = useRef(agenda);
+  useEffect(() => {
+    agendaRef.current = agenda;
+  }, [agenda]);
+  useEffect(() => {
+    const onPrefs = (e: Event) => {
+      const next = (e as CustomEvent<AgendaPrefs>).detail ?? readAgendaPrefs();
+      const cur = agendaRef.current;
+      // our own writes come back through here — re-rendering on a record the
+      // pane already holds is the one thing this must not do
+      if (
+        next.placement === cur.placement &&
+        next.folded === cur.folded &&
+        next.height === cur.height &&
+        next.width === cur.width
+      )
+        return;
+      setAgenda(next);
+    };
+    window.addEventListener(AGENDA_PREFS_EVENT, onPrefs);
+    return () => window.removeEventListener(AGENDA_PREFS_EVENT, onPrefs);
+  }, []);
+  /** every change to the panel is a preference change: state and store move
+      together, never one without the other */
+  const patchAgenda = (patch: Partial<AgendaPrefs>) => {
+    const next = { ...agendaRef.current, ...patch };
+    agendaRef.current = next;
+    setAgenda(next);
+    writeAgendaPrefs(next);
+  };
+  /** The rail steals width from the day columns, so whether it may render is
+      a question about THIS pane's width, not the window's — the desktop rail
+      can leave Calendar narrower than seven readable columns in a wide
+      window, the same reason the grid's own floor is a pane-level rule. */
+  const paneRef = useRef<HTMLDivElement | null>(null);
+  const [paneWidth, setPaneWidth] = useState(0);
+  useEffect(() => {
+    const el = paneRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([entry]) =>
+      setPaneWidth(entry.contentRect.width),
+    );
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const agendaPlacement = effectivePlacement(agenda, paneWidth);
+  const agendaRail = agendaPlacement === "right";
+  /** how far ahead Upcoming looks — it follows the room the panel has, so a
+      dragged-open panel stops running out of list halfway down. A folded
+      panel asks for the floor: nothing renders it, and the window is what
+      recurrence expands over on every note change. */
+  const agendaDays = agenda.folded
+    ? AGENDA_DAYS_MIN
+    : agendaWindowDays(agenda, agendaPlacement);
+  /** the panel's own size, so the drag can write px straight to the node.
+      The rail's width is what the pane can spare, not only what was stored:
+      a wide rail on a barely-qualifying pane would squeeze the day columns
+      under their own floor. */
+  const agendaElRef = useRef<HTMLDivElement | null>(null);
+  const agendaDragRef = useRef<(() => void) | null>(null);
+  const clampAgendaRailWidth = (n: number) => clampRailWidth(n, paneWidth);
+  const agendaWidth = clampAgendaRailWidth(agenda.width);
+  const agendaSize = agendaRail ? agendaWidth : agenda.height;
+
+  /* Drag the panel's inner edge to resize it, double-click to reset.
+
+     Same shape as the terminal panel's grip and the table's column handle:
+     window-level listeners so the pointer may leave the 6px strip, the live
+     size written straight to the node's inline style (no React re-render per
+     mousemove), and one preference write on mouseup. Pixels rather than the
+     terminal's window fraction — the thing being asked for is agenda ROWS,
+     which are a fixed height on every display. */
+  const startAgendaResize = (e: ReactMouseEvent) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const panel = agendaElRef.current;
+    if (!panel) return;
+    // a second press before the first completed must not stack listeners
+    agendaDragRef.current?.();
+    const rail = agendaRail;
+    const startPos = rail ? e.clientX : e.clientY;
+    const clamp = rail ? clampAgendaRailWidth : clampAgendaHeight;
+    let next = agendaSize;
+    let finished = false;
+    const setInlineSize = (px: number) => {
+      if (rail) panel.style.width = `${px}px`;
+      // the bottom strip is capped, not fixed — see the style prop below
+      else panel.style.maxHeight = `${px}px`;
+    };
+    document.body.classList.add(
+      rail ? "cal-agenda-resizing-ew" : "cal-agenda-resizing-ns",
+    );
+    const onMove = (ev: MouseEvent) => {
+      // the panel is pinned to an edge of the pane, so travel AWAY from that
+      // edge (up for the bottom strip, left for the rail) grows it
+      const grow = startPos - (rail ? ev.clientX : ev.clientY);
+      next = clamp(agendaSize + grow);
+      setInlineSize(next);
+    };
+    const finish = (commit: boolean) => {
+      if (finished) return;
+      finished = true;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("blur", onBlur);
+      document.body.classList.remove(
+        "cal-agenda-resizing-ew",
+        "cal-agenda-resizing-ns",
+      );
+      // a no-move click (and each half of a double-click) commits nothing
+      const committed = commit && next !== agendaSize;
+      if (committed) patchAgenda(rail ? { width: next } : { height: next });
+      // hand the inline style back AT the owned value, never removeProperty:
+      // it comes from React's style prop, and after a no-move click React's
+      // diff sees no change and would never re-write it
+      setInlineSize(committed ? next : agendaSize);
+      agendaDragRef.current = null;
+    };
+    function onUp() {
+      finish(true);
+    }
+    function onBlur() {
+      // released outside the webview: commit the last position observed
+      finish(true);
+    }
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    window.addEventListener("blur", onBlur);
+    agendaDragRef.current = () => finish(false);
+  };
+  useEffect(
+    () => () => {
+      agendaDragRef.current?.();
+      document.body.classList.remove(
+        "cal-agenda-resizing-ew",
+        "cal-agenda-resizing-ns",
+      );
+    },
+    [],
+  );
+  /** double-click the grip → the placement's default size, mirroring the
+      column handle's reset-to-auto */
+  const resetAgendaSize = () =>
+    patchAgenda(
+      agendaRail
+        ? { width: AGENDA_WIDTH_DEFAULT }
+        : { height: AGENDA_HEIGHT_DEFAULT },
+    );
+  const resizeAgendaWithKeyboard = (e: ReactKeyboardEvent) => {
+    const clamp = agendaRail ? clampAgendaRailWidth : clampAgendaHeight;
+    const grow = agendaRail ? "ArrowLeft" : "ArrowUp";
+    const shrink = agendaRail ? "ArrowRight" : "ArrowDown";
+    let next: number;
+    if (e.key === grow) next = clamp(agendaSize + 16);
+    else if (e.key === shrink) next = clamp(agendaSize - 16);
+    else return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (next !== agendaSize)
+      patchAgenda(agendaRail ? { width: next } : { height: next });
+  };
   const [feedSnapshot, setFeedSnapshot] =
     useState<CalendarFeedSnapshot>(EMPTY_FEEDS);
   const [feedsOpen, setFeedsOpen] = useState(false);
@@ -256,6 +441,12 @@ export default function CalendarPane({
     /** a bottom-edge RESIZE, not a move: the same drag machinery,
         but the drop rewrites the range's END and holds the start where it is */
     resize?: boolean;
+    /** which day of a span the gesture actually took hold of, when that is
+        not the range's start. The payload above always describes the whole
+        range (measured from its stored start), so the drop needs this to
+        slide the range by the days the pointer travelled instead of yanking
+        the start onto the cursor. Unset for an ordinary single-day grab. */
+    grabDay?: string;
   } | null>(null);
   const [dropIso, setDropIso] = useState<string | null>(null);
   // canvas drag hover: the snapped drop minute, for the time-ghost line
@@ -349,7 +540,9 @@ export default function CalendarPane({
   const feedGridStart = isoDay(days[0]);
   const feedGridEnd = isoDay(days[days.length - 1]);
   const feedUpcomingStart = todayIso;
-  const feedUpcomingEnd = isoDay(addDays(parseDay(todayIso) ?? new Date(), 13));
+  const feedUpcomingEnd = isoDay(
+    addDays(parseDay(todayIso) ?? new Date(), agendaDays - 1),
+  );
   useEffect(() => {
     let live = true;
     Promise.all([
@@ -399,7 +592,7 @@ export default function CalendarPane({
     };
   }, []);
 
-  // recurrence expands over the grid AND the 14-day upcoming list — both read
+  // recurrence expands over the grid AND the upcoming list — both read
   // the same byDay map, so both windows feed it. Two windows, not
   // one spanning both: paging months back moves the grid away from today while
   // Upcoming stays put, and a single window stretched to cover the gap blew
@@ -409,12 +602,14 @@ export default function CalendarPane({
     const gridStart = isoDay(days[0]);
     const gridEnd = isoDay(days[days.length - 1]);
     const upcomingStart = todayIso;
-    const upcomingEnd = isoDay(addDays(parseDay(todayIso) ?? new Date(), 13));
+    const upcomingEnd = isoDay(
+      addDays(parseDay(todayIso) ?? new Date(), agendaDays - 1),
+    );
     return calendarEntriesForWindows(notes, schema, [
       { start: gridStart, end: gridEnd },
       { start: upcomingStart, end: upcomingEnd },
     ]);
-  }, [notes, schema, days, todayIso]);
+  }, [notes, schema, days, todayIso, agendaDays]);
   // each database's icon, for the entry badges
   const dbIcons = useMemo(() => iconsByType(schema), [schema]);
   /** an entry's mark: the same badge Today wears — the database's TypeIcon,
@@ -821,6 +1016,27 @@ export default function CalendarPane({
     };
   }, []);
 
+  // A gesture that ends with no drop leaves the pane holding drag state: a
+  // release over a surface that takes no drop (the header, the sidebar, the
+  // window chrome), a drag abandoned with Escape, a source that stopped being
+  // draggable under the hand. The chip's own `onDragEnd` covers the ordinary
+  // case, and every in-grid drop clears the state in `dropOn` — this listener
+  // is the belt to those braces, so a stale hover cell can't outlive the
+  // gesture that painted it. What it does NOT do is rescue a source that was
+  // unmounted mid-gesture: an event dispatched at a node already out of the
+  // document propagates only through that detached node's own chain, so the
+  // window never hears it. Nothing is stranded there either, because the
+  // re-render that re-keys the chip lands after the drop that caused it.
+  useEffect(() => {
+    const rest = () => {
+      setDrag(null);
+      setDropIso(null);
+      setDropMin(null);
+    };
+    window.addEventListener("dragend", rest, true);
+    return () => window.removeEventListener("dragend", rest, true);
+  }, []);
+
   const cycleDraftType = (dir: 1 | -1 = 1) => {
     setDraft((cur) => {
       if (!cur) return cur;
@@ -859,9 +1075,10 @@ export default function CalendarPane({
 
   /** the end a spanning entry keeps when its start moves: the span holds its
       length — to the minute when both ends and the new start are timed,
-      by whole days otherwise. Only a span's FIRST day is
-      draggable (see `isAnchor`), so `span.day` is always the range's start
-      and the delta is unambiguous. Pure math in calendar.ts. */
+      by whole days otherwise. `span.day` is always the range's START, whichever
+      day the hand took hold of — `dragStateFor` reads the span off the note and
+      normalises the payload to the stored start — so the delta is unambiguous.
+      Pure math in calendar.ts. */
   const shiftedEnd = shiftedRangeEnd;
 
   const moveEntryTo = (
@@ -985,6 +1202,10 @@ export default function CalendarPane({
     return setEntryEnd(e, next, true)?.time ?? null;
   };
 
+  /** where a range's START lands for a drop — pure math in calendar.ts,
+      unit-tested there beside the rest of the span arithmetic. */
+  const droppedStart = droppedRangeStart;
+
   /** Drop targets differ in what they do to the value's time:
       month cells and the all-day strip's cells keep/clear it, the timed
       canvas sets it. `time` undefined = keep the dragged value's time
@@ -998,11 +1219,34 @@ export default function CalendarPane({
     // nothing — the all-day strip and month cells have no end to
     // aim at, and silently MOVING the event there would be a nasty surprise
     if (d.resize) return;
-    const next = time === undefined ? d.time : (time ?? undefined);
-    if (d.day === day && (d.time ?? null) === (next ?? null)) return;
+    // Grabbing a continuation day is a request to slide the range by days.
+    // A surface that speaks about the WHOLE range still gets its say: the
+    // all-day strip means "this is an all-day event" wherever the hand
+    // took hold of it, so a tail dropped there clears the time exactly as
+    // the range's own start would, and a month cell keeps it either way.
+    // Only the timed canvas is mute for a slide: its snapped minute would
+    // retime the range's START, days away from where the pointer actually
+    // is, so the range keeps the times it was written with — and the ghost
+    // line stays away rather than labelling a minute the drop discards
+    // (see `dragSlidesWholeDays`).
+    const slide = !!d.grabDay && d.grabDay !== d.day;
+    const next =
+      time === undefined || (slide && time !== null)
+        ? d.time
+        : (time ?? undefined);
+    // the drop names a day for the SEGMENT that was grabbed; the write wants
+    // the day the range starts on
+    const start = droppedStart(d, day);
+    if (d.day === start && (d.time ?? null) === (next ?? null)) return;
     // a span moves whole: the end travels with the start, holding
     // the duration to the minute on a timed canvas drop
-    moveEntryTo(d.path, d.prop, day, next, shiftedEnd(d, { day, time: next }));
+    moveEntryTo(
+      d.path,
+      d.prop,
+      start,
+      next,
+      shiftedEnd(d, { day: start, time: next }),
+    );
   };
 
   /** A bottom-edge resize dropped on the timed canvas: the same
@@ -1133,10 +1377,59 @@ export default function CalendarPane({
     );
 
   /** is this entry a CONTINUATION day of a span — a day the range
-      covers that isn't its start? Those days are inert: the range moves by
-      its start, so only the first day drags. */
+      covers that isn't its start? The range still MOVES by its start, but
+      every day it covers is a handle on it: dragging day three of a span
+      slides the whole range, so an event that grew across the week can be
+      taken hold of wherever it is on screen. */
   const isSpanTail = (e: CalEntry) =>
     e.spanPos !== undefined && e.spanPos !== "start";
+
+  /** the drag payload a chip, card or block starts a MOVE with. The payload
+      always describes the whole range measured from the note's stored start —
+      the write path rewrites one value, not one day — so a grab on a
+      continuation day reads the span off the note and remembers which day the
+      pointer actually took (`grabDay`) for the drop to measure against. */
+  const dragStateFor = (e: CalEntry) => {
+    const stored = isSpanTail(e) ? storedRange(e) : null;
+    if (!stored)
+      return {
+        path: e.path,
+        prop: e.prop,
+        day: e.day,
+        time: e.time,
+        endDay: e.endDay,
+        endTime: e.endTime,
+      };
+    return {
+      path: e.path,
+      prop: e.prop,
+      day: stored.start.day,
+      time: stored.start.time ?? undefined,
+      endDay: stored.end?.day ?? e.endDay,
+      endTime: stored.end?.time ?? e.endTime,
+      grabDay: e.day,
+    };
+  };
+
+  /** is this segment part of the entry under the pointer right now? A span
+      travels whole, so every day it covers wears the drag's dimming, not just
+      the one that was grabbed. A single date (and a repeat occurrence, which
+      never spans) collapses this to the one day it sits on. */
+  const isDragSource = (e: CalEntry) =>
+    !!drag &&
+    drag.path === e.path &&
+    drag.prop === e.prop &&
+    e.day >= drag.day &&
+    e.day <= (drag.endDay ?? drag.day);
+
+  /** is the drag in flight a whole-day SLIDE — a span taken hold of by one of
+      its continuation days? The canvas still accepts the drop (the range
+      lands on the day under the pointer), but the minute does not travel:
+      the drop keeps the range's stored times, so the time ghost holds its
+      tongue rather than labelling a minute that gets discarded. A duration
+      drag is not a slide — its whole subject is the minute. */
+  const dragSlidesWholeDays =
+    !!drag?.grabDay && drag.grabDay !== drag.day && !drag.resize;
 
   /** the overdue rule, shared by all three renderers: past
       day, deadline prop, non-repeating, not complete — and for a range, late
@@ -1560,7 +1853,7 @@ export default function CalendarPane({
   const upcoming = (() => {
     const out: { iso: string; label: string; items: CalendarRenderEntry[] }[] =
       [];
-    for (let i = 0; i < 14; i++) {
+    for (let i = 0; i < agendaDays; i++) {
       const d = addDays(today, i);
       const iso = isoDay(d);
       const items = renderItems(iso);
@@ -1612,10 +1905,9 @@ export default function CalendarPane({
   const entryChip = (e: CalEntry) => {
     // only the anchor (the note's real date) is draggable — moving it rewrites
     // the date prop, shifting the whole series; virtual occurrences are inert.
-    // A span's continuation days are inert for the same reason: the
-    // range moves by its start
-    const isAnchor =
-      (!e.repeating || e.day === anchorDayOf(e)) && !isSpanTail(e);
+    // A span's continuation days ARE draggable: they move the same one value,
+    // by the days the pointer travels (see `dragStateFor`)
+    const canMove = !e.repeating || e.day === anchorDayOf(e);
     // an overdue deadline chip's one red mark is a --danger border-left
     // same rule as the agenda group: past day, deadline prop,
     // non-repeating, not complete. A range is late only once its
@@ -1626,26 +1918,17 @@ export default function CalendarPane({
       <button
         type="button"
         key={`${e.path}:${e.prop}:${e.day}`}
-        className={`cal-entry${
-          drag?.path === e.path && drag.prop === e.prop && drag.day === e.day
-            ? " dragging"
-            : ""
-        }${isOverdue ? " overdue" : ""}${entryDone(e) ? " done" : ""}${spanClass(e)}${isSelected(e) ? " selected" : ""}`}
+        className={`cal-entry${isDragSource(e) ? " dragging" : ""}${
+          isOverdue ? " overdue" : ""
+        }${entryDone(e) ? " done" : ""}${spanClass(e)}${isSelected(e) ? " selected" : ""}`}
         style={entryTintStyle(e)}
-        draggable={isAnchor}
+        draggable={canMove}
         title={isOverdue ? `${tip} · overdue` : tip}
         aria-label={e.title}
         onDragStart={(ev) => {
           ev.dataTransfer.setData("text/plain", e.path);
           ev.dataTransfer.effectAllowed = "move";
-          setDrag({
-            path: e.path,
-            prop: e.prop,
-            day: e.day,
-            time: e.time,
-            endDay: e.endDay,
-            endTime: e.endTime,
-          });
+          setDrag(dragStateFor(e));
         }}
         onDragEnd={() => {
           setDrag(null);
@@ -1724,10 +2007,9 @@ export default function CalendarPane({
      above stay untouched; the fork happens at the grid. */
   const weekCard = (e: CalEntry) => {
     // same drag rule as the month chip: only the series anchor moves, and a
-    // span moves by its first day only — pane-level drop handlers
+    // span moves whole from any of its days — pane-level drop handlers
     // key off the column's [data-iso] either way
-    const isAnchor =
-      (!e.repeating || e.day === anchorDayOf(e)) && !isSpanTail(e);
+    const canMove = !e.repeating || e.day === anchorDayOf(e);
     // same overdue rule as the month chip
     const isOverdue = entryOverdue(e);
     const tip = entryTip(e);
@@ -1747,26 +2029,17 @@ export default function CalendarPane({
       <button
         type="button"
         key={`${e.path}:${e.prop}:${e.day}`}
-        className={`cal-entry${
-          drag?.path === e.path && drag.prop === e.prop && drag.day === e.day
-            ? " dragging"
-            : ""
-        }${entryDone(e) ? " done" : ""}${spanClass(e)}${isSelected(e) ? " selected" : ""}`}
+        className={`cal-entry${isDragSource(e) ? " dragging" : ""}${
+          entryDone(e) ? " done" : ""
+        }${spanClass(e)}${isSelected(e) ? " selected" : ""}`}
         style={entryTintStyle(e)}
-        draggable={isAnchor}
+        draggable={canMove}
         title={isOverdue ? `${tip} · overdue` : tip}
         aria-label={e.title}
         onDragStart={(ev) => {
           ev.dataTransfer.setData("text/plain", e.path);
           ev.dataTransfer.effectAllowed = "move";
-          setDrag({
-            path: e.path,
-            prop: e.prop,
-            day: e.day,
-            time: e.time,
-            endDay: e.endDay,
-            endTime: e.endTime,
-          });
+          setDrag(dragStateFor(e));
         }}
         onDragEnd={() => {
           setDrag(null);
@@ -1957,14 +2230,17 @@ export default function CalendarPane({
     e: CalEntry,
     box: { top: number; height: number; left: number; width: number },
   ) => {
-    const isAnchor =
-      (!e.repeating || e.day === anchorDayOf(e)) && !isSpanTail(e);
-    // the bottom edge is grabbable only where it means something:
-    // on the block that owns the value, and only while the event lives inside
-    // one day. A multi-day span's start block paints a default hour, so its
-    // bottom edge isn't the event's end — dragging it would be a lie; those
-    // ends move through the peek's date row instead.
-    const canResize = isAnchor && (e.endDay == null || e.endDay === e.day);
+    const canMove = !e.repeating || e.day === anchorDayOf(e);
+    // the duration grip rides the block that OWNS the value — the range's
+    // first day, never a continuation day or a virtual occurrence.
+    // A multi-day span's start block paints a default hour, so its bottom edge
+    // is not where the event ends; the grip there is a handle, not an edge,
+    // and it stays because taking it away was the thing that stranded events:
+    // one drag across midnight and the only way back to a shorter event was
+    // the peek. Dragging it lands the END wherever it is dropped, so pulling
+    // it back onto the start day makes the event single-day again.
+    const canResize = canMove && !isSpanTail(e);
+    const spans = e.endDay != null && e.endDay !== e.day;
     // same overdue rule as every other entry surface
     const isOverdue = entryOverdue(e);
     const tip = entryTip(e);
@@ -1972,11 +2248,9 @@ export default function CalendarPane({
       <button
         type="button"
         key={`${e.path}:${e.prop}:${e.day}`}
-        className={`cal-entry cal-wk-block${
-          drag?.path === e.path && drag.prop === e.prop && drag.day === e.day
-            ? " dragging"
-            : ""
-        }${isOverdue ? " overdue" : ""}${entryDone(e) ? " done" : ""}${isSelected(e) ? " selected" : ""}`}
+        className={`cal-entry cal-wk-block${isDragSource(e) ? " dragging" : ""}${
+          isOverdue ? " overdue" : ""
+        }${entryDone(e) ? " done" : ""}${isSelected(e) ? " selected" : ""}`}
         style={{
           top: `${box.top}%`,
           height: `${box.height}%`,
@@ -1984,20 +2258,13 @@ export default function CalendarPane({
           width: `${box.width}%`,
           ...entryTintStyle(e),
         }}
-        draggable={isAnchor}
+        draggable={canMove}
         title={isOverdue ? `${tip} · overdue` : tip}
         aria-label={e.title}
         onDragStart={(ev) => {
           ev.dataTransfer.setData("text/plain", e.path);
           ev.dataTransfer.effectAllowed = "move";
-          setDrag({
-            path: e.path,
-            prop: e.prop,
-            day: e.day,
-            time: e.time,
-            endDay: e.endDay,
-            endTime: e.endTime,
-          });
+          setDrag(dragStateFor(e));
         }}
         onDragEnd={() => {
           setDrag(null);
@@ -2042,12 +2309,18 @@ export default function CalendarPane({
             hidden from assistive tech on purpose: the keyboard path to a
             duration is the peek's Ends field, which is a typed time rather
             than a pixel. `stopPropagation` on dragstart keeps the parent
-            block's move-drag from firing too. */}
+            block's move-drag from firing too, and its own `onDragEnd` settles
+            the drag without leaning on a parent that may have re-rendered
+            under the gesture. */}
         {canResize && (
           <span
             className="cal-wk-grip"
             aria-hidden="true"
-            title="Drag to set the end time"
+            title={
+              spans
+                ? "Drag to set where the event ends"
+                : "Drag to set the end time"
+            }
             draggable
             onDragStart={(ev) => {
               ev.stopPropagation();
@@ -2062,6 +2335,12 @@ export default function CalendarPane({
                 endTime: e.endTime,
                 resize: true,
               });
+            }}
+            onDragEnd={(ev) => {
+              ev.stopPropagation();
+              setDrag(null);
+              setDropIso(null);
+              setDropMin(null);
             }}
             // a grab that never became a drag must not open the peek behind it
             onClick={(ev) => ev.stopPropagation()}
@@ -2249,7 +2528,7 @@ export default function CalendarPane({
             style={{ top: `${(nowMin / DAY_MIN) * 100}%` }}
           />
         )}
-        {iso === dropIso && dropMin !== null && drag && (
+        {iso === dropIso && dropMin !== null && drag && !dragSlidesWholeDays && (
           <div
             className="cal-wk-ghost"
             style={{ top: `${(dropMin / DAY_MIN) * 100}%` }}
@@ -2413,7 +2692,7 @@ export default function CalendarPane({
   };
 
   return (
-    <div className="cal">
+    <div className="cal" ref={paneRef}>
       <div className="list-head" data-tauri-drag-region>
         <BackButton />
         <span className="list-title">
@@ -2430,6 +2709,16 @@ export default function CalendarPane({
             title="External calendars"
           >
             Calendars
+          </button>
+          {/* Upcoming folds away entirely, for either placement — the
+              same latched-button language the Calendars control uses */}
+          <button
+            className={`db-new cal-agenda-toggle${agenda.folded ? "" : " active"}`}
+            onClick={() => patchAgenda({ folded: !agenda.folded })}
+            title={agenda.folded ? "Show Upcoming" : "Hide Upcoming"}
+            aria-pressed={!agenda.folded}
+          >
+            Upcoming
           </button>
           <button
             className="db-new"
@@ -2477,188 +2766,224 @@ export default function CalendarPane({
           onToast={onToast}
         />
       )}
-      {/* one custom property carries the canvas's column count to
+      {/* grid and Upcoming stack by default and sit side by side when the
+          panel is docked as a rail — one wrapper, one axis flip, so nothing
+          inside either surface forks per placement */}
+      <div className={`cal-body${agendaRail ? " rail" : ""}`}>
+        {/* one custom property carries the canvas's column count to
           all three of its rows (header, all-day strip, timed canvas), so Day
           is Week with `--cal-cols: 1` rather than a second surface. Month
           keeps the property unset and its own seven-column template. */}
-      <div
-        className="cal-grid-scroll"
-        style={
-          onCanvas
-            ? ({ "--cal-cols": days.length } as CSSProperties)
-            : undefined
-        }
-      >
-        <div className={`cal-weekdays${onCanvas ? " week" : ""}`}>
-          {onCanvas && <span className="cal-wk-spacer" aria-hidden="true" />}
-          {/* today's column header sharpens when today is on the
+        <div
+          className="cal-grid-scroll"
+          style={
+            onCanvas
+              ? ({ "--cal-cols": days.length } as CSSProperties)
+              : undefined
+          }
+        >
+          <div className={`cal-weekdays${onCanvas ? " week" : ""}`}>
+            {onCanvas && <span className="cal-wk-spacer" aria-hidden="true" />}
+            {/* today's column header sharpens when today is on the
               grid — the second orientation mark Notion Calendar leans on
               (the circled day number alone is easy to lose in six rows).
               Month names the seven weekdays once for six rows of cells; the
               canvas names its own columns, which is the same seven in Week
               and just the one in Day. */}
-          {(layout === "month"
-            ? WEEKDAYS.map((w, i) => ({ key: w, label: w, weekday: i }))
-            : days.map((d) => ({
-                key: isoDay(d),
-                label: WEEKDAYS[(d.getDay() + 6) % 7],
-                weekday: (d.getDay() + 6) % 7,
-              }))
-          ).map(({ key, label, weekday }) => (
-            <span
-              key={key}
-              className={
-                visible.has(todayIso) && (today.getDay() + 6) % 7 === weekday
-                  ? "cal-wd-today"
-                  : undefined
-              }
-            >
-              {label}
-            </span>
-          ))}
-        </div>
-        {layout === "month" ? (
-          <div className="cal-grid month" ref={gridRef}>
-            {days.map(dayCell)}
+            {(layout === "month"
+              ? WEEKDAYS.map((w, i) => ({ key: w, label: w, weekday: i }))
+              : days.map((d) => ({
+                  key: isoDay(d),
+                  label: WEEKDAYS[(d.getDay() + 6) % 7],
+                  weekday: (d.getDay() + 6) % 7,
+                }))
+            ).map(({ key, label, weekday }) => (
+              <span
+                key={key}
+                className={
+                  visible.has(todayIso) && (today.getDay() + 6) % 7 === weekday
+                    ? "cal-wd-today"
+                    : undefined
+                }
+              >
+                {label}
+              </span>
+            ))}
           </div>
-        ) : (
-          <>
-            {/* the week surface: a pinned all-day strip over a
+          {layout === "month" ? (
+            <div className="cal-grid month" ref={gridRef}>
+              {days.map(dayCell)}
+            </div>
+          ) : (
+            <>
+              {/* the week surface: a pinned all-day strip over a
                 scrollable 24h canvas — the strip keeps the card
                 language, the canvas places timed entries by their HH:MM */}
-            <div className="cal-grid week" ref={gridRef}>
-              <span className="cal-wk-spacer" aria-hidden="true" />
-              {days.map(alldayCell)}
-            </div>
-            <div className="cal-wk-scroll" ref={weekScrollRef}>
-              <div
-                className="cal-wk-canvas"
-                ref={canvasRef}
-                style={{ height: 24 * HOUR_PX }}
-              >
-                <div className="cal-wk-gutter" aria-hidden="true">
-                  {Array.from({ length: 23 }, (_, h) => (
-                    <span
-                      key={h + 1}
-                      style={{ top: `${((h + 1) / 24) * 100}%` }}
-                    >
-                      {String(h + 1).padStart(2, "0")}:00
-                    </span>
-                  ))}
-                </div>
-                {days.map(canvasColumn)}
+              <div className="cal-grid week" ref={gridRef}>
+                <span className="cal-wk-spacer" aria-hidden="true" />
+                {days.map(alldayCell)}
               </div>
-            </div>
-          </>
-        )}
-      </div>
-      <div className="cal-agenda">
-        <div className="cal-agenda-head">Upcoming</div>
-        <div
-          className={`cal-agenda-body${agendaFade.className}`}
-          {...agendaFade.props}
-        >
-          {/* Past non-repeating deadlines pin to the top, oldest
+              <div className="cal-wk-scroll" ref={weekScrollRef}>
+                <div
+                  className="cal-wk-canvas"
+                  ref={canvasRef}
+                  style={{ height: 24 * HOUR_PX }}
+                >
+                  <div className="cal-wk-gutter" aria-hidden="true">
+                    {Array.from({ length: 23 }, (_, h) => (
+                      <span
+                        key={h + 1}
+                        style={{ top: `${((h + 1) / 24) * 100}%` }}
+                      >
+                        {String(h + 1).padStart(2, "0")}:00
+                      </span>
+                    ))}
+                  </div>
+                  {days.map(canvasColumn)}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+        {!agenda.folded && (
+          <div
+            className={`cal-agenda${agendaRail ? " rail" : ""}`}
+            ref={agendaElRef}
+            /* The bottom strip takes its size as a CAP: the panel has always
+               shrunk to a sparse agenda and given the grid the rest, and a
+               fixed height would reserve the room whether or not there are
+               rows to put in it. The rail has a column's full height either
+               way, so there its size is the width outright. */
+            style={
+              agendaRail
+                ? { width: agendaWidth }
+                : { maxHeight: agenda.height }
+            }
+          >
+            <div
+              className="cal-agenda-grip"
+              onMouseDown={startAgendaResize}
+              onDoubleClick={resetAgendaSize}
+              onKeyDown={resizeAgendaWithKeyboard}
+              role="separator"
+              tabIndex={0}
+              aria-orientation={agendaRail ? "vertical" : "horizontal"}
+              aria-label="Resize Upcoming"
+              aria-valuemin={agendaRail ? AGENDA_WIDTH_MIN : AGENDA_HEIGHT_MIN}
+              aria-valuemax={
+                agendaRail ? railWidthMax(paneWidth) : AGENDA_HEIGHT_MAX
+              }
+              aria-valuenow={agendaSize}
+              title="Drag or use arrow keys to resize · double-click to reset"
+            />
+            <div className="cal-agenda-head">Upcoming</div>
+            <div
+              className={`cal-agenda-body${agendaFade.className}`}
+              {...agendaFade.props}
+            >
+              {/* Past non-repeating deadlines pin to the top, oldest
               first — no overdue, no group (and no empty header) */}
-          {overdue.length > 0 && (
-            <div className="cal-ag-row cal-ag-overdue">
-              <span className="cal-ag-day overdue">Overdue</span>
-              <div className="cal-ag-items">
-                {overdue.map((e) => (
+              {overdue.length > 0 && (
+                <div className="cal-ag-row cal-ag-overdue">
+                  <span className="cal-ag-day overdue">Overdue</span>
+                  <div className="cal-ag-items">
+                    {overdue.map((e) => (
+                      <button
+                        type="button"
+                        key={`${e.path}:${e.prop}:${e.day}`}
+                        className={`cal-ag-item${isSelected(e) ? " selected" : ""}`}
+                        onClick={() => onOpenNote(e.path)}
+                        onContextMenu={(ev) => {
+                          // same menu as the grid chips — overdue rows
+                          // are exactly where "Mark done" / "Move to Trash" is
+                          // needed most
+                          ev.preventDefault();
+                          ev.stopPropagation();
+                          setMenu({
+                            x: ev.clientX,
+                            y: ev.clientY,
+                            entry: e,
+                            anchor: anchorFrom(ev.currentTarget),
+                          });
+                        }}
+                        aria-label={e.title}
+                      >
+                        <span className="cal-dot" title="Overdue deadline" />
+                        <span className="cal-entry-title">{e.title}</span>
+                        <span className="cal-ag-when">
+                          {humanDay(e.day, today)}
+                          {e.time ? `, ${e.time}` : ""}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {upcoming.length === 0 && overdue.length === 0 && (
+                <div className="cal-hint">
+                  Any note with a date property shows up here.
+                </div>
+              )}
+              {upcoming.map((g) => (
+                <div key={g.iso} className="cal-ag-row">
                   <button
                     type="button"
-                    key={`${e.path}:${e.prop}:${e.day}`}
-                    className={`cal-ag-item${isSelected(e) ? " selected" : ""}`}
-                    onClick={() => onOpenNote(e.path)}
-                    onContextMenu={(ev) => {
-                      // same menu as the grid chips — overdue rows
-                      // are exactly where "Mark done" / "Move to Trash" is
-                      // needed most
-                      ev.preventDefault();
-                      ev.stopPropagation();
-                      setMenu({
-                        x: ev.clientX,
-                        y: ev.clientY,
-                        entry: e,
-                        anchor: anchorFrom(ev.currentTarget),
-                      });
-                    }}
-                    aria-label={e.title}
+                    className={`cal-ag-day${g.iso === todayIso ? " today" : ""}`}
+                    onClick={() => go(parseDay(g.iso) ?? today)}
+                    aria-label={g.label}
+                    aria-current={g.iso === todayIso ? "date" : undefined}
                   >
-                    <span className="cal-dot" title="Overdue deadline" />
-                    <span className="cal-entry-title">{e.title}</span>
-                    <span className="cal-ag-when">
-                      {humanDay(e.day, today)}
-                      {e.time ? `, ${e.time}` : ""}
-                    </span>
+                    {g.label}
                   </button>
-                ))}
-              </div>
+                  <div className="cal-ag-items">
+                    {g.items.map((e) =>
+                      isExternalEntry(e) ? (
+                        <div
+                          key={`external:${e.id}:${e.day}`}
+                          className="cal-ag-item external"
+                          style={externalTintStyle(e)}
+                          title={externalTip(e)}
+                          aria-label={`${e.title}, external calendar ${e.feedName}`}
+                        >
+                          <CalendarIcon />
+                          {e.time && (
+                            <span className="cal-entry-time">{e.time}</span>
+                          )}
+                          <span className="cal-entry-title">{e.title}</span>
+                          <span className="cal-feed-badge">{e.feedName}</span>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          key={`${e.path}:${e.prop}:${e.day}`}
+                          className={`cal-ag-item${entryDone(e) ? " done" : ""}${isSelected(e) ? " selected" : ""}`}
+                          onClick={() => onOpenNote(e.path)}
+                          onContextMenu={(ev) => {
+                            ev.preventDefault();
+                            ev.stopPropagation();
+                            setMenu({
+                              x: ev.clientX,
+                              y: ev.clientY,
+                              entry: e,
+                              anchor: anchorFrom(ev.currentTarget),
+                            });
+                          }}
+                          aria-label={e.title}
+                        >
+                          {entryIcon(e)}
+                          {e.time && (
+                            <span className="cal-entry-time">{e.time}</span>
+                          )}
+                          <span className="cal-entry-title">{e.title}</span>
+                        </button>
+                      ),
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
-          )}
-          {upcoming.length === 0 && overdue.length === 0 && (
-            <div className="cal-hint">
-              Any note with a date property shows up here.
-            </div>
-          )}
-          {upcoming.map((g) => (
-            <div key={g.iso} className="cal-ag-row">
-              <button
-                type="button"
-                className={`cal-ag-day${g.iso === todayIso ? " today" : ""}`}
-                onClick={() => go(parseDay(g.iso) ?? today)}
-                aria-label={g.label}
-                aria-current={g.iso === todayIso ? "date" : undefined}
-              >
-                {g.label}
-              </button>
-              <div className="cal-ag-items">
-                {g.items.map((e) =>
-                  isExternalEntry(e) ? (
-                    <div
-                      key={`external:${e.id}:${e.day}`}
-                      className="cal-ag-item external"
-                      style={externalTintStyle(e)}
-                      title={externalTip(e)}
-                      aria-label={`${e.title}, external calendar ${e.feedName}`}
-                    >
-                      <CalendarIcon />
-                      {e.time && (
-                        <span className="cal-entry-time">{e.time}</span>
-                      )}
-                      <span className="cal-entry-title">{e.title}</span>
-                      <span className="cal-feed-badge">{e.feedName}</span>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      key={`${e.path}:${e.prop}:${e.day}`}
-                      className={`cal-ag-item${entryDone(e) ? " done" : ""}${isSelected(e) ? " selected" : ""}`}
-                      onClick={() => onOpenNote(e.path)}
-                      onContextMenu={(ev) => {
-                        ev.preventDefault();
-                        ev.stopPropagation();
-                        setMenu({
-                          x: ev.clientX,
-                          y: ev.clientY,
-                          entry: e,
-                          anchor: anchorFrom(ev.currentTarget),
-                        });
-                      }}
-                      aria-label={e.title}
-                    >
-                      {entryIcon(e)}
-                      {e.time && (
-                        <span className="cal-entry-time">{e.time}</span>
-                      )}
-                      <span className="cal-entry-title">{e.title}</span>
-                    </button>
-                  ),
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
+          </div>
+        )}
       </div>
       {typeMenu && draft && (
         <SelectMenu
