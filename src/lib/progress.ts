@@ -51,6 +51,7 @@
 import { parseSource, type ChartSource } from "./chart.ts";
 import { daysBetween, isIsoDate } from "./dates.ts";
 import { embedQueryFor } from "./embeds.ts";
+import { hasUnclosedFence } from "./fences.ts";
 import { bindSheets, CARD_FORMATS, fmtCard, parseBind, unquote } from "./metriccards.ts";
 import { parseAccent, type AccentName } from "./styletokens.ts";
 import type { NoteMeta, SchemaConfig } from "./types.ts";
@@ -213,6 +214,11 @@ export function parseProgressBlocks(body: string): ProgressBlock[] {
       out.push({ config: null, error: e instanceof Error ? e.message : String(e) });
     }
   }
+  // an opener with no closing line matched nothing above, so the board would
+  // have counted zero and said nothing; the fence gets a banner instead
+  if (hasUnclosedFence(body, "progress"))
+    out.push({ config: null, error: "This ```progress fence is never closed — add a closing ``` line so the goal can be read." });
+
   return out;
 }
 

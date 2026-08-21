@@ -17,5 +17,5 @@ test("a note with a retired dashboard kind renders the unknown-kind card", async
   await page.locator(".side-item", { hasText: "Retired Kind" }).click();
   await expect(page.locator(".dash-title")).toHaveText("Retired Kind");
   await expect(page.locator(".dash-state")).toHaveText("unknown kind");
-  await expect(page.locator(".chart-err")).toContainText("waiting");
+  await expect(page.locator(".dash-alert")).toContainText("waiting");
 });

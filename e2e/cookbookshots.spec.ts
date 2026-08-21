@@ -228,7 +228,7 @@ const SHOTS: Shot[] = [
       // Both view fences are live tables now — the shot shows the
       // recipe's real point, so nothing is cropped out of frame
       await expect(page.locator(".hub-view .embed-view-table")).toHaveCount(2);
-      await expect(page.locator(".hub-view-err")).toHaveCount(0);
+      await expect(page.locator(".dash-alert")).toHaveCount(0);
     },
   },
   {
@@ -240,7 +240,7 @@ const SHOTS: Shot[] = [
     ],
     ready: async (page) => {
       await expect(page.locator(".dash-chart")).toHaveCount(2);
-      await expect(page.locator(".chart-err")).toHaveCount(0);
+      await expect(page.locator(".dash-alert")).toHaveCount(0);
     },
   },
   {
@@ -272,7 +272,7 @@ const SHOTS: Shot[] = [
       // one bar fence, one line fence — different chart bodies
       await expect(page.locator(".dash-chart")).toHaveCount(1);
       await expect(page.locator(".chart-line")).toHaveCount(1);
-      await expect(page.locator(".chart-err")).toHaveCount(0);
+      await expect(page.locator(".dash-alert")).toHaveCount(0);
     },
   },
   {
@@ -332,7 +332,7 @@ const SHOTS: Shot[] = [
       // fence would draw .dash-chart instead, and neither is what an error
       // placeholder renders
       await expect(page.locator(".chart-line")).toHaveCount(2);
-      await expect(page.locator(".chart-err")).toHaveCount(0);
+      await expect(page.locator(".dash-alert")).toHaveCount(0);
       await page.locator(".wb-tab").first().click();
       await expect(page.locator(".hub-body")).toBeVisible();
     },
@@ -384,7 +384,7 @@ const SHOTS: Shot[] = [
       await expect(page.locator(".hub-heatmap .heatmap")).toHaveCount(2);
       await expect(page.locator(".hub-heatmap .heatmap-week").first()).toBeVisible();
       expect(await page.locator('.hub-heatmap .heatmap-week [data-level="4"]').count()).toBeGreaterThan(0);
-      await expect(page.locator(".chart-err")).toHaveCount(0);
+      await expect(page.locator(".dash-alert")).toHaveCount(0);
     },
   },
   {
@@ -400,8 +400,8 @@ const SHOTS: Shot[] = [
     ],
     ready: async (page) => {
       await expect(page.locator(".hub-timeline")).toHaveCount(2);
-      await expect(page.locator(".hub-timeline-err")).toHaveCount(0);
-      await expect(page.locator(".hub-timeline-empty")).toHaveCount(0);
+      await expect(page.locator(".dash-alert")).toHaveCount(0);
+      await expect(page.locator(".dash-empty")).toHaveCount(0);
       // first fence: four dated releases as bars plus Fern Static as a dot;
       // second: the three live ones — the recipe's point is that both fences
       // read the same notes, so both kinds of mark must be on screen
@@ -451,7 +451,7 @@ const SHOTS: Shot[] = [
       await expect(page.locator(".tax-row")).toHaveCount(5);
       // the recipe's own stale_hours outlives its literal `exported:` stamp,
       // so the shipped sample opens trusted rather than warning about its age
-      await expect(page.locator(".tax-alert")).toHaveCount(0);
+      await expect(page.locator(".dash-alert")).toHaveCount(0);
     },
   },
   {

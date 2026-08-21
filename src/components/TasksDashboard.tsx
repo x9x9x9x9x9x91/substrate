@@ -26,6 +26,7 @@ import SelectMenu, { anchorFrom, optionColor, OptionPill, type AnchorRect } from
 import { ChevronRightIcon, PinIcon } from "./Icons";
 import { DashHead } from "./DashHead";
 import SwitchGroup from "./SwitchGroup";
+import { DashEmpty } from "./DashNotice";
 
 interface TasksDashboardProps {
   meta: NoteMeta;
@@ -887,10 +888,10 @@ export default function TasksDashboard({
                 columns said nothing at all — the only marks were an aria-hidden
                 placeholder per column, so a screen reader got silence where the
                 list view got a sentence. Both shapes now say the same thing. */}
-            {model.total === 0 && <div className="tasks-empty">{emptyLine}</div>}
+            {model.total === 0 && <DashEmpty>{emptyLine}</DashEmpty>}
           </>
         ) : model.total === 0 ? (
-          <div className="tasks-empty">{emptyLine}</div>
+          <DashEmpty>{emptyLine}</DashEmpty>
         ) : (
           <div className="tasks-board">
             {model.sections.map((section) => (

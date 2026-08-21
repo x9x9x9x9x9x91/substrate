@@ -58,7 +58,7 @@ test("music-work: the filter narrows rows and the group totals with them", async
   await expect(page.locator(".mw-group").first().locator(".mw-groupsum")).toContainText("2 jobs");
   // a job name nobody has
   await page.locator(".mw-filter").fill("zzzz");
-  await expect(page.locator(".dash-foot")).toContainText("No job matches 'zzzz'");
+  await expect(page.locator(".dash-empty")).toContainText("No job matches 'zzzz'");
   await expect(page.locator(".mw-job")).toHaveCount(0);
 });
 
@@ -98,8 +98,8 @@ test("music-work: a missing index sheet reads as a calm empty state", async ({ p
   await page.locator(".side-item", { hasText: "Music Work" }).click();
   await expect(page.locator(".dash-title")).toHaveText("Music Work");
   await expect(page.locator(".dash-state")).toContainText("index missing");
-  await expect(page.locator(".dash-foot")).toContainText("No 'Work Index' sheet yet");
+  await expect(page.locator(".dash-empty")).toContainText("No 'Work Index' sheet yet");
   // no error banner on a missing sheet
-  await expect(page.locator(".sync-action-err")).toHaveCount(0);
+  await expect(page.locator(".dash-alert")).toHaveCount(0);
   await expect(page.locator(".mw-job")).toHaveCount(0);
 });

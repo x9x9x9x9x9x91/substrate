@@ -152,7 +152,7 @@ test("a malformed heatmap fence errors in place while its siblings render (SUB-9
     ].join("\n"),
   );
 
-  const err = page.locator(".chart-err");
+  const err = page.locator(".dash-alert");
   await expect(err).toHaveCount(1);
   await expect(err).toHaveText(/value must be count or sum:<prop>/);
   // the sound fence beside it is untouched
@@ -191,7 +191,7 @@ test("`dashboard: charts` renders the heatmaps too (SUB-966)", async ({ page }) 
   await page.locator(".side-item", { hasText: "Overview" }).click();
   await expect(page.locator(".dash-title")).toHaveText("Overview");
 
-  await expect(page.locator(".chart-err")).toHaveCount(0);
+  await expect(page.locator(".dash-alert")).toHaveCount(0);
   await expect(page.locator(".dash-chart .dash-bar-col")).toHaveCount(3);
   await expect(page.locator(".heatmap-grid")).toHaveCount(1);
   await expect(
@@ -252,9 +252,9 @@ test("a hub body renders a heatmap fence beside its other fences (SUB-966)", asy
   await expect(heat.first().locator(".heatmap-grid")).toHaveCount(1);
   // the query is the filter-bar language, and the foot says which one ran
   await expect(heat.first().locator(".dash-foot")).toHaveText("database: task · status:todo");
-  await expect(heat.first().locator(".chart-err")).toHaveCount(0);
+  await expect(heat.first().locator(".dash-alert")).toHaveCount(0);
 
-  const err = heat.nth(1).locator(".chart-err");
+  const err = heat.nth(1).locator(".dash-alert");
   await expect(err).toHaveCount(1);
   await expect(err).toHaveText(/value must be count or sum:<prop>/);
 

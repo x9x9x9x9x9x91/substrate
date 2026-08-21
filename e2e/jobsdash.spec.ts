@@ -88,7 +88,7 @@ test("freshness failure warns configured rows, keeps the roster, and recovers", 
   // A successful control action kicks both reads immediately. The roster
   // refresh still succeeds; only its separate freshness evidence is unknown.
   await row(page, "com.example.verify").locator(".sync-run").click();
-  const error = page.locator(".sync-action-err", { hasText: "freshness unreadable" });
+  const error = page.locator(".dash-alert", { hasText: "freshness unreadable" });
   await expect(error).toContainText("mock failure: jobs_freshness");
   await expect(page.locator(".jobs-row")).toHaveCount(5);
   const digest = row(page, "com.example.digest");
@@ -114,8 +114,8 @@ test("initial launchd read failure shows an honest empty error state", async ({ 
   });
   await openJobs(page);
 
-  await expect(page.locator(".sync-empty")).toContainText("launchd unreadable");
-  await expect(page.locator(".sync-empty")).toContainText("mock failure: jobs_read");
+  await expect(page.locator(".dash-alert")).toContainText("launchd unreadable");
+  await expect(page.locator(".dash-alert")).toContainText("mock failure: jobs_read");
   await expect(page.locator(".jobs-row")).toHaveCount(0);
 });
 
@@ -129,7 +129,7 @@ test("transient launchd read failure keeps the last-good roster and recovers", a
   // The control succeeds in the backend, then its immediate roster reload
   // fails. The last-good row remains usable instead of becoming an empty pane.
   await digest.locator(".sync-pause").click();
-  const error = page.locator(".sync-action-err", { hasText: "launchd refresh failed" });
+  const error = page.locator(".dash-alert", { hasText: "launchd refresh failed" });
   await expect(error).toContainText("mock failure: jobs_read");
   await expect(page.locator(".jobs-row")).toHaveCount(5);
   await expect(digest.locator(".sync-pause")).toBeVisible();
@@ -200,7 +200,7 @@ test("a machine with no launchd says so instead of showing a roster", async ({ p
     window.__mockJobsNoLaunchd = true;
   });
   await openJobs(page);
-  await expect(page.locator(".dash-foot")).toContainText("This machine has no launchd");
+  await expect(page.locator(".dash-empty")).toContainText("This machine has no launchd");
   await expect(page.locator(".jobs-row")).toHaveCount(0);
   await expect(page.locator(".sync-btn")).toHaveCount(0);
   await expect(page.locator(".dash-inner")).toContainText("no scheduler here");

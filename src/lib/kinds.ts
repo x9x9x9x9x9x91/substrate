@@ -17,6 +17,8 @@
    The loading mechanism, the enable pane and the dispatch change ship in
    later units of the arc — this file is the contract they all agree on. */
 
+import { foldedPropKey, propStr } from "./types.ts";
+
 /** The `dashboard:` values the app itself renders. Kinds may not shadow one:
     built-ins WIN, and enabling a colliding bundle fails with "rename the
     folder". Two reasons — built-ins write to the vault (task state, food log,
@@ -88,16 +90,50 @@ export type DashboardDispatch =
   | { dispatch: "body-scan" }
   | { dispatch: "unknown"; kind: string; message: string };
 
-/** Resolve one note's `dashboard:` prop to its renderer. Absent or blank is
+/** Resolve one note's `dashboard:` prop to its renderer. NO prop is
     body-scan; anything else is a built-in or an honest error card.
+
+    Surrounding whitespace is not meaningful — `dashboard: " gear-log "`
+    is the same request as `dashboard: gear-log`, because nothing downstream
+    (folder name, URL segment, id grammar) can hold a space anyway. But a
+    value that is ONLY whitespace is a different case from no value at all:
+    the prop is there, someone meant to name something, and the name is
+    missing. Treating that as "no dashboard named" used to render the yield
+    tracker instead — the same wrong answer, arrived at silently, that the
+    unknown-kind card exists to prevent. So it gets the card, with the raw
+    value quoted so the note's own text and the message match.
 
     Custom kinds are resolved by the caller BEFORE this — a bundle
     that exists and is enabled never reaches here, and one that doesn't
     carries its own `KindState` reason, which is more specific than the
     unknown-kind message below. */
+/** The `dashboard:` a note carries, as the dispatch has to see it.
+
+    `propStr` answers `undefined` for a property whose value is null, and a
+    bare `dashboard:` line in frontmatter parses to exactly that — the key is
+    there, the value is missing. Read through `propStr` alone the two cases
+    collapse: a note whose author typed the key and then stopped naming
+    anything looks identical to a note with no `dashboard:` at all, so it
+    falls through to the body scan and quietly renders some other dashboard.
+    That is the same silent-wrong-answer the blank-text card exists to
+    refuse, arrived at by a shape one keystroke away from it. So presence is
+    read first, and a present-but-empty value comes back as blank text. */
+export function dashboardProp(props: Record<string, unknown>): string | undefined {
+  const key = foldedPropKey(props, "dashboard");
+  if (!Object.prototype.hasOwnProperty.call(props, key)) return undefined;
+  return propStr(props, key) ?? "";
+}
+
 export function resolveDashboardKind(kind: string | undefined): DashboardDispatch {
-  const name = kind?.trim() ?? "";
-  if (!name) return { dispatch: "body-scan" };
+  if (kind === undefined) return { dispatch: "body-scan" };
+  const name = kind.trim();
+  if (!name) {
+    return {
+      dispatch: "unknown",
+      kind,
+      message: `the dashboard property is set to blank text, which names no dashboard — known kinds: ${knownKindList()}`,
+    };
+  }
   if (BUILT_IN_KINDS.has(name)) return { dispatch: "built-in", kind: name };
   return {
     dispatch: "unknown",

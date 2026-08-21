@@ -18,6 +18,7 @@ The other ~265 e2e specs assert structure — text, counts, classes — so a
 dropped stylesheet, a colour token repointed, a pane that quietly lost its
 padding all pass them. This tier fails.
 
+
 What it is **not** for: judging whether a surface looks good, or how it looks
 in the shipped app. These are headless Chromium on Linux. The app ships in
 WKWebView on macOS with retina geometry and different font stacks — the
@@ -52,6 +53,15 @@ is only to answer "did this change?", never "is this right?".
 
   Re-recording to make red go away, on a branch that did not touch rendering,
   is the one misuse that empties the tier.
+
+  A re-record also absorbs whatever delta main's own baseline was already
+  carrying — a merge that repaints a shared surface and re-records only the
+  shot it noticed leaves the others stale, and the next branch to touch them
+  silently swallows the difference. Nothing is broken by that, but the record
+  says one branch's change moved pixels that another branch's change moved.
+  So name the absorbed delta in the commit message. On `sub/1238-design`,
+  `dash-overview.png` picked up the sidebar's "This day, before" entry from
+  merge 31afcfe9d, which re-recorded `all-notes.png` alone.
 - **Determinism is load-bearing.** The mock seeds date their fixtures off
   `Date.now()` at module load, so the spec installs a fixed clock and pins the
   timezone to UTC before the first navigation. Anything genuinely unstable gets

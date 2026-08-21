@@ -31,6 +31,7 @@ import { useUsdEur } from "./useFx";
 import { DANGER, IDLE, OK, WARN } from "../lib/tokens";
 import { errText, midSentence } from "../lib/errtext";
 import { useDashUndo, type DashUndoStore } from "./useDashUndo";
+import { DashAlert } from "./DashNotice";
 
 interface YieldDashboardProps {
   meta: NoteMeta;
@@ -272,12 +273,12 @@ export default function YieldDashboard({
         />
 
         {readErr && (
-          <div className="sync-action-err">
+          <DashAlert>
             This note could not be read — {midSentence(readErr)}. The board below is empty because
             nothing was loaded, not because nothing was logged.
-          </div>
+          </DashAlert>
         )}
-        {writeErr && <div className="sync-action-err">{writeErr}</div>}
+        {writeErr && <DashAlert>{writeErr}</DashAlert>}
 
         <div className="dash-hero">
           <div>
@@ -326,7 +327,7 @@ export default function YieldDashboard({
                 ↻
               </button>
             </div>
-            {rateErr && <div className="sync-action-err">Rate refresh failed: {rateErr}</div>}
+            {rateErr && <DashAlert>Rate refresh failed: {rateErr}</DashAlert>}
           </div>
         </div>
 

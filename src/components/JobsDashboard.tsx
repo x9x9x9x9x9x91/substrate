@@ -9,6 +9,7 @@ import { DANGER, IDLE, OK, WARN } from "../lib/tokens";
 import { foldedPropKey } from "../lib/types";
 import { DashHead } from "./DashHead";
 import { errText } from "../lib/errtext";
+import { DashAlert, DashEmpty } from "./DashNotice";
 
 interface JobsDashboardProps {
   meta: NoteMeta;
@@ -246,10 +247,10 @@ export default function JobsDashboard({ meta, vaultEpoch, onOpenSource }: JobsDa
       <div className="note">
         <div className="dash-inner">
           {head}
-          <div className="dash-foot sync-empty">
+          <DashEmpty>
             This machine has no launchd — the jobs dashboard reads macOS's scheduler, so
             there is nothing here to show or control.
-          </div>
+          </DashEmpty>
         </div>
       </div>
     );
@@ -260,7 +261,7 @@ export default function JobsDashboard({ meta, vaultEpoch, onOpenSource }: JobsDa
       <div className="note">
         <div className="dash-inner">
           {head}
-          <div className="dash-foot sync-empty">launchd unreadable — {readErr}</div>
+          <DashAlert>launchd unreadable — {readErr}</DashAlert>
         </div>
       </div>
     );
@@ -271,7 +272,10 @@ export default function JobsDashboard({ meta, vaultEpoch, onOpenSource }: JobsDa
       <div className="note">
         <div className="dash-inner">
           {head}
-          <div className="dash-foot sync-empty">reading launchd…</div>
+          {/* Arriving, not settled: the empty voice would read as "there are
+              no jobs" over a board that is about to show some. Same loading
+              dialect charts and heatmaps use while their series load. */}
+          <div className="dash-foot">reading launchd…</div>
         </div>
       </div>
     );
@@ -282,9 +286,9 @@ export default function JobsDashboard({ meta, vaultEpoch, onOpenSource }: JobsDa
       <div className="note">
         <div className="dash-inner">
           {head}
-          {readErr && <div className="sync-action-err">launchd refresh failed — {readErr}</div>}
-          {freshErr && <div className="sync-action-err">freshness unreadable — {freshErr}</div>}
-          <div className="dash-foot sync-empty">
+          {readErr && <DashAlert>launchd refresh failed — {readErr}</DashAlert>}
+          {freshErr && <DashAlert>freshness unreadable — {freshErr}</DashAlert>}
+          <DashEmpty>
             No scheduled jobs on this machine under{" "}
             {prefixes.length
               ? // the labels carry their own trailing dot ("com.substrate."), and
@@ -293,7 +297,7 @@ export default function JobsDashboard({ meta, vaultEpoch, onOpenSource }: JobsDa
                 prefixes.map((p) => p.replace(/\.$/, "")).join(", ")
               : "the default prefixes"}
             .
-          </div>
+          </DashEmpty>
         </div>
       </div>
     );
@@ -304,9 +308,9 @@ export default function JobsDashboard({ meta, vaultEpoch, onOpenSource }: JobsDa
       <div className="dash-inner">
         {head}
 
-        {readErr && <div className="sync-action-err">launchd refresh failed — {readErr}</div>}
-        {freshErr && <div className="sync-action-err">freshness unreadable — {freshErr}</div>}
-        {actionErr && <div className="sync-action-err">{actionErr}</div>}
+        {readErr && <DashAlert>launchd refresh failed — {readErr}</DashAlert>}
+        {freshErr && <DashAlert>freshness unreadable — {freshErr}</DashAlert>}
+        {actionErr && <DashAlert>{actionErr}</DashAlert>}
 
         <div className="jobs-rows">
           {rows.map((j) => {

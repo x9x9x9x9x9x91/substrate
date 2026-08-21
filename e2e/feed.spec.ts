@@ -92,9 +92,9 @@ test("feed: a missing items sheet reads as a calm empty state", async ({ page })
   await page.locator(".side-item", { hasText: "News" }).click();
   await expect(page.locator(".dash-title")).toHaveText("News");
   await expect(page.locator(".dash-state")).toContainText("sheet missing");
-  await expect(page.locator(".dash-foot")).toContainText("No 'News Items' sheet yet");
+  await expect(page.locator(".dash-empty")).toContainText("No 'News Items' sheet yet");
   // no error banner on a missing sheet
-  await expect(page.locator(".sync-action-err")).toHaveCount(0);
+  await expect(page.locator(".dash-alert")).toHaveCount(0);
   await expect(page.locator(".feed-item")).toHaveCount(0);
 });
 

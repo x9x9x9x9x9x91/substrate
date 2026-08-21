@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   BARE_MACHINE_FENCE_LANGS,
+  hasUnclosedFence,
   TAILED_MACHINE_FENCE_LANGS,
   isTailedBareFence,
   stripMachineFences,
@@ -296,4 +297,64 @@ test("isTailedBareFence marks exactly the tailed bare-form openers (SUB-965)", (
   ] as const) {
     assert.equal(isTailedBareFence(lang, tail), false, `${lang} "${tail}" dispatches normally`);
   }
+});
+
+test("hasUnclosedFence sees the closing line that never came", () => {
+  // the case the parsers are blind to by construction: their "```lang\n … ```"
+  // pattern matches nothing here, so the board counted zero fences and said
+  // nothing about the one that is plainly written in the note
+  assert.equal(hasUnclosedFence("```chart\nsource: release\n", "chart"), true);
+  assert.equal(hasUnclosedFence("```chart\nsource: release\n```\n", "chart"), false);
+  // a closed fence followed by an open one of the same language
+  assert.equal(
+    hasUnclosedFence("```chart\nx: a\n```\n\ntext\n\n```chart\nx: b\n", "chart"),
+    true
+  );
+  // the last opener is what is left open — a chart that closed and a heatmap
+  // that did not is the heatmap's problem, not the chart's
+  const mixed = "```chart\nx: a\n```\n```heatmap\nsource: release\n";
+  assert.equal(hasUnclosedFence(mixed, "chart"), false);
+  assert.equal(hasUnclosedFence(mixed, "heatmap"), true);
+  // case follows the parser that asks: the heatmap parser's own opener folds
+  // case, the others match the literal spelling
+  const shouty = "```HeatMap\nsource: release\n";
+  assert.equal(hasUnclosedFence(shouty, "heatmap"), false);
+  assert.equal(hasUnclosedFence(shouty, "heatmap", true), true);
+  // an opener with a tail still opens (```chart compact)
+  assert.equal(hasUnclosedFence("```chart compact\nx: a\n", "chart"), true);
+  // a ``` that carries prose on its line still CLOSES the fence, because that
+  // is what "match to the next ```" does — the parser reads a block here and
+  // shows its own message about it, so a banner would be a second, wronger
+  // answer over a fence the board already spoke about
+  assert.equal(hasUnclosedFence("```chart\n``` inside prose\nx: a\n", "chart"), false);
+  // nothing open at all, and a user's own code fence, are both silent
+  assert.equal(hasUnclosedFence("just prose\n", "chart"), false);
+  assert.equal(hasUnclosedFence("```ts\nconst x = 1;\n", "chart"), false);
+  // CRLF openers close the same way
+  assert.equal(hasUnclosedFence("```chart\r\nx: a\r\n```\r\n", "chart"), false);
+  assert.equal(hasUnclosedFence("```chart\r\nx: a\r\n", "chart"), true);
+})
+
+test("hasUnclosedFence closes a fence wherever the parser closes it", () => {
+  // the shapes that used to raise a banner over a board that had just drawn
+  // the chart: the parsers close on the next ``` ANYWHERE, so an indented
+  // closer and a closer carrying an info string both close the fence
+  assert.equal(hasUnclosedFence("```chart\nx: a\n  ```\n", "chart"), false);
+  assert.equal(hasUnclosedFence("```chart\nx: a\n```js\n", "chart"), false);
+  assert.equal(hasUnclosedFence("```chart\nx: a\n``` \n", "chart"), false);
+  // an unrelated block left open elsewhere is not this fence's problem, in
+  // either order
+  assert.equal(hasUnclosedFence("```chart\nx: a\n```\n\n```ts\nconst x = 1;\n", "chart"), false);
+  assert.equal(hasUnclosedFence("```ts\nconst x = 1;\n```\n\n```chart\nx: a\n", "chart"), true);
+  // a note QUOTING fence syntax inside a ~~~ block is writing prose about a
+  // fence, not writing one
+  assert.equal(hasUnclosedFence("~~~\n```chart\nx: a\n~~~\n", "chart"), false);
+  assert.equal(hasUnclosedFence("~~~md\n```chart\nx: a\n~~~\n\n```chart\ny: b\n", "chart"), true);
+  // the likeliest way to mistype an opener by hand — a trailing space — is
+  // the one the parsers reject outright, so it must not go silent
+  assert.equal(hasUnclosedFence("```chart \nx: a\n", "chart"), true);
+  assert.equal(hasUnclosedFence("```heatmap\t\nsource: release\n", "heatmap", true), true);
+  // an indented opener opens: the parsers' patterns are unanchored, so they
+  // read one too
+  assert.equal(hasUnclosedFence("  ```chart\nx: a\n", "chart"), true);
 });

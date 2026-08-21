@@ -22,9 +22,11 @@ import {
   shouldTrustReenable,
   type KindCard,
 } from "../lib/kindpane";
+import { armKindSandbox, hostSurface, watchKindDom, type KindSandbox } from "../lib/kindSandbox";
 import KindReviewCard from "./KindReviewCard";
 import { kindsEnable } from "../lib/ipc";
 import { invalidateKindBundles } from "../hooks/useKindBundles";
+import { DashAlert } from "./DashNotice";
 
 /* The host for a vault-resident dashboard kind (vault-format §5.8).
 
@@ -44,7 +46,37 @@ import { invalidateKindBundles } from "../hooks/useKindBundles";
    output stays as it was. Catching it would take a global handler, which
    would attribute every page-wide error to whichever kind happened to be
    mounted. What IS covered: the import, the module shape, and the synchronous
-   body of mount() — the failures that mean the kind never got going. */
+   body of mount() — the failures that mean the kind never got going.
+
+   Three ways a kind used to take the pane down with it, all contained here
+   rather than left to the kind's good manners:
+
+   - mount() never settling. An async mount that awaits something that never
+     arrives left the pane holding an empty div forever, with no spinner and
+     no message — indistinguishable from a kind that drew nothing on purpose.
+     A watchdog turns that wait into a card once it has plainly stalled.
+   - writing outside the element it was handed. The host owns the head and
+     the frame; a kind that appends to document.body or empties its parent
+     blanked the pane with the damage still on screen. Its mount call is
+     watched, what it did outside its own element is put back, and it gets a
+     card naming what it touched (`kindSandbox.ts`).
+   - leaving timers and window listeners running. Those are reclaimed at
+     unmount by the same module — see its header for what is and is not
+     attributable, and vault-format §5.8 for what a kind is still told to
+     clean up itself. */
+
+/** How long a mount() may be in flight, having drawn nothing, before the pane
+    stops waiting and says so. Generous on purpose: a kind that reads a large
+    sheet over IPC on a cold vault is doing real work, and a watchdog that
+    fires on slow-but-fine is worse than the blank it replaces. Well short of
+    the point where a person concludes the app is broken. */
+const MOUNT_STALL_MS = 5000;
+
+/** A duck-typed promise check — a kind may return any thenable, and one from
+    another realm fails `instanceof Promise`. */
+function isThenable(v: unknown): v is PromiseLike<unknown> {
+  return typeof (v as { then?: unknown } | null | undefined)?.then === "function";
+}
 
 /** What the pane needs from `DashboardBody`. A subset of DashboardPaneProps,
     spelled out rather than imported so the kind surface can't quietly grow
@@ -120,6 +152,11 @@ export default function CustomKindPane(props: CustomKindPaneProps) {
   const live = useRef(props);
   live.current = props;
 
+  /* The mounted kind's containment surface, shared with the vault-change
+     effect below so a timer armed from an onChange handler is reclaimed with
+     everything else. Null whenever no kind code is live. */
+  const sandboxRef = useRef<KindSandbox | null>(null);
+
   const runnable = state.state === "enabled";
   const entry = state.state === "invalid" ? null : state.manifest.entry;
   const style = state.state === "invalid" ? undefined : state.manifest.style;
@@ -139,6 +176,11 @@ export default function CustomKindPane(props: CustomKindPaneProps) {
     let dead = false;
     let cleanup: (() => void) | undefined;
     let styleEl: HTMLStyleElement | null = null;
+    /* Armed before any of the kind's code can run and released in teardown:
+       what it registers on the window goes away with its pane. */
+    const sandbox = armKindSandbox();
+    sandboxRef.current = sandbox;
+    let stall: number | undefined;
     /* The element the kind owns outright, tracked out here so both exits —
        failure and unmount — can take exactly it away again. */
     let own: HTMLElement | null = null;
@@ -149,13 +191,21 @@ export default function CustomKindPane(props: CustomKindPaneProps) {
        after its mount() started having effects leaves nothing running. */
     const teardown = () => {
       subs.current.clear();
+      if (stall !== undefined) window.clearTimeout(stall);
+      stall = undefined;
       try {
-        cleanup?.();
+        // Inside the sandbox: a kind whose cleanup arms one last timer does
+        // not get to outlive its own teardown by doing so.
+        sandbox.run(() => cleanup?.());
       } catch (e) {
         // A kind that throws on the way out must not take the app's teardown
         // with it — it is going away regardless.
         console.warn(`custom kind “${id}”: cleanup threw`, e);
       }
+      // After its own cleanup has had its turn — whatever it left behind on
+      // the window is cancelled here.
+      sandbox.release();
+      if (sandboxRef.current === sandbox) sandboxRef.current = null;
       cleanup = undefined;
       styleEl?.remove();
       styleEl = null;
@@ -171,11 +221,72 @@ export default function CustomKindPane(props: CustomKindPaneProps) {
        first, then show why. The effect's own cleanup won't run for this — the
        deps didn't change — so anything left registered here would outlive the
        kind that registered it. */
-    const fail = (file: string, e: unknown) => {
+    const failWith = (file: string, msg: string) => {
       if (dead) return;
-      const msg = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
       teardown();
       setRuntime(kindRuntimeCard(id, file, msg));
+    };
+    const fail = (file: string, e: unknown) => {
+      failWith(file, e instanceof Error ? `${e.name}: ${e.message}` : String(e));
+    };
+
+    /* An async mount that never settles used to leave an empty div and
+       nothing else — the pane looked like a kind that drew nothing. Past the
+       point where "still working" stops being a plausible reading, the wait
+       becomes a card that names the kind and the stall. Two guards keep it
+       from firing on a kind that is merely slow: it settles the moment the
+       promise does, and it stays quiet if the kind has drawn anything at all
+       (a kind that painted and then kept loading is working, not stalled). */
+    const armMountWatchdog = (p: PromiseLike<unknown>) => {
+      let settled = false;
+      stall = window.setTimeout(() => {
+        stall = undefined;
+        if (settled || dead) return;
+        if (own && own.childNodes.length > 0) return;
+        failWith(
+          entry,
+          `mount() has not finished after ${Math.round(MOUNT_STALL_MS / 1000)} seconds and nothing has been drawn — it is waiting on something that has not arrived.`,
+        );
+      }, MOUNT_STALL_MS);
+      p.then(
+        (out: unknown) => {
+          settled = true;
+          if (stall !== undefined) window.clearTimeout(stall);
+          stall = undefined;
+          /* An async mount returns its cleanup the same way a synchronous one
+             does — through the resolved value — and dropping it here left
+             every kind that awaits before wiring up leaking exactly what the
+             sandbox cannot see. If the pane went while the promise was in
+             flight, teardown has already been and gone, so the cleanup runs
+             now rather than never. */
+          if (typeof out !== "function") return;
+          const resolved = out as () => void;
+          if (!dead) {
+            cleanup = resolved;
+            return;
+          }
+          try {
+            sandbox.run(() => resolved());
+          } catch (e) {
+            console.warn(`custom kind “${id}”: cleanup threw`, e);
+          }
+        },
+        (e: unknown) => {
+          settled = true;
+          if (stall !== undefined) window.clearTimeout(stall);
+          stall = undefined;
+          /* A mount that rejects is a kind that failed, and it gets the card
+             a kind that throws synchronously gets — leaving the pane blank
+             and the reason in the console only was a failure the reader had
+             no way to see. */
+          fail(entry, e);
+          /* Re-thrown on purpose, after the card. A rejected mount() is code
+             the pane never awaited (see the header): it belongs in the
+             console as the page error it has always been, and swallowing it
+             here would hide the stack the kind's author needs. */
+          throw e;
+        },
+      );
     };
 
     (async () => {
@@ -241,13 +352,30 @@ export default function CustomKindPane(props: CustomKindPaneProps) {
         if (dead) return;
         setKindState(s);
       };
+      const ctx = hostSurface(
+        makeCtx(drawn, id, subs.current, note, fxRef, live, pushState),
+        sandbox,
+      );
+      /* The whole synchronous mount, watched: single-threaded means anything
+         the DOM sees between these two lines is this kind's doing. */
+      const watch = watchKindDom(drawn);
+      let out: void | (() => void);
       try {
-        const out = mount(drawn, makeCtx(drawn, id, subs.current, note, fxRef, live, pushState));
-        if (typeof out === "function") cleanup = out;
+        out = sandbox.run(() => mount(drawn, ctx));
       } catch (e) {
+        watch.stop();
         fail(entry, e);
         return;
       }
+      const escaped = watch.stop();
+      if (escaped) {
+        // The DOM is already back the way it was; the kind is stopped rather
+        // than left half-drawn next to chrome it tried to replace.
+        failWith(entry, escaped.summary);
+        return;
+      }
+      if (typeof out === "function") cleanup = out;
+      else if (isThenable(out)) armMountWatchdog(out);
       if (dead) {
         // unmounted while mount() was running — honour the teardown anyway
         teardown();
@@ -279,9 +407,13 @@ export default function CustomKindPane(props: CustomKindPaneProps) {
       })
       .finally(() => {
         if (gone) return;
+        const sb = sandboxRef.current;
         for (const cb of [...subs.current]) {
           try {
-            cb();
+            // Same attribution as mount: a redraw handler that re-arms a
+            // timer is still the kind arming it.
+            if (sb) sb.run(() => cb());
+            else cb();
           } catch (e) {
             console.warn(`custom kind “${id}”: onChange handler threw`, e);
           }
@@ -349,7 +481,7 @@ export default function CustomKindPane(props: CustomKindPaneProps) {
              that list. */
           <KindReviewCard review={review} hash={hash} />
         ) : (
-          card && <div className="chart-err">{card.message}</div>
+          card && <DashAlert>{card.message}</DashAlert>
         )}
         {/* The host renders unconditionally, as the card's sibling rather than
             its alternative. Two reasons, both lifecycle: `host.current` stays

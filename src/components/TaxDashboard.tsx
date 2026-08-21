@@ -24,6 +24,7 @@ import { useNumberLocale } from "../hooks/useNumberLocale";
 import { useFxRates } from "./useFx";
 import { DashHead, DashPrintButton } from "./DashHead";
 import { errText, midSentence } from "../lib/errtext";
+import { DashAlert, DashEmpty } from "./DashNotice";
 
 interface TaxDashboardProps {
   meta: NoteMeta;
@@ -157,14 +158,14 @@ export default function TaxDashboard({ meta, vaultEpoch, onOpenSource }: TaxDash
         />
 
         {snapshotBroken && (
-          <div className="tax-alert">
+          <DashAlert>
             Missing-evidence snapshot unavailable — {missSheet.state.error ?? `${missingName} could not be read`}
-          </div>
+          </DashAlert>
         )}
         {fresh !== null && fresh.stale && (
-          <div className="tax-alert">
+          <DashAlert>
             Snapshot freshness cannot be trusted — {taxFreshnessLabel(fresh)}.
-          </div>
+          </DashAlert>
         )}
         {/* What this source feeds is the category table below and nothing else:
             the cards resolve their own `{{Sheet.summary}}` bindings through the
@@ -173,11 +174,11 @@ export default function TaxDashboard({ meta, vaultEpoch, onOpenSource }: TaxDash
             unavailable" over a fully populated strip — true of the table,
             false of everything the reader could see. */}
         {!aggSheet.pending && aggSheet.state.error !== null && (
-          <div className="tax-alert">
+          <DashAlert>
             Category breakdown unavailable — {midSentence(aggSheet.state.error)}.
             {cards.length > 0 &&
               " The cards below read their own bindings and are unaffected."}
-          </div>
+          </DashAlert>
         )}
 
         {cards.length > 0 && (
@@ -219,10 +220,7 @@ export default function TaxDashboard({ meta, vaultEpoch, onOpenSource }: TaxDash
           <>
             <div className="dash-section-label">Missing evidence</div>
             {missingCount === 0 ? (
-              <div className="tax-clear">
-                <span className="dash-dot" style={{ background: "var(--ok)" }} />
-                Everything accounted for.
-              </div>
+              <DashEmpty tone="ok">Everything accounted for.</DashEmpty>
             ) : (
               <div className="tax-missing">
                 {groups.map((group) => (

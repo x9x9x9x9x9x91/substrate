@@ -27,6 +27,7 @@ import { ChevronLeftIcon, ChevronRightIcon, NoteIcon } from "./Icons";
 import { DashHead } from "./DashHead";
 import SwitchGroup from "./SwitchGroup";
 import { useDashUndo, type DashUndoStore } from "./useDashUndo";
+import { DashAlert, DashEmpty } from "./DashNotice";
 
 interface FoodDashboardProps {
   meta: NoteMeta;
@@ -557,12 +558,12 @@ export default function FoodDashboard({
           onOpenSource={logPath !== null ? onOpenSource : undefined}
         />
 
-        {writeErr && <div className="sync-action-err">{writeErr}</div>}
+        {writeErr && <DashAlert>{writeErr}</DashAlert>}
 
         {missing ? (
-          <div className="dash-foot">
+          <DashEmpty>
             Log note '{logName}' not found — create it or set the `log` prop.
-          </div>
+          </DashEmpty>
         ) : (
           d !== null && (
             <>

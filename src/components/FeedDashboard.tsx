@@ -26,6 +26,7 @@ import {
 import type { FeedItem } from "../lib/feed";
 import { dayLabel } from "../lib/food";
 import { DashHead } from "./DashHead";
+import { DashAlert, DashEmpty } from "./DashNotice";
 
 interface FeedDashboardProps {
   meta: NoteMeta;
@@ -399,8 +400,8 @@ export default function FeedDashboard({
           onOpenSource={itemsPath !== null ? onOpenSource : undefined}
         />
 
-        {writeErr && <div className="sync-action-err">{writeErr}</div>}
-        {curatorErr && <div className="sync-action-err">{curatorErr}</div>}
+        {writeErr && <DashAlert>{writeErr}</DashAlert>}
+        {curatorErr && <DashAlert>{curatorErr}</DashAlert>}
 
         {topics.length > 1 && (
           <div className="feed-filter" role="group" aria-label="Filter by topic">
@@ -430,11 +431,11 @@ export default function FeedDashboard({
         )}
 
         {missing ? (
-          <div className="dash-foot">No '{itemsName}' sheet yet — the curator writes it.</div>
+          <DashEmpty>No '{itemsName}' sheet yet — the curator writes it.</DashEmpty>
         ) : body !== null && items.length === 0 ? (
-          <div className="dash-foot">Nothing curated yet — '{itemsName}' has no items.</div>
+          <DashEmpty>Nothing curated yet — '{itemsName}' has no items.</DashEmpty>
         ) : body !== null && visible.length === 0 ? (
-          <div className="dash-foot">Nothing under this filter — pick another topic or 'all'.</div>
+          <DashEmpty>Nothing under this filter — pick another topic or 'all'.</DashEmpty>
         ) : (
           <div className="feed-stream">
             {days.map((day) => (
@@ -526,7 +527,7 @@ export default function FeedDashboard({
               your approval before its first run. The full recipe lives in the app
               docs, docs/dashboards.md §feed.
             </div>
-            {saveErr && <div className="sync-action-err">{saveErr}</div>}
+            {saveErr && <DashAlert>{saveErr}</DashAlert>}
             <div className="dbform-foot">
               <button className="selmenu-btn" onClick={() => setSetupOpen(false)}>
                 Cancel

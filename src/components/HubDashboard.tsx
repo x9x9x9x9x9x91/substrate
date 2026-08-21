@@ -36,6 +36,7 @@ import { MetricCardStrip, useCardValues, type CardValue } from "./MetricCards";
 import TimelineFence from "./TimelineFence";
 import { OptionPill } from "./SelectMenu";
 import { schemaPillColor } from "../lib/cellpill";
+import { DashAlert, DashEmpty } from "./DashNotice";
 
 interface HubDashboardProps {
   meta: NoteMeta;
@@ -226,7 +227,7 @@ function DashEmbed({ name, size = null }: { name: string; size?: EmbedSize | nul
     editor's inline widget and a workbook view page show, read-only, sitting in
     the section slot it was written into. A fence that resolves to an error
     (unknown database, empty spec) says so in place — the chart-block idiom
-    (ChartsDashboard's `.chart-err`): a broken block never takes its siblings
+    (ChartsDashboard's `DashAlert`): a broken block never takes its siblings
     down, and never silently disappears either. Caps stay the widget's
     defaults, which is the right density for a home page's section. */
 function HubViewFence({
@@ -240,7 +241,7 @@ function HubViewFence({
     () => embedQueryFor(parseViewSpec(inner), view.notes, view.schema, view.savedViews),
     [inner, view]
   );
-  if ("error" in result) return <div className="hub-view-err">{result.error}</div>;
+  if ("error" in result) return <DashAlert>{result.error}</DashAlert>;
   return (
     <div className="hub-view">
       <EmbedViewTable result={result} onOpenSource={view.onOpenSource} edit={view.embedEdit} />
@@ -350,7 +351,7 @@ function HubProgressFence({
     Emphasis is capped across the whole page, not per fence — the parent hands
     down this fence's slice of that decision. */
 function HubCardsFence({ slot }: { slot: CardsSlot }) {
-  if (slot.block.error) return <div className="hub-cards-err">{slot.block.error}</div>;
+  if (slot.block.error) return <DashAlert>{slot.block.error}</DashAlert>;
   return <MetricCardStrip cards={slot.block.cards} sharp={slot.sharp} cardValue={slot.cardValue} />;
 }
 
@@ -666,6 +667,12 @@ export default function HubDashboard({
         />
 
         <div className="hub-body">
+          {blocks.length === 0 && (
+            <DashEmpty>
+              Nothing on this hub yet — write the page in this note: `##` headings become
+              sections, and view, chart, cards and progress fences become live blocks.
+            </DashEmpty>
+          )}
           {blocks.map((b, i) => {
             if (b.kind === "section")
               return (

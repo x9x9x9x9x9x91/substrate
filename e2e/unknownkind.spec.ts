@@ -28,7 +28,7 @@ test("an unknown dashboard kind renders the error card, never the yield tracker"
 }) => {
   await openOverview(page, "gear-log");
 
-  const err = page.locator(".chart-err");
+  const err = page.locator(".dash-alert");
   await expect(err).toHaveCount(1);
   await expect(err).toContainText("unknown dashboard kind");
   await expect(err).toContainText("gear-log");
@@ -50,7 +50,7 @@ test("an unknown dashboard kind renders the error card, never the yield tracker"
 
 test("dashboard: charts dispatches to the charts renderer by name", async ({ page }) => {
   await openOverview(page, "charts");
-  await expect(page.locator(".chart-err")).toHaveCount(0);
+  await expect(page.locator(".dash-alert")).toHaveCount(0);
   await expect(page.locator(".dash-state")).toContainText("4 charts");
   await expect(page.locator(".dash-section-label")).toHaveCount(4);
 });
@@ -59,7 +59,7 @@ test("no dashboard: prop at all keeps the body scan", async ({ page }) => {
   // the legacy path, unchanged: chart fences make it a charts
   // dashboard with no key named anywhere
   await openOverview(page, null);
-  await expect(page.locator(".chart-err")).toHaveCount(0);
+  await expect(page.locator(".dash-alert")).toHaveCount(0);
   await expect(page.locator(".dash-state")).toContainText("4 charts");
   await expect(page.locator(".dash-section-label")).toHaveCount(4);
 });

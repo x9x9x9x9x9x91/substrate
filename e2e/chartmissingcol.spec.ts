@@ -75,7 +75,7 @@ test("a renamed column is named by the chart, not hidden behind 'No rows matched
   await expect(page.locator(".dash-section-label", { hasText: "Value by bucket" })).toBeVisible();
 
   // the error says which column, on which sheet, and what the sheet does have
-  const err = page.locator(".chart-err");
+  const err = page.locator(".dash-alert");
   await expect(err).toHaveCount(1);
   await expect(err).toHaveText(
     "no column “value_usd” on Holdings (has: asset, bucket, units, price_usd, usd)"
@@ -91,7 +91,7 @@ test("a real column still plots — the error is about absence, not emptiness (S
 }) => {
   await openOverview(page, RENAMED, OVERVIEW_OK);
 
-  await expect(page.locator(".chart-err")).toHaveCount(0);
+  await expect(page.locator(".dash-alert")).toHaveCount(0);
   const bars = page.locator(".dash-bar-col");
   await expect(bars).toHaveCount(2);
   await expect(bars.nth(0).locator(".dash-bar-time")).toHaveText("etf");
@@ -103,7 +103,7 @@ test("a present column whose rows all skip keeps the neutral empty state (SUB-74
   await openOverview(page, ALL_UNPARSEABLE, OVERVIEW);
 
   // value_usd IS there; its cells simply don't parse. Naming it would be a lie.
-  await expect(page.locator(".chart-err")).toHaveCount(0);
+  await expect(page.locator(".dash-alert")).toHaveCount(0);
   await expect(page.getByText("No rows matched")).toBeVisible();
   await expect(page.locator(".dash-foot", { hasText: "2 rows skipped" })).toBeVisible();
 });

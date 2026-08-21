@@ -6,7 +6,7 @@ import { expect, test, type Page } from "@playwright/test";
 // `.then(onMutated)` — a rejection was unhandled, so a refused write left the
 // phantom snapshot on screen reading exactly like a saved one, and the next
 // successful write serialized it into the file. Now a rejection surfaces on
-// the same `.sync-action-err` banner the food and feed logs use, and reloads
+// the same `.dash-alert` banner the food and feed logs use, and reloads
 // disk truth so the optimistic body drops.
 
 async function boot(page: Page) {
@@ -32,7 +32,7 @@ test("a refused snapshot write surfaces and the phantom row goes away", async ({
   await page.locator(".dash-form input").nth(1).fill("250");
   await page.locator(".dash-add").click();
 
-  const err = page.locator(".sync-action-err");
+  const err = page.locator(".dash-alert");
   await expect(err).toBeVisible();
   await expect(err).toContainText("mock failure: vault_write_body");
   // disk truth reloaded: the row the board optimistically drew is gone
@@ -64,7 +64,7 @@ test("a refused claim surfaces and the Accrued metric keeps disk truth", async (
   await page.locator(".dash-claim").click();
   await page.locator(".dash-claim").click();
 
-  const err = page.locator(".sync-action-err");
+  const err = page.locator(".dash-alert");
   await expect(err).toBeVisible();
   await expect(err).toContainText("mock failure: vault_set_prop");
   await expect(accrued).not.toContainText("claimed");

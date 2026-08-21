@@ -61,7 +61,7 @@ test("a mounted folder charts per month with no importer (SUB-982)", async ({ pa
   await expect(
     page.locator(".dash-section-label", { hasText: "Documents touched per month" })
   ).toBeVisible();
-  await expect(page.locator(".chart-err")).toHaveCount(0);
+  await expect(page.locator(".dash-alert")).toHaveCount(0);
 
   // Nov 2025 → Jul 2026 with the empty months zero-filled: a time axis over a
   // folder is still a time axis, so the quiet months stay visible
@@ -97,7 +97,7 @@ test("a mount that isn't bound here still charts, quietly (SUB-982)", async ({ p
   await openBoard(page, {});
 
   // the numbers survive — the index is the portable half of a mount
-  await expect(page.locator(".chart-err")).toHaveCount(0);
+  await expect(page.locator(".dash-alert")).toHaveCount(0);
   await expect(page.locator(".hub-chart .dash-bar-col")).toHaveCount(9);
   await expect(card(page, "Documents").locator(".dash-card-eur")).toHaveText("13");
 
@@ -112,7 +112,7 @@ test("a mount that isn't bound here still charts, quietly (SUB-982)", async ({ p
 test("a bound folder that has gone away says so without breaking the board", async ({ page }) => {
   await openBoard(page, { path: "~/Elsewhere/missing-drive" });
 
-  await expect(page.locator(".chart-err")).toHaveCount(0);
+  await expect(page.locator(".dash-alert")).toHaveCount(0);
   await expect(page.locator(".hub-chart .dash-bar-col")).toHaveCount(9);
   await expect(page.locator(".chart-note")).toContainText("isn’t here right now");
   await expect(card(page, "Documents").locator(".dash-card-miss")).toHaveText("folder not found");
@@ -139,10 +139,10 @@ test("a mount pass that fails outright says so on both surfaces (SUB-982)", asyn
 
   // the chart says the name may well be a mount it couldn't reach, rather
   // than an empty database's empty plot
-  await expect(page.locator(".chart-err")).toContainText(
+  await expect(page.locator(".dash-alert")).toContainText(
     "no notes of type “Album Pool”, and mounted folders could not be read"
   );
-  await expect(page.locator(".chart-err")).toContainText("mounts_list");
+  await expect(page.locator(".dash-alert")).toContainText("mounts_list");
 
   // and the cards don't strand on "…": they resolve, and carry both halves of
   // the miss — not a live sheet, and the mount half failed
