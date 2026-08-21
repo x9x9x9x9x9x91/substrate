@@ -1,6 +1,6 @@
 [package]
 name = "substrate"
-version = "0.24.0"
+version = "0.25.0"
 description = "Substrate — local-first notes, databases, dashboards"
 license = "AGPL-3.0-only"
 edition = "2021"
@@ -54,6 +54,15 @@ sha2 = "0.10"
 uuid = { version = "1", features = ["v4"] }
 # sealed notes: age encrypts whole-file note bodies at rest
 age = "0.12.1"
+# Keyholders recovery cards: Shamir secret sharing over GF(256) for the
+# vault-lock key. `blahaj` is the maintained fork of the `sharks` crate — small,
+# splits arbitrary byte slices, and takes the same rand 0.8 the hosted-sync
+# crypto already uses. Hand-rolled field math is not an option here. Default
+# features carry `zeroize_memory`, which wipes a share's bytes on drop.
+blahaj = "0.6"
+# the printed card's QR block. `svg` only: the image renderer would drag in the
+# whole `image` crate to draw something the print surface renders as vectors.
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 ureq = "2"
 # Hosted-sync client crypto. The server only ever receives the
 # envelopes these primitives produce; key derivation and encryption stay here.

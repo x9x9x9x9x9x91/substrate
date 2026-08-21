@@ -85,6 +85,8 @@ changes.
 `GET /h/<id>` → viewer page (a GET never burns — link-preview bots GET) ·
 `POST /api/claim/<id>` → payload bytes, one-shot for burn entries.
 
+The lens tier below reuses this exact payload format under its own slugs.
+
 ## Letterbox
 
 The same relay carries the inbound direction: a standing drop link anyone can
@@ -163,6 +165,69 @@ Ciphertext lives under `<HANDOFF_DIR>/letterbox/<box-id>/`. Setting
 endpoints into 404s and stops sweeping that tree — the ciphertext already there
 stays on disk, untouched and unreachable, until the relay is re-enabled or an
 operator deletes the directory by hand.
+
+## Lens
+
+The third tier is the *living* one: a lens is one slug the owner keeps
+rewriting. The app registers it here, then re-seals and PUTs the page's
+current state every time the note is saved; the reader's URL
+`https://<relay>/l/<id>#<key>` never changes, and their browser re-fetches
+whenever they come back to the tab. Nothing burns and nothing expires on a
+timer — a lens ends when its owner revokes it, or when nobody has published to
+or read it for `LENS_IDLE_TTL_MS`.
+
+The payload is the **same wire format as a handoff** (`"SBH1"` + IV +
+AES-256-GCM), sealed by the same `src/lib/handoff.ts`. The only difference is
+that the key is minted once and kept in the publishing vault rather than
+generated per upload — a fresh key every save would break the link already
+handed out. Each seal still uses a fresh IV, which is what AES-GCM requires of
+a reused key.
+
+Reading a lens needs no credential, exactly as claiming a handoff does not: the
+link is the capability. Publishing and revoking need the owner bearer the relay
+minted at registration, which never leaves the vault's `.vault/lens.json`.
+
+The freshness line the reader sees ("as of 14:02 · 21 Aug 2026") is sealed
+*inside* the document, not served as a header — a relay that could set the
+timestamp could make a stale page look current.
+
+| endpoint | auth | meaning |
+| --- | --- | --- |
+| `POST /api/lens/register` | relay upload token, if set | → `{"id","token"}`; no body is read |
+| `PUT /api/lens/<id>` | lens token | body = `"SBH1"` + ciphertext → `{"bytes"}`; replaces the previous payload by atomic rename |
+| `GET /l/<id>` | none | the lens viewer page |
+| `GET /api/lens/<id>` | none — the link is the capability | the current ciphertext; 404 before the first publish and after a revoke |
+| `DELETE /api/lens/<id>` | lens token | the slug and its ciphertext are gone |
+
+Ciphertext lives under `<HANDOFF_DIR>/lens/<id>/`, a third pool with its own
+ceiling: a flood of lenses cannot evict pending handoffs or letterbox drops,
+and neither of those can close a lens. Republishing counts only its delta
+against the ceiling, so a page saved a hundred times a day does not creep
+toward the cap.
+
+The same operator caveat applies as everywhere else here: the relay serves the
+viewer JavaScript, so a hostile operator could serve a version that keeps a
+copy of what it decrypts. Use an operator you trust, or self-host.
+
+The honesty note has one extra clause for lenses. Revoking removes the page
+from now on; it cannot un-see what the reader already read, and it cannot
+retract a copy they saved. The app says this in the same words.
+
+Lens environment:
+
+| var | default | meaning |
+| --- | --- | --- |
+| `LENS_DISABLED` | unset | `1` makes every lens endpoint (and `/l/<id>`) a 404 |
+| `LENS_MAX_TOTAL` | 1 GiB | lens storage ceiling, independent of the handoff and letterbox ones |
+| `LENS_MAX_LENSES` | 256 | live-lens ceiling |
+| `LENS_IDLE_TTL_MS` | 7776000000 (90d) | a lens nobody publishes to **or reads** for this long is removed. Reads count on purpose: a page people still open stays up even if its author stopped editing it, and only a page nobody touches from either side is retired. The app's ledger is not told, so a long-abandoned lens can 404 while its row still lists it — revoke from the ledger to tidy that up. |
+
+Per-payload size rides `HANDOFF_MAX_BYTES` — a lens strips images and audio, so
+in practice a published page is kilobytes.
+
+Setting `LENS_DISABLED=1` on a relay that already carries lenses behaves like
+`LETTERBOX_DISABLED=1` does: the endpoints 404 and the tree stops being swept,
+while the ciphertext already there stays on disk, untouched and unreachable.
 
 ### Building the sealing page
 

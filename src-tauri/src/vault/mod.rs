@@ -2156,6 +2156,7 @@ impl Engine {
         sealed::has_password_key(&self.root)
     }
 
+
     pub fn take_seal_failures(&mut self) -> Vec<String> {
         std::mem::take(&mut self.seal_failures)
     }

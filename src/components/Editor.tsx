@@ -137,6 +137,7 @@ import type { EmbedResult, ViewSpecResult } from "../lib/embeds";
 import type { NoteMeta, PropValue, TagCount } from "../lib/types";
 import type { RelationCandidate } from "../lib/relation";
 import { markdownLinkLabel, TASK_PREFIX_RE } from "../lib/markdown";
+import { listLinePrefix } from "../lib/listindent";
 import { scanAudioAnnotationFences } from "../lib/audio-annotations";
 import { extractLink, extractTitle } from "../lib/extractnote";
 import { parseAccent } from "../lib/styletokens";
@@ -1072,6 +1073,96 @@ function addLiveValueDecorations(
   }
 }
 
+/* Hanging indent — a wrapped list line's continuation rows align under the
+   text after the marker instead of falling back to the margin. The prefix
+   spans (lib/listindent.ts) are measured in the content font and applied per
+   line as `text-indent: -W; padding-inline-start: W`, the same shape
+   Obsidian's live preview uses; `.cm-line` carries no padding of its own, so
+   the inline pair composes cleanly. Widths are cached per font+prefix; the
+   entries are tiny and their count is bounded by the distinct prefixes the
+   content contains (every ordered-list ordinal is its own key), with no
+   eviction. The cache is cleared once webfonts resolve — the first
+   measurements run in the fallback font, and the font STRING in the key is
+   identical before and after Inter loads, so a stale entry would otherwise
+   hit forever. A full-width widget on a hanging line (`- ![[take.wav]]`)
+   renders W narrower, the same class of inset a callout's own padding
+   already imposes. */
+const prefixWidthCache = new Map<string, number>();
+let measureCtx: CanvasRenderingContext2D | null = null;
+
+/** Rebuilds decorations after the webfont settles; the Editor mount clears
+    the width cache and fires this once `document.fonts.ready` resolves. */
+const listIndentRemeasure = StateEffect.define<null>();
+
+/** The rendered advance of a resting task's CheckboxWidget: 14px border-box
+    toggle + 7px margin-right (`.cm-task-toggle`, styles.css) — fixed px, so
+    one constant holds at every font size. */
+const TASK_TOGGLE_ADVANCE = 21;
+
+function contentFont(view: EditorView): string {
+  const style = window.getComputedStyle(view.contentDOM);
+  return `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+}
+
+function prefixWidth(font: string, prefix: string): number {
+  const key = `${font}|${prefix}`;
+  const hit = prefixWidthCache.get(key);
+  if (hit !== undefined) return hit;
+  measureCtx ??= document.createElement("canvas").getContext("2d");
+  if (!measureCtx) return 0;
+  measureCtx.font = font;
+  const width = Math.round(measureCtx.measureText(prefix).width * 100) / 100;
+  prefixWidthCache.set(key, width);
+  return width;
+}
+
+/** Same shape as addCalloutDecorations: visible ranges are scanned one at a
+    time, and `doneThrough` keeps a line that two ranges resolve to (a fold
+    boundary inside it) from being decorated twice. Returns the new
+    `doneThrough`. */
+function addListIndentDecorations(
+  view: EditorView,
+  deco: Range<Decoration>[],
+  from: number,
+  to: number,
+  inCode: (from: number, to: number) => boolean,
+  active: Set<number>,
+  focused: boolean,
+  doneThrough: number
+): number {
+  const { state } = view;
+  // lazy: list-free ranges never pay the computed-style read
+  let font: string | null = null;
+  const first = Math.max(state.doc.lineAt(from).number, doneThrough + 1);
+  const last = state.doc.lineAt(to).number;
+  for (let n = first; n <= last; n++) {
+    const line = state.doc.line(n);
+    const prefix = listLinePrefix(line.text);
+    if (!prefix) continue;
+    // a `- item` inside a fence is code, not a list — same veto as the
+    // other regex decorators
+    if (inCode(line.from, line.from + prefix.text.length)) continue;
+    font ??= contentFont(view);
+    // a resting task renders `- [ ] ` as one CheckboxWidget, so its hang is
+    // the indent plus the widget's advance — plus any spaces past the one
+    // the widget's replacement consumes (`- [ ]   item` keeps two as text);
+    // with the cursor on the line the raw source shows and the typed prefix
+    // is the truth again
+    const restingTail = prefix.task ? /\[[ xX]\][ \t]([ \t]*)$/.exec(prefix.text)?.[1] ?? "" : "";
+    const width =
+      prefix.task && !(focused && active.has(n))
+        ? prefixWidth(font, prefix.indent + restingTail) + TASK_TOGGLE_ADVANCE
+        : prefixWidth(font, prefix.text);
+    if (width <= 0) continue;
+    deco.push(
+      Decoration.line({
+        attributes: { style: `text-indent:-${width}px;padding-inline-start:${width}px` },
+      }).range(line.from)
+    );
+  }
+  return Math.max(doneThrough, last);
+}
+
 function buildDecorations(view: EditorView): DecorationSet {
   const { state } = view;
   const active = activeLines(state);
@@ -1106,6 +1197,7 @@ function buildDecorations(view: EditorView): DecorationSet {
     liveMatches.some(({ from: a, to: b }) => from >= a && to <= b);
 
   let calloutsThrough = 0;
+  let listIndentThrough = 0;
 
   for (const { from, to } of view.visibleRanges) {
     calloutsThrough = addCalloutDecorations(
@@ -1278,6 +1370,17 @@ function buildDecorations(view: EditorView): DecorationSet {
         Decoration.mark({ class: "cm-tag", attributes: { "data-tag": t.tag } }).range(start, end)
       );
     }
+    // after the tree pass on purpose: codeRanges for this range is complete
+    listIndentThrough = addListIndentDecorations(
+      view,
+      deco,
+      from,
+      to,
+      inCode,
+      active,
+      focused,
+      listIndentThrough
+    );
   }
   addCalcDecorations(view, deco, inCovered);
   addLiveValueDecorations(view, liveMatches, deco, active, focused, inCovered);
@@ -1309,7 +1412,11 @@ const livePreview = ViewPlugin.fromClass(
         // reconfigure with no doc, selection or viewport change. Calc results
         // and file-chip sizes are both written in it, so without this the
         // editor keeps rendering the previous dialect until the next keystroke
-        u.startState.facet(calcConfig).locale !== u.state.facet(calcConfig).locale
+        u.startState.facet(calcConfig).locale !== u.state.facet(calcConfig).locale ||
+        // the webfont settling changes measured prefix widths without
+        // touching doc, selection or viewport — the mount's fonts.ready
+        // hook clears the width cache and fires this
+        u.transactions.some((tr) => tr.effects.some((e) => e.is(listIndentRemeasure)))
       ) {
         this.decorations = buildDecorations(u.view);
       }
@@ -2759,6 +2866,22 @@ export default function Editor({
     const el = host.current;
     const view = new EditorView({ state, parent: el });
     viewRef.current = view;
+    // first prefix measurements can run in the fallback font; once the
+    // webfont resolves, drop them and re-decorate. `ready` only reflects
+    // loads already in flight, and font fetches start lazily on first
+    // layout use — so ask for the content font explicitly first, or an
+    // editor mounting before any webfont-styled paint would capture an
+    // already-resolved promise and never see the real load.
+    let fontsSettledFor: EditorView | null = view;
+    document.fonts
+      ?.load(`1em ${window.getComputedStyle(view.contentDOM).fontFamily}`)
+      .catch(() => {})
+      .then(() => document.fonts.ready)
+      .then(() => {
+        if (fontsSettledFor !== view) return;
+        prefixWidthCache.clear();
+        view.dispatch({ effects: listIndentRemeasure.of(null) });
+      });
     const noteScroller = el.closest(".note");
     let outlineFrame = 0;
     const onNoteScroll = () => {
@@ -2835,6 +2958,7 @@ export default function Editor({
       if (focusRef && focusRef.current) focusRef.current = null;
       if (docRef) docRef.current = null;
       if (insertRef) insertRef.current = null;
+      fontsSettledFor = null;
       view.destroy();
       viewRef.current = null;
     };

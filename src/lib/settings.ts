@@ -290,7 +290,6 @@ export function parseAutoSync(props: Record<string, unknown>): boolean {
   return !(v === false || (typeof v === "string" && v.trim().toLowerCase() === "false"));
 }
 
-
 /** `feed-curator` — the command the feed dashboard's refresh button
     runs: any command that re-curates the feed's items sheet. Run via
     the login shell with the vault root as cwd; empty = no curator plugged
@@ -327,7 +326,7 @@ export function parseShowAppFiles(props: Record<string, unknown>): boolean {
   return v === true || (typeof v === "string" && v.trim().toLowerCase() === "true");
 }
 
-/** The three things Substrate can send off this machine. Each has
+/** Everything Substrate can send off this machine, member by member. Each has
     its own `net-*` switch in Settings.md, all default ON.
 
     Enforcement lives at the call sites, not in Rust: the shipped CSP allows no

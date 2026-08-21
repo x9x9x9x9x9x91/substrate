@@ -62,7 +62,22 @@ export function fromBase64Url(s: string): Uint8Array {
 export async function sealHandoff(
   plaintext: Uint8Array
 ): Promise<{ payload: Uint8Array; keyB64: string }> {
-  const keyBytes = crypto.getRandomValues(new Uint8Array(KEY_BYTES));
+  return sealHandoffWith(toBase64Url(crypto.getRandomValues(new Uint8Array(KEY_BYTES))), plaintext);
+}
+
+/** Seal under a key the CALLER already holds — the same payload format, minted
+    once and reused. A handoff never needs this (one link, one payload, one
+    key), a lens is nothing but this: republishing under a fresh key every save
+    would invalidate the URL already handed out, so the key is generated once,
+    stored in the vault's lens registry, and every later snapshot is sealed
+    under it. The IV is still fresh per seal, which is what AES-GCM requires of
+    a reused key — never lift that. */
+export async function sealHandoffWith(
+  keyB64: string,
+  plaintext: Uint8Array
+): Promise<{ payload: Uint8Array; keyB64: string }> {
+  const keyBytes = fromBase64Url(keyB64);
+  if (keyBytes.length !== KEY_BYTES) throw new Error("bad key length");
   const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES));
   const key = await crypto.subtle.importKey("raw", keyBytes, "AES-GCM", false, ["encrypt"]);
   const ct = new Uint8Array(
@@ -73,7 +88,7 @@ export async function sealHandoff(
   payload.set(magic, 0);
   payload.set(iv, magic.length);
   payload.set(ct, magic.length + IV_BYTES);
-  return { payload, keyB64: toBase64Url(keyBytes) };
+  return { payload, keyB64 };
 }
 
 /** Inverse of {@link sealHandoff} — the viewer's half, kept here so the

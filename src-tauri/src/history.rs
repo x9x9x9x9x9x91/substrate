@@ -48,7 +48,6 @@ pub struct DiffLine {
     pub text: String,
 }
 
-
 /// Stamped into every repo Substrate creates or adopts — the marker that
 /// distinguishes "our" history repo from the user's own.
 pub(crate) const SENTINEL: &str = ".git/substrate-owned";
@@ -337,19 +336,9 @@ impl History {
         crate::githist::history_sheets_at(&self.root, instants)
     }
 
-    /// Run git and hand back the raw result — stdout bytes, stderr and exit
-    /// status — WITHOUT deciding that a non-zero exit is a failure.
-    ///
-    /// Two callers need that: the ones that must tell "git said no" apart from
-    /// "git could not run" (see `rev_present`), and the ones whose answer is
-    /// bytes rather than text, where a lossy decode would silently rewrite a
-    /// file's content.
+
     #[cfg(not(mobile))]
-    fn git_output_env(
-        &self,
-        args: &[&str],
-        envs: &[(&str, &str)],
-    ) -> Result<std::process::Output, String> {
+    fn git_env(&self, args: &[&str], envs: &[(&str, &str)]) -> Result<String, String> {
         let mut c = Command::new("git");
         c.current_dir(&self.root)
             .env("GIT_CONFIG_GLOBAL", "/dev/null")
@@ -361,12 +350,7 @@ impl History {
         for (k, v) in envs {
             c.env(k, v);
         }
-        c.output().map_err(|e| format!("git unavailable: {e}"))
-    }
-
-    #[cfg(not(mobile))]
-    fn git_env(&self, args: &[&str], envs: &[(&str, &str)]) -> Result<String, String> {
-        let out = self.git_output_env(args, envs)?;
+        let out = c.output().map_err(|e| format!("git unavailable: {e}"))?;
         if !out.status.success() {
             return Err(format!(
                 "git {}: {}",
@@ -558,7 +542,6 @@ impl History {
         )?;
         Ok(true)
     }
-
 
     /// Snapshot before a bulk sweep, reporting whether A RESTORE POINT EXISTS
     /// rather than whether a commit was made. `snapshot`'s false has
@@ -1847,5 +1830,4 @@ mod tests {
         assert_eq!(resolve_rename("Set }.md => Set {.md"), "Set {.md");
         assert_eq!(resolve_rename("}{.md"), "}{.md");
     }
-
 }

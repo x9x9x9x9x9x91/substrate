@@ -1160,9 +1160,7 @@ export default function Palette({
         // navigation are named below.
         ...FIXED_VIEW_COMMANDS.filter(
           (c) =>
-            (c.when?.({
-              proxyAvailable,
-            }) ?? true) &&
+            (c.when?.({ proxyAvailable }) ?? true) &&
             // Once something is typed, "See all results…" IS the search row and
             // it carries the query across. Two rows printing one keycap and
             // doing different things with the query is worse than one, so the

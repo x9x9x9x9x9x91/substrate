@@ -6,7 +6,7 @@ the third-party code the app bundles and ships:
 
 - the **63 npm packages** in the production dependency closure, compiled into
   the app's frontend bundle;
-- the **732 Rust crates** pinned by `src-tauri/Cargo.lock`, listed
+- the **735 Rust crates** pinned by `src-tauri/Cargo.lock`, listed
   conservatively — the lockfile is the whole pinned set, so build- and test-only
   crates are listed too rather than guessed away.
 
@@ -2440,12 +2440,13 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 
 ### MIT
 
-153 crates:
+154 crates:
 
 - alsa-sys 0.3.1 — crates.io
 - atk 0.18.2 — crates.io
 - atk-sys 0.18.2 — crates.io
 - bech32 0.11.1 — crates.io
+- blahaj 0.6.0 — crates.io
 - block2 0.6.2 — crates.io
 - bytes 1.12.1 — crates.io
 - cairo-rs 0.18.5 — crates.io
@@ -2598,13 +2599,14 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 
 ### MIT OR Apache-2.0
 
-330 crates:
+332 crates:
 
 - aead 0.5.2 — crates.io
 - aes 0.8.4 — crates.io
 - aes 0.9.2 — crates.io
 - age 0.12.1 — crates.io
 - age-core 0.12.0 — crates.io
+- allocator-api2 0.2.21 — crates.io
 - anyhow 1.0.103 — crates.io
 - arbitrary 1.4.2 — crates.io
 - arc-swap 1.9.2 — crates.io
@@ -2769,6 +2771,7 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - proc-macro-error3 3.1.0 — crates.io
 - proc-macro2 1.0.106 — crates.io
 - proptest 1.11.0 — crates.io
+- qrcode 0.14.1 — crates.io
 - quote 1.0.46 — crates.io
 - rand 0.10.2 — crates.io
 - rand 0.8.7 — crates.io

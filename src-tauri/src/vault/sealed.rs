@@ -75,16 +75,44 @@ pub(super) fn has_password_key(root: &Path) -> bool {
     key_path(root).is_file()
 }
 
-pub(super) fn save_password_key(
-    root: &Path,
-    identity: &SecretString,
-    password: &str,
-) -> Result<(), String> {
+/// The password floor on its own, so a caller that is about to do something
+/// irreversible (a recovery replaces the key file) can refuse a too-short
+/// passphrase before it touches anything.
+pub(super) fn guard_password_floor(password: &str) -> Result<(), String> {
     if password.chars().count() < MIN_PASSWORD_CHARS {
         return Err(format!(
             "password must be at least {MIN_PASSWORD_CHARS} characters — this file syncs to your remotes, where an attacker can grind it offline"
         ));
     }
+    Ok(())
+}
+
+/// Keep a copy of the current password key before something overwrites it.
+/// A card recovery writes a whole new `.vault/sealed-key.age`; if the cards
+/// turn out to have been for another vault, the file they replaced held the
+/// only passphrase copy of this one's identity. An existing backup is never
+/// overwritten — the earliest one is the pre-recovery original, which is the
+/// copy worth keeping.
+pub(super) fn backup_password_key(root: &Path) -> Result<Option<PathBuf>, String> {
+    let path = key_path(root);
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let backup = path.with_extension("age.replaced");
+    if backup.exists() {
+        return Ok(Some(backup));
+    }
+    fs::copy(&path, &backup)
+        .map_err(|e| format!("could not set the old vault key aside before replacing it: {e}"))?;
+    Ok(Some(backup))
+}
+
+pub(super) fn save_password_key(
+    root: &Path,
+    identity: &SecretString,
+    password: &str,
+) -> Result<(), String> {
+    guard_password_floor(password)?;
     let recipient = age::scrypt::Recipient::new(SecretString::from(password.to_owned()));
     let ciphertext = age::encrypt(&recipient, identity.expose_secret().as_bytes())
         .map_err(|e| format!("could not protect sealed-note key: {e}"))?;
@@ -152,11 +180,11 @@ fn use_protected_keychain() -> bool {
 /// the vault's absolute path, which is what makes the enrollment movable-away
 /// from (see `device_key_placement`).
 ///
-/// A second store class — the correspondence archive — keeps its own device
-/// copy under its own service, so the machinery below is written once and
-/// takes the service as an argument. Two services rather than two accounts
-/// under one: the identities open different things, and an app that lost the
-/// distinction could hand an archive key to the note reader.
+/// Other sealed store classes keep their own device copies under their own
+/// services, so the machinery below is written once and takes the service as
+/// an argument. Two services rather than two accounts under one: the
+/// identities open different things, and an app that lost the distinction
+/// could hand one store's key to another's reader.
 pub(super) const KEYCHAIN_SERVICE: &str = "app.substrate.sealed-v1";
 
 /// Label and description shown by Keychain Access for the sealed-note copy.

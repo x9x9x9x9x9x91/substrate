@@ -347,6 +347,7 @@ pub(crate) async fn history_sheets(
     .await?
 }
 
+
 #[tauri::command]
 pub(crate) fn history_diff(
     h: State<HistoryState>,

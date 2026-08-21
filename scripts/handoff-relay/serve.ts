@@ -34,6 +34,13 @@
  *   POST   /api/box/<box>/claim/<d> owner bearer → bytes, leased to one poller
  *   DELETE /api/box/<box>/drops/<d> owner bearer → ack, the drop is gone
  *   DELETE /api/box/<box>           owner bearer → revoke box and ciphertext
+ *
+ * Lens (the living half — one slug the owner keeps rewriting):
+ *   POST   /api/lens/register       → {"id","token"}; owner-side
+ *   PUT    /api/lens/<id>           owner bearer → replace the ciphertext
+ *   GET    /l/<id>                  the lens viewer page (key in #hash)
+ *   GET    /api/lens/<id>           → the current ciphertext; nothing burns
+ *   DELETE /api/lens/<id>           owner bearer → the slug is gone
  */
 
 import { randomBytes } from "node:crypto";
@@ -79,6 +86,20 @@ export interface HandoffRelayOptions {
       — and that holds nothing pending — is removed by the sweep, so an
       abandoned or anonymously-registered box cannot sit on the relay forever */
   boxIdleTtlMs?: number;
+  /** lens: refuse every lens endpoint (LENS_DISABLED=1 — a relay that does not
+      want to carry living pages) */
+  lensDisabled?: boolean;
+  /** lens pool ceiling, separate from both the handoff and letterbox pools for
+      the same reason they are separate from each other */
+  lensMaxTotalBytes?: number;
+  /** live-lens ceiling */
+  lensMaxLenses?: number;
+  /** a lens nobody has registered, republished, READ or revoked within this
+      span is removed. Note what the read half means: a lens somebody is still
+      opening stays, however long ago its vault stopped publishing — the sweep
+      retires forgotten pages, not merely un-republished ones. A page nobody
+      opens and nobody publishes to goes; a page still in use does not. */
+  lensIdleTtlMs?: number;
   /** injectable clock — expiry tests drive time instead of sleeping */
   now?: () => number;
 }
@@ -96,6 +117,9 @@ const MAX_BOX_BYTES_DEFAULT = 256 * 1024 * 1024;
 const LEASE_MS_DEFAULT = 10 * 60_000;
 const BOX_TTL_DEFAULT = "30d";
 const BOX_IDLE_TTL_DEFAULT = 90 * 86400_000;
+const LENS_MAX_TOTAL_DEFAULT = 1024 * 1024 * 1024;
+const LENS_MAX_LENSES_DEFAULT = 256;
+const LENS_IDLE_TTL_DEFAULT = 90 * 86400_000;
 const ORPHAN_GRACE_MS = 3600_000;
 // A one-shot box that has spent its drop is finished; the grace only covers a
 // poller that is still landing the drop it already claimed.
@@ -136,6 +160,19 @@ interface BoxMeta {
 interface DropMeta {
   expiresAt: number;
   bytes: number;
+}
+
+interface LensMeta {
+  token: string;
+  /** last register/publish/read/revoke, by the relay's clock. A lens has no
+      expiry of its own — it lives as long as somebody is still publishing to
+      it or reading it, and the idle sweep is what ends the abandoned ones. */
+  lastActivity: number;
+  /** when the current ciphertext was PUT, so a reader who wants to know
+      whether anything arrived can ask without decrypting. The honest stamp
+      lives INSIDE the sealed document; this is the relay's own view of it and
+      the viewer never shows it as fact. */
+  updatedAt: number;
 }
 
 function newId(): string {
@@ -297,6 +334,91 @@ const VIEWER_HTML = `<!doctype html>
     document.querySelector("footer").hidden = false;
     st.remove();
   } catch { fail("Could not decrypt.", "The key in the link is wrong or truncated."); }
+})();
+</script>
+</body></html>
+`;
+
+/** The reader's whole client for a lens: fetch the current ciphertext,
+    decrypt with the fragment key, render it in the same sandboxed iframe the
+    handoff viewer uses. The one behavioural difference is what makes it a
+    lens: coming back to the tab re-fetches, so a page left open overnight
+    shows what the sender published this morning rather than what it held when
+    it was opened. No polling loop — a living page should cost the relay one
+    request per time somebody actually looks.
+
+    The freshness line the reader trusts is baked INSIDE the sealed document
+    (src/lib/lens.ts), not written here: this page is served by the relay, and
+    a relay that could set the timestamp could make a stale page look current. */
+const LENS_VIEWER_HTML = `<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Substrate lens</title>
+<style>
+  :root { color-scheme: light; }
+  html, body { height: 100%; margin: 0; }
+  body { display: flex; flex-direction: column; background: #f6f7f8;
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: #1b1e22; }
+  #st { margin: auto; max-width: 26rem; padding: 1.5rem; text-align: center; color: #565b63; }
+  #st.err { color: #8c3a3a; }
+  #st small { display: block; margin-top: .8rem; color: #9198a1; }
+  iframe { flex: 1; border: 0; width: 100%; }
+  footer { padding: .45rem 1rem; text-align: center; font-size: .72rem; color: #9198a1;
+    border-top: 1px solid #e6e8eb; background: #fff; }
+</style></head>
+<body>
+<div id="st">Decrypting locally…</div>
+<iframe id="doc" sandbox="allow-popups" hidden></iframe>
+<footer hidden>A read-only lens, decrypted in your browser from ciphertext. It refreshes when you come back to this tab.</footer>
+<script>
+(async () => {
+  const st = document.getElementById("st");
+  const doc = document.getElementById("doc");
+  const fail = (m, s) => { st.hidden = false; st.className = "err"; st.innerHTML = ""; st.append(m);
+    if (s) { const x = document.createElement("small"); x.append(s); st.append(x); } };
+  const id = location.pathname.split("/").pop();
+  const key64 = location.hash.slice(1);
+  if (!key64) return fail("This link is incomplete.",
+    "The part after # carries the decryption key — copy the whole link.");
+  if (!crypto.subtle) return fail("This page needs a secure (https) connection to decrypt.");
+  const b64 = key64.replace(/-/g, "+").replace(/_/g, "/");
+  let key;
+  try {
+    const raw = Uint8Array.from(atob(b64 + "=".repeat((4 - b64.length % 4) % 4)),
+      (c) => c.charCodeAt(0));
+    key = await crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["decrypt"]);
+  } catch { return fail("Could not read the key in this link.", "It is wrong or truncated."); }
+  let shown = false;
+  const load = async () => {
+    let buf;
+    try {
+      const r = await fetch("/api/lens/" + id, { cache: "no-store" });
+      if (r.status === 404 || r.status === 410) return fail("This lens was revoked or has expired.",
+        shown ? "What you already read stays read — but there is nothing new to show."
+              : "Ask whoever shared it for a fresh link.");
+      if (!r.ok) return fail("The relay returned an error (" + r.status + ").");
+      buf = new Uint8Array(await r.arrayBuffer());
+    } catch { if (!shown) fail("Could not reach the relay."); return; }
+    try {
+      if (new TextDecoder().decode(buf.slice(0, 4)) !== "SBH1")
+        return fail("This is not a Substrate lens payload.");
+      const pt = await crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: buf.slice(4, 16) }, key, buf.slice(16));
+      doc.srcdoc = new TextDecoder().decode(pt);
+      doc.hidden = false;
+      document.querySelector("footer").hidden = false;
+      st.hidden = true;
+      shown = true;
+    } catch { if (!shown) fail("Could not decrypt.", "The key in the link is wrong or truncated."); }
+  };
+  await load();
+  // the living half: a tab brought back to the front asks again. A page left
+  // open in the background costs nothing until somebody looks at it.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") void load();
+  });
 })();
 </script>
 </body></html>
@@ -957,6 +1079,228 @@ export function createHandoffRelay(opts: HandoffRelayOptions): Server {
     sendNoContent(res);
   }
 
+  // --- lens ---------------------------------------------------------------
+  // The living half: one slug the owner rewrites on every save, read as often
+  // as anybody looks. Nothing here burns and nothing expires on a timer — a
+  // lens ends when its owner revokes it, or when nobody has touched it for the
+  // idle span. Its own directory and its own ceilings, for the same reason the
+  // letterbox has them: three pools that cannot starve each other.
+  const lensOn = !opts.lensDisabled;
+  const lensDir = join(dataDir, "lens");
+  const lensMaxTotal = opts.lensMaxTotalBytes ?? LENS_MAX_TOTAL_DEFAULT;
+  const lensMaxLenses = opts.lensMaxLenses ?? LENS_MAX_LENSES_DEFAULT;
+  const lensIdleTtlMs = opts.lensIdleTtlMs ?? LENS_IDLE_TTL_DEFAULT;
+  let lensPutsInFlight = 0;
+  let lensTail = Promise.resolve();
+  if (lensOn) mkdirSync(lensDir, { recursive: true });
+
+  async function withLensLock<T>(fn: () => Promise<T>): Promise<T> {
+    const prior = lensTail;
+    let release = () => {};
+    lensTail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await prior;
+    try {
+      return await fn();
+    } finally {
+      release();
+    }
+  }
+
+  const lensPath = (id: string) => join(lensDir, id, "payload");
+  const lensMetaPath = (id: string) => join(lensDir, id, "lens.json");
+
+  async function readLens(id: string): Promise<LensMeta | null> {
+    if (!ID_RE.test(id)) return null;
+    try {
+      const meta = JSON.parse(await fs.readFile(lensMetaPath(id), "utf8")) as Partial<LensMeta>;
+      if (typeof meta.token !== "string" || meta.token === "") return null;
+      return {
+        token: meta.token,
+        lastActivity: Number.isFinite(meta.lastActivity) ? (meta.lastActivity as number) : 0,
+        updatedAt: Number.isFinite(meta.updatedAt) ? (meta.updatedAt as number) : 0,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /** .tmp + rename, like every other metadata write here: a reader never
+      catches a half-written lens.json. */
+  async function writeLens(id: string, meta: LensMeta) {
+    const tmp = join(lensDir, id, `.tmp-lens-${newId()}.json`);
+    try {
+      await fs.writeFile(tmp, JSON.stringify(meta), { mode: 0o600 });
+      await fs.rename(tmp, lensMetaPath(id));
+    } catch (err) {
+      await fs.rm(tmp, { force: true });
+      throw err;
+    }
+  }
+
+  function ownsLens(req: IncomingMessage, meta: LensMeta): boolean {
+    return (req.headers.authorization ?? "") === `Bearer ${meta.token}`;
+  }
+
+  async function lensUsage(): Promise<{ bytes: number; lenses: number }> {
+    let bytes = 0;
+    let lenses = 0;
+    for (const id of await fs.readdir(lensDir).catch(() => [] as string[])) {
+      if (!ID_RE.test(id)) continue;
+      lenses += 1;
+      for (const name of await fs.readdir(join(lensDir, id)).catch(() => [] as string[])) {
+        const st = await fs.stat(join(lensDir, id, name)).catch(() => null);
+        if (st?.isFile()) bytes += st.size;
+      }
+    }
+    return { bytes, lenses };
+  }
+
+  /** Crash leftovers, then the idle retirement. A lens directory with no
+      readable lens.json is junk once the grace has passed; a readable one that
+      nobody has published to OR READ for the idle span is an abandoned page
+      and goes with its ciphertext. Reads count deliberately: retiring a page
+      people are still opening, because its author has not edited it in three
+      months, would break a share that is working exactly as intended. */
+  async function sweepLens() {
+    const now = clock();
+    for (const id of await fs.readdir(lensDir).catch(() => [] as string[])) {
+      if (!ID_RE.test(id)) {
+        await removeAged(join(lensDir, id));
+        continue;
+      }
+      const meta = await readLens(id);
+      if (!meta) {
+        await removeAged(join(lensDir, id));
+        continue;
+      }
+      for (const name of await fs.readdir(join(lensDir, id)).catch(() => [] as string[]))
+        if (name !== "payload" && name !== "lens.json")
+          await removeAged(join(lensDir, id, name));
+      if (meta.lastActivity === 0) {
+        // a lens.json from before the relay stamped activity: start its clock
+        // rather than reading "never used" as "idle since the epoch"
+        await writeLens(id, { ...meta, lastActivity: now });
+        continue;
+      }
+      if (now - meta.lastActivity > lensIdleTtlMs)
+        await fs.rm(join(lensDir, id), { recursive: true, force: true });
+    }
+  }
+
+  async function touchLens(id: string) {
+    const meta = await readLens(id);
+    if (meta) await writeLens(id, { ...meta, lastActivity: clock() });
+  }
+
+  async function handleLensRegister(req: IncomingMessage, res: ServerResponse) {
+    if (opts.storeToken) {
+      const auth = req.headers.authorization ?? "";
+      if (auth !== `Bearer ${opts.storeToken}`) return send(res, 401, "register requires a token");
+    }
+    // no body is read: a lens has nothing to configure at registration time,
+    // and a request body nobody parses is a request body nobody has to bound
+    req.resume();
+    return await withLensLock(async () => {
+      await sweepLens();
+      const current = await lensUsage();
+      if (current.lenses >= lensMaxLenses) return send(res, 507, "relay has too many lenses");
+      const id = newId();
+      const token = randomBytes(32).toString("base64url");
+      await fs.mkdir(join(lensDir, id), { recursive: true, mode: 0o700 });
+      await writeLens(id, { token, lastActivity: clock(), updatedAt: 0 });
+      send(res, 201, JSON.stringify({ id, token }), "application/json");
+    });
+  }
+
+  /** Replace the ciphertext under an existing slug. The whole point of the
+      product: the URL already handed out keeps working and starts showing
+      something new. Ciphertext lands by rename, so a reader mid-GET is either
+      served the old payload in full or the new one in full — never half of
+      each. */
+  async function handleLensPublish(id: string, req: IncomingMessage, res: ServerResponse) {
+    const meta = await readLens(id);
+    if (!meta) {
+      req.resume();
+      return send(res, 404, "unknown lens");
+    }
+    if (!ownsLens(req, meta)) {
+      req.resume();
+      return send(res, 401, "publishing requires the lens token");
+    }
+    const contentLength = Number(req.headers["content-length"] ?? 0);
+    if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+      req.resume();
+      return send(res, 413, "payload too large");
+    }
+    if (lensPutsInFlight >= maxConcurrentStores) {
+      req.resume();
+      return send(res, 503, "relay is busy; try again");
+    }
+    lensPutsInFlight += 1;
+    const tmp = join(lensDir, id, `.tmp-${newId()}`);
+    try {
+      const body = await readBodyToFile(req, tmp, maxBytes);
+      if (body === null) return send(res, 413, "payload too large");
+      if (body.bytes < 21) return send(res, 400, "payload too small to be sealed");
+      if (body.magic !== "SBH1") return send(res, 400, "not a lens payload");
+      return await withLensLock(async () => {
+        await sweepLens();
+        // re-read under the lock: a revoke may have landed while this body was
+        // streaming, and a republish must not resurrect a revoked slug
+        const fresh = await readLens(id);
+        if (!fresh) return send(res, 404, "unknown lens");
+        const pool = await lensUsage();
+        const priorSize = await fs
+          .stat(lensPath(id))
+          .then((st) => st.size)
+          .catch(() => 0);
+        // The scan already counted this request's temp file, so the incoming
+        // bytes are in `pool.bytes` and must not be added again; what it has
+        // not yet accounted for is that the rename below DELETES the previous
+        // payload. Subtracting it is what makes republishing an unchanged page
+        // free rather than a slow leak toward the ceiling.
+        if (pool.bytes - priorSize > lensMaxTotal)
+          return send(res, 507, "relay lens storage is full");
+        await fs.rename(tmp, lensPath(id));
+        await writeLens(id, { ...fresh, lastActivity: clock(), updatedAt: clock() });
+        send(res, 200, JSON.stringify({ bytes: body.bytes }), "application/json");
+      });
+    } finally {
+      lensPutsInFlight -= 1;
+      await fs.rm(tmp, { force: true });
+    }
+  }
+
+  /** The reader's fetch. Open by design — the link IS the capability, exactly
+      as a handoff claim is, and a lens the reader had to authenticate to would
+      need an account the product does not have. A lens that has been
+      registered but never published answers 404: there is nothing to show yet,
+      and the viewer's "revoked or expired" reads correctly for it. */
+  async function handleLensRead(id: string, res: ServerResponse) {
+    const meta = await readLens(id);
+    if (!meta) return send(res, 404, "unknown lens");
+    try {
+      // open-then-stream, like every other read here: a republish renaming
+      // over this path mid-response cannot truncate what is already going out
+      await sendFile(res, 200, lensPath(id));
+    } catch {
+      if (!res.headersSent) return send(res, 404, "unknown lens");
+      res.destroy();
+      return;
+    }
+    void withLensLock(() => touchLens(id)).catch(() => undefined);
+  }
+
+  async function handleLensRevoke(id: string, req: IncomingMessage, res: ServerResponse) {
+    const meta = await readLens(id);
+    if (!meta) return send(res, 404, "unknown lens");
+    if (!ownsLens(req, meta)) return send(res, 401, "revoke requires the lens token");
+    await withLensLock(() => fs.rm(join(lensDir, id), { recursive: true, force: true }));
+    sendNoContent(res);
+  }
+
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://relay.invalid");
     const route = async () => {
@@ -1003,6 +1347,22 @@ export function createHandoffRelay(opts: HandoffRelayOptions): Server {
         if ((req.method === "GET" || req.method === "HEAD") && seal && ID_RE.test(seal[1]))
           return send(res, 200, SEALING_PAGE_HTML, "text/html; charset=utf-8");
       }
+      if (lensOn) {
+        if (req.method === "POST" && url.pathname === "/api/lens/register")
+          return handleLensRegister(req, res);
+        const lens = url.pathname.match(/^\/api\/lens\/([^/]+)$/);
+        if (lens && ID_RE.test(lens[1])) {
+          if (req.method === "PUT") return handleLensPublish(lens[1], req, res);
+          if (req.method === "GET") return handleLensRead(lens[1], res);
+          if (req.method === "DELETE") return handleLensRevoke(lens[1], req, res);
+        } else if (lens) {
+          req.resume();
+          return send(res, 404, "unknown lens");
+        }
+        const page = url.pathname.match(/^\/l\/([^/]+)$/);
+        if ((req.method === "GET" || req.method === "HEAD") && page && ID_RE.test(page[1]))
+          return send(res, 200, LENS_VIEWER_HTML, "text/html; charset=utf-8");
+      }
       const view = url.pathname.match(/^\/h\/([^/]+)$/);
       if ((req.method === "GET" || req.method === "HEAD") && view && ID_RE.test(view[1]))
         return send(res, 200, VIEWER_HTML, "text/html; charset=utf-8");
@@ -1021,6 +1381,7 @@ export function createHandoffRelay(opts: HandoffRelayOptions): Server {
   const sweepBoth = () => {
     void sweep();
     if (letterboxOn) void withLetterboxLock(sweepLetterbox);
+    if (lensOn) void withLensLock(sweepLens);
   };
   const timer = setInterval(sweepBoth, 10 * 60_000);
   timer.unref();
@@ -1065,6 +1426,10 @@ if (
     boxIdleTtlMs: process.env.LETTERBOX_BOX_IDLE_TTL_MS
       ? Number(process.env.LETTERBOX_BOX_IDLE_TTL_MS)
       : undefined,
+    lensDisabled: process.env.LENS_DISABLED === "1",
+    lensMaxTotalBytes: process.env.LENS_MAX_TOTAL ? Number(process.env.LENS_MAX_TOTAL) : undefined,
+    lensMaxLenses: process.env.LENS_MAX_LENSES ? Number(process.env.LENS_MAX_LENSES) : undefined,
+    lensIdleTtlMs: process.env.LENS_IDLE_TTL_MS ? Number(process.env.LENS_IDLE_TTL_MS) : undefined,
   });
   server.listen(port, process.env.BIND ?? "127.0.0.1", () => {
     console.log(`handoff relay listening on ${process.env.BIND ?? "127.0.0.1"}:${port}`);
