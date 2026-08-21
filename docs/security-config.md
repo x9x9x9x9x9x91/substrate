@@ -189,6 +189,7 @@ frame-src 'none'; frame-ancestors 'none'; form-action 'none'
      `sandbox="allow-popups"` (no scripts) under `default-src 'none'`, and v1
      resolves no embeds at all, so no asset bytes are read on the way out.
 
+
   Not covered: two devices with the same synced registry republish the same
   slug independently, with no version and no `If-Match` at the relay, so the
   older render can land last. Self-limiting rather than fixed — the "as of"

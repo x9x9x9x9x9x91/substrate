@@ -39,6 +39,7 @@
  *   POST   /api/lens/register       → {"id","token"}; owner-side
  *   PUT    /api/lens/<id>           owner bearer → replace the ciphertext
  *   GET    /l/<id>                  the lens viewer page (key in #hash)
+ *   GET    /slip.js                the chips' sealing code, for a page that asks
  *   GET    /api/lens/<id>           → the current ciphertext; nothing burns
  *   DELETE /api/lens/<id>           owner bearer → the slug is gone
  */
@@ -49,7 +50,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
-import { SEALING_PAGE_SCRIPT } from "./sealing-page.generated.ts";
+import { SEALING_PAGE_SCRIPT, SLIP_PAGE_SCRIPT } from "./sealing-page.generated.ts";
 
 export interface HandoffRelayOptions {
   dataDir: string;
@@ -229,8 +230,16 @@ const SAFETY_HEADERS = {
 // — the sandbox has no allow-scripts. `form-action 'none'` is what keeps the
 // sealing page's form from ever submitting itself: if its script fails to
 // start, the browser refuses the plaintext POST outright.
+//
+// `script-src` carries `'self'` alongside the inline allowance for exactly one
+// reason: a shared page that asks a question loads the chips' sealing code from
+// `/slip.js` on this same origin, and only when the page it decrypted actually
+// carries a question — a plain lens must not download a sealing library it
+// never calls. It is the narrowest widening available and adds no capability
+// the operator does not already have: every script on these pages is served by
+// this relay either way, which is the trust boundary the README states.
 const CONTENT_SECURITY_POLICY =
-  "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'self'; frame-src 'self' about:; form-action 'none'";
+  "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'self'; frame-src 'self' about:; form-action 'none'";
 
 function responseHeaders(length: number, type: string) {
   return {
@@ -339,6 +348,29 @@ const VIEWER_HTML = `<!doctype html>
 </body></html>
 `;
 
+/** Where a shared page hides the question it asks.
+
+    The publisher writes this tag into the document BEFORE sealing it
+    (`src/lib/lens.ts`), so the relay never sees a question and a relay that
+    wanted to could not add one — the tag is exactly as unreadable to this
+    server as the page is. The pattern is defined here, on the reading side,
+    and the writing side pins itself against it: two copies of one regex is a
+    page whose chips silently stop appearing.
+
+    The alphabet is base64url — no quote, no `<`, no space — which is what
+    makes reading it back out of a decrypted document safe: nothing an author
+    can type into a note escapes into a tag. */
+export const SLIP_META_PATTERN = /<meta name="substrate-slip" content="([A-Za-z0-9_-]+)">/;
+
+/** The fields a question must carry before a page will draw its chips.
+
+    Exported for the same reason the pattern above is, and pinned the same way
+    round: this is the copy a reader's browser runs, so the writing side holds
+    itself to this list rather than the other way about. Two parsers of one
+    format that disagree on which fields are optional is a page rendering a
+    question the app never meant to publish. */
+export const SLIP_REQUIRED_FIELDS = ["prop", "box", "recipient", "lens"] as const;
+
 /** The reader's whole client for a lens: fetch the current ciphertext,
     decrypt with the fragment key, render it in the same sandboxed iframe the
     handoff viewer uses. The one behavioural difference is what makes it a
@@ -350,12 +382,11 @@ const VIEWER_HTML = `<!doctype html>
     The freshness line the reader trusts is baked INSIDE the sealed document
     (src/lib/lens.ts), not written here: this page is served by the relay, and
     a relay that could set the timestamp could make a stale page look current. */
-const LENS_VIEWER_HTML = `<!doctype html>
-<html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex">
-<title>Substrate lens</title>
-<style>
+/** The chrome a reader's page actually wears — every rule the viewer applies to
+    itself, exported so the shot that claims to be "the reader's page" can be
+    styled by the same string the relay serves rather than by a hand-kept copy
+    that drifts out from under its own title. */
+export const LENS_VIEWER_CSS = `
   :root { color-scheme: light; }
   html, body { height: 100%; margin: 0; }
   body { display: flex; flex-direction: column; background: #f6f7f8;
@@ -367,10 +398,29 @@ const LENS_VIEWER_HTML = `<!doctype html>
   iframe { flex: 1; border: 0; width: 100%; }
   footer { padding: .45rem 1rem; text-align: center; font-size: .72rem; color: #9198a1;
     border-top: 1px solid #e6e8eb; background: #fff; }
-</style></head>
+  #slip { padding: 1rem 1.25rem 1.15rem; background: #fff; border-top: 1px solid #e6e8eb; }
+  .slip-ask { font-size: .95rem; font-weight: 600; color: #1b1e22; margin-bottom: .7rem; }
+  .slip-chips { display: flex; flex-wrap: wrap; gap: .5rem; }
+  .slip-chip { font: inherit; font-size: .88rem; padding: .38rem .85rem; border-radius: 999px;
+    border: 1px solid #d5d9de; background: #fff; color: #1b1e22; cursor: pointer; }
+  .slip-chip:hover:enabled { border-color: #9198a1; }
+  .slip-chip:disabled { cursor: default; color: #9198a1; }
+  .slip-chip-picked:disabled { border-color: #1b1e22; color: #1b1e22; font-weight: 600; }
+  .slip-status { margin: .7rem 0 0; font-size: .74rem; color: #9198a1; }
+  .slip-status.slip-ok { color: #3d6b4a; }
+  .slip-status.slip-err { color: #8c3a3a; }
+`;
+
+const LENS_VIEWER_HTML = `<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Substrate lens</title>
+<style>${LENS_VIEWER_CSS}</style></head>
 <body>
 <div id="st">Decrypting locally…</div>
 <iframe id="doc" sandbox="allow-popups" hidden></iframe>
+<div id="slip" hidden></div>
 <footer hidden>A read-only lens, decrypted in your browser from ciphertext. It refreshes when you come back to this tab.</footer>
 <script>
 (async () => {
@@ -391,6 +441,37 @@ const LENS_VIEWER_HTML = `<!doctype html>
     key = await crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["decrypt"]);
   } catch { return fail("Could not read the key in this link.", "It is wrong or truncated."); }
   let shown = false;
+  // The question a page may carry rides INSIDE the sealed document, so it is
+  // read out of the plaintext here and never handed over by the relay — a
+  // relay that could set the question could ask something the author never
+  // wrote and collect the answer to it. The pattern is interpolated from the
+  // one definition above, and the writing side pins itself against it.
+  let asked = false;
+  const askOnce = (html) => {
+    if (asked) return;
+    const found = ${SLIP_META_PATTERN}.exec(html);
+    if (!found) return;
+    let spec;
+    try {
+      const b = found[1].replace(/-/g, "+").replace(/_/g, "/");
+      const bin = atob(b + "=".repeat((4 - b.length % 4) % 4));
+      const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+      spec = JSON.parse(new TextDecoder().decode(bytes));
+    } catch { return; }
+    // chips this page cannot be sure of are no chips at all — the field list
+    // is interpolated from the one definition above, and the writing side
+    // pins itself against it
+    if (!spec || spec.v !== 1) return;
+    for (const field of ${JSON.stringify(SLIP_REQUIRED_FIELDS)}) if (!spec[field]) return;
+    if (!Array.isArray(spec.options) || spec.options.length === 0) return;
+    asked = true;
+    window.__substrateSlip = spec;
+    // fetched only now, and only by a page that actually asks something: a
+    // plain lens never pays for the sealing library
+    const tag = document.createElement("script");
+    tag.src = "/slip.js";
+    document.body.append(tag);
+  };
   const load = async () => {
     let buf;
     try {
@@ -406,11 +487,13 @@ const LENS_VIEWER_HTML = `<!doctype html>
         return fail("This is not a Substrate lens payload.");
       const pt = await crypto.subtle.decrypt(
         { name: "AES-GCM", iv: buf.slice(4, 16) }, key, buf.slice(16));
-      doc.srcdoc = new TextDecoder().decode(pt);
+      const html = new TextDecoder().decode(pt);
+      doc.srcdoc = html;
       doc.hidden = false;
       document.querySelector("footer").hidden = false;
       st.hidden = true;
       shown = true;
+      askOnce(html);
     } catch { if (!shown) fail("Could not decrypt.", "The key in the link is wrong or truncated."); }
   };
   await load();
@@ -1362,6 +1445,15 @@ export function createHandoffRelay(opts: HandoffRelayOptions): Server {
         const page = url.pathname.match(/^\/l\/([^/]+)$/);
         if ((req.method === "GET" || req.method === "HEAD") && page && ID_RE.test(page[1]))
           return send(res, 200, LENS_VIEWER_HTML, "text/html; charset=utf-8");
+        // The chips' sealing code, on its own route so a plain lens — which is
+        // most of them — never downloads it. Served only when the letterbox is
+        // on as well: without an inbound door there is nowhere for an answer
+        // to go, and a page drawing chips that lead nowhere is worse than one
+        // that does not ask.
+        if ((req.method === "GET" || req.method === "HEAD") && url.pathname === "/slip.js") {
+          if (!letterboxOn) return send(res, 404, "not found");
+          return send(res, 200, SLIP_PAGE_SCRIPT, "text/javascript; charset=utf-8");
+        }
       }
       const view = url.pathname.match(/^\/h\/([^/]+)$/);
       if ((req.method === "GET" || req.method === "HEAD") && view && ID_RE.test(view[1]))

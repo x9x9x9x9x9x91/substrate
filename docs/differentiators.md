@@ -404,6 +404,19 @@ Capacities, Affine).*
   does ship: it republishes while the app is open (not realtime, and not at
   all while the app is shut), v1 carries text only — no images or audio — and
   revoking ends access from now on rather than un-reading what was read.
+- **Return Slip (a shared page that asks)**: a lens can carry one question,
+  the reader taps a chip in their browser, and the answer comes back *typed* —
+  the note's own property, validated against the choices its database already
+  declares. There is no form builder, no service and no accounts, because the
+  question is a projection of the schema rather than a thing anyone designed;
+  and the answer is sealed to the vault's key, not the page's, so readers of
+  one link cannot read each other's. Nothing comparable exists at this trust
+  level: Notion Forms answers transit and live in Notion's cloud, and CryptPad
+  Forms — honest end-to-end and open source — lands answers in a pad rather
+  than as typed values in local plain files. Built and fenced private in the
+  app; don't advertise until it is promoted. The honest framing when it does
+  ship: the smallest slice writes ONE property, so the last answer in wins,
+  and answers only arrive while the app is open to poll for them.
 - **Hosted handoff relay**: the handoff feature is shipped; a public hosted
   relay is not. Until one exists, the self-host story leads.
 - **Same eyes — the evaluated view, headless**: `view-read` prints a saved

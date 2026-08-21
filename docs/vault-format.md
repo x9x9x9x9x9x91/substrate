@@ -413,7 +413,7 @@ External-writer contract:
   Content-aware diffs and merges are intentionally unavailable while sealed.
 - `.vault/letterbox.json` holds the drop-box registry: the vault's dedicated
   letterbox age keypair (`identity` + `recipient`) and one row per live box
-  (`id`, `label`, `relay`, `token`, `mode`, `expiry`, `created`). It is synced
+  (`id`, `label`, `relay`, `token`, `mode`, `expiry`, `created`, `kind`). It is synced
   vault data, not device state — the boxes belong to the vault, so any device
   that has it can poll and revoke them. **The private key is stored in
   plaintext, deliberately**: a background poller must never prompt, so this
@@ -432,7 +432,6 @@ External-writer contract:
   with people who should not read its drops should not hold a letterbox.
 - `.vault/lens.json` holds the lens registry: one row per published page
   (`id`, `path`, `label`, `relay`, `token`, `key`, `created`, `updated`,
-  `note_created`). A
   lens is one slug on the same relay that carries handoffs, rewritten every
   time the note at `path` is saved, and read at
   `https://<relay>/l/<id>#<key>`. It is synced vault data for the same reason
