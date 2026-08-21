@@ -666,6 +666,7 @@ function snapsFor(n: MockNote): MockSnap[] {
   return snaps;
 }
 
+
 function mockDiff(oldBody: string, newBody: string): DiffLine[] {
   const a = oldBody.replace(/\n$/, "").split("\n");
   const b = newBody.replace(/\n$/, "").split("\n");

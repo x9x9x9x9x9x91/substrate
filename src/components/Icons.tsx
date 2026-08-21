@@ -158,6 +158,7 @@ export const EyeOffIcon = () => (
   </svg>
 );
 
+
 export const PinIcon = () => (
   <svg {...base}>
     <path d="M8 2.5A3.8 3.8 0 0 1 11.8 6.3c0 2.6-3.8 7.2-3.8 7.2S4.2 8.9 4.2 6.3A3.8 3.8 0 0 1 8 2.5Z" />

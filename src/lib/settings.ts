@@ -290,6 +290,7 @@ export function parseAutoSync(props: Record<string, unknown>): boolean {
   return !(v === false || (typeof v === "string" && v.trim().toLowerCase() === "false"));
 }
 
+
 /** `feed-curator` — the command the feed dashboard's refresh button
     runs: any command that re-curates the feed's items sheet. Run via
     the login shell with the vault root as cwd; empty = no curator plugged

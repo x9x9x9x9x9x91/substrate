@@ -595,6 +595,15 @@ export default function App() {
   }, []);
 
 
+  /* The Agent Ledger's props for the three shared panes, spread rather than
+     named as attributes: a JSX opening tag has nowhere to put a comment, so a
+     prop only the private build carries has to arrive through an object the
+     strip pass can leave empty. */
+  const ledgerSidebarProps: Record<string, boolean> = {};
+  const ledgerPaletteProps: Record<string, boolean> = {};
+  const ledgerListProps: Record<string, ReadonlySet<string>> = {};
+
+
   // palette quick actions come from Settings.md, so they must be
   // known before the palette first opens — not only when the HUD spawns. Read
   // once at boot; the HUD's own re-reads below keep it fresh after an edit.
@@ -5004,6 +5013,7 @@ export default function App() {
         onOpenNote={onSidebarOpenNote}
         selectedPath={selected}
         onPinNote={onSidebarPinNote}
+        {...ledgerSidebarProps}
         savedViews={savedViews}
         folders={folders}
         folderOrder={sidebarFolderOrder}
@@ -5462,6 +5472,7 @@ export default function App() {
           onRowContextMenu={onRowMenu}
           onBackgroundContextMenu={onListBgMenu}
           onActivate={onListActivate}
+          {...ledgerListProps}
           folderIcon={listFolderIcon}
           onNewHere={newInFolder}
           onNewNote={createHere}
@@ -5557,6 +5568,7 @@ export default function App() {
           tagFolders={tagFolders}
           tags={tagCounts}
           drives={drives}
+          {...ledgerPaletteProps}
           current={selectedMeta}
           startStage={paletteStart}
           templateTypes={templateTypes}

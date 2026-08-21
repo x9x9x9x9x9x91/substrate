@@ -1087,6 +1087,7 @@ export interface HistoryStatus {
   enabled: boolean;
 }
 
+
 /** What one saved-view link-folder export did. */
 export interface ViewExportReport {
   /** Absolute path of the folder holding the links. */
