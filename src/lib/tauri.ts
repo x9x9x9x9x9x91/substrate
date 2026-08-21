@@ -1248,6 +1248,7 @@ const PERF_DB_COUNT = (() => {
   return Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), 50_000) : 0;
 })();
 
+
 if (PERF_DB_COUNT > 0) {
   const PLUGIN_DEVS = [
     "FabFilter", "Valhalla", "Soundtoys", "UAD", "Waves", "Arturia",

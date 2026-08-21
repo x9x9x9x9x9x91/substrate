@@ -345,6 +345,7 @@ export const CalendarIcon = () => (
   </svg>
 );
 
+
 export const SunIcon = () => (
   <svg {...base}>
     <circle cx="8" cy="8" r="3" />

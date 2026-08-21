@@ -4732,6 +4732,7 @@ body.agenda-window .palette:focus-visible {
   color: var(--text-2);
 }
 
+
 /* ————— cookbook —————
    A browsable shelf of the recipes the app ships with. Each recipe is a wide
    row: its screenshot on the left at a fixed column, the prose and the install
@@ -7591,6 +7592,7 @@ body.agenda-window .palette:focus-visible {
   color: var(--text-4);
   white-space: nowrap;
 }
+
 
 
 
