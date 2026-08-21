@@ -3742,6 +3742,14 @@ body.agenda-window .palette:focus-visible {
   color: var(--text-2);
 }
 
+/* Two columns, and the label owns the slack: without a min-width a long
+   description pushed its keycaps past the row's right edge instead of
+   wrapping, which is what read as "unaligned". */
+.shortcut-row-label {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .shortcut-row-keys {
   margin-left: auto;
   flex: none;
@@ -3806,17 +3814,27 @@ body.agenda-window .palette:focus-visible {
     transform 90ms ease-out;
 }
 
-/* long combo runs (the pane hjkl sets) wrap instead of clipping at 240px */
+/* long combo runs (the pane hjkl sets) wrap instead of clipping at 240px.
+   A wrapping label used to centre its keycaps against the whole block, so
+   two-line rows hung their keys halfway down; they now sit on the first
+   line, which is the one the label starts on. */
 .keyhints-panel .shortcut-row {
   height: auto;
   min-height: 30px;
-  padding: 3px 6px;
+  padding: 4px 6px;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.keyhints-panel .shortcut-row-label {
+  line-height: 1.35;
 }
 
 .keyhints-panel .shortcut-row-keys {
   flex-wrap: wrap;
   justify-content: flex-end;
   row-gap: 2px;
+  padding-top: 1px;
 }
 
 /* the foot is the route to the full sheet — a real button, dressed
@@ -14336,8 +14354,12 @@ span.asset-thumb svg {
   overflow: hidden;
 }
 
+/* drag hover on a column: the hover wash and nothing louder. The precise
+   part of the answer — where in the day the drop lands — is the
+   .cal-wk-ghost line below; the column only has to say "this day", and the
+   accent fill it used to wear said it as a blue sheet over the canvas. */
 .cal-wk-col.drop {
-  background: var(--accent-soft);
+  background: var(--hover);
 }
 
 /* the focused day's canvas half wears the strip cell's ring, so
@@ -14572,9 +14594,13 @@ span.asset-thumb svg {
   border-radius: 2px;
 }
 
+/* drag hover on a cell: the hover wash plus one accent hairline, so the
+   landing day is unmistakable without repainting it. The accent fill and
+   1.5px ring it used to wear read as an overlay dropped over the month —
+   the cell's own entries went blue underneath it. */
 .cal-day.drop {
-  background: var(--accent-soft);
-  box-shadow: inset 0 0 0 1.5px var(--accent);
+  background: var(--hover);
+  box-shadow: inset 0 0 0 1px var(--accent);
   border-radius: 2px;
 }
 

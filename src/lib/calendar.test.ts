@@ -1105,6 +1105,42 @@ test("clampedRangeEnd: the floor rolls past midnight when the start is late (SUB
   assert.ok(splitDateRange(v));
 });
 
+test("an all-day span takes a closing hour without inventing a start time", () => {
+  // what the peek's Ends row composes on a three-day all-day run: the hour
+  // lands on the closing day, the start stays all-day, and the value is one
+  // the parser already accepts — no new grammar, nothing to teach the vault
+  const start = { day: "2026-08-10" };
+  const end = clampedRangeEnd(start, { day: "2026-08-12", time: "17:00" });
+  assert.deepEqual(end, { day: "2026-08-12", time: "17:00" });
+  const v = dateRangeValue(start.day, null, end);
+  assert.equal(v, "2026-08-10/2026-08-12 17:00");
+  assert.deepEqual(splitDateRange(v), {
+    start: { day: "2026-08-10", time: null },
+    end: { day: "2026-08-12", time: "17:00" },
+  });
+  // and it still reads as one entry per covered day, all-day at the front
+  const entries = entriesForNote(note("trip.md", { type: "event", date: v }), {});
+  assert.deepEqual(
+    entries.map((e) => [e.day, e.time ?? null, e.endTime ?? null]),
+    [
+      ["2026-08-10", null, "17:00"],
+      ["2026-08-11", null, "17:00"],
+      ["2026-08-12", null, "17:00"],
+    ]
+  );
+});
+
+test("dropping the closing hour off a span keeps the closing day", () => {
+  // emptying the Ends row on a range that crosses days is "no hour", not
+  // "no range" — the days are the date row's to move
+  const end = clampedRangeEnd({ day: "2026-08-10", time: "09:00" }, { day: "2026-08-12" });
+  assert.deepEqual(end, { day: "2026-08-12", time: undefined });
+  assert.equal(
+    dateRangeValue("2026-08-10", "09:00", end),
+    "2026-08-10 09:00/2026-08-12"
+  );
+});
+
 test("clampedRangeEnd: day-only endpoints clamp by day alone (SUB-1171)", () => {
   // no times to compare — a later day stands, an earlier one collapses
   assert.deepEqual(clampedRangeEnd({ day: "2026-08-10" }, { day: "2026-08-12" }), {

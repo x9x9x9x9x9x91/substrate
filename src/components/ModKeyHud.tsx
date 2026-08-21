@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { comboLabel, modEntries, type HeldMods, type ShortcutCtx } from "../lib/shortcuts";
+import { keyCaps, modEntries, type HeldMods, type ShortcutCtx } from "../lib/shortcuts";
 import { isTypingNow } from "../lib/dom";
 
 /** Hold-modifier HUD: hold ⌘ (alone or with ⇧, or ⌃) for a beat and
@@ -170,9 +170,9 @@ export default function ModKeyHud({ ctx, enabled }: { ctx: ModKeyHudCtx; enabled
           <div className="modkey-hud-row" key={s.id}>
             <span className="modkey-hud-row-label">{s.description}</span>
             <span className="modkey-hud-row-keys">
-              {s.combos.map((c) => (
-                <span className="key" key={comboLabel(c)}>
-                  {comboLabel(c)}
+              {keyCaps(s.combos).map((cap) => (
+                <span className="key" key={cap}>
+                  {cap}
                 </span>
               ))}
             </span>

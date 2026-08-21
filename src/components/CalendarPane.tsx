@@ -15,6 +15,11 @@ import type {
 } from "../lib/types";
 import { isTyping, isTypingNow } from "../lib/dom";
 import {
+  comboMatches,
+  shortcutById,
+  type KeyEventLike,
+} from "../lib/shortcuts";
+import {
   addDays,
   addMonths,
   calendarEntriesForWindows,
@@ -121,6 +126,13 @@ const NO_ENTRIES: CalendarRenderEntry[] = [];
 const isExternalEntry = (
   entry: CalendarRenderEntry,
 ): entry is ExternalCalEntry => "feedUrl" in entry;
+
+/** The trash chord, read off its registry row rather than re-typed here:
+    the pane still owns the handler (scope "pane" is never dispatched), but the
+    combo the HUD advertises and the combo this surface answers stay one thing. */
+const trashCombos = shortcutById("cal-trash")?.combos ?? [];
+const isTrashChord = (e: KeyEventLike): boolean =>
+  trashCombos.some((c) => comboMatches(c, e));
 
 /** The pane unmounts whenever an entry is opened (the note takes the
     view), so the two pieces of "where I was reading" have to live outside it.
@@ -954,14 +966,23 @@ export default function CalendarPane({
   /** the peek's Ends row: a typed end time, quiet like the time row beside it
       The DAY it lands on is the span's existing end day, so
       retiming the far end of a two-day event doesn't drag it back to day one;
-      a single-day event's end stays on its own day.
+      a single-day event's end stays on its own day. An all-day span reaches
+      here too — the hour lands on its closing day and the start stays
+      all-day, which is exactly what the value already spells.
+
+      Emptying the field drops the hour, not the span: on a range that crosses
+      days the closing DAY survives, since the days belong to the date row and
+      clearing a mistyped hour must not swallow two days of event. A same-day
+      end only ever existed to give the block a length, so that one goes whole.
 
       Hands the stored end time back to the field: a reversed value comes home
       clamped, and the row must never sit there showing what was refused. */
   const setPeekEnd = (e: CalEntry, time: string | null): string | null => {
     const stored = storedRange(e);
     const day = stored?.end?.day ?? stored?.start.day ?? e.day;
-    return setEntryEnd(e, time ? { day, time } : null, true)?.time ?? null;
+    const spanning = !!stored?.end && stored.end.day !== stored.start.day;
+    const next = time ? { day, time } : spanning ? { day } : null;
+    return setEntryEnd(e, next, true)?.time ?? null;
   };
 
   /** Drop targets differ in what they do to the value's time:
@@ -1067,6 +1088,32 @@ export default function CalendarPane({
 
   const trashEntry = (e: CalEntry) => {
     onTrashNote(e.path);
+  };
+
+  /** ⌘⌫ — the keyboard twin of the chip menu's Move to Trash.
+      "Selected" is exactly what the calendar already tints: the peek's entry,
+      else the entry whose chip menu is open. There is no hidden cursor — a
+      chord that deletes must name something the user can see selected, so with
+      nothing selected the key does nothing.
+
+      A repeating occurrence is never resolved here: deleting the note would
+      take the whole series, and the keyboard has no way to say which the user
+      meant. The chord opens the same chip menu the right-click opens — skip
+      this occurrence / delete this and following / delete all — and the
+      choice stays explicit. Returns whether the key was claimed. */
+  const trashSelectedEntry = (): boolean => {
+    const entry = peekEntry ?? menu?.entry ?? null;
+    const anchor = peek?.anchor ?? menu?.anchor;
+    if (!entry || !anchor) return false;
+    if (entry.repeating) {
+      setPeek(null);
+      setMenu({ x: anchor.left, y: anchor.bottom, entry, anchor });
+      return true;
+    }
+    trashEntry(entry);
+    setPeek(null);
+    setMenu(null);
+    return true;
   };
 
   /** the note's actual date DAY — the series anchor a chip belongs to.
@@ -1334,8 +1381,15 @@ export default function CalendarPane({
     if (e.altKey) return;
     if (isTyping(e.target)) return; // the composer input handles its own keys
     // the peek (a body portal) owns its keys — its inputs revert on Esc,
-    // its rows/buttons keep the grid's n/t/1-9 shortcuts from firing
-    if (e.target instanceof HTMLElement && e.target.closest(".cal-peek"))
+    // its rows/buttons keep the grid's n/t/1-9 shortcuts from firing. ⌘⌫ is
+    // the one exception: the peek IS the selection this chord targets, so it
+    // has to survive focus sitting on one of the popover's buttons (a text
+    // field already returned above, where ⌘⌫ stays Cocoa's delete-to-start).
+    if (
+      e.target instanceof HTMLElement &&
+      e.target.closest(".cal-peek") &&
+      !isTrashChord(e)
+    )
       return;
     // Focused controls own their platform activation. Otherwise Calendar's
     // bare-Enter shortcut cancels the button click and opens whichever item
@@ -1356,6 +1410,10 @@ export default function CalendarPane({
         e.preventDefault();
         page(e.key === "ArrowLeft" ? -1 : 1);
         requestColFocus();
+      } else if (isTrashChord(e)) {
+        // unclaimed when nothing is selected, so the app-level history
+        // binding keeps whatever it had
+        if (trashSelectedEntry()) e.preventDefault();
       }
       return;
     }
@@ -1466,6 +1524,8 @@ export default function CalendarPane({
     cursor,
     onOpenNote,
     peek,
+    peekEntry,
+    menu,
     slotMin,
   ]);
 
