@@ -173,7 +173,7 @@ test("buildNoteActions: sealed strips every plaintext-emitting action at the bui
     reveal: noop,
     exportMarkdown: noop,
     exportPdf: noop,
-    sendAsLink: noop,
+    share: noop,
     lockNow: noop,
     unseal: noop,
     togglePin: noop,
@@ -181,7 +181,7 @@ test("buildNoteActions: sealed strips every plaintext-emitting action at the bui
     sealed: true,
   });
   const ids = acts.map((a) => a.id);
-  for (const leaky of ["duplicate", "export-md", "export-pdf", "send-link"]) {
+  for (const leaky of ["duplicate", "export-md", "export-pdf", "share"]) {
     assert.ok(!ids.includes(leaky), `${leaky} must be absent on a sealed note`);
   }
   assert.deepEqual(ids, [

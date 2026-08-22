@@ -103,16 +103,20 @@ export interface NoteActionHandlers {
   /** The designed one-sheet layout (hero artwork + facts + body),
       next to the generic PDF dump */
   exportOneSheet?: () => void;
-  /** Encrypt the rendered note client-side and park it on the
-      relay as a one-shot/expiring link */
-  sendAsLink?: () => void;
+  /** Open the share door: one entry point for every way this note can
+      leave the machine — a sealed expiring link, a page that keeps updating,
+      a way in for other people, a published folder. The door picks the mode;
+      this is the one action. Gated by `sealed` like every other
+      plaintext-emitting action, and by the engine besides — sharing sealed
+      material is refused at the command too. */
+  share?: () => void;
   /** Whole-file at-rest encryption. Only the actions the current sealed
       state can perform are supplied by the surface. */
   seal?: () => void;
   lockNow?: () => void;
   unseal?: () => void;
   /** The note is sealed on disk. Gates every plaintext-emitting action
-      (duplicate, exports, send as link) HERE, so no call site — row menu,
+      (duplicate, exports, share) HERE, so no call site — row menu,
       palette, note pane — can reintroduce a leak by forgetting a ternary.
       Applies while unlocked too: "Remove seal" is the one deliberate lane
       that writes sealed content back out as plaintext.
@@ -172,8 +176,8 @@ export function buildNoteActions(h: NoteActionHandlers): NoteAction[] {
       hint: "designed PDF",
       run: h.exportOneSheet,
     });
-  if (h.sendAsLink && !h.sealed)
-    out.push({ id: "send-link", label: "Send as link…", icon: "share", run: h.sendAsLink });
+  if (h.share && !h.sealed)
+    out.push({ id: "share", label: "Share…", icon: "share", run: h.share });
   if (h.seal) out.push({ id: "seal", label: "Seal note…", icon: "lock", run: h.seal });
   if (h.lockNow) out.push({ id: "lock-now", label: "Lock now", icon: "lock", run: h.lockNow });
   if (h.unseal)

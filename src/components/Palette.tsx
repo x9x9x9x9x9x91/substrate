@@ -212,7 +212,7 @@ interface PaletteProps {
   /** Duplicate the note in place — App creates, opens and toasts */
   onDuplicate: (note: NoteMeta) => void;
   /** Open the Send-as-link dialog for the note */
-  onSendAsLink: (note: NoteMeta) => void;
+  onShare: (note: NoteMeta) => void;
   /** Trash the note via App's single path (flush + toast w/ Undo) */
   onTrashNote: (path: string) => void;
   /** Pick the note for today (or unpick it) — the Today surface's
@@ -335,7 +335,7 @@ export default function Palette({
   onRenameNote,
   onRenameFolder,
   onDuplicate,
-  onSendAsLink,
+  onShare,
   onTrashNote,
   onTogglePick,
   onTogglePin,
@@ -541,7 +541,7 @@ export default function Palette({
         exportMarkdown: () => exportNoteMarkdown(note).catch(toastError),
         exportPdf: () => exportNotePdf(note).catch(toastError),
         exportOneSheet: () => exportNoteOneSheet(note).catch(toastError),
-        sendAsLink: () => onSendAsLink(note),
+        share: () => onShare(note),
         sealed: note.sealed,
         ...noteActionExtras(note),
         togglePick: () => onTogglePick(note.path, !isPickedToday(note, todayIso)),
@@ -1390,7 +1390,7 @@ export default function Palette({
     enterStage,
     setProp,
     onTrashNote,
-    onSendAsLink,
+    onShare,
     onTogglePick,
     todayIso,
     onTogglePin,

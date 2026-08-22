@@ -232,7 +232,7 @@ interface NotePaneProps {
       and toasts "Duplicated" */
   onDuplicate?: (note: NoteMeta) => void;
   /** Open the Send-as-link dialog for this note */
-  onSendAsLink?: (note: NoteMeta) => void;
+  onShare?: (note: NoteMeta) => void;
   /** Pick this note for today (or unpick it) from the ⋯ menu —
       the Today surface's verb reaching the note that is open. The pane reads
       the picked state off the note itself, so it needs no second prop. */
@@ -322,7 +322,7 @@ function NotePane({
   onTrash,
   onMoveToFolder,
   onDuplicate,
-  onSendAsLink,
+  onShare,
   onTogglePick,
   onTogglePin,
   pinned = false,
@@ -1799,11 +1799,11 @@ function NotePane({
       exportNoteOneSheet(meta).catch(console.error);
     },
     sealed: isSealed,
-    sendAsLink: onSendAsLink
+    share: onShare
       ? () => {
-          // flush first — the handoff renders from the file, pending text
-          // must be in it
-          flush().then(() => onSendAsLink(meta));
+          // flush first — every share mode renders from the file, pending
+          // text must be in it
+          flush().then(() => onShare(meta));
         }
       : undefined,
     seal: !isSealed
