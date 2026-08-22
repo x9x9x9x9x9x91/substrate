@@ -79,8 +79,7 @@ exactly the ` ```view ` contract. A malformed tile shows its own error and its
 siblings keep rendering. Tiles flow in fence order, collapse to one column in
 a narrow pane, and render flat when targeted by a workbook page. Grid boards
 carry no Print button — on paper the tile grid collapses to a stack, so the
-composed board is not honest print output (see the print roster in
-`e2e/dashprintroster.spec.ts`).
+composed board is not honest print output.
 
 ### `metrics` — stat cards over a sheet
 
