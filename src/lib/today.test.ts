@@ -1,7 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { NoteMeta, SchemaConfig } from "./types.ts";
-import { isPickedToday, pickedDay, todayData, todayTitle, TODAY_PROP } from "./today.ts";
+import {
+  FOCUS_PROP,
+  isFocused,
+  isPickedToday,
+  pickedDay,
+  todayData,
+  todayTitle,
+  TODAY_PROP,
+} from "./today.ts";
 
 function note(
   path: string,
@@ -199,4 +207,45 @@ test("a hand-cased Today: prop still reads as a pick", () => {
     ["Old:2026-07-15"],
     "a cased stale pick surfaces as a leftover"
   );
+});
+
+test("the headline sits on top of the picked lane whatever its time", () => {
+  const notes = [
+    note("Early.md", { title: "Early", today: TODAY, date: `${TODAY} 08:00` }),
+    note("Headline.md", { title: "Headline", today: TODAY, [FOCUS_PROP]: "true" }),
+  ];
+  const d = todayData(notes, schema, TODAY);
+  assert.deepEqual(
+    d.picked.map((p) => [p.note.title, p.focused ?? false]),
+    [["Headline", true], ["Early", false]]
+  );
+});
+
+test("a day shows one headline even when two notes carry the mark", () => {
+  const notes = [
+    note("B.md", { title: "B", today: TODAY, [FOCUS_PROP]: "true" }),
+    note("A.md", { title: "A", today: TODAY, [FOCUS_PROP]: "true" }),
+  ];
+  const d = todayData(notes, schema, TODAY);
+  assert.deepEqual(
+    d.picked.map((p) => p.focused ?? false),
+    [true, false]
+  );
+});
+
+test("the mark is inert on a note that is not picked for today", () => {
+  const stale = note("Old.md", { title: "Old", today: "2026-07-16", [FOCUS_PROP]: "true" });
+  const d = todayData([stale], schema, TODAY);
+  assert.equal(d.picked.length, 0);
+  assert.equal(d.leftovers.length, 1);
+  // the mark itself still reads true — picking the note again makes it the
+  // headline again, which is the same answer a re-pick deserves
+  assert.equal(isFocused(stale), true);
+});
+
+test("the headline mark never lands on the calendar as a date", () => {
+  const notes = [note("H.md", { title: "H", today: TODAY, [FOCUS_PROP]: "true" })];
+  const d = todayData(notes, schema, TODAY);
+  assert.equal(d.scheduled.length, 0);
+  assert.equal(d.due.length, 0);
 });

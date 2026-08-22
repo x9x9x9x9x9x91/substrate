@@ -324,3 +324,63 @@ test("entry points: sidebar row and palette command reach the surface", async ({
   await page.locator(".palette-item", { hasText: "Go to Today" }).click();
   await expect(page.locator(".today-pane")).toBeVisible();
 });
+
+test("the capture line creates a note already picked for today", async ({ page }) => {
+  const picked = lane(page, "Picked for today");
+  await expect(picked.locator(".today-quiet")).toHaveText("Nothing picked yet.");
+
+  const line = page.locator(".today-add-input");
+  await line.fill("Bounce the dub stems");
+  await line.press("Enter");
+
+  // the note exists and is already on the day — no second step, no
+  // hunting for the note that did not exist a moment ago
+  const row = picked.locator(".today-row", { hasText: "Bounce the dub stems" });
+  await expect(row).toBeVisible();
+  // the line empties itself for the next thought
+  await expect(line).toHaveValue("");
+
+  // it is an ordinary note carrying the ordinary pick prop
+  await row.click();
+  await expect(page.locator(".note-title")).toHaveValue("Bounce the dub stems");
+  await expect(chip(page, "today")).toHaveCount(1);
+});
+
+test("the day wrap shows its line and clears the leftovers it names", async ({ page }) => {
+  await page.locator(".today-wrap-act", { hasText: "Wrap the day" }).click();
+  // the confirmation is the line itself, not a promise about it
+  const line = page.locator(".today-wrap-line");
+  await expect(line).toContainText("- Day wrap:");
+  await expect(page.locator(".today-wrap")).toContainText("Resequence the live set");
+  await page.locator(".today-wrap-act", { hasText: "Write and clear" }).click();
+  await expect(lane(page, "Leftovers")).toHaveCount(0);
+  await expect(page.locator(".today-wrap-line")).toHaveCount(0);
+});
+
+test("wrapping is two clicks — cancel writes nothing", async ({ page }) => {
+  await page.locator(".today-wrap-act", { hasText: "Wrap the day" }).click();
+  await page.locator(".today-wrap-act", { hasText: "Cancel" }).click();
+  await expect(page.locator(".today-wrap-line")).toHaveCount(0);
+  await expect(lane(page, "Leftovers")).toHaveCount(1);
+});
+
+test("focus makes one picked note the day's headline, on top", async ({ page }) => {
+  const picked = lane(page, "Picked for today");
+  // pick two, then crown the second: it has to jump the first
+  const scheduled = lane(page, "Scheduled").locator(".today-row");
+  await scheduled.first().locator(".today-act").click();
+  await expect(picked.locator(".today-row")).toHaveCount(1);
+  await scheduled.first().locator(".today-act").click();
+  const rows = picked.locator(".today-row");
+  await expect(rows).toHaveCount(2);
+  const second = rows.nth(1);
+  const title = await second.locator(".today-row-title").innerText();
+  await second.locator(".today-act", { hasText: "Focus" }).click();
+  await expect(rows.first().locator(".today-row-title")).toHaveText(title);
+  await expect(rows.first()).toHaveClass(/headline/);
+  await expect(rows.first().locator(".today-cursor")).toHaveText("focus");
+  // only ever one headline
+  await expect(picked.locator(".today-row.headline")).toHaveCount(1);
+  await rows.first().locator(".today-act", { hasText: "Unfocus" }).click();
+  await expect(picked.locator(".today-row.headline")).toHaveCount(0);
+});

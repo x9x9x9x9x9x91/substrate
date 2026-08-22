@@ -1059,7 +1059,7 @@ export default function SelectMenu({
         reviewCanon && (
           <div className="selmenu-hint">
             Values read as stale {windowLabel(reviewCanon)} after they were last set.
-            Nothing is notified — the shelf-life report answers when asked.
+            Nothing is notified — an age column in a view answers when asked.
           </div>
         )
       )}

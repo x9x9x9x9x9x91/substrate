@@ -3214,7 +3214,7 @@ PropSchema fields:
   A window is a claim about the value's shelf life, nothing more: **the app
   never notifies, schedules or rewrites anything because of one.** It only
   lets a reader ask how a value stands — a freshness column in a view fence
-  (§5.2's `age(prop)`), or a report opened deliberately. Months and years are
+  (§5.2's `age(prop)`), read when the fence is read. Months and years are
   nominal (30 and 365 days): a shelf life is a rule of thumb, and the
   arithmetic lives in one place for every surface (`src/lib/shelflife.ts`,
   whose vocabulary is pinned against the engine's by

@@ -7705,7 +7705,6 @@ body.agenda-window .palette:focus-visible {
 
 
 
-
 /* Tax readiness (dashboard: tax) — the year's deductible totals over
    a checklist of documents still owed. Read-only over two exported sheets, and
    the one board that leaves the app on paper, so it stays plain: ruled tiles,
@@ -16612,6 +16611,56 @@ body.col-resizing * {
   color: var(--text-3);
 }
 
+/* The capture line, directly under the head: one hairline-bottomed field the
+   width of the column, no box and no fill — it reads as the next line of the
+   document, not as a control bolted on top of it. The Add button stays
+   invisible until there is something to add. */
+.today-add {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 0 10px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.today-add-input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-1);
+  font-family: var(--font);
+  font-size: 13px;
+}
+
+.today-add-input::placeholder {
+  color: var(--text-3);
+}
+
+.today-add-input:focus {
+  outline: none;
+}
+
+.today-add-act {
+  flex: none;
+  padding: 2px 4px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 11.5px;
+  font-family: var(--font);
+}
+
+.today-add-act:disabled {
+  opacity: 0;
+}
+
+.today-add-act:not(:disabled):hover {
+  color: var(--text-1);
+}
+
 .today-section {
   margin-top: 24px;
   padding-top: 20px;
@@ -16713,6 +16762,98 @@ body.col-resizing * {
   white-space: nowrap;
 }
 
+/* the day's headline: it already sits on top of its lane, so the row itself
+   only stops being grey — no rule, no fill, no colour */
+.today-row.headline .today-row-title {
+  color: var(--text-1);
+  font-weight: 500;
+}
+
+/* The day's ending, at the foot of the column: a quiet text button until it
+   is armed, then the exact line and the exact clearing it is about to do.
+   Bordered like the Journal button, never filled — this is the one place the
+   pane writes to the vault in bulk, so it shows its work instead of shouting */
+.today-wrap {
+  display: flex;
+  gap: 8px;
+  margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.today-wrap.armed {
+  flex-direction: column;
+  gap: 6px;
+}
+
+.today-wrap-act {
+  flex: none;
+  align-self: flex-start;
+  padding: 5px 10px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 12px;
+  font-family: var(--font);
+}
+
+.today-wrap-act:hover {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+.today-wrap-act.go {
+  border-color: var(--border-soft);
+  color: var(--text-2);
+}
+
+.today-wrap-act.go:hover {
+  border-color: var(--border-strong);
+}
+
+.today-wrap-act:disabled {
+  color: var(--text-3);
+}
+
+.today-wrap-what {
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
+/* the literal line that will land in the journal — shown verbatim, mono, so
+   the confirmation is the thing itself and not a description of it */
+.today-wrap-line {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+  word-break: break-word;
+}
+
+.today-wrap-row {
+  display: flex;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+/* the clock marker on a scheduled row — "now" on what is running, "in 25m"
+   on what starts next. Same quiet mono as the day qualifier; the running row
+   earns the brighter text and nothing else, no badge and no colour */
+.today-cursor {
+  flex: none;
+  margin-left: auto;
+  padding-left: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+
+.today-cursor.now {
+  color: var(--text-1);
+}
+
 /* the day qualifier on an overdue or leftover row — quiet mono in a fixed
    right-aligned column, so dates of different lengths never shift the verb
    cluster; on an overdue row it carries the calendar's red, the
@@ -16765,7 +16906,9 @@ body.col-resizing * {
 
 .today-journal,
 .today-row,
-.today-act {
+.today-act,
+.today-add-act,
+.today-wrap-act {
   transition:
     background-color 120ms ease-out,
     color 120ms ease-out,
@@ -16776,7 +16919,9 @@ body.col-resizing * {
 @media (prefers-reduced-motion: reduce) {
   .today-journal,
   .today-row,
-  .today-act {
+  .today-act,
+  .today-add-act,
+  .today-wrap-act {
     transition: none;
   }
 }

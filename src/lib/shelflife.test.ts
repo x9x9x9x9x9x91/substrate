@@ -4,8 +4,6 @@ import assert from "node:assert/strict";
 import {
   ageLabel,
   canonicalReviewWindow,
-  pastWindow,
-  rankShelfReadings,
   reviewWindowDays,
   shelfReading,
   windowLabel,
@@ -65,9 +63,7 @@ test("a value is fresh, then aging, then due against its own window", () => {
   assert.equal(shelfReading(fresh(68), w, NOW).state, "aging");
   assert.equal(shelfReading(fresh(89), w, NOW).state, "aging");
   assert.equal(shelfReading(fresh(90), w, NOW).state, "due");
-  const late = shelfReading(fresh(120), w, NOW);
-  assert.equal(late.overdueDays, 30);
-  assert.equal(late.windowDays, 90);
+  assert.equal(shelfReading(fresh(120), w, NOW).windowDays, 90);
   // a few hours old is today, never a day
   assert.equal(shelfReading(fresh(0), w, NOW).ageDays, 0);
 });
@@ -76,8 +72,7 @@ test("a value with no window has an age and nothing to be late for", () => {
   const r = shelfReading(fresh(400), null, NOW);
   assert.equal(r.state, "unwindowed");
   assert.equal(r.ageDays, 400);
-  assert.equal(r.overdueDays, null);
-  assert.equal(r.ratio, null);
+  assert.equal(r.windowDays, null);
 });
 
 test("a fact no person ever set has an unknown age, not a fresh one", () => {
@@ -88,34 +83,6 @@ test("a fact no person ever set has an unknown age, not a fresh one", () => {
   assert.equal(r.onlyBulk, true);
   // and a fact with no history at all reads unknown too, saying which it is
   assert.equal(shelfReading(fresh(null), "90d", NOW).onlyBulk, false);
-});
-
-test("the report ranks the furthest past its window first", () => {
-  const r = (key: string, days: number, window: string) =>
-    shelfReading(fresh(days, { key }), window, NOW);
-  const ranked = pastWindow([
-    r("aging", 80, "90d"), // 0.89 of its window
-    r("late", 200, "90d"), // 2.2×
-    r("worse", 400, "90d"), // 4.4×
-    r("yearly-late", 400, "1y"), // 1.1×
-  ]);
-  assert.deepEqual(
-    ranked.map((x) => x.key),
-    ["worse", "late", "yearly-late", "aging"]
-  );
-  // an unwindowed value is not a finding — nobody said it goes off — and
-  // neither is one nobody can date
-  assert.deepEqual(pastWindow([shelfReading(fresh(4000), null, NOW)]), []);
-  assert.deepEqual(pastWindow([shelfReading(fresh(null), "1d", NOW)]), []);
-});
-
-test("ranking is stable on ties so the same vault reads the same way", () => {
-  const a = shelfReading(fresh(100, { path: "B.md", key: "x" }), "90d", NOW);
-  const b = shelfReading(fresh(100, { path: "A.md", key: "x" }), "90d", NOW);
-  assert.deepEqual(
-    rankShelfReadings([a, b]).map((x) => x.path),
-    ["A.md", "B.md"]
-  );
 });
 
 test("ages and windows read as a person would say them", () => {

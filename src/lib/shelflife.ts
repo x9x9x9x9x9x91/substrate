@@ -6,10 +6,10 @@
 // SOURCE OF TRUTH for what a review window MEANS. The engine
 // (src-tauri/src/vault/schema.rs `canonical_review_window`) only decides what
 // may be written to a schema; the arithmetic — how many days `6m` is, when a
-// value goes past — lives here, so one file answers "is this stale?" for the
-// freshness column and the stale-facts report alike. The vocabularies are
-// mirrored (`review_windows_mirror_the_frontend` pins them); update both
-// sides together.
+// value goes past — lives here, so one file answers "is this stale?" wherever
+// a freshness column is read. The vocabularies are mirrored
+// (`review_windows_mirror_the_frontend` pins them); update both sides
+// together.
 //
 // Nothing here notifies. A window is only ever an answer to a question a
 // reader asked.
@@ -75,12 +75,6 @@ export interface ShelfReading {
   ageDays: number | null;
   /** The window in days, null when the prop declares none. */
   windowDays: number | null;
-  /** Days past the window — 0 until it is passed, null without one. */
-  overdueDays: number | null;
-  /** Age as a fraction of the window (1 = due today); null without one.
-      This is what ranks the report: two months past a 90-day window reads
-      as worse than two months past a yearly one, which is the honest order. */
-  ratio: number | null;
   /** True when the fact HAS changed but only ever inside a sweep — carried
       through so a surface can say "an import touched this, nobody has" rather
       than showing the same blank as a fact with no history at all. */
@@ -106,39 +100,18 @@ export function shelfReading(
   const windowDays = reviewWindowDays(window);
   const base = { path: fresh.path, key: fresh.key, windowDays, onlyBulk: fresh.only_bulk };
   if (fresh.reviewed_ts_ms === null) {
-    return { ...base, state: "unknown", ageDays: null, overdueDays: null, ratio: null };
+    return { ...base, state: "unknown", ageDays: null };
   }
   const ageDays = Math.max(0, Math.floor((now - fresh.reviewed_ts_ms) / DAY_MS));
   if (windowDays === null) {
-    return { ...base, state: "unwindowed", ageDays, overdueDays: null, ratio: null };
+    return { ...base, state: "unwindowed", ageDays };
   }
   const ratio = ageDays / windowDays;
   return {
     ...base,
     ageDays,
-    overdueDays: Math.max(0, ageDays - windowDays),
-    ratio,
     state: ratio >= 1 ? "due" : ratio >= AGING_AT ? "aging" : "fresh",
   };
-}
-
-/** The report's order: furthest past its window first, then the ones nearing
-    it, then everything that cannot be dated. Ties break on the older value,
-    and then on path and key so the same vault always ranks the same way. */
-export function rankShelfReadings(readings: ShelfReading[]): ShelfReading[] {
-  const rank = (r: ShelfReading) => (r.state === "due" ? 0 : r.state === "aging" ? 1 : 2);
-  return [...readings].sort((a, b) => {
-    if (rank(a) !== rank(b)) return rank(a) - rank(b);
-    if ((b.ratio ?? 0) !== (a.ratio ?? 0)) return (b.ratio ?? 0) - (a.ratio ?? 0);
-    if ((b.ageDays ?? 0) !== (a.ageDays ?? 0)) return (b.ageDays ?? 0) - (a.ageDays ?? 0);
-    return a.path.localeCompare(b.path) || a.key.localeCompare(b.key);
-  });
-}
-
-/** The facts a report shows: past their window, or nearing it. A value with
-    no window is not a finding — nobody said it goes off. */
-export function pastWindow(readings: ShelfReading[]): ShelfReading[] {
-  return rankShelfReadings(readings.filter((r) => r.state === "due" || r.state === "aging"));
 }
 
 /** The age as a reader would say it: "today", "3 days", "5 weeks", "2 years".

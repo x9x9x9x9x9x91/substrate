@@ -1,13 +1,27 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { DbIcon, NoteMeta, SchemaConfig } from "../lib/types";
 import { foldedPropStr } from "../lib/types";
-import { TODAY_PROP, todayData, type LeftoverItem, type PickedItem } from "../lib/today";
+import {
+  FOCUS_PROP,
+  isFocused,
+  TODAY_PROP,
+  todayData,
+  type LeftoverItem,
+  type PickedItem,
+} from "../lib/today";
 import { isComplete, type AgendaItem } from "../lib/agenda";
 import { humanDay } from "../lib/calendar";
 import { iconForType } from "../lib/dbicons";
 import { setPropUndoable } from "../lib/undoprops";
+import { recordCreate } from "../lib/undostruct";
 import { useUndo } from "../lib/undoContext";
-import { useTodayIso } from "./useTodayIso";
+import { useMinuteOfDay, useTodayIso } from "./useTodayIso";
+import { clockKey, nowNextCursor, untilLabel } from "../lib/todaynow";
+import { appendWrapLine, wrapLine, wrapPlan, wrapWorthDoing } from "../lib/daywrap";
+import type { WrapPlan } from "../lib/daywrap";
+import { dailyPath, JOURNAL_DIR } from "../lib/journal";
+import { setPropUndoableBulk } from "../lib/undoprops";
+import { vaultCreate, vaultRead, vaultWriteBody } from "../lib/ipc";
 import { useEdgeFade } from "../hooks/useEdgeFade";
 import TypeIcon from "./TypeIcon";
 import { NoteIcon, SunIcon } from "./Icons";
@@ -43,6 +57,55 @@ function EntryIcon({ type, icons }: { type: string; icons: Record<string, DbIcon
   return type ? <TypeIcon type={type} icon={iconForType(icons, type)} /> : <NoteIcon />;
 }
 
+/** The capture line. A morning starts with "I need to do X", not with
+    finding the note about X — so typing a title here creates the note with
+    the pick already on it (the same `today` prop the verb writes), and the
+    fresh row lands in the Picked lane with everything else. It sits OUTSIDE
+    the listbox on purpose: this is a text field, and the rows' bare letter
+    keys would eat what is typed into it. */
+function QuickAdd({ onAdd }: { onAdd: (title: string) => Promise<void> }) {
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const title = text.trim();
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title || busy) return;
+    setBusy(true);
+    /* The typed text survives a refusal: an unwritable Inbox or a title the
+       engine won't slug leaves the line exactly as it was, with the toast
+       saying why — only a created note clears it. */
+    onAdd(title).then(
+      () => {
+        setText("");
+        setBusy(false);
+      },
+      () => setBusy(false)
+    );
+  };
+  return (
+    <form className="today-add" onSubmit={submit}>
+      <input
+        className="today-add-input"
+        value={text}
+        placeholder="Add to today…"
+        aria-label="Add to today"
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          // Esc drops a half-typed thought rather than leaving it parked in
+          // the line; kept off the surface's own Esc while there is text
+          if (e.key === "Escape" && text) {
+            e.stopPropagation();
+            setText("");
+          }
+        }}
+      />
+      <button type="submit" className="today-add-act" disabled={!title || busy}>
+        Add
+      </button>
+    </form>
+  );
+}
+
 /* The keyboard model, ported from the tray popover (agenda.tsx) —
    the better-built of the two. Every row in every lane is one option in a
    single flat list running top to bottom, so j/k walks the day in the order
@@ -69,12 +132,72 @@ function optionProps({ id, idx, selected, onSelect }: RowChrome, base: string) {
   };
 }
 
+/** The day's ending. Two steps on purpose: the first click only shows what
+    the second one will do — the exact line that lands in the journal and the
+    exact number of stale picks that get cleared. Nothing here ever fires on
+    its own; a day that is not wrapped stays exactly as it was. */
+function DayWrap({
+  plan,
+  line,
+  busy,
+  onWrap,
+}: {
+  plan: WrapPlan;
+  line: string;
+  busy: boolean;
+  /** resolves true when the wrap actually landed */
+  onWrap: () => Promise<boolean>;
+}) {
+  const [armed, setArmed] = useState(false);
+  if (!armed) {
+    return (
+      <div className="today-wrap">
+        <button type="button" className="today-wrap-act" onClick={() => setArmed(true)}>
+          Wrap the day
+        </button>
+      </div>
+    );
+  }
+  const clears = plan.clearing.length;
+  return (
+    <div className="today-wrap armed">
+      <div className="today-wrap-what">Writes to today’s journal:</div>
+      <div className="today-wrap-line">{line}</div>
+      <div className="today-wrap-what">
+        {clears === 0
+          ? "Clears nothing — there are no leftovers."
+          : `Clears the pick on ${clears} leftover${clears === 1 ? "" : "s"}: ${plan.clearing
+              .map((c) => c.title)
+              .join(", ")}`}
+      </div>
+      <div className="today-wrap-row">
+        <button
+          type="button"
+          className="today-wrap-act go"
+          // a finished wrap folds the confirmation back up — leaving it open
+          // would offer to write a line that is already written. A FAILED one
+          // stays armed: the toast says what went wrong and the retry is the
+          // same click, not four of them
+          onClick={() => void onWrap().then((ok) => ok && setArmed(false))}
+          disabled={busy}
+        >
+          {busy ? "Wrapping…" : clears ? "Write and clear" : "Write"}
+        </button>
+        <button type="button" className="today-wrap-act" onClick={() => setArmed(false)}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /** One candidate row (Scheduled / Due lanes): opens on click, picks on the
     quiet verb. An overdue row's one red signal is its day chip in --danger,
     showing the day it was due; done rows dim. */
 function CandidateRow({
   item,
   overdue,
+  cursor,
   icons,
   onOpenNote,
   onPick,
@@ -83,6 +206,8 @@ function CandidateRow({
 }: {
   item: AgendaItem;
   overdue: boolean;
+  /** "now" on the entry happening, "in 25m" on the one starting next */
+  cursor?: { at: "now" | "next"; label: string };
   icons: Record<string, DbIcon>;
   onOpenNote: (path: string) => void;
   onPick: (path: string) => void;
@@ -102,6 +227,11 @@ function CandidateRow({
         <EntryIcon type={item.type} icons={icons} />
         {item.time && <span className="cal-entry-time">{item.time}</span>}
         <span className="today-row-title">{item.title}</span>
+        {cursor && (
+          <span className={cursor.at === "now" ? "today-cursor now" : "today-cursor"}>
+            {cursor.label}
+          </span>
+        )}
         {overdue && <span className="today-row-day overdue">{humanDay(item.day)}</span>}
       </button>
       <button
@@ -125,6 +255,7 @@ function PickedRow({
   icons,
   onOpenNote,
   onUnpick,
+  onFocus,
   onRowContextMenu,
   chrome,
 }: {
@@ -132,14 +263,16 @@ function PickedRow({
   icons: Record<string, DbIcon>;
   onOpenNote: (path: string) => void;
   onUnpick: (path: string) => void;
+  onFocus: (path: string, on: boolean) => void;
   onRowContextMenu: (path: string, x: number, y: number) => void;
   chrome: RowChrome;
 }) {
   const n = item.note;
   const done = isComplete(foldedPropStr(n.props, "status"));
+  const base = item.focused ? "today-row headline" : "today-row";
   return (
     <div
-      {...optionProps(chrome, done ? "today-row done" : "today-row")}
+      {...optionProps(chrome, done ? `${base} done` : base)}
       onContextMenu={(e) => {
         e.preventDefault();
         onRowContextMenu(n.path, e.clientX, e.clientY);
@@ -149,6 +282,17 @@ function PickedRow({
         <EntryIcon type={foldedPropStr(n.props, "type") ?? ""} icons={icons} />
         {item.time && <span className="cal-entry-time">{item.time}</span>}
         <span className="today-row-title">{n.title}</span>
+        {item.focused && <span className="today-cursor now">focus</span>}
+      </button>
+      <button
+        type="button"
+        className="today-act"
+        onClick={(e) => {
+          e.stopPropagation();
+          onFocus(n.path, !item.focused);
+        }}
+      >
+        {item.focused ? "Unfocus" : "Focus"}
       </button>
       <button
         type="button"
@@ -235,6 +379,21 @@ export default function TodayPane({
   // focus, so a long-lived window never shows yesterday
   const iso = useTodayIso();
   const data = useMemo(() => todayData(notes, schema, iso), [notes, schema, iso]);
+  // the lane's clock: which scheduled entry is running, which is up next, and
+  // how long until it. Re-read on the minute so a row stops saying "in 1m"
+  // forever; the marker is text in the row, not a badge or a colour.
+  const nowMin = useMinuteOfDay();
+  const cursor = useMemo(
+    () => nowNextCursor(data.scheduled, nowMin),
+    [data.scheduled, nowMin]
+  );
+  const cursorFor = (it: AgendaItem): { at: "now" | "next"; label: string } | undefined => {
+    const key = clockKey(it);
+    if (key === cursor.now) return { at: "now", label: "now" };
+    if (key === cursor.next && cursor.untilMin !== null)
+      return { at: "next", label: untilLabel(cursor.untilMin) };
+    return undefined;
+  };
   // A short window overflows the day and hard-clipped rows at both scroll
   // stops with nothing saying more was there — the same defect the shared
   // gate exists for; Today was the last row-list surface off it.
@@ -253,6 +412,141 @@ export default function TodayPane({
   };
   const pick = (path: string) => writeToday(path, iso);
   const unpick = (path: string) => writeToday(path, null);
+
+  /* The day's headline. Exclusive by construction: taking focus clears the
+     mark from whoever held it first, so the lane can never show two. The
+     clear and the take are separate undo steps — one write per note is what
+     the prop helpers record, and a switch is genuinely two decisions. */
+  const focusing = useRef(false);
+  const setFocus = (path: string, on: boolean) => {
+    // one at a time: both clicks of a fast double-take would read the same
+    // snapshot, each clear the mark the other is about to write, and strand
+    // two marks on the day
+    if (focusing.current) return;
+    focusing.current = true;
+    // the RAW mark, never the rendered one: todayData demotes every mark but
+    // the first, so a second `focus: true` left by a stale write is invisible
+    // in `p.focused` — a clear pass reading that flag can never reach it, and
+    // Unfocus then looks broken as the hidden mark pops up in its place
+    const held = data.picked.filter((p) => isFocused(p.note) && p.note.path !== path);
+    const clear = held.length
+      ? setPropUndoableBulk({
+          paths: held.map((p) => p.note.path),
+          key: FOCUS_PROP,
+          value: null,
+          record: undo.record,
+          label: "Cleared the day’s focus",
+        }).then(({ failed }) => {
+          // a refused clear is the whole exclusivity story failing — say so
+          // rather than letting the take land on top of a mark still there
+          if (failed.length)
+            onToast?.(`couldn’t clear the old focus — ${failed[0].error}`);
+          return failed.length === 0;
+        })
+      : Promise.resolve(true);
+    clear
+      .then((cleared) =>
+        cleared
+          ? setPropUndoable({
+              path,
+              key: FOCUS_PROP,
+              value: on ? "true" : null,
+              record: undo.record,
+              label: on ? "Focused for today" : "Unfocused",
+            })
+          : undefined
+      )
+      .then(onMutated)
+      .catch((err) => {
+        onToast?.(`couldn’t save — ${errText(err)}`);
+        onMutated();
+      })
+      .finally(() => {
+        focusing.current = false;
+      });
+  };
+
+  /* Capture: a new note born already picked. Inbox is where loose notes are
+     born everywhere else (⌘N, quick capture), and the pick rides along as an
+     ordinary prop on the create rather than a second write, so a half-made
+     note can never exist. The create is undoable like any other. */
+  const quickAdd = (title: string) =>
+    vaultCreate(title, "Inbox", undefined, [[TODAY_PROP, iso]]).then(
+      (meta) => {
+        recordCreate({ meta, record: undo.record });
+        onMutated();
+      },
+      (err: unknown) => {
+        onToast?.(`couldn’t add — ${errText(err)}`);
+        throw err;
+      }
+    );
+
+  /* Day wrap. Clear the stale picks as a single undoable step — the clear is
+     the half that changes the vault's state, so it is the half undo has to
+     hold — and only then get-or-create today's journal note and append the
+     line, which can now name what actually cleared rather than what was
+     going to. The journal write is append-only and guarded by the body it
+     read, so a note being edited in the other pane refuses rather than losing
+     a keystroke. */
+  const [wrapping, setWrapping] = useState(false);
+  const plan = wrapPlan(data.picked, data.leftovers);
+  const line = wrapLine(plan);
+  const runWrap = async (): Promise<boolean> => {
+    setWrapping(true);
+    try {
+      // clear FIRST, then write what actually happened. The bulk helper never
+      // rejects — it collects `failed` — so a line written up front would
+      // claim leftovers were cleared that are still sitting on the day, and
+      // the journal keeps that claim forever
+      let cleared = plan.clearing;
+      let clearFailed = false;
+      if (plan.clearing.length) {
+        const { failed } = await setPropUndoableBulk({
+          paths: plan.clearing.map((c) => c.path),
+          key: TODAY_PROP,
+          value: null,
+          record: undo.record,
+          label: `Cleared ${plan.clearing.length} leftover${plan.clearing.length === 1 ? "" : "s"}`,
+        });
+        if (failed.length) {
+          clearFailed = true;
+          onToast?.(`couldn’t clear ${failed.length} — ${failed[0].error}`);
+          const refused = new Set(failed.map((f) => f.path));
+          cleared = plan.clearing.filter((c) => !refused.has(c.path));
+        }
+      }
+
+      /* Today's journal note, get-or-create. Existence is decided by the READ,
+         not by the snapshot: a daily created a moment ago in the other pane is
+         on disk before it is in `notes`, and creating over it dedupes into a
+         stray "<date> 2" beside the real day. When a create does happen, its
+         own returned path is what gets written — never the guessed one. */
+      let path = dailyPath(iso);
+      let body: string;
+      try {
+        ({ body } = await vaultRead(path));
+      } catch (err) {
+        // the snapshot says it exists, so the read failing is a real failure
+        // and not a missing file — never answer it by creating a second day
+        if (notes.some((n) => n.path === path)) throw err;
+        const meta = await vaultCreate(iso, JOURNAL_DIR);
+        path = meta.path;
+        ({ body } = await vaultRead(path));
+      }
+      await vaultWriteBody(path, appendWrapLine(body, wrapLine({ ...plan, clearing: cleared })), body);
+
+      if (clearFailed) return false;
+      onToast?.("Day wrapped — the line is in today’s journal.");
+      return true;
+    } catch (err) {
+      onToast?.(`couldn’t wrap the day — ${errText(err)}`);
+      return false;
+    } finally {
+      setWrapping(false);
+      onMutated();
+    }
+  };
 
   /* A day with nothing in any lane. Three grey one-liners stacked
      under three eyebrows read as three failures; the day is one thing, so it
@@ -274,7 +568,14 @@ export default function TodayPane({
      one. `clearable` is "this note carries a pick prop" — the only rows where
      clearing it writes anything. */
   const rows = useMemo(() => {
-    const out: { key: string; path: string; verb: "pick" | "unpick"; clearable: boolean }[] = [];
+    const out: {
+      key: string;
+      path: string;
+      verb: "pick" | "unpick";
+      clearable: boolean;
+      /** the headline state of a picked row; absent on candidates */
+      focused?: boolean;
+    }[] = [];
     for (const l of data.leftovers)
       out.push({ key: `lo:${l.note.path}`, path: l.note.path, verb: "pick", clearable: true });
     for (const it of data.scheduled)
@@ -282,7 +583,13 @@ export default function TodayPane({
     for (const it of data.due)
       out.push({ key: `du:${it.path}:${it.prop}`, path: it.path, verb: "pick", clearable: false });
     for (const p of data.picked)
-      out.push({ key: `pk:${p.note.path}`, path: p.note.path, verb: "unpick", clearable: true });
+      out.push({
+        key: `pk:${p.note.path}`,
+        path: p.note.path,
+        verb: "unpick",
+        clearable: true,
+        focused: p.focused ?? false,
+      });
     return out;
   }, [data]);
 
@@ -357,6 +664,12 @@ export default function TodayPane({
       e.preventDefault();
       if (row.verb === "pick") pick(row.path);
       else unpick(row.path);
+    } else if (e.key === "f" && bare && row && row.verb === "unpick") {
+      // the day's headline, from the keyboard: only a picked row can be it —
+      // a candidate has not been decided on yet, and focus is a decision
+      // about the day, not a way to make one
+      e.preventDefault();
+      setFocus(row.path, !row.focused);
     } else if ((e.key === "Backspace" || e.key === "Delete") && bare && row) {
       /* off today, never out of the vault — clears the pick prop, nothing
          else. Only rows that carry one actually write: a candidate has never
@@ -398,8 +711,8 @@ export default function TodayPane({
             </button>
           </div>
 
-          {/* No verb here yet: the day's lines name none to make clickable —
-              the head's Journal ⌘D is the day's one action and stays above. */}
+          <QuickAdd onAdd={quickAdd} />
+
           {emptyDay && (
             <EmptyState className="today-empty" icon={<SunIcon />} title="Nothing on today" />
           )}
@@ -456,6 +769,7 @@ export default function TodayPane({
                       chrome={chromeAt(offScheduled + i)}
                       item={it}
                       overdue={false}
+                      cursor={cursorFor(it)}
                       icons={icons}
                       onOpenNote={onOpenNote}
                       onPick={pick}
@@ -502,6 +816,7 @@ export default function TodayPane({
                       icons={icons}
                       onOpenNote={onOpenNote}
                       onUnpick={unpick}
+                      onFocus={setFocus}
                       onRowContextMenu={onRowContextMenu}
                     />
                   ))
@@ -509,6 +824,10 @@ export default function TodayPane({
               </section>
             )}
           </div>
+
+          {wrapWorthDoing(plan) && (
+            <DayWrap plan={plan} line={line} busy={wrapping} onWrap={runWrap} />
+          )}
         </div>
       </div>
     </div>
