@@ -15,6 +15,7 @@ import { KIND_API, type KindEnableRecord, type KindFileMeta, type KindState } fr
 import { ACCENT_NAMES } from "../lib/styletokens";
 import {
   kindFileUrl,
+  kindManifestNotice,
   kindReview,
   kindRuntimeCard,
   kindSchemeOrigin,
@@ -27,6 +28,7 @@ import KindReviewCard from "./KindReviewCard";
 import { kindsEnable } from "../lib/ipc";
 import { invalidateKindBundles } from "../hooks/useKindBundles";
 import { DashAlert } from "./DashNotice";
+import { thrownText } from "../lib/errtext";
 
 /* The host for a vault-resident dashboard kind (vault-format §5.8).
 
@@ -137,6 +139,15 @@ export default function CustomKindPane(props: CustomKindPaneProps) {
   const [runtime, setRuntime] = useState<KindCard | null>(null);
   /* The kind's own state dot (`ctx.setState`), null while it stays quiet. */
   const [kindState, setKindState] = useState<{ color?: string; label: string } | null>(null);
+  /* What the app refused to do for the kind, in the order it refused it. A
+     ctx guard rejecting a write it did not permit, or a sheet that isn't
+     there, used to reach an author only through the console — the kind draws
+     whatever it drew before the call and the pane says nothing, so the reading
+     on screen is "my code did nothing" rather than "the app said no, here is
+     why". The throw still happens; this is the surface it was missing.
+     Deduped, because a refusal inside an onChange handler repeats with every
+     vault change. */
+  const [refusals, setRefusals] = useState<string[]>([]);
 
   const { fx } = useFxRates();
   const fxRef = useRef(fx);
@@ -169,6 +180,7 @@ export default function CustomKindPane(props: CustomKindPaneProps) {
        failing until the user navigated away and back. */
     setRuntime(null);
     setKindState(null);
+    setRefusals([]);
     if (!runnable || !entry) return;
     const el = host.current;
     if (!el) return;
@@ -227,7 +239,11 @@ export default function CustomKindPane(props: CustomKindPaneProps) {
       setRuntime(kindRuntimeCard(id, file, msg));
     };
     const fail = (file: string, e: unknown) => {
-      failWith(file, e instanceof Error ? `${e.name}: ${e.message}` : String(e));
+      // the class name earns its place here — a kind's author reading
+      // "TypeError: x is not a function" learns more than from the message
+      // alone. What it must not do is print a bare "null" for a throw that
+      // carried no message at all.
+      failWith(file, e instanceof Error ? `${e.name}: ${e.message}` : thrownText(e));
     };
 
     /* An async mount that never settles used to leave an empty div and
@@ -352,8 +368,14 @@ export default function CustomKindPane(props: CustomKindPaneProps) {
         if (dead) return;
         setKindState(s);
       };
+      /* Dead-guarded like pushState, and for the same reason: a refusal can
+         arrive from a promise the kind armed before it was torn down. */
+      const pushRefusal = (msg: string) => {
+        if (dead) return;
+        setRefusals((prev) => (prev.includes(msg) ? prev : [...prev, msg]));
+      };
       const ctx = hostSurface(
-        makeCtx(drawn, id, subs.current, note, fxRef, live, pushState),
+        makeCtx(drawn, id, subs.current, note, fxRef, live, pushState, pushRefusal),
         sandbox,
       );
       /* The whole synchronous mount, watched: single-threaded means anything
@@ -449,6 +471,10 @@ export default function CustomKindPane(props: CustomKindPaneProps) {
   }, [trusted, id, hash]);
 
   const card = runtime ?? kindStateCard(id, state);
+  /* Not a failure — the kind loaded and runs. It belongs on the pane anyway:
+     an ignored key is silent by construction, so the author's only other
+     clue is that whatever it was meant to set never happened. */
+  const manifestNotice = state.state === "invalid" ? null : kindManifestNotice(id, state.manifest);
   const head = card ? { label: card.label } : kindState;
   /* The review replaces the card rather than joining it: the review carries the
      same headline sentence, and showing both would say it twice. A state with
@@ -483,6 +509,10 @@ export default function CustomKindPane(props: CustomKindPaneProps) {
         ) : (
           card && <DashAlert>{card.message}</DashAlert>
         )}
+        {manifestNotice && <DashAlert>{manifestNotice}</DashAlert>}
+        {refusals.map((msg) => (
+          <DashAlert key={msg}>{msg}</DashAlert>
+        ))}
         {/* The host renders unconditionally, as the card's sibling rather than
             its alternative. Two reasons, both lifecycle: `host.current` stays
             live through a failure, so the next run of the mount effect — an
@@ -562,8 +592,16 @@ function makeCtx(
   fx: { current: ReturnType<typeof useFxRates>["fx"] },
   live: { current: CustomKindPaneProps },
   setState: (s: { color?: string; label: string } | null) => void,
+  report: (msg: string) => void,
 ) {
   const touched = () => live.current.onMutated();
+  /* Every "the app said no" in one place, so refusing and saying so on the
+     pane cannot drift apart: the throw the kind catches and the line its
+     author reads are the same sentence. */
+  const refuse = (msg: string) => {
+    report(msg);
+    return new Error(msg);
+  };
   return {
     api: KIND_API,
     el,
@@ -590,14 +628,14 @@ function makeCtx(
     sheet: async (title: string) => {
       const sheets = await dashboardSheets([title], live.current.vaultEpoch, fx.current);
       const got = sheets.get(title.toLowerCase());
-      if (!got) throw new Error(`no sheet named “${title}”`);
-      if ("error" in got) throw new Error(got.error);
+      if (!got) throw refuse(`no sheet named “${title}”`);
+      if ("error" in got) throw refuse(got.error);
       return got;
     },
 
     setProp: async (path: string, key: string, value: PropValue, expected: { value: PropValue }) => {
       if (!expected || typeof expected !== "object" || !("value" in expected)) {
-        throw new Error("setProp requires expected: { value } — a write from a kind without that guard is a clobber");
+        throw refuse("setProp requires expected: { value } — a write from a kind without that guard is a clobber");
       }
       const out = await vaultSetProp(path, key, value, expected);
       touched();
@@ -605,7 +643,7 @@ function makeCtx(
     },
     writeBody: async (path: string, body: string, expectedBody: string) => {
       if (typeof expectedBody !== "string") {
-        throw new Error("writeBody requires expectedBody — a write from a kind without that guard is a clobber");
+        throw refuse("writeBody requires expectedBody — a write from a kind without that guard is a clobber");
       }
       const out = await vaultWriteBody(path, body, expectedBody);
       touched();

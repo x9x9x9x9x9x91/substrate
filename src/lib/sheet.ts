@@ -58,11 +58,25 @@ export interface FormulaLine {
   group: number;
 }
 
+/** One data row whose cell count disagrees with the header row.
+    `row` is the row's number as the grid shows it (1-based, header excluded);
+    `cells` is how many cells the line actually held. */
+export interface RaggedRow {
+  row: number;
+  cells: number;
+}
+
 export interface SheetModel {
   headers: string[];
   rows: string[][]; // raw string cells, padded to headers.length
   formulas: FormulaLine[];
   errors: string[]; // unparsable formula lines + folded-name collisions
+  /** Rows the padding above had to reshape, in row order — empty for a
+      well-formed sheet. A short row's blanks and a long row's dropped cells
+      both used to vanish into the model, so a sheet with a mis-typed row
+      still summed to a confident, wrong total. Recorded here so the grid and
+      every dashboard bound to the sheet can say which row disagrees. */
+  ragged: RaggedRow[];
   hasCsv: boolean;
 }
 
@@ -241,7 +255,16 @@ export function parseSheet(body: string): SheetModel {
   const csv = findFence(body, "csv");
   const rows = csv ? parseCsv(csv.inner) : [];
   const headers = rows.length > 0 ? rows[0].map((h) => h.trim()) : [];
-  const data = rows.slice(1).map((r) => {
+  const ragged: RaggedRow[] = [];
+  const data = rows.slice(1).map((r, i) => {
+    // A row is only ragged when it disagrees with a header that exists: a
+    // sheet whose csv fence holds nothing but rows has no width to disagree
+    // with, and a trailing blank line parses as a one-empty-cell row that no
+    // one typed.
+    const blank = r.length === 1 && r[0].trim() === "";
+    if (headers.length > 0 && !blank && r.length !== headers.length) {
+      ragged.push({ row: i + 1, cells: r.length });
+    }
     const out = r.slice(0, headers.length);
     while (out.length < headers.length) out.push("");
     return out;
@@ -318,7 +341,32 @@ export function parseSheet(body: string): SheetModel {
   for (const msg of foldedCollisions(headers, formulas.map((f) => f.name)).values()) {
     errors.push(msg);
   }
-  return { headers, rows: data, formulas, errors, hasCsv: csv !== null };
+  return { headers, rows: data, formulas, errors, ragged, hasCsv: csv !== null };
+}
+
+// ---------- ragged rows ----------
+
+/** The chip's words: "2 ragged rows". Short enough for a card's second line,
+    where a whole sentence would wrap past the number it is qualifying. */
+export function raggedShort(n: number): string {
+  return `${n} ragged row${n === 1 ? "" : "s"}`;
+}
+
+/** The whole sentence — which rows, how wide they are, and how wide the
+    header is. Null for a sheet whose rows all agree with it, so a caller can
+    write `raggedNote(model) ?? …` without counting first.
+
+    Names at most four rows: past that the list stops being something a person
+    reads and starts being something they scroll, and the count already says
+    how much is wrong. */
+export function raggedNote(model: SheetModel): string | null {
+  const n = model.ragged.length;
+  if (n === 0) return null;
+  const shown = model.ragged.slice(0, 4);
+  const list = shown.map((r) => `row ${r.row} has ${r.cells}`).join(", ");
+  const more = n > shown.length ? `, and ${n - shown.length} more` : "";
+  const width = model.headers.length;
+  return `${n} row${n === 1 ? "" : "s"} disagree${n === 1 ? "s" : ""} with the header (${list}${more}) — the header has ${width} cell${width === 1 ? "" : "s"}. Missing cells read as empty and extra ones are dropped, so any total over this sheet is a guess.`;
 }
 
 // ---------- folded-name collisions ----------

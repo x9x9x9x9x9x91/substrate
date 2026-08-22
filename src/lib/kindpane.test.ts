@@ -1,11 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  builtInShadowNotice,
   canEnableKind,
   fileSummary,
   formatBytes,
   hashTag,
   kindFileUrl,
+  kindManifestNotice,
   kindReview,
   kindRuntimeCard,
   kindSchemeOrigin,
@@ -348,4 +350,42 @@ test("url: two hashes of one bundle produce different module urls", () => {
   const a = kindFileUrl("substrate-kind://localhost", "gear-log", "index.js", HASH);
   const b = kindFileUrl("substrate-kind://localhost", "gear-log", "index.js", OTHER);
   assert.notEqual(a, b);
+});
+
+// ---------- ignored manifest keys ----------
+
+test("manifest notice: nothing ignored says nothing", () => {
+  assert.equal(kindManifestNotice("gear-log", manifest()), null);
+  assert.equal(kindManifestNotice("gear-log", manifest({ unknownKeys: [] })), null);
+});
+
+test("manifest notice: a misspelled key is named, with what it costs", () => {
+  const one = kindManifestNotice("gear-log", manifest({ unknownKeys: ["styles"] }));
+  assert.ok(one);
+  assert.match(one, /gear-log/);
+  assert.match(one, /“styles”/);
+  assert.match(one, /A key/);
+  assert.match(one, /still runs/);
+});
+
+test("manifest notice: several keys read as a list, in the plural", () => {
+  const many = kindManifestNotice("gear-log", manifest({ unknownKeys: ["styles", "colour"] }));
+  assert.ok(many);
+  assert.match(many, /Keys/);
+  assert.match(many, /“styles”, “colour”/);
+});
+
+// ---------- built-in shadows a bundle ----------
+
+test("shadow: a bundle folder named after a built-in is named on the pane", () => {
+  const msg = builtInShadowNotice("metrics", [bundle({ id: "metrics" })]);
+  assert.ok(msg);
+  assert.match(msg, /“metrics”/);
+  assert.match(msg, /not being used/);
+  assert.match(msg, /Rename/);
+});
+
+test("shadow: an ordinary bundle alongside a built-in says nothing", () => {
+  assert.equal(builtInShadowNotice("metrics", [bundle({ id: "gear-log" })]), null);
+  assert.equal(builtInShadowNotice("metrics", []), null);
 });

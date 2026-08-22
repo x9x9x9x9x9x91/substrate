@@ -190,7 +190,27 @@ export interface KindManifest {
   style?: string;
   icon?: string;
   author?: string;
+  /** keys the manifest carried that this build does not read. Present only
+      when there are some, so the common case stays the shape it always was. */
+  unknownKeys?: string[];
 }
+
+/** Every key `parseKindManifest` reads. A manifest key outside this list is
+    not an error — a bundle written for a newer build may carry keys this one
+    has no use for, and refusing to load it would make forward compatibility a
+    crash. But it is not nothing either: `styles:` for `style:` mounts the
+    kind unstyled, and the author's only clue today is that nothing looks
+    right. So the manifest carries what was ignored and the pane says it. */
+const KNOWN_MANIFEST_KEYS: readonly string[] = [
+  "id",
+  "title",
+  "api",
+  "entry",
+  "description",
+  "style",
+  "icon",
+  "author",
+];
 
 /** A parsed manifest, or the specific reason it isn't one. Never a silent
     skip: a bundle that fails to parse is shown to the user with this reason,
@@ -325,6 +345,8 @@ export function parseKindManifest(folderId: string, text: string): KindManifestR
   if (style !== undefined) manifest.style = style;
   if (icon !== undefined) manifest.icon = icon;
   if (author !== undefined) manifest.author = author;
+  const unknown = Object.keys(obj).filter((k) => !KNOWN_MANIFEST_KEYS.includes(k));
+  if (unknown.length > 0) manifest.unknownKeys = unknown;
   return { ok: true, manifest };
 }
 

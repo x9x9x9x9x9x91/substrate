@@ -37,7 +37,9 @@ export function invalidateKindBundles(): void {
 }
 
 /** `kinds_list`, or null while it is still in flight. Fetched only when
-    `needed`, so the overwhelmingly common dashboard costs no round trip.
+    `needed`, so a consumer with nothing to ask costs no round trip — and when
+    several ask at once they share one, because the promise is cached per
+    epoch rather than per caller.
 
     `vaultEpoch` is optional because not every consumer has one: the dashboard
     passes it so a vault change re-reads the bundles, and the settings sheet —

@@ -1,8 +1,23 @@
-import { useCallback, useEffect, useRef, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, type ReactNode } from "react";
 import { NoteIcon } from "./Icons";
 import { printPane } from "../lib/export";
 import { registerPrintable } from "../lib/printable";
 import { BackButton } from "./BackButton";
+import { DashAlert } from "./DashNotice";
+
+/* A sentence a dashboard has to carry that the dashboard itself knows nothing
+   about — today, that a vault bundle is being shadowed by the built-in kind
+   the reader is looking at. It rides a context rather than a prop because the
+   fifteen built-in dashboards have nothing else in common except that every
+   one of them renders `DashHead` as the first child of `.dash-inner`. Adding
+   a prop would mean fifteen identical edits and a sixteenth kind forgetting
+   it; adding it here means the notice appears wherever a head does. */
+const DashNoticeContext = createContext<string | null>(null);
+
+/** Wrap a dashboard to give its head a notice to render under itself. */
+export function DashNoticeProvider({ notice, children }: { notice: string | null; children: ReactNode }) {
+  return <DashNoticeContext.Provider value={notice}>{children}</DashNoticeContext.Provider>;
+}
 
 /* The one dashboard header: title row over hairline. Every
    dashboard renders this — per-page headers were five different hand-built
@@ -26,29 +41,33 @@ export function DashHead({
   sourceTitle?: string;
   onOpenSource?: (path: string) => void;
 }) {
+  const notice = useContext(DashNoticeContext);
   return (
-    <div className="dash-head">
-      <BackButton />
-      <span className="dash-title">{title}</span>
-      {state && (
-        <span className="dash-state">
-          {state.color && <span className="dash-dot" style={{ background: state.color }} />}
-          {state.label}
-        </span>
-      )}
-      <span className="dash-actions">
-        {actions}
-        {sourcePath && onOpenSource && (
-          <button
-            className="dash-source"
-            title={sourceTitle}
-            onClick={() => onOpenSource(sourcePath)}
-          >
-            <NoteIcon />
-          </button>
+    <>
+      <div className="dash-head">
+        <BackButton />
+        <span className="dash-title">{title}</span>
+        {state && (
+          <span className="dash-state">
+            {state.color && <span className="dash-dot" style={{ background: state.color }} />}
+            {state.label}
+          </span>
         )}
-      </span>
-    </div>
+        <span className="dash-actions">
+          {actions}
+          {sourcePath && onOpenSource && (
+            <button
+              className="dash-source"
+              title={sourceTitle}
+              onClick={() => onOpenSource(sourcePath)}
+            >
+              <NoteIcon />
+            </button>
+          )}
+        </span>
+      </div>
+      {notice && <DashAlert>{notice}</DashAlert>}
+    </>
   );
 }
 

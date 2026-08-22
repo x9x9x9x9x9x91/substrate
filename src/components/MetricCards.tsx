@@ -10,9 +10,10 @@ import { dashboardSheets, type DashboardSheetState } from "../lib/dashboardSheet
 import { dashboardMounts, type DashboardMountState } from "../lib/dashboardMounts";
 import { MOUNT_AGGREGATES, isMountAggregate, mountCardText, mountAggregate } from "../lib/mountdash";
 import { mountStatus } from "../lib/mounts";
-import { findSummary } from "../lib/sheet";
+import { findSummary, raggedNote, raggedShort } from "../lib/sheet";
 import { isErr, type Value } from "../lib/formula";
 import type { FxRatesState } from "../lib/fx";
+import { errText } from "../lib/errtext";
 
 /** One loaded sheet as the bind readers see it. Alias of the loader's own
     state so cards and the ```progress fence share one shape, not two. */
@@ -92,7 +93,7 @@ export function useSheetStates(
       // error instead of leaving every card on "…" forever
       .catch((error) => {
         if (gone) return;
-        const msg = error instanceof Error ? error.message : String(error);
+        const msg = errText(error);
         setSheets(
           new Map(sheetNames.map((n) => [n.toLowerCase(), { error: `sheet load failed: ${msg}` }])),
         );
@@ -142,7 +143,28 @@ export function readBind(sheets: Map<string, SheetState>, bind: string): BindRea
     };
   }
   const v = findSummary(state.ev, b.name);
-  return { value: v, loading: false, title: isErr(v) ? v.err : undefined };
+  // A summary that couldn't be computed used to reach the card as a bare
+  // "—" with the reason in a hover title — indistinguishable from a summary
+  // that is legitimately empty. A formula over a column that isn't there
+  // ("unknown column …") is exactly as broken as a formula that wouldn't
+  // parse, and says so in the same place.
+  if (isErr(v)) return { value: v, loading: false, miss: v.err, title: v.err };
+  // The number computed, and the rows behind it are not what the sheet
+  // claims: a ragged row's missing cells read as empty, so the total is
+  // arithmetically fine and factually a guess. It keeps its place on the
+  // card — withholding it would hide the one clue to what went wrong — with
+  // the reason under it and the offending rows in the tooltip.
+  const note = raggedNote(state.model);
+  if (note) {
+    return { value: v, loading: false, miss: raggedShort(state.model.ragged.length), title: note };
+  }
+  // A sheet with a header and no rows summed to a confident 0 — "0 €" reads
+  // as a balance someone measured, not as an empty table.
+  if (state.model.hasCsv && state.model.rows.length === 0) {
+    const empty = `${b.sheet} has no rows`;
+    return { value: v, loading: false, miss: empty, title: empty };
+  }
+  return { value: v, loading: false };
 }
 
 /** Read one card's value out of the loaded sheets — or a mount's index:
@@ -190,7 +212,7 @@ export function useCardValues(
       .catch((error) => {
         if (gone) return;
         setMounts(new Map());
-        setMountsError(error instanceof Error ? error.message : String(error));
+        setMountsError(errText(error));
       });
     return () => {
       gone = true;
@@ -224,7 +246,7 @@ export function cardValueFrom(
   // it is a reason to stop pretending the number is formatted. The binding's
   // own miss wins the line where there is one — that one explains a missing
   // value, this one explains a value that reads plainly.
-  return card.formatErr && !read.miss ? { ...read, miss: card.formatErr } : read;
+  return card.optionErr && !read.miss ? { ...read, miss: card.optionErr } : read;
 }
 
 function readCardValue(
@@ -278,13 +300,13 @@ export async function resolveCardValues(
   const [sheets, mounts] = await Promise.all([
     // a rejected pass surfaces as a per-sheet error, exactly as on screen
     dashboardSheets(sheetNames, vaultEpoch, rates).catch((error: unknown) => {
-      const msg = error instanceof Error ? error.message : String(error);
+      const msg = errText(error);
       return new Map<string, SheetState>(
         sheetNames.map((n) => [n.toLowerCase(), { error: `sheet load failed: ${msg}` }]),
       );
     }),
     dashboardMounts(sheetNames, vaultEpoch).catch((error: unknown) => {
-      mountsError = error instanceof Error ? error.message : String(error);
+      mountsError = errText(error);
       return new Map<string, DashboardMountState>();
     }),
   ]);

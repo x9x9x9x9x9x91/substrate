@@ -9,7 +9,7 @@
  *      the set a vault bundle may not shadow (§5.8): a built-in missing from
  *      it can be shadowed by vault code, and built-ins write vault state, so
  *      the gap is a write-capture path.
- *   2. The dispatch chain — `DashboardBody` in src/components/DashboardPane.tsx.
+ *   2. The dispatch chain — `builtInDashboard` in src/components/DashboardPane.tsx.
  *   3. `DASHBOARD_ICONS`  — src/lib/dbicons.ts. A kind missing here silently
  *      falls to the generic chart glyph; nothing failed, the row just looks
  *      like every other row.
@@ -27,7 +27,7 @@
  * TWO exceptions are modelled explicitly rather than special-cased silently:
  *
  *   - `charts` is RESERVED: a real `dashboard:` value with no branch of its own,
- *     because it names the ` ```chart `-fence renderer (§5.5) that DashboardBody
+ *     because it names the ` ```chart `-fence renderer (§5.5) that builtInDashboard
  *     already falls through to. So it belongs in `BUILT_IN_KINDS` (bundles may
  *     not shadow it) and in both DISPATCH TABLES the docs publish — external
  *     writers need to know the name works — but it must appear in neither the
@@ -183,13 +183,13 @@ export interface Dispatch {
 }
 
 /**
- * `DashboardBody`'s if-chain. Every line mentioning `kind ===` must be a plain
+ * `builtInDashboard`'s if-chain. Every line mentioning `kind ===` must be a plain
  * `if (kind === "x") return <XDashboard …>` — a computed or grouped comparison
  * is thrown rather than skipped, because a kind reached through one would be
  * dispatched without appearing in any inventory.
  */
 export function parseDispatch(src: string, label = "src/components/DashboardPane.tsx"): Dispatch {
-  const [from, to] = tsxBlock(src, /^function DashboardBody\(/, label);
+  const [from, to] = tsxBlock(src, /^function builtInDashboard\(/, label);
   const priv = stripFlags(src, label);
   const kinds = new Map<string, { component: string; private: boolean }>();
   let fallback = "";
@@ -203,12 +203,12 @@ export function parseDispatch(src: string, label = "src/components/DashboardPane
     }
     const f = /^return <([A-Za-z0-9_]+) \{\.\.\.props\} \/>;$/.exec(text);
     if (f) {
-      if (fallback) throw new Error(`${label}: DashboardBody has two unconditional returns`);
+      if (fallback) throw new Error(`${label}: builtInDashboard has two unconditional returns`);
       fallback = f[1];
     }
   }
-  if (kinds.size === 0) throw new Error(`${label}: DashboardBody's dispatch chain parsed as empty`);
-  if (!fallback) throw new Error(`${label}: DashboardBody has no unconditional fallback return`);
+  if (kinds.size === 0) throw new Error(`${label}: builtInDashboard's dispatch chain parsed as empty`);
+  if (!fallback) throw new Error(`${label}: builtInDashboard has no unconditional fallback return`);
   return { kinds, fallback };
 }
 
@@ -432,14 +432,14 @@ export function crossCheck(inv: Inventories): string[] {
     if (dispatch.kinds.has(k)) {
       problems.push(
         `dispatch: "${k}" is reserved (it names the chart-fence fallback ${dispatch.fallback}), ` +
-          `but DashboardBody dispatches it — drop the branch or drop it from RESERVED_KINDS`
+          `but builtInDashboard dispatches it — drop the branch or drop it from RESERVED_KINDS`
       );
     }
   }
   for (const k of dispatched.keys()) {
     if (!builtIn.has(k)) {
       problems.push(
-        `kinds.ts: DashboardBody dispatches "${k}" but BUILT_IN_KINDS omits it — ` +
+        `kinds.ts: builtInDashboard dispatches "${k}" but BUILT_IN_KINDS omits it — ` +
           `a vault bundle named "${k}" could shadow a built-in that writes vault state`
       );
     }
@@ -448,14 +448,14 @@ export function crossCheck(inv: Inventories): string[] {
     if (RESERVED_KINDS.has(k)) continue;
     if (!dispatched.has(k)) {
       problems.push(
-        `dispatch: BUILT_IN_KINDS claims "${k}" but DashboardBody never dispatches it — ` +
+        `dispatch: BUILT_IN_KINDS claims "${k}" but builtInDashboard never dispatches it — ` +
           `add the branch, or add it to RESERVED_KINDS in src/lib/kinds.ts`
       );
       continue;
     }
     if (dispatched.get(k) !== isPrivate) {
       problems.push(
-        `dispatch: "${k}" is ${dispatched.get(k) ? "private" : "public"} in DashboardBody but ` +
+        `dispatch: "${k}" is ${dispatched.get(k) ? "private" : "public"} in builtInDashboard but ` +
           `${isPrivate ? "private" : "public"} in src/lib/kinds.ts — the strip regions disagree`
       );
     }

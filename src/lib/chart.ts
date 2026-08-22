@@ -217,6 +217,11 @@ export function parseChartConfig(inner: string): ChartConfig {
     if (!m) throw new Error(`can't parse line: ${line}`);
     const key = m[1].toLowerCase();
     if (!KNOWN_KEYS.has(key)) throw new Error(`unknown key "${m[1]}"`);
+    // A key set twice used to keep the last line and drop the first without
+    // a word — two `y:` lines drew one of them, and which one was a matter
+    // of reading the file top to bottom. The progress and heatmap fences
+    // already refuse it; this is the same refusal, in the same words.
+    if (kv.has(key)) throw new Error(`duplicate key "${m[1]}"`);
     kv.set(key, m[2].trim());
   }
   const kindRaw = (kv.get("kind") ?? "bar").toLowerCase();

@@ -74,6 +74,7 @@ export function parseCalendarConfig(inner: string): CalendarConfig {
     if (!m) throw new Error(`can't parse line: ${line}`);
     const key = m[1].toLowerCase();
     if (!KNOWN_KEYS.has(key)) throw new Error(`unknown key "${m[1]}"`);
+    if (kv.has(key)) throw new Error(`duplicate key "${m[1]}"`);
     kv.set(key, m[2].trim());
   }
   if (!kv.has("source")) throw new Error(`missing required key "source"`);

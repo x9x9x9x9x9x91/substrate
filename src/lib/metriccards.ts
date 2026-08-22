@@ -43,11 +43,13 @@ export interface MetricCard {
   emph?: boolean;
   /** bounded style token: an option-palette name, or absent */
   accent?: AccentName;
-  /** Why `format` isn't being honored, when a frontmatter card named one the
-      app doesn't have. The fence refuses the same value outright; frontmatter
-      keeps rendering the card and says this on it instead of formatting the
-      number silently wrong. */
-  formatErr?: string;
+  /** Which of this card's options the app could not honor, when a frontmatter
+      card wrote one it doesn't have — an unknown `format`, a `digits` outside
+      the range, an `emph` that isn't a boolean. The fence refuses the same
+      values outright; frontmatter keeps rendering the card and says this on it
+      instead of formatting the number silently wrong or dropping the emphasis
+      with nothing said. */
+  optionErr?: string;
 }
 
 /** Fraction digits a card may ask for. `Number.toLocaleString` rejects digits
@@ -99,10 +101,36 @@ export function cardFormatError(format: unknown): string | undefined {
   return `unknown format "${format}" — want ${CARD_FORMATS.join(", ")}`;
 }
 
+/** What a frontmatter card asked for that the app did not honor, as one
+    sentence, or undefined when it honored everything.
+
+    Leniency was uneven: an unknown `format` was named on the card, but
+    `digits: 40` quietly clamped to 8 and `emph: yes` quietly became no
+    emphasis at all — both of them a value the author wrote and the app
+    dropped, with the card looking exactly like a card that never asked. The
+    card still renders, because that is what frontmatter does; what changes is
+    that the dropped option is said out loud. */
+export function cardOptionError(o: Record<string, unknown>): string | undefined {
+  const said: string[] = [];
+  const fmt = cardFormatError(o.format);
+  if (fmt) said.push(fmt);
+  if (o.digits !== undefined) {
+    if (clampCardDigits(o.digits) === undefined) {
+      said.push(`digits must be a whole number — ignoring "${String(o.digits)}"`);
+    } else if (clampCardDigits(o.digits) !== o.digits) {
+      said.push(`digits must be between 0 and ${MAX_CARD_DIGITS} — using ${clampCardDigits(o.digits)}`);
+    }
+  }
+  if (o.emph !== undefined && typeof o.emph !== "boolean") {
+    said.push(`emph must be true or false — ignoring "${String(o.emph)}"`);
+  }
+  return said.length > 0 ? said.join("; ") : undefined;
+}
+
 /** Cards from a dashboard note's frontmatter. Lenient by design: a malformed
-    entry in a YAML block the app didn't parse is skipped, not fatal — but a
-    format the app doesn't have is still NAMED on the card it belongs to
-    (`formatErr`). Leniency is about not being fatal, not about staying quiet:
+    entry in a YAML block the app didn't parse is skipped, not fatal — but an
+    option the app doesn't have is still NAMED on the card it belongs to
+    (`optionErr`). Leniency is about not being fatal, not about staying quiet:
     `format: furlongs` silently rendering a bare number is the one shape a
     reader cannot tell from a working card. */
 export function parseCards(props: Record<string, unknown>): MetricCard[] {
@@ -121,7 +149,7 @@ export function parseCards(props: Record<string, unknown>): MetricCard[] {
       // render an unformatted number with nothing said about it — the silent
       // shape this parse exists to close. The fence folds the same value.
       format: typeof o.format === "string" ? o.format.toLowerCase() : undefined,
-      formatErr: cardFormatError(o.format),
+      optionErr: cardOptionError(o),
       digits: clampCardDigits(o.digits),
       // anything but a literal true (absent, "yes", 1, garbage) is not emphasis
       emph: o.emph === true,
@@ -129,6 +157,32 @@ export function parseCards(props: Record<string, unknown>): MetricCard[] {
     });
   }
   return out;
+}
+
+/** Why a note that asked for cards ended up with none — or with fewer than it
+    wrote.
+
+    `parseCards` is lenient on purpose, and leniency here reads as absence: a
+    `cards:` that is a scalar, or a list whose entries lack a label or a bind,
+    yields nothing, and the pane then said "No cards yet" to a reader looking
+    straight at a cards: line. This is the sentence that goes above the cards
+    instead. Absent stays absent — a note with no cards: key at all has nothing
+    wrong with it. */
+export function cardsProblem(props: Record<string, unknown>): string | null {
+  const raw = byFoldedKey(props, "cards");
+  if (raw === undefined || raw === null) return null;
+  if (!Array.isArray(raw)) {
+    return `cards: reads as ${cardsShape(raw)}, not a list — write each card as a “- label:” entry with a bind.`;
+  }
+  const skipped = raw.length - parseCards(props).length;
+  if (skipped <= 0) return null;
+  return `${skipped} of ${raw.length} card${raw.length === 1 ? "" : "s"} in this note’s frontmatter ${skipped === 1 ? "was" : "were"} skipped — every card needs a label and a bind, both written as text.`;
+}
+
+function cardsShape(v: unknown): string {
+  if (typeof v === "string") return `the text “${v}”`;
+  if (typeof v === "object") return "a block of keys";
+  return `the ${typeof v} ${String(v)}`;
 }
 
 // "{{Holdings.total}}" or "Holdings.total" → { sheet: "Holdings", name: "total" }

@@ -51,10 +51,13 @@ function parseProps(fm: string): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   const lines = fm.split("\n");
   let i = 0;
-  // bare numeric scalars type as numbers, matching real YAML — the metrics
-  // renderer ignores a `digits` that arrives as a string
-  const unquote = (v: string): string | number => {
+  // bare numeric and boolean scalars type as numbers and booleans, matching
+  // real YAML — the metrics renderer ignores a `digits` that arrives as a
+  // string, and reads an `emph` that does as an option it could not honor
+  const unquote = (v: string): string | number | boolean => {
     if (/^"(.*)"$/.test(v) || /^'(.*)'$/.test(v)) return v.slice(1, -1);
+    if (v === "true") return true;
+    if (v === "false") return false;
     return /^-?\d+(\.\d+)?$/.test(v) ? Number(v) : v;
   };
   while (i < lines.length) {
@@ -72,7 +75,7 @@ function parseProps(fm: string): Record<string, unknown> {
       continue;
     }
     // a block list of maps: "  - k: v" opens an entry, "    k: v" continues it
-    const list: Record<string, string | number>[] = [];
+    const list: Record<string, string | number | boolean>[] = [];
     i++;
     while (i < lines.length && /^\s+/.test(lines[i])) {
       const item = /^\s*-\s*([A-Za-z][\w-]*):\s*(.*)$/.exec(lines[i]);

@@ -100,6 +100,19 @@ test("parse errors: missing keys, bad kind, bad bucket, bad y, unknown key, junk
   assert.throws(() => parseChartConfig("source: r\nx: a\ny: count\nnot a line"), /can't parse line/);
 });
 
+test("a key given twice is refused, not silently last-wins", () => {
+  // Two `y:` lines drew whichever came last, so the chart on the page and the
+  // chart in the fence could disagree with nothing said about it.
+  assert.throws(
+    () => parseChartConfig("source: r\nx: a\ny: count\ny: sum:v"),
+    /duplicate key "y"/
+  );
+  assert.throws(
+    () => parseChartConfig("source: r\nsource: q\nx: a\ny: count"),
+    /duplicate key "source"/
+  );
+});
+
 test("parseChartBlocks: finds all fences in order, keeps errors per block", () => {
   const body = [
     "Some prose.",

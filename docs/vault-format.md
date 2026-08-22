@@ -970,7 +970,7 @@ mark keep the generic chart glyph. The curated glyph ids (`src/lib/dbicons.ts`
 `wallet`, `gamepad`, `plane`, `database`, `chart`, `grid`, `shirt`,
 `utensils`, `flame`, `download`, `refresh`.
 
-Dispatch (`src/components/DashboardPane.tsx` `DashboardBody`) — a fixed key set.
+Dispatch (`src/components/DashboardPane.tsx` `builtInDashboard`) — a fixed key set.
 These public kinds are dispatched: `metrics` → the metrics cards renderer (§5.4);
 `yield-apr` → the yield tracker (§5.3); `hub` → the hub renderer (below);
 `food` → the food log tracker (below); `feed` → the curated newsfeed (below);

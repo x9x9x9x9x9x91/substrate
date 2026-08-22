@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   MAX_CARD_DIGITS,
+  cardsProblem,
   clampCardDigits,
   collectCardsFences,
   fmtCard,
@@ -320,4 +321,19 @@ test("an off-roster accent is absent, never an error", () => {
 
 test("names a duplicate accent even when neither value is on the roster", () => {
   rejects("- label: A\n  bind: S.a\n  accent: nope\n  accent: teal", /duplicate key "accent"/);
+});
+
+test("cardsProblem: a cards: the parser threw away is named, an absent one is not", () => {
+  assert.equal(cardsProblem({ title: "X" }), null);
+  assert.equal(cardsProblem({ cards: [{ label: "A", bind: "S.a" }] }), null);
+
+  assert.match(cardsProblem({ cards: "Holdings" }) ?? "", /reads as the text “Holdings”, not a list/);
+  assert.match(cardsProblem({ cards: 3 }) ?? "", /reads as the number 3, not a list/);
+
+  // the entries are a list, but two of them carry nothing the card can bind
+  assert.match(
+    cardsProblem({ cards: [{ label: "A", bind: "S.a" }, { label: "B" }, "C"] }) ?? "",
+    /^2 of 3 cards .* were skipped/
+  );
+  assert.match(cardsProblem({ cards: [{ label: "B" }] }) ?? "", /^1 of 1 card .* was skipped/);
 });

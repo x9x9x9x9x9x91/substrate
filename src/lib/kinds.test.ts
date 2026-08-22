@@ -490,3 +490,15 @@ test("tail: a built-in with no renderer says so rather than showing an empty cha
   assert.match(t.message, /gear-log/);
   assert.match(t.message, /no renderer/);
 });
+
+test("manifest: a key this build does not read is kept, not dropped in silence", () => {
+  const m = ok("gear-log", JSON.stringify({ ...GOOD, styles: "kind.css", colour: "red" }));
+  assert.deepEqual(m.unknownKeys, ["styles", "colour"]);
+  // still a valid manifest: a bundle written for a newer build must load.
+  assert.equal(m.entry, "index.js");
+});
+
+test("manifest: the ordinary case carries no unknown-key list at all", () => {
+  const m = ok("gear-log", JSON.stringify({ ...GOOD, style: "kind.css", icon: "wrench", author: "ada" }));
+  assert.equal(m.unknownKeys, undefined);
+});

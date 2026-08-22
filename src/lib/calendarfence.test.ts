@@ -75,6 +75,13 @@ test("unknown keys and unparsable lines throw", () => {
   assert.throws(() => parseCalendarConfig("source: release\ndate: due\nnonsense"), /can't parse line: nonsense/);
 });
 
+test("a key given twice is refused, not silently last-wins", () => {
+  assert.throws(
+    () => parseCalendarConfig("source: release\ndate: due\ndate: released"),
+    /duplicate key "date"/
+  );
+});
+
 test("a query on a sheet source throws — sheets have no filter bar", () => {
   assert.throws(
     () => parseCalendarConfig("source: {{Holdings}}\ndate: bought\nquery: status:live"),

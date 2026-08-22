@@ -38,6 +38,7 @@ import { useHistoryLanes } from "./useHistory";
 import { DashHead, DashPrintButton } from "./DashHead";
 import { optionColor } from "./SelectMenu";
 import { DashAlert, DashEmpty } from "./DashNotice";
+import { errText } from "../lib/errtext";
 
 interface ChartsDashboardProps {
   meta: NoteMeta;
@@ -905,7 +906,7 @@ export default function ChartsDashboard({
       .catch((error) => {
         if (gone) return;
         setMounts(new Map());
-        setMountsError(error instanceof Error ? error.message : String(error));
+        setMountsError(errText(error));
       });
     return () => {
       gone = true;
@@ -939,7 +940,7 @@ export default function ChartsDashboard({
       // error instead of leaving every chart loading forever
       .catch((error) => {
         if (gone) return;
-        const msg = error instanceof Error ? error.message : String(error);
+        const msg = errText(error);
         setSheets(
           new Map(sheetNames.map((n) => [n.toLowerCase(), { error: `sheet load failed: ${msg}` }])),
         );
