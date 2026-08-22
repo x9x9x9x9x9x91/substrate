@@ -182,6 +182,44 @@ test("the lens pool has its own ceiling, and a republish counts only its delta",
   );
 });
 
+test("a HEAD says whether the slug is still there, and says which answer it is", async () => {
+  const { base } = await startRelay();
+  const { id, token } = await register(base);
+  await publish(base, id, token, await sealed("<p>live</p>"));
+
+  const live = await fetch(`${base}/api/lens/${id}`, { method: "HEAD" });
+  assert.equal(live.status, 204);
+  assert.equal(live.headers.get("x-substrate-lens"), "live");
+  assert.equal(await live.text(), "", "HEAD carries no body");
+
+  await fetch(`${base}/api/lens/${id}`, {
+    method: "DELETE",
+    headers: { authorization: `Bearer ${token}` },
+  });
+  const gone = await fetch(`${base}/api/lens/${id}`, { method: "HEAD" });
+  assert.equal(gone.status, 404);
+  assert.equal(
+    gone.headers.get("x-substrate-lens"),
+    "gone",
+    "a 404 without this header is an unrecognised route, not a retired lens"
+  );
+});
+
+test("asking whether a lens is alive does not keep it alive", async () => {
+  const clock = fakeClock();
+  const { base } = await startRelay({ now: clock.now, lensIdleTtlMs: 86400_000 });
+  const { id, token } = await register(base);
+  await publish(base, id, token, await sealed("<p>abandoned</p>"));
+
+  // a ledger left open, refreshing every day, must not hold the idle sweep off
+  for (let day = 0; day < 5; day += 1) {
+    clock.advance(20 * 3600_000);
+    await fetch(`${base}/api/lens/${id}`, { method: "HEAD" });
+  }
+  await register(base); // drives a sweep
+  assert.equal((await fetch(`${base}/api/lens/${id}`)).status, 404);
+});
+
 test("the live-lens ceiling bounds registration", async () => {
   const { base } = await startRelay({ lensMaxLenses: 2 });
   await register(base);

@@ -1011,6 +1011,45 @@ fn sealed_on_disk(path: &Path) -> bool {
     sealed::is_sealed(&head[..filled])
 }
 
+/// Serialise the read-modify-write cycles that share one registry file.
+///
+/// [`write_atomic`] makes each individual write whole, but a registry update is
+/// three steps — load, edit, save — and wholeness of the third step says
+/// nothing about the first two. Two threads can read the same file, each add
+/// their own row, and the second save drop the first row. What makes that
+/// worse than a lost edit is what the dropped row paid for: a slug and an
+/// owner bearer minted on a relay, now live and no longer nameable from this
+/// side, so nothing here can ever take it down. Every registry writer runs on
+/// a blocking pool thread while a network call is in flight, so the window is
+/// seconds wide rather than instructions wide.
+///
+/// One lock per absolute path, created on first use and kept for the life of
+/// the process: writers of different registries never wait on each other. The
+/// lock is not reentrant — a cycle must not start another cycle over the same
+/// file from inside its own edit.
+///
+/// In-process only, which is the same boundary `write_atomic` draws: a second
+/// Substrate on the same vault, or a registry arriving over sync, is outside
+/// what any lock this side can hold.
+///
+/// And it decides which writer wins, not what happens to whatever the loser
+/// already paid a relay for: a caller that minted something remote before the
+/// cycle still has to handle its own row being declined by the merge.
+pub(crate) fn with_registry_lock<T>(path: &Path, body: impl FnOnce() -> T) -> T {
+    use std::sync::{Arc, Mutex};
+    static LOCKS: OnceLock<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> = OnceLock::new();
+    let locks = LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
+    let lock = {
+        let mut map = locks.lock().unwrap_or_else(|e| e.into_inner());
+        Arc::clone(map.entry(path.to_path_buf()).or_insert_with(|| Arc::new(Mutex::new(()))))
+    };
+    // A registry writer that panicked mid-edit left the file as it was — the
+    // save is the only thing that touches it — so the next writer takes the
+    // poisoned lock rather than refusing to write for the rest of the session.
+    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+    body()
+}
+
 pub(crate) fn write_atomic(path: &Path, bytes: impl AsRef<[u8]>) -> Result<(), String> {
     let dir = path.parent().ok_or("invalid path")?;
     let name = path.file_name().ok_or("invalid path")?.to_string_lossy();

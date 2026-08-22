@@ -1376,6 +1376,27 @@ export function createHandoffRelay(opts: HandoffRelayOptions): Server {
     void withLensLock(() => touchLens(id)).catch(() => undefined);
   }
 
+  /** Does this slug still exist? The grants ledger's question, and the reason
+      it is HEAD rather than GET: a GET downloads the whole ciphertext to learn
+      one bit, and — worse — counts as a read, so a ledger that refreshed
+      itself would keep resetting the idle timer the sweep retires abandoned
+      lenses on. This answers from the metadata and touches nothing.
+
+      The header is what makes a "no" worth acting on. A relay too old to know
+      this route answers its generic 404 without it, and the asker must read
+      that as "no answer" rather than as "your page is gone" — announcing a
+      retirement that did not happen is the one mistake a liveness check must
+      not make. Open like the read is: it discloses only what anyone holding
+      the link already learns by opening it. */
+  async function handleLensHead(id: string, res: ServerResponse) {
+    const meta = await readLens(id);
+    res.writeHead(meta ? 204 : 404, {
+      ...SAFETY_HEADERS,
+      "x-substrate-lens": meta ? "live" : "gone",
+    });
+    res.end();
+  }
+
   async function handleLensRevoke(id: string, req: IncomingMessage, res: ServerResponse) {
     const meta = await readLens(id);
     if (!meta) return send(res, 404, "unknown lens");
@@ -1437,6 +1458,7 @@ export function createHandoffRelay(opts: HandoffRelayOptions): Server {
         if (lens && ID_RE.test(lens[1])) {
           if (req.method === "PUT") return handleLensPublish(lens[1], req, res);
           if (req.method === "GET") return handleLensRead(lens[1], res);
+          if (req.method === "HEAD") return handleLensHead(lens[1], res);
           if (req.method === "DELETE") return handleLensRevoke(lens[1], req, res);
         } else if (lens) {
           req.resume();
