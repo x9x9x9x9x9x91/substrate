@@ -27,59 +27,11 @@ These read only the vault. They work anywhere.
 `metrics`, `charts`, `hub` and `heatmap` also leave the app: the head's
 **Print** action prints the live pane as designed — a workbook's *active* page,
 not every page — through the same `@media print` surface notes use (Save as PDF
-lives in the dialog). The rest stay screen-only: `grid` and `calendar` carried
-the action once and lost it, because a tile grid collapses to a stack on paper
-and a month grid loses its last columns — they can re-earn it. The
+lives in the dialog). The rest stay screen-only: `calendar` carried the action
+once and lost it, because a month grid loses its last columns on paper — it can
+re-earn it. The
 machine-specific kinds never had it, `tax` excepted (it is built to be handed
 over on paper).
-
-### `grid` — compose a board from tiles
-
-A grid dashboard puts cards, charts, and live database cuts on one responsive
-board. Configuration lives in document-order ` ```tile ` fences in the body;
-`span: 2` makes a tile wide. The host key is named `tile` so a chart tile can
-keep the chart dialect's own `kind: bar|line` unchanged.
-
-````markdown
----
-type: dashboard
-dashboard: grid
----
-
-```tile
-tile: cards
-source: {{Holdings}}
-cards: Total value = total | usd | emph, Crypto = crypto | usd
-```
-
-```tile
-tile: chart
-source: release
-x: released:month
-y: count
-kind: bar
-title: Releases per month
-```
-
-```tile
-tile: view
-type: release
-query: status:mastering
-span: 2
-```
-````
-
-Cards use `Label = summary | option` entries separated by commas. The source
-must be `{{Sheet Name}}`; options are the metrics formats (`eur`, `usd`,
-`number`, `pct`), `digits=N`, `emph`, and `accent:<name>` (see **Style tokens**
-below). Emphasis is counted across the whole
-board, not restarted per tile: at most two values stay sharp. Chart keys after
-`tile:`/`span:` are exactly the ` ```chart ` contract below; view keys are
-exactly the ` ```view ` contract. A malformed tile shows its own error and its
-siblings keep rendering. Tiles flow in fence order, collapse to one column in
-a narrow pane, and render flat when targeted by a workbook page. Grid boards
-carry no Print button — on paper the tile grid collapses to a stack, so the
-composed board is not honest print output.
 
 ### `metrics` — stat cards over a sheet
 
@@ -121,8 +73,8 @@ cards:
 ```
 
 `format`: `eur` | `usd` | `number` | `pct`; optional `digits` (0–8; in
-frontmatter more is clamped to 8, while the ` ```cards ` fence and a ` ```tile `
-card line say so as an error). A bind must name a **summary** (an aggregate line), not a
+frontmatter more is clamped to 8, while the ` ```cards ` fence says so as an
+error). A bind must name a **summary** (an aggregate line), not a
 column. `emph: true` marks a card as one
 of the board's anchors — at most two stay sharp, everything else sinks to the
 quiet voice (design principle 11). `FX("USD","EUR")` in formulas uses a
@@ -453,7 +405,8 @@ prose.
 
 The body stays ordinary markdown; the renderer lays it out. `## ` headings become
 section labels, a run of consecutive callouts (no blank lines between them)
-becomes a side-by-side card row, and ` ```view `, ` ```chart `, ` ```cards `,
+becomes a side-by-side card row — a callout can ask for the double-width card
+with `> [!note|span:2] Title` — and ` ```view `, ` ```chart `, ` ```cards `,
 ` ```progress ` and ` ```calendar ` fences render live between them: a `view`
 embeds a database table, a `chart` plots exactly as it does on a charts
 dashboard, `cards` shows the metrics dashboard's stat-card row, `progress`
@@ -474,7 +427,7 @@ Label home — the week at a glance.
 
 ## Now
 
-> [!note] Studio
+> [!note|span:2] Studio
 > Mixdown pass on [[Vessel]] this week.
 > [!warn] Deadline
 > Master delivery due Friday.
@@ -1124,11 +1077,12 @@ not just for the app.
 ```
 
 
-## Style tokens — `accent` and `size`
+## Style tokens — `accent`, `size` and `span`
 
-A dashboard can set mood, and only mood. Two tokens exist, both **names from a
-closed list** — never a hex value, a pixel value, a font, or arbitrary CSS. The
-design system owns taste; a board picks from what it offers.
+A dashboard can set mood and coarse shape, and only that. Three tokens exist,
+all **values from a closed list** — never a hex value, a pixel value, a font,
+or arbitrary CSS. The design system owns taste; a board picks from what it
+offers.
 
 - **`accent: <name>`** on a metric card or a hub callout (`> [!note|teal]
   Title`). The names are the ten your select options and status pills already
@@ -1137,11 +1091,14 @@ design system owns taste; a board picks from what it offers.
   and never the number itself, so the value ramp keeps its contrast.
 - **`size: tall`** on a ` ```chart ` fence. The one size name a chart can ask
   for; how tall `tall` is stays the app's call.
+- **`span: 2`** on a hub callout (`> [!note|span:2] Title`, or with an accent:
+  `> [!note|teal|span:2] Title`). The card claims two of its row's columns
+  instead of one — a width in columns, never a measurement, and 1 or 2 are the
+  only widths there are. A pane too narrow to hold two columns renders it as an
+  ordinary card, so a wide card never overflows the page it is on.
 - The same `accent` name rides the other card surfaces: a ` ```cards ` fence
   card, and a ` ```progress ` fence, where it tints the goal's label and leaves
   the bar neutral.
-- It rides a grid tile card (`| accent:teal`) too, and `size: tall` likewise
-  rides a chart tile, which takes the chart dialect unchanged.
 
 Accent and `emph` are independent: hue says what a card is *about*, `emph` says
 which card *matters*. Accenting everything therefore can't quietly spend the

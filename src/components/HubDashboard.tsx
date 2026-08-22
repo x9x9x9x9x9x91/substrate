@@ -556,8 +556,14 @@ function HubCard({ callout, ctx }: { callout: HubCallout; ctx: Ctx }) {
   return (
     // accent overrides the kind's own rule hue — a name off the
     // roster never reaches here, so the attribute is absent and the callout
-    // reads exactly as an unaccented one
-    <div className={`dash-card hub-card hub-card-${callout.kind}`} data-accent={callout.accent}>
+    // reads exactly as an unaccented one.
+    //
+    // span 2 claims two of the row's columns; the row is auto-fit, so the
+    // stylesheet drops it back to one column on a pane too narrow to hold two
+    <div
+      className={`dash-card hub-card hub-card-${callout.kind}${callout.span === 2 ? " span-2" : ""}`}
+      data-accent={callout.accent}
+    >
       <div className="hub-card-title">
         {callout.title !== "" ? <Inline text={callout.title} ctx={ctx} /> : callout.kind}
       </div>

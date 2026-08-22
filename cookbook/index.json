@@ -235,24 +235,6 @@
       "shot": "shots/tasks.png"
     },
     {
-      "id": "grid-board",
-      "title": "Label board",
-      "kind": "grid",
-      "blurb": "One board out of three unlike things: bound stat cards, a bar chart over a database, and a live cut of the notes behind it. Each ```tile fence is one cell, in document order; span: 2 makes a tile take both tracks, and a tile that would sit alone on its row widens itself rather than leave half a row empty. A broken fence draws its error in its own cell and the rest of the board still renders.",
-      "adapt": "Point the cards tile's source: at your own sheet and name its summaries; change the chart tile's source: to one of your types and its x:/y: to the property you want bucketed; set the view tile's type: and query: to the cut you actually want in front of you. Add or delete fences to add or delete tiles.",
-      "expects": { "sheets": ["Holdings"], "databases": ["release"] },
-      "files": [
-        "Dashboards/Label Board.md",
-        "Holdings.md",
-        "Releases/Fern Static.md",
-        "Releases/Halide.md",
-        "Releases/Night Circuit.md",
-        "Releases/Paper Kite.md",
-        "Releases/Slow Bloom EP.md"
-      ],
-      "shot": "shots/grid-board.png"
-    },
-    {
       "id": "week-numbers",
       "title": "Release weeks (a kind you own)",
       "kind": "week-numbers",

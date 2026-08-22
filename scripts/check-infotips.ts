@@ -61,7 +61,6 @@ const SELF = "scripts/check-infotips.ts";
  */
 export const PANE_CONTROLS: ReadonlyMap<string, readonly string[]> = new Map([
   ["metrics", ["metrics-strip"]],
-  ["grid", ["grid-tile"]],
   // the hero is shared chrome three surfaces render, so it is not this
   // board's own control; the armed claim is
   ["yield-apr", ["dash-claim"]],
@@ -200,8 +199,8 @@ export function paneSource(file: string, files: string[], read: (p: string) => s
 }
 
 /** Whether a class name is rendered in that text. A hyphen counts as part of
-    the name rather than as a boundary, so `grid-tile` is not satisfied by a
-    file that only renders `grid-tiles` — class names here are built by
+    the name rather than as a boundary, so `sync-row` is not satisfied by a
+    file that only renders `sync-rows` — class names here are built by
     suffixing, which is exactly where a word boundary would wave a rename
     through. */
 export function rendersClass(src: string, cls: string): boolean {

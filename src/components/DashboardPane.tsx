@@ -20,7 +20,6 @@ import CalendarFenceDashboard from "./CalendarFenceDashboard";
 import SyncDashboard from "./SyncDashboard";
 import JobsDashboard from "./JobsDashboard";
 import YieldDashboard from "./YieldDashboard";
-import GridDashboard from "./GridDashboard";
 import HubDashboard from "./HubDashboard";
 import FoodDashboard from "./FoodDashboard";
 import CodingDashboard from "./CodingDashboard";
@@ -244,7 +243,6 @@ function DashboardBody(props: DashboardPaneProps) {
     wrapping them in the notice provider costs no remount. */
 function builtInDashboard(kind: string, props: DashboardPaneProps) {
   if (kind === "metrics") return <MetricsDashboard {...props} />;
-  if (kind === "grid") return <GridDashboard {...props} />;
   if (kind === "yield-apr") return <YieldDashboard {...props} />;
   if (kind === "sync") return <SyncDashboard {...props} />;
   if (kind === "jobs") return <JobsDashboard {...props} />;

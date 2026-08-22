@@ -57,8 +57,8 @@ export interface MetricCard {
     engines predating Intl.NumberFormat v3 — and no board value reads past 8,
     so one bound holds for every card surface. What differs is the
     REACTION, and it follows the surface's existing posture rather than the
-    card's: hand-authored text — the ```cards fence and a ```tile
-    card line — is read strictly and names the mistake to the person editing
+    card's: hand-authored text — the ```cards fence — is read
+    strictly and names the mistake to the person editing
     it (`parseCardDigits`), while frontmatter stays lenient and clamps
     (`clampCardDigits`), the same split that already governs unknown keys and
     formats. fmtCard clamps once more so a hand-built card object from any
@@ -74,9 +74,9 @@ export function clampCardDigits(digits: unknown): number | undefined {
 }
 
 /** A card's `digits` as hand-authored text declares it: whole, 0..8, or a
-    named error. The strict read, shared by the ```cards fence and the ```tile
-    card line so the two authoring surfaces refuse the same values with the
-    same words. Both callers render a parse error in place, so a bad
+    named error. The strict read used by the ```cards fence, so the
+    authoring surface refuses bad values with named words. The caller
+    renders a parse error in place, so a bad
     digit is told, never fatal. */
 export function parseCardDigits(raw: string): number {
   const n = Number(raw);

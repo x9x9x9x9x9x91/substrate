@@ -7821,6 +7821,25 @@ body.agenda-window .palette:focus-visible {
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   margin: 0 0 12px;
   gap: 16px;
+  /* the row measures itself so a wide card can ask about the row it is in,
+     not the window — a hub in a split pane collapses at the same width a hub
+     in a full one does */
+  container: hub-cards / inline-size;
+}
+
+/* a card the author widened. auto-fit counts tracks from the CONTAINER width
+   alone — item spans do not feed into it — so a `span 2` in a row that only
+   ever built one track would create a second, implicit track and overflow the
+   pane. Below the width two 210px tracks and their 16px gap need, the wide
+   card is simply an ordinary one. */
+.hub-card.span-2 {
+  grid-column: span 2;
+}
+
+@container hub-cards (width < 436px) {
+  .hub-card.span-2 {
+    grid-column: auto;
+  }
 }
 
 /* the callout's hue rides its own rule, so EVERY hub card is ruled — the type
@@ -10877,77 +10896,6 @@ th.sheet-computed:hover {
   padding-bottom: 24px;
 }
 
-/* Declarative grid dashboards: document-order tiles, two tracks on
-   a full pane and one on a narrow pane. The tile rule is structural, not
-   colored chrome; every nested surface keeps its existing dashboard voice. */
-.grid-dashboard {
-  container: grid-dashboard / inline-size;
-}
-
-.grid-tiles {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-items: start;
-  gap: 16px;
-  margin-top: 24px;
-}
-
-/* a tile is ruled, not boxed (structure principle 4): the four-side
-   border and radius drew a card around every tile and put two frames around
-   anything that already had its own. One hairline above it says the same
-   "this is a tile" and leaves the page to the figures. */
-.grid-tile {
-  min-width: 0;
-  padding-top: 16px;
-  border-top: 1px solid var(--hair-soft);
-  overflow: auto;
-}
-
-.grid-tile.span-2 {
-  grid-column: span 2;
-}
-
-/* Packed by measurement (GridDashboard's layout effect): a grid row
-   is as tall as its tallest cell, so a short tile beside a tall one left a
-   hole under it. In two tracks the rows become 1px with no gap and each tile
-   spans its own measured height plus the gap, which is what lets the tile
-   below it start where it actually ends. The negative margin gives back the
-   gap the last row carries, so the foot sits where it always did. The class
-   is JS-applied on purpose: without the measurement 1px rows would flatten
-   the board, so the packed dress and the numbers that make it work arrive
-   together. */
-.grid-tiles.is-packed {
-  grid-auto-rows: 1px;
-  row-gap: 0;
-  margin-bottom: -16px;
-}
-
-.grid-tile-in {
-  display: flow-root;
-}
-
-.grid-tile .dash-section-label {
-  margin-top: 0;
-}
-
-.grid-tile .metrics-strip {
-  margin: 0;
-}
-
-.grid-tile .metrics-cards {
-  margin-top: 0;
-}
-
-@container grid-dashboard (max-width: 780px) {
-  .grid-tiles {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .grid-tile.span-2 {
-    grid-column: auto;
-  }
-}
-
 /* Select-type properties — option dots + value picker */
 
 .opt-dot {
@@ -13935,14 +13883,9 @@ span.asset-thumb svg {
     color: #a33636;
   }
 
-  #print-surface .grid-tile {
-    overflow: visible;
-    break-inside: avoid;
-  }
-
   /* a view table sizes itself from its cells (each up to 220px, never
-     wrapped), so in a two-track tile grid the second table used to run past
-     its column and collide with its neighbour — on screen the tile scrolls,
+     wrapped), so in a multi-column card row the second table used to run past
+     its column and collide with its neighbour — on screen the card scrolls,
      on paper nothing scrolls. Here the table is held to the width it was
      given and the cells wrap instead of being clipped to an ellipsis: paper
      has no hover to reveal the rest of a truncated cell, so a printed table

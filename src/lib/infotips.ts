@@ -1379,17 +1379,6 @@ export const TIPS: TipEntry[] = [
       body: "Where this dashboard's numbers came from, and when they were collected.",
     },
   },
-  {
-    // last among the dashboard entries on purpose: a tile holds whole card,
-    // chart and table surfaces, and the walk stops at the first entry that
-    // matches an ancestor — registered any earlier, the tile would answer for
-    // every control inside it.
-    selector: ".grid-tile",
-    tip: {
-      title: "Tile",
-      body: "One fence from this note rendered as a card. A tile whose fence cannot be read says so in place of its contents.",
-    },
-  },
   /* vault sync pane */
   {
     selector: ".vault-sync-save",

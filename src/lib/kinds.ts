@@ -32,7 +32,6 @@ import { foldedPropKey, propStr } from "./types.ts";
     not the body actually holds a fence. */
 export const BUILT_IN_KINDS: ReadonlySet<string> = new Set([
   "metrics",
-  "grid",
   "yield-apr",
   "sync",
   "jobs",

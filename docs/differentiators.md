@@ -365,12 +365,6 @@ Capacities, Affine).*
   and undistributed. Rides the iOS lane above; same "in development" line.
   (Obsidian mobile has no widget story; Notion's widgets are cloud-bound —
   this one reads the last-synced local vault.)
-- **Public tile boards**: the `grid` kind is unfenced in the tree — one board
-  assembled from ` ```tile ` fences (sheet-summary cards, a chart, a live
-  database cut, each tile spanning the columns you give it,
-  `cookbook/grid-board/`) — but public-build users only get it with the next
-  release. Until a release carries the unfenced build, say "landing", never
-  shipped.
 - **Dashboards you (or your agent) can write, without a plugin store** — a
   `dashboard:` value can name a folder of code living in the vault itself
   (`.vault/kinds/<id>/`: a manifest plus an ES module with one `mount(el, ctx)`
@@ -386,8 +380,8 @@ Capacities, Affine).*
   Settings → Kinds lists everything this vault has been told to run and takes
   it back without deleting anything. Obsidian plugins are global to the app,
   installed from a store, and unsandboxed with no per-file consent; Notion and
-  Anytype have no local code path at all. Rides the same release line as the
-  tile boards above: public-build users get it with the next release — until a
+  Anytype have no local code path at all. Rides the public release line:
+  public-build users get it with the next release — until a
   release carries it, say "landing", never shipped.
 - **E2E-encrypted sync**: implemented end to end — encrypted blob-store
   transport (XChaCha20-Poly1305 per object, Argon2id passphrase wrap), an
