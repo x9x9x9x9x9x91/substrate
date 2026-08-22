@@ -539,7 +539,7 @@ const FIELDS: Field[] = [
     key: "accent-tone",
     tab: "appearance",
     label: "Accent tone",
-    hint: "the hue every dashboard mark wears; state colours never move with it",
+    hint: "the hue the whole app wears — cell cursor, text selection, links, buttons and dashboard marks; state colours never move with it",
     kind: "chips",
     defaultChip: DEFAULT_TONE,
     options: TONES.map((t) => ({ value: t.id, label: t.label })),

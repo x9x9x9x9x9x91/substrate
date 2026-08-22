@@ -1106,7 +1106,9 @@ data and still fails loudly, while a wrong colour is only a preference nobody
 can honour.
 
 Because the names resolve through the theme, a board that asks for `teal`
-follows the theme when the theme moves — including the accent-tone settings.
+follows the theme when the theme moves — including the accent-tone setting,
+which since 2026-08-22 drives the whole app's accent family, not just the
+dashboard surfaces.
 A vault-resident kind gets the same roster as `ctx.accents` and reaches mood
 the same way, through exactly one class: `data-accent="<name>"` on a
 `dash-card`. That is the one sanctioned class wired for it — the attribute on

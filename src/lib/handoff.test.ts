@@ -4,6 +4,8 @@ import {
   HANDOFF_MAGIC,
   KEY_BYTES,
   buildHandoffDocument,
+  docCss,
+  SHIPPED_PAPER_ACCENT,
   buildHandoffLink,
   fromBase64Url,
   openHandoff,
@@ -90,6 +92,32 @@ test("document is standalone html with escaped title and rendered body", () => {
   assert.match(html, /Master notes &lt;v2&gt;/);
   assert.match(html, /<h2>Tracklist<\/h2>/);
   assert.match(html, /<ol><li>opener<\/li><\/ol>/);
+});
+
+test("the document sheet paints its accent as a literal at a paper weight", () => {
+  // the recipient's browser has none of the app's CSS, so a token reference in
+  // this sheet would resolve to nothing; and the page is white, so the screen
+  // family's light weights would be the wrong end of the family
+  const sheet = docCss();
+  assert.ok(!sheet.includes("var(--"), "the standalone sheet leans on an app token");
+  assert.match(sheet, /a \{ color: #14597a; \}/);
+  assert.match(sheet, /\.print-link \{ color: #14597a; \}/);
+  assert.match(sheet, /\.print-task\.done \.print-box \{ background: #14597a;/);
+  // the same sheet takes whatever family the author is wearing, which is what
+  // a document built inside the app hands it
+  assert.match(docCss("#4a2f7a"), /\.print-link \{ color: #4a2f7a; \}/);
+});
+
+test("a document built with no app around it carries the shipped family", () => {
+  // node has no document to read the live tone out of — the fallback is the
+  // shipped default, never a broken colour string
+  const html = buildHandoffDocument({
+    title: "t",
+    propsLine: "",
+    body: "x",
+    assetSrc: () => undefined,
+  });
+  assert.ok(html.includes(`a { color: ${SHIPPED_PAPER_ACCENT}; }`));
 });
 
 test("document inlines image embeds via assetSrc", () => {

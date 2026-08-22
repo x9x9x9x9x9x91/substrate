@@ -1,7 +1,7 @@
 :root {
   /* The grey ramp is NEUTRAL (equal-ish RGB, no cool tint) — the blue
-     cast we flagged came from cool-hued greys; indigo lives only in
-     interactive tokens (--accent/--link), never in surfaces or text greys */
+     cast we flagged came from cool-hued greys; the accent family lives only
+     in interactive tokens (--accent/--link), never in surfaces or text greys */
   --bg: #090909;
   --bg-panel: #101011;
   --bg-elevated: #1a1a1b;
@@ -14,9 +14,29 @@
   --text-1: #f5f6f6;
   --text-2: #a9abae;
   --text-3: #75777b;
-  --accent: #5e6ad2;
-  --accent-soft: rgba(94, 106, 210, 0.22);
-  --link: #8b95e8;
+  /* The interactive family, routed through the tone presets further
+     down: the Settings tone dial moves the WHOLE app at once — cell cursor,
+     focus rings, text selection, filled buttons, links and dashboard
+     marks all wear one family at a time (owner's call 2026-08-22; the
+     earlier dashboard-only scoping is retired, and the tone table's block
+     says why). The selected sidebar row is NOT in the family: it paints the
+     neutral --active wash and stays where it is. Sky is the table's own
+     :root default, so an unset dial still renders the shipped look with no
+     attribute written and no arithmetic that can drift. */
+  --accent: var(--tone-accent);
+  --accent-soft: var(--tone-accent-soft);
+  /* the same family lifted to text weight — an emphasised value, a link */
+  --accent-text: var(--tone-accent-text);
+  --link: var(--tone-accent-text);
+  /* the ink that sits ON an --accent fill: a filled button's label, a
+     checked box's tick. Every tone's fill weight is LIGHT (sky is 67.5%
+     lightness), so white on it is unreadable — 1.6:1 at the worst
+     tone/nudge pair. The ink is the app's own near-black instead, which
+     clears 7.9:1 on the worst pair; lib/appearance.test.ts holds that floor
+     at 4.5:1 across all four tones and the whole nudge range. Pure marks —
+     bars, dots, cursor rules, the now-line — carry no ink and keep the fill
+     alone. */
+  --on-accent: #090909;
   --hover: rgba(255, 255, 255, 0.05);
   /* dense many-row tables (the dashboard panes) want a fainter hover than
      --hover: at high row density the stronger wash flickers as the pointer
@@ -2390,10 +2410,13 @@ button.empty-hint-fix:hover {
   cursor: pointer;
 }
 
+/* the tick's stroke is --on-accent's value written out: a data URI is an
+   opaque image and cannot read a custom property. If that token moves, these
+   three ticks move with it — lib/appearance.test.ts holds them together. */
 .cm-editor .cm-panel.cm-search input[type="checkbox"]:checked {
   border-color: var(--accent);
   background: var(--accent)
-    url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><path d="M2.5 6.2 5 8.7l4.5-5.4" fill="none" stroke="white" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>')
+    url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><path d="M2.5 6.2 5 8.7l4.5-5.4" fill="none" stroke="%23090909" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>')
     center / 9px no-repeat;
 }
 
@@ -2615,7 +2638,7 @@ button.empty-hint-fix:hover {
 .cm-task-toggle:checked {
   border-color: var(--accent);
   background: var(--accent)
-    url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><path d="M2.5 6.2 5 8.7l4.5-5.4" fill="none" stroke="white" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>')
+    url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><path d="M2.5 6.2 5 8.7l4.5-5.4" fill="none" stroke="%23090909" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>')
     center / 10px no-repeat;
   animation: check-pop 140ms ease-out;
 }
@@ -4278,7 +4301,7 @@ body.agenda-window .palette:focus-visible {
    (lib/appearance.ts carries the sweep that fixes that number).
 
    --tone-paper-* is the same family at print weight; the @media print block
-   maps them onto the same tokens, so a toned dashboard prints in its own ink
+   maps them onto the same tokens, so a toned page prints in its own ink
    rather than reverting to sky's. */
 
 /* sky — the shipped family: its numbers ARE the V1 hexes */
@@ -4376,42 +4399,43 @@ body.agenda-window .palette:focus-visible {
   --tone-paper-series-5: #8f7a3f;
 }
 
-/* The dashboard accent family (owner's call: pure b/w reads flat;
-   V1 "sky" picked from the 03.08 contact sheet). One family, never per-widget
-   hues, and SCOPED to the dashboard surfaces — a :root swap would repaint
-   sidebar selection, every focus ring and the whole app's interactive indigo,
-   and sidebar recolours were rejected in the same colour round. The app-wide
-   --accent (#5e6ad2) is untouched; inside a dashboard it becomes the sky.
+/* The accent family (owner's call: pure b/w reads flat; V1 "sky"
+   picked from the 03.08 contact sheet). One family, never per-widget hues.
 
-   --accent is the fill/mark weight (bars, line stroke, dots, the workbook
-   tab's active rule); --accent-text is the same family lifted to text weight
-   so an emphasised value clears its ground (#a5d8f0 is 13.0:1 on #090909;
-   its paper remap #14597a is 7.1:1 on white). The series ramp is fixed at
-   five, each entry clearing 3:1 as a shape on BOTH grounds. The chosen warm
-   khaki fifth series sits close to reserved yellow, so the boundary is
-   semantic rather than a false hue-distance invariant: series-5 is only
-   categorical, state keeps its reserved token and a non-colour carrier.
+   SCOPE, amended 2026-08-22 (owner's call, attended): the family is
+   APP-WIDE. The tone dial now drives the interactive tokens at :root —
+   --accent, --accent-soft, --accent-text, --link — so one family is visible
+   at any time. The earlier round scoped the family to the dashboard
+   surfaces and kept a fixed interactive indigo outside it; that scoping is
+   retired because it left the app wearing two families at once. What the
+   :root swap actually repaints is the cell cursor, focus rings, text
+   selection, filled controls and links — the selected sidebar row is not
+   among them, it paints the neutral --active wash. The strong page hairline was
+   already tone-aware (--hairline-accent on .list-head/.dash-head), so a list
+   header wore sky while the cell cursor beside it stayed indigo — the
+   incoherence the owner called out. Repainting the chrome IS the decision
+   now, not a side effect of one.
+
+   What is left here is the dashboard's own vocabulary: the five-slot series
+   ramp. It stays scoped because it is chart language, not chrome — nothing
+   outside a dashboard draws a series.
 
    .wb-tabs is in the scope because a workbook's tab strip is chrome for the
    dashboard it pages through — it sits outside .dash-inner in the DOM, so
-   without this its active rule would stay app-indigo under a sky body.
+   without this a split chart's ramp would not reach it.
 
-   The VALUES live in the tone table below: this block now
-   only says which family slot each token is, so a tone change moves the
-   whole family at once and this scope list stays the one place that decides
-   WHERE the family applies. */
+   The series ramp is fixed at five, each entry clearing 3:1 as a shape on
+   BOTH grounds. The chosen warm khaki fifth series sits close to reserved
+   yellow, so the boundary is semantic rather than a false hue-distance
+   invariant: series-5 is only categorical, state keeps its reserved token
+   and a non-colour carrier.
+
+   The VALUES live in the tone table above: this block only says which family
+   slot each token is, so a tone change moves the whole family at once. */
 .dash-inner,
 .metrics-cards,
 .wb-tabs,
 #print-surface {
-  --accent: var(--tone-accent);
-  /* --accent-soft rides along: it is the halo half of the focus ring whose
-     border is --accent (.dash-form-row input:focus), and a sky border with
-     an indigo halo would read as two colours on one control. Same alpha as
-     the app-wide token, tone hue. NOT a glow — this is the existing focus
-     affordance keeping one colour, not a new bloom. */
-  --accent-soft: var(--tone-accent-soft);
-  --accent-text: var(--tone-accent-text);
   --series-1: var(--tone-series-1);
   --series-2: var(--tone-series-2);
   --series-3: var(--tone-series-3);
@@ -5547,7 +5571,7 @@ body.agenda-window .palette:focus-visible {
   border: 1px solid var(--accent);
   border-radius: 6px;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 12.5px;
   cursor: pointer;
 }
@@ -5955,11 +5979,12 @@ body.agenda-window .palette:focus-visible {
   border: none;
   border-radius: var(--r);
   background: var(--accent);
-  /* the filled button's ink follows the accent's lightness: white
-     on the app's indigo was 4.7:1, but white on the dashboard's sky #6cc0ec
-     is 2.0:1 — unreadable. A light fill takes a dark ink; this is the deep
-     end of the same family, 7.4:1 on the fill. */
-  color: #062a3a;
+  /* the filled button's ink follows the accent's lightness: white on a
+     lit accent is 2.0:1, unreadable. A light fill takes a dark ink — and
+     since the fill now follows the tone dial, the ink is the app-wide
+     --on-accent rather than a sky-only deep blue that would read as a
+     leftover under any other tone. */
+  color: var(--on-accent);
   font: var(--dash-sentence);
   font-weight: 550;
   transition: filter 120ms ease-out;
@@ -9162,7 +9187,7 @@ body.agenda-window .palette:focus-visible {
 .chip:hover .prop-check.on {
   border-color: var(--accent);
   background: var(--accent)
-    url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><path d="M2.5 6.2 5 8.7l4.5-5.4" fill="none" stroke="white" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>')
+    url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><path d="M2.5 6.2 5 8.7l4.5-5.4" fill="none" stroke="%23090909" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>')
     center / 10px no-repeat;
   animation: check-pop 140ms ease-out;
 }
@@ -11554,7 +11579,7 @@ th.sheet-computed:hover {
   padding: 0 15px;
   border: 1px solid var(--accent);
   background: var(--accent);
-  color: var(--text-1);
+  color: var(--on-accent);
 }
 
 .vault-sync-save:hover:not(:disabled) {
@@ -11643,6 +11668,10 @@ th.sheet-computed:hover {
 .vault-sync-save.danger {
   border-color: var(--danger);
   background: var(--danger);
+  /* its own ink: the base class carries --on-accent, which is the app's
+     near-black and is unreadable on the red. White on this fill is what the
+     other destructive control (.selmenu-btn-danger:hover) already uses. */
+  color: #fff;
 }
 
 /* ── Sync conflict resolution ─────────────────────── */
@@ -11783,7 +11812,7 @@ th.sheet-computed:hover {
 .sync-conflict-choice.active {
   border-color: var(--accent);
   background: var(--accent);
-  color: var(--text-1);
+  color: var(--on-accent);
 }
 
 .sync-conflict-foot {
@@ -12168,11 +12197,11 @@ span.asset-thumb svg {
 .selmenu-btn-primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .selmenu-btn-primary:hover {
-  color: #fff;
+  color: var(--on-accent);
   filter: brightness(1.1);
 }
 
@@ -13560,7 +13589,10 @@ span.asset-thumb svg {
     --border-soft: #e6e8eb;
     --border-strong: #b6bac1;
     --grid-line: #eef0f2;
-    --link: #3d4bb5;
+    /* the paper family's text weight, same mechanism the accent tokens
+       below use: a link is the accent at text weight, and on paper that is
+       the tone's --tone-paper-accent-text rather than the screen one. */
+    --link: var(--tone-paper-accent-text);
     --bg: #ffffff;
     --bg-panel: #f6f7f8;
     --bg-elevated: #f2f3f5;
@@ -13590,6 +13622,10 @@ span.asset-thumb svg {
     --accent: var(--tone-paper-accent);
     --accent-soft: var(--tone-paper-accent-soft);
     --accent-text: var(--tone-paper-accent-text);
+    /* the on-fill ink flips with the fill: the paper weights are DARK on
+       white (that is what makes them printable), so the near-black screen
+       ink would vanish into them. Same token, opposite end. */
+    --on-accent: #ffffff;
     --series-1: var(--tone-paper-series-1);
     --series-2: var(--tone-paper-series-2);
     --series-3: var(--tone-paper-series-3);
@@ -14034,7 +14070,7 @@ span.asset-thumb svg {
 
   #print-surface a,
   #print-surface .print-link {
-    color: #3d4bb5;
+    color: var(--link);
     text-decoration: none;
     font-weight: 500;
   }
@@ -14505,7 +14541,7 @@ span.asset-thumb svg {
 
 .cal-feed-form-actions button.primary {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .cal-feed-form p {
@@ -14945,7 +14981,7 @@ span.asset-thumb svg {
   margin: -2px 0;
   border-radius: 50%;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 600;
 }
 

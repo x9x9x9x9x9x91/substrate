@@ -37,6 +37,7 @@ import { setPropUndoable } from "../lib/undoprops";
 import { useUndo } from "../lib/undoContext";
 import { TERM_TRUST_KEY, decideInject, isCommandTrusted, withTrusted } from "../lib/termtrust";
 import { errText } from "../lib/errtext";
+import { resolveTokenColor } from "../lib/tokencolor";
 
 /** A withheld command: `command` is what the user is asked about and what the
     approval is keyed by, `data` the exact bytes to type once they say yes
@@ -65,7 +66,15 @@ interface TerminalHudProps {
 
 /** xterm theme from the app's design tokens — the HUD is chrome, not a
     foreign surface; ANSI colors stay stock xterm (terminal content is the
-    CLI's own visual language, only the frame is ours). */
+    CLI's own visual language, only the frame is ours).
+
+    The three greys are flat hex literals in the stylesheet, so reading the
+    property is reading the colour. The selection wash is not: it comes from
+    the accent family, which is hue arithmetic, and a custom property computes
+    to its authored token stream rather than to a colour — xterm would be
+    handed `hsl(calc(...))`, fail to parse it, and silently keep its own
+    selection colour. So that one is resolved through a real declaration
+    first (lib/tokencolor.ts). */
 function hudTheme() {
   const css = getComputedStyle(document.documentElement);
   const v = (name: string, fallback: string) => css.getPropertyValue(name).trim() || fallback;
@@ -73,7 +82,9 @@ function hudTheme() {
     background: v("--bg-panel", "#101011"),
     foreground: v("--text-1", "#f5f6f6"),
     cursor: v("--text-1", "#f5f6f6"),
-    selectionBackground: v("--accent-soft", "rgba(94,106,210,0.22)"),
+    // a neutral wash, not a tone: a hardcoded sky here would be the wrong
+    // family on the other three tones and nobody would see it
+    selectionBackground: resolveTokenColor("--accent-soft", "rgba(255, 255, 255, 0.18)"),
   };
 }
 
