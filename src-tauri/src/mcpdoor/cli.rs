@@ -553,7 +553,6 @@ mod tests {
         let _ = fs::remove_dir_all(root.parent().unwrap());
     }
 
-
     #[test]
     fn help_is_a_command_slot_not_a_magic_word() {
         let (root, cfg) = setup("helpword", &[("Notes", Access::Read)]);

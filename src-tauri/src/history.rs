@@ -337,7 +337,6 @@ impl History {
         crate::githist::history_sheets_at(&self.root, instants)
     }
 
-
     /// Run git and hand back the raw result — stdout bytes, stderr and exit
     /// status — WITHOUT deciding that a non-zero exit is a failure.
     ///

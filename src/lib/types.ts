@@ -1048,7 +1048,6 @@ export interface HistorySheetsAt {
   sheets: HistorySheetNote[];
 }
 
-
 /** One whole-vault commit on the time scrubber, newest first. */
 export interface VaultHistoryPoint {
   id: string;
