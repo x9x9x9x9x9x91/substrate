@@ -2615,6 +2615,15 @@ button.empty-hint-fix:hover {
   }
 }
 
+/* A tab in a list line's prefix, held at the width the hanging indent was
+   measured with. Inline-block is what makes a width mean anything on a span;
+   the clip keeps the tab glyph from reaching past the width it was given. */
+.cm-tab-pin {
+  display: inline-block;
+  overflow: hidden;
+  vertical-align: bottom;
+}
+
 .cm-task-toggle {
   appearance: none;
   -webkit-appearance: none;
@@ -16041,14 +16050,6 @@ button.cal-ag-day {
   gap: 2px;
   max-height: 180px;
   overflow-y: auto;
-}
-
-/* The statement mapping list asks a fixed set of questions rather than one
-   per column of the file, and its last ones — counterparty, reference,
-   account — are the ones a bank names least predictably. At the shared
-   height they sit below an unmarked fold, so this list gets the room. */
-.dbform-columns.dbform-columns-full {
-  max-height: 340px;
 }
 
 /* One column's line: the include toggle takes the room, its kind button

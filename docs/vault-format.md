@@ -4412,6 +4412,18 @@ no rules, which is the normal case.
 
 ## 8d. Statements — bank exports as transactions
 
+**No app surface implements this section any more.** The import assistant it
+was written for was removed in 2026-08; what stays here is the file contract,
+because vaults that already imported still hold the files, the vault still
+version-gates them (§5b), and an external tool that writes a `type:
+transaction` database has one shape to write to rather than an invented one.
+Two housekeeping paths still know the files exist without opening them as a
+surface: the version gate above, and the vault doctor (§15), which reports
+`.vault/statement-mappings.json` as corrupt config when it is not valid JSON.
+Read every "the app does X" below as the shape the files have, not as a
+surface you can open — in particular, nothing writes
+`statement-mappings.json` today.
+
 A bank or broker CSV becomes ordinary notes in one database, `type:
 transaction`, so money sits in the same queryable substrate as everything
 else: filterable, joinable to a project or a client note, and readable by any
@@ -4447,9 +4459,10 @@ number dial.
 
 ### `.vault/statement-mappings.json` — saved column mappings
 
-Which column is which, answered once per bank and then never again. Written by
-the app, hand-editable, diffable, syncable. Missing file = no mappings yet,
-which is the normal state of a vault that has not imported a statement.
+Which column is which, answered once per bank and then never again.
+Hand-editable, diffable, syncable — and, since the import surface came out,
+hand-written or tool-written only. Missing file = no mappings yet, which is
+the normal state of a vault that has not imported a statement.
 
 ```json
 {
@@ -4707,6 +4720,14 @@ be set to the same IBAN the statement carries. This is the second reason to
 pick one format per account, and the sharper one.
 
 ## 8e. `.vault/statement-rules.json` — transaction category rules
+
+**No app surface implements this section any more** — same status as §8d. The
+import that ran these rules was removed in 2026-08, so nothing categorizes a
+row, nothing validates a rule, and nothing refuses a file today. What stays is
+the file contract, for vaults that already hold the file and for tools that
+write one; the vault still version-gates it (§5b) and the vault doctor (§15)
+still reports it as corrupt config when it is not valid JSON. Read every "the
+app does X" below as the shape the file has, not as a surface you can open.
 
 Plain-file rules that name what a transaction is, following the reflexes
 pattern (§8c): **data, not code**, a closed field set, no expressions.

@@ -99,3 +99,65 @@ test("the task widget's hang equals the toggle's measured advance", async ({ pag
     `the line hangs ${hang}px but the toggle measures ${measured}px — .cm-task-toggle's width/margin-right in styles.css and TASK_TOGGLE_ADVANCE in Editor.tsx have drifted apart`
   ).toBeCloseTo(measured, 1);
 });
+
+test("tab and mixed prefixes hang, with every prefix tab pinned", async ({ page }) => {
+  await bootWelcome(page);
+  // the parent matters: a tab-indented line with no list above it is an
+  // indented code block, and code never hangs
+  await page.keyboard.insertText(
+    [
+      "- parent so the indented rows read as list children",
+      "\t- tab child",
+      "\t\t- doubled tab grandchild",
+      "  \t- space then tab",
+      "    \t- four spaces then a tab",
+      "\t  - tab then space",
+      "-\ttab in the marker gap",
+      "\t- [ ] tab-indented task",
+      "- [x]\ttab after the checkbox",
+      "",
+    ].join("\n")
+  );
+  const line = (text: string) => page.locator(".cm-content .cm-line", { hasText: text }).first();
+  const hang = async (text: string) => {
+    const style = (await line(text).getAttribute("style")) ?? "";
+    const m = HANG_RE.exec(style);
+    expect(m, `${text} should hang, got style: ${style}`).toBeTruthy();
+    expect(m![1]).toBe(m![2]);
+    return Number(m![1]);
+  };
+
+  const tab = await hang("tab child");
+  const doubled = await hang("doubled tab grandchild");
+  const spaceTab = await hang("space then tab");
+  const tabSpace = await hang("tab then space");
+  expect(await hang("tab in the marker gap")).toBeGreaterThan(0);
+  expect(await hang("tab-indented task")).toBeGreaterThan(0);
+  expect(await hang("tab after the checkbox")).toBeGreaterThan(0);
+
+  // a second tab is a whole further stop
+  expect(doubled).toBeGreaterThan(tab);
+  // `  \t` and `\t` reach the SAME stop — the two spaces are swallowed by the
+  // snap, which is exactly what a fixed per-tab advance would get wrong
+  expect(spaceTab).toBe(tab);
+  // `\t  ` is that stop plus two spaces that no snap absorbs
+  expect(tabSpace).toBeGreaterThan(tab);
+  // four spaces land exactly ON the first stop, so the tab buys a whole
+  // second stop — two stops total, same as the doubled tab. This is the
+  // rounding-grain edge where a near-miss floor would collapse the pin to a
+  // hundredths-wide sliver and hang the line a stop short
+  expect(await hang("four spaces then a tab")).toBe(doubled);
+
+  // every tab in a hung prefix is pinned to its measured advance, so none is
+  // left to the browser's stops — which the hang's own padding has moved
+  await expect(line("tab child").locator(".cm-tab-pin")).toHaveCount(1);
+  await expect(line("doubled tab grandchild").locator(".cm-tab-pin")).toHaveCount(2);
+  // the checkbox widget swallows a space after `[x]`, never a tab, so the tab
+  // survives into the resting line's tail and is pinned there
+  await expect(line("tab after the checkbox").locator(".cm-task-toggle")).toBeVisible();
+  await expect(line("tab after the checkbox").locator(".cm-tab-pin")).toHaveCount(1);
+  const pinned = await line("tab child")
+    .locator(".cm-tab-pin")
+    .evaluate((el) => el.getBoundingClientRect().width);
+  expect(pinned).toBeGreaterThan(0);
+});

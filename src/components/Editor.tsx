@@ -137,7 +137,7 @@ import type { EmbedResult, ViewSpecResult } from "../lib/embeds";
 import type { NoteMeta, PropValue, TagCount } from "../lib/types";
 import type { RelationCandidate } from "../lib/relation";
 import { markdownLinkLabel, TASK_PREFIX_RE } from "../lib/markdown";
-import { listLinePrefix } from "../lib/listindent";
+import { listLinePrefix, walkSpan, type TabPin } from "../lib/listindent";
 import { scanAudioAnnotationFences } from "../lib/audio-annotations";
 import { extractLink, extractTitle } from "../lib/extractnote";
 import { parseAccent } from "../lib/styletokens";
@@ -1106,6 +1106,65 @@ function contentFont(view: EditorView): string {
   return `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
 }
 
+/** How wide one tab stop renders: `tab-size` on the content, which CSS reads
+    as a multiple of the space advance unless it was written as a length.
+    CodeMirror sets the property from `state.tabSize`, so this follows the
+    editor's own setting rather than a constant. */
+function tabStopWidth(view: EditorView, font: string): number {
+  const raw = window.getComputedStyle(view.contentDOM).tabSize;
+  if (raw.endsWith("px")) return parseFloat(raw) || 0;
+  const n = parseFloat(raw);
+  // CodeMirror always writes the property from state.tabSize, so an
+  // unreadable value falls back to that setting's own default, 4 — not the
+  // CSS initial value 8, which the editor never renders with
+  const stops = Number.isFinite(n) ? Math.max(1, Math.round(n)) : 4;
+  // measured as one run of spaces — the same rounding path the walked runs
+  // take — so an indent of exactly `stops` spaces reads as exactly one stop
+  // instead of drifting a hundredth against a per-space-rounded product
+  return prefixWidth(font, " ".repeat(stops));
+}
+
+/* Holds one prefix tab at the advance the hang was measured with, so the
+   browser's own tab stops never get a say in how wide the prefix is.
+
+   They cannot be trusted here, and no amount of arithmetic fixes that: stops
+   are laid out from the line box's content edge, and the hang's
+   `padding-inline-start` has already moved that edge by the very width being
+   computed. Both engines confirm it — a tab on a line padded by P starts at
+   P, not at one stop (probed on Chromium and WebKit). Nor is there a padding
+   that agrees with itself: for `\t- ` the hang P would have to satisfy
+   P = (P mod stop) + width("- "), which has no solution unless the marker is
+   an exact multiple of a stop. So the prefix's tabs are pinned instead —
+   measured against the stops an UNPADDED line would use (walkSpan, the pure
+   half) and rendered at exactly that width. The first line lands where it did
+   before it hung, the continuation rows land under it by construction, and
+   the arithmetic never has to predict a stop it cannot see. A tab in the
+   line's CONTENT is not pinned and still rides the shifted stops — the
+   narrow, already-documented cost of hanging at all.
+
+   Same shape CodeMirror's own whitespace highlighting uses: the tab stays in
+   the DOM (and untouched in the document), the width is the one thing fixed.
+   `.cm-tab-pin` carries the inline-block that makes a width mean anything on
+   a span, and the clipping that keeps the glyph inside it. */
+class TabPinWidget extends WidgetType {
+  constructor(readonly width: number) {
+    super();
+  }
+  eq(other: TabPinWidget) {
+    return other.width === this.width;
+  }
+  toDOM() {
+    const span = document.createElement("span");
+    span.className = "cm-tab-pin";
+    span.textContent = "\t";
+    span.style.width = `${this.width}px`;
+    return span;
+  }
+  ignoreEvent() {
+    return false;
+  }
+}
+
 function prefixWidth(font: string, prefix: string): number {
   const key = `${font}|${prefix}`;
   const hit = prefixWidthCache.get(key);
@@ -1133,8 +1192,9 @@ function addListIndentDecorations(
   doneThrough: number
 ): number {
   const { state } = view;
-  // lazy: list-free ranges never pay the computed-style read
-  let font: string | null = null;
+  // lazy: list-free ranges never pay the computed-style reads
+  let font = "";
+  let stop = 0;
   const first = Math.max(state.doc.lineAt(from).number, doneThrough + 1);
   const last = state.doc.lineAt(to).number;
   for (let n = first; n <= last; n++) {
@@ -1144,18 +1204,39 @@ function addListIndentDecorations(
     // a `- item` inside a fence is code, not a list — same veto as the
     // other regex decorators
     if (inCode(line.from, line.from + prefix.text.length)) continue;
-    font ??= contentFont(view);
-    // a resting task renders `- [ ] ` as one CheckboxWidget, so its hang is
-    // the indent plus the widget's advance — plus any spaces past the one
-    // the widget's replacement consumes (`- [ ]   item` keeps two as text);
-    // with the cursor on the line the raw source shows and the typed prefix
-    // is the truth again
-    const restingTail = prefix.task ? /\[[ xX]\][ \t]([ \t]*)$/.exec(prefix.text)?.[1] ?? "" : "";
-    const width =
-      prefix.task && !(focused && active.has(n))
-        ? prefixWidth(font, prefix.indent + restingTail) + TASK_TOGGLE_ADVANCE
-        : prefixWidth(font, prefix.text);
+    if (!font) {
+      font = contentFont(view);
+      stop = tabStopWidth(view, font);
+    }
+    const measure = (run: string) => prefixWidth(font, run);
+    // tabs the walk meets in the spans that set the hang, to be pinned below
+    const pins: TabPin[] = [];
+    let width: number;
+    if (prefix.task && !(focused && active.has(n))) {
+      // a resting task renders `- [ ] ` as one CheckboxWidget, so its hang is
+      // the indent plus the widget's advance — plus any whitespace past the
+      // ONE SPACE that replacement consumes (`- [ ]   item` keeps two as
+      // text, and `- [x]\titem` keeps its tab, which the replacement only
+      // ever swallows when it is a space). The gap's own tabs are inside the
+      // replaced range, so they neither measure nor get pinned.
+      const tail = /\[[ xX]\] ?([ \t]*)$/.exec(prefix.text)?.[1] ?? "";
+      width = walkSpan(prefix.indent, 0, 0, stop, measure, pins) + TASK_TOGGLE_ADVANCE;
+      width = walkSpan(tail, prefix.text.length - tail.length, width, stop, measure, pins);
+    } else {
+      // with the cursor on the line the raw source shows and the typed prefix
+      // is the truth again
+      width = walkSpan(prefix.text, 0, 0, stop, measure, pins);
+    }
+    width = Math.round(width * 100) / 100;
     if (width <= 0) continue;
+    for (const pin of pins) {
+      deco.push(
+        Decoration.replace({ widget: new TabPinWidget(pin.width) }).range(
+          line.from + pin.at,
+          line.from + pin.at + 1
+        )
+      );
+    }
     deco.push(
       Decoration.line({
         attributes: { style: `text-indent:-${width}px;padding-inline-start:${width}px` },
