@@ -83,7 +83,7 @@ test("phone shell is a drawer plus a single-pane navigation stack (SUB-332)", as
   await page
     .locator(".db-table tbody tr", { hasText: "Slow Bloom EP" })
     .locator(".db-title")
-    .click();
+    .dblclick();
   await expect(page.locator(".main.mobile-detail .note-title")).toHaveValue("Slow Bloom EP");
   await expect(page.locator(".main.mobile-detail > .db")).toBeHidden();
   await page.locator(".mobile-back").click();

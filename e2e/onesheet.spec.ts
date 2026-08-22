@@ -35,7 +35,7 @@ test("note one-sheet: hero, byline, fact rows and body fill the surface", async 
   await page
     .locator(".db-table tbody tr", { hasText: "Vessel Songs" })
     .locator(".db-title")
-    .click();
+    .dblclick();
   await expect(page.locator(".note-title")).toHaveValue("Vessel Songs");
   await page.locator('.note-tool[aria-label="Note actions"]').click();
   await page.locator(".dots-item", { hasText: "Export one-sheet…" }).click();

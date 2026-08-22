@@ -8980,6 +8980,21 @@ body.agenda-window .palette:focus-visible {
   font-weight: 510;
 }
 
+/* The Name cell's inline rename editor takes the title span's exact box, so
+   opening it shifts nothing: same padding, same weight, same clip. The cell
+   already carries the focus ring, so the input draws no chrome of its own. */
+.db-title-edit {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: none;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: var(--font);
+  font-size: 13px;
+  cursor: text;
+}
+
 /* Sub-item tree rows. Only a database that marks a parent relation grows
    this gutter — everywhere else the Name cell is the bare title span it has
    always been, so nothing shifts under vaults that don't use sub-items.

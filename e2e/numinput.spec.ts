@@ -202,7 +202,7 @@ test("an en-US locale reaches table cells, totals, board cards and gallery cards
 test("note property chips normalize German-typed numbers too", async ({ page }) => {
   await page.goto("/");
   await openDb(page, "Inventory");
-  await page.locator(".db-title-txt", { hasText: "Falke F-3" }).click();
+  await page.locator(".db-title-txt", { hasText: "Falke F-3" }).dblclick();
   await expect(page.locator(".note-title")).toHaveValue("Falke F-3");
 
   const chip = page.locator(".chip", { hasText: "price" });

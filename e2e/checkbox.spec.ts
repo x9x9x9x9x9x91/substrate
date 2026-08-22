@@ -47,7 +47,7 @@ test("clicking a checkbox cell toggles and persists across navigation (SUB-173)"
 });
 
 test("checkbox note chip toggles and right-click opens schema options (SUB-173)", async ({ page }) => {
-  await page.locator(".db-title-txt", { hasText: "Aeon Driftbox" }).click();
+  await page.locator(".db-title-txt", { hasText: "Aeon Driftbox" }).dblclick();
   await expect(page.locator(".note-title")).toHaveValue("Aeon Driftbox");
 
   const chip = page.locator(".chip", { hasText: "in use" });
@@ -67,7 +67,7 @@ test("checkbox note chip toggles and right-click opens schema options (SUB-173)"
   await chip.click();
   await expect(page.locator(".chip", { hasText: "in use" })).toHaveCount(0);
   await openDb(page, "Inventory");
-  await page.locator(".db-title-txt", { hasText: "Aeon Driftbox" }).click();
+  await page.locator(".db-title-txt", { hasText: "Aeon Driftbox" }).dblclick();
   await expect(page.locator(".note-title")).toHaveValue("Aeon Driftbox");
   await expect(page.locator(".chip", { hasText: "in use" })).toHaveCount(0);
   await expect(

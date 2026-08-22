@@ -80,7 +80,7 @@ test("setting a description via the schema editor persists (SUB-191)", async ({ 
 });
 
 test("note-side chip editor shows the hint (SUB-191)", async ({ page }) => {
-  await page.locator(".db-title-txt", { hasText: "Falke F-3" }).click();
+  await page.locator(".db-title-txt", { hasText: "Falke F-3" }).dblclick();
   await expect(page.locator(".note-title")).toHaveValue("Falke F-3");
 
   await page.locator(".chip", { hasText: "price" }).click();

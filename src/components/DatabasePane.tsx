@@ -114,6 +114,13 @@ interface DatabasePaneProps {
   relationCandidates: (dbType: string) => RelationCandidate[];
   /** create a new entry of a database inline from the relation picker */
   onCreateEntry: (dbType: string, title: string) => Promise<NoteMeta>;
+  /** Commits a Name-cell rename. The vault owns the rename (the file follows
+      the title and every link to it is rewritten), so this is never a prop
+      write. Resolves the note's new metadata, which carries the path the row
+      moved to. Absent = the Name cell doesn't edit — a mounted folder's files
+      are read-only, and a click with nothing behind it would be a dead click,
+      so there the click still opens the note exactly as it always did. */
+  onRenameNote?: (path: string, title: string) => Promise<NoteMeta | void>;
   /** all database types — the schema editor's relation target picker */
   dbTypes: string[];
   openPath: string | null;
@@ -224,6 +231,7 @@ export default function DatabasePane({
   onSaveSchema,
   relationCandidates,
   onCreateEntry,
+  onRenameNote,
   dbTypes,
   openPath,
   reveal,
@@ -687,7 +695,8 @@ export default function DatabasePane({
     c: number;
     r: number;
     path: string;
-    key: string;
+    /** the property the landing editor edits — null for the Name column */
+    key: string | null;
     tries: number;
   } | null>(null);
   // cell whose kind/options editor was opened from a date/file menu
@@ -724,6 +733,18 @@ export default function DatabasePane({
   // column (the entry is born without the group prop).
   const [newCol, setNewCol] = useState<{ value: string | null } | null>(null);
   const [pendingFocus, setPendingFocus] = useState<string | null>(null);
+  /** The Name cell's inline rename editor — a plain click opens it, so the
+      Name column edits like every other column and the foldout belongs to
+      double-click and Enter. Kept apart from `editCell` because it edits the
+      note's TITLE rather than a property, and because it renders INSIDE the
+      cell: there is no anchored rect for a scroll to invalidate. */
+  const [titleEdit, setTitleEdit] = useState<{
+    path: string;
+    /** The text the editor opens carrying: type-to-replace's keystroke, or a
+        refused rename handed back to be corrected. Absent = the whole current
+        title, caret at its end — which is also F2's opener */
+    seed?: string;
+  } | null>(null);
   // The ＋ add-property popover, and a column's schema editor opened
   // from the header caret (both anchored at the header cell they came from)
   const [addPropAt, setAddPropAt] = useState<AnchorRect | null>(null);
@@ -1242,7 +1263,7 @@ export default function DatabasePane({
     }
     const focusMoved = revealedFocus.current !== focus;
     revealedFocus.current = focus;
-    if (editCell) return;
+    if (editCell || titleEdit) return;
     const active = document.activeElement;
     const compositeOwnsFocus = classifyActive(active) !== "other-control";
     // A stale coordinate may remain while Tab has moved to a header/link.
@@ -1279,7 +1300,7 @@ export default function DatabasePane({
     if (scrollFocusIntoView(focus) && revealOwed.current === focus.path)
       revealOwed.current = null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focus, win, editCell]);
+  }, [focus, win, editCell, titleEdit]);
 
   /* THE EDITOR'S CLOSE IS A HAND-OFF. While a cell editor is open it holds
      real DOM focus and the effect above refuses to touch anything; the moment
@@ -1298,7 +1319,7 @@ export default function DatabasePane({
      off the live `document.activeElement`, and never against a user who has
      deliberately landed in another control: they keep focus, and the reveal is
      delivered by scrolling alone. */
-  const editing = !!editCell;
+  const editing = !!editCell || !!titleEdit;
   const wasEditing = useRef(false);
   useEffect(() => {
     const closed = wasEditing.current && !editing;
@@ -1438,7 +1459,52 @@ export default function DatabasePane({
     opts?: { seed?: string; caretAtEnd?: boolean }
   ) => {
     if (!el) return;
+    setTitleEdit(null);
     setEditCell({ path, key, anchor: anchorFrom(el), ...opts });
+  };
+
+  // Whether ANY cell editor is open right now, readable from an async
+  // callback that resolves long after the keystroke that started it
+  const editorOpen = useRef(false);
+  useEffect(() => {
+    editorOpen.current = !!editCell || !!titleEdit;
+  }, [editCell, titleEdit]);
+
+  const startTitleEdit = (path: string, opts?: { seed?: string }) => {
+    // no rename route in (a read-only mounted folder) = no editor
+    if (!onRenameNote) return;
+    setEditCell(null);
+    setTitleEdit({ path, ...opts });
+  };
+
+  // The Name editor's commit. An empty title is a refusal, exactly like the
+  // rename dialog's: the editor closes and the note keeps the name it had.
+  // Resolves the path the note ends up at — a rename MOVES the file, and the
+  // Enter that committed still owes the foldout the note it just renamed —
+  // or null where the vault REFUSED the name, which is the caller's cue that
+  // there is nothing to follow: the editor is back up holding the refused
+  // name, so opening the note or hopping away would take it off the screen.
+  const commitTitle = (path: string, raw: string): Promise<string | null> => {
+    setTitleEdit(null);
+    const next = raw.trim();
+    const cur = notes.find((n) => n.path === path)?.title ?? "";
+    if (!next || next === cur || !onRenameNote) return Promise.resolve(path);
+    return Promise.resolve(onRenameNote(path, next))
+      .then((m) => {
+        const moved = m && typeof m === "object" && "path" in m ? m.path : path;
+        // the row is about to re-key onto its new path — carry focus with it,
+        // unless the user has already moved on into another cell's editor
+        if (!editorOpen.current) setPendingFocus(moved);
+        return moved;
+      })
+      .catch((err) => {
+        reportFailure(`rename “${cur}”`)(err);
+        // the refused name is the user's only copy of what they typed — hand
+        // it back in the editor instead of snapping the row to its old title
+        // with nothing left to retry from
+        if (!editorOpen.current) setTitleEdit({ path, seed: next });
+        return null;
+      });
   };
 
   // One funnel for cell writes — a failure used to die on the
@@ -1591,6 +1657,9 @@ export default function DatabasePane({
       const key = shown[i];
       return key ? byFoldedKey(typeSchema, key)?.kind : undefined;
     },
+    // the Name column takes its turn in the Tab walk wherever it can be
+    // renamed, and is stepped over where it cannot
+    titleEditable: !!onRenameNote,
   });
 
   /** Enter/Tab inside an editor: the value has already been committed through
@@ -1599,18 +1668,32 @@ export default function DatabasePane({
       target row in the DOM at all, and the focus effect is what scrolls and
       repaints the window around it. `pendingEdit` then opens the editor on
       the frame the cell actually exists. */
-  const hopEdit = (from: { path: string; key: string }, dir: HopDir) => {
+  const hopEdit = (
+    // `key: null` is the Name column, which has no property behind it; `row`
+    // is where the editor sat, for the one hop whose own commit moved the
+    // note's path out from under it
+    from: { path: string; key: string | null; row?: number },
+    dir: HopDir
+  ) => {
     if (layout !== "table") return;
-    const c = shown.indexOf(from.key) + 1;
-    const r = rows.findIndex((n) => n.path === from.path);
-    if (c < 1 || r < 0) return;
+    const c = from.key === null ? 0 : shown.indexOf(from.key) + 1;
+    if (from.key !== null && c < 1) return;
+    const found = rows.findIndex((n) => n.path === from.path);
+    // a rename MOVES the file, and the refresh carrying the new path into
+    // `rows` may not have landed yet — the row the editor sat on is the
+    // answer either way
+    const r = found >= 0 ? found : from.row ?? -1;
+    if (r < 0 || r >= rows.length) return;
     const next = nextEditableCell({ c, r }, dir, hopGrid());
     // the end of the column/table: the value is saved, the editor closes, and
     // focus stays where it was — the spreadsheet behaviour
     if (!next) return;
     const path = rows[next.r]?.path;
-    const key = shown[next.c - 1];
-    if (!path || !key) return;
+    const key = next.c === 0 ? null : shown[next.c - 1];
+    if (!path || key === undefined) return;
+    // an explicit hop is the newer instruction: a rename's follow-the-note
+    // focus must not pull the editor back to the name it just left
+    setPendingFocus(null);
     setFocus({ c: next.c, r: next.r, path });
     setPendingEdit({ c: next.c, r: next.r, path, key, tries: 0 });
   };
@@ -1627,6 +1710,11 @@ export default function DatabasePane({
     // never open an editor over a row that moved under the coordinate
     if (el && el.dataset.focusPath === path) {
       setPendingEdit(null);
+      // the Name column's editor lives in the cell itself, not on an anchor
+      if (key === null) {
+        startTitleEdit(path);
+        return;
+      }
       const kind = byFoldedKey(typeSchema, key)?.kind;
       // a checkbox is toggled, never typed into — the hop lands
       // focus on it and stops there rather than opening a text editor
@@ -1995,14 +2083,19 @@ export default function DatabasePane({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey) return;
-      if (isTyping(e.target) || editCell) return;
+      if (isTyping(e.target) || editCell || titleEdit) return;
+      // Every table cell that holds an editor of its own: the data columns,
+      // and the Name column wherever the vault owns the rename. Where it does
+      // not — a mounted folder — column 0 is read-only text, and the keys
+      // below keep the meaning they have on every other editor-less surface.
+      const onEditableCell =
+        layout === "table" && !!focus && (focus.c > 0 || (focus.r >= 0 && !!onRenameNote));
       // Option is a character modifier on macOS, not a command one —
       // a German layout types `@` as ⌥L and `[` as ⌥5, and those have to open a
       // cell editor like any other character. So an Option chord is let through
       // ONLY to the openers at the bottom of this handler; nav, Enter and
       // Escape stay bare-key, exactly as before.
-      const onDataCell = layout === "table" && !!focus && focus.c > 0;
-      if (e.altKey && !(onDataCell && (isPrintableKey(e) || isDeadKey(e)))) return;
+      if (e.altKey && !(onEditableCell && (isPrintableKey(e) || isDeadKey(e)))) return;
       // Header buttons, external links, and the named card/list controls own
       // native activation. Never apply Enter to a stale composite coordinate.
       const target = e.target instanceof HTMLElement ? e.target : null;
@@ -2011,11 +2104,13 @@ export default function DatabasePane({
         target?.closest("button, a[href], [role='button'], summary")
       )
         return;
-      // On a focused DATA cell of a table, a bare letter is the
-      // start of a value, not vim nav — h/j/k/l have to be typeable into a
-      // cell. The arrows still move there, and hjkl keeps moving everywhere
-      // else (the title column, boards, galleries, lists).
-      const vimNav = !(layout === "table" && focus && focus.c > 0);
+      // On a focused cell of a table, a bare letter is the start of a value,
+      // not vim nav — h/j/k/l have to be typeable into a cell, and that now
+      // includes the Name cell: typing `kick` on a focused name has to start
+      // the rename with `k`, not move focus a row up and rename THAT one. The
+      // arrows still move there, and hjkl keeps moving everywhere else
+      // (boards, galleries, lists, and a Name column with no rename behind it).
+      const vimNav = !onEditableCell;
       const horiz =
         layout === "list"
           ? 0
@@ -2110,12 +2205,32 @@ export default function DatabasePane({
         return;
       }
       // The two openers a spreadsheet has that this grid lacked.
-      // Both need a focused DATA cell in a table, and both refuse the cells
-      // with no text editor behind them (checkbox toggles, rollup is derived).
-      if (layout !== "table" || !focus || focus.c === 0) return;
+      // Both refuse the cells with no text editor behind them (checkbox
+      // toggles, rollup is derived).
+      if (layout !== "table" || !focus) return;
       const n = rows[focus.r];
+      if (!n) return;
+      // The Name column answers both of them too, now that it edits in
+      // place: F2 opens on the current title, a printable key replaces it.
+      if (focus.c === 0) {
+        // A mounted folder's files are not the vault's to rename, so column 0
+        // has no editor to open there. Fall through untouched rather than
+        // swallow the keystroke for an edit that cannot happen.
+        if (!onRenameNote) return;
+        if (e.key === "F2") {
+          e.preventDefault();
+          // F2 is edit-in-place everywhere: the current title, caret at its end
+          startTitleEdit(n.path);
+        } else if (isDeadKey(e)) {
+          startTitleEdit(n.path, { seed: "" });
+        } else if (isPrintableKey(e)) {
+          e.preventDefault();
+          startTitleEdit(n.path, { seed: e.key });
+        }
+        return;
+      }
       const key = shown[focus.c - 1];
-      if (!n || !key) return;
+      if (!key) return;
       const kind = byFoldedKey(typeSchema, key)?.kind;
       if (kind === "checkbox" || kind === "rollup") return;
       const cellEl = () =>
@@ -2147,7 +2262,18 @@ export default function DatabasePane({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layout, shown, rows, boardCols, focus, editCell, onOpenNote, typeSchema]);
+  }, [
+    layout,
+    shown,
+    rows,
+    boardCols,
+    focus,
+    editCell,
+    titleEdit,
+    onOpenNote,
+    onRenameNote,
+    typeSchema,
+  ]);
 
   const focusedCls = (c: number, r: number) =>
     focus && focus.c === c && focus.r === r ? " focused" : "";
@@ -2853,6 +2979,11 @@ export default function DatabasePane({
       clearSel={clearSel}
       editCell={editCell}
       setEditCell={setEditCell}
+      titleEdit={titleEdit}
+      canRenameTitle={!!onRenameNote}
+      startTitleEdit={startTitleEdit}
+      cancelTitleEdit={() => setTitleEdit(null)}
+      commitTitle={commitTitle}
       schemaEditCell={schemaEditCell}
       setSchemaEditCell={setSchemaEditCell}
       startEdit={startEdit}

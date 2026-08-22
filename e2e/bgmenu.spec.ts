@@ -88,7 +88,7 @@ test("carve-outs: editor and property chips never get the app fallback menu", as
   await page
     .locator(".db-table tbody tr", { hasText: "Slow Bloom EP" })
     .locator(".db-title")
-    .click();
+    .dblclick();
   await expect(page.locator(".note-title")).toHaveValue("Slow Bloom EP");
 
   // the editor keeps the native menu (spellcheck/copy live there): right-click

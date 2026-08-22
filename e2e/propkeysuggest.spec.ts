@@ -13,7 +13,7 @@ test("the chip offers the note's database keys, then the app's own", async ({ pa
   await page
     .locator(".db-table tbody tr", { hasText: "Slow Bloom EP" })
     .locator(".db-title")
-    .click();
+    .dblclick();
   await expect(page.locator(".note-title")).toHaveValue("Slow Bloom EP");
 
   await page.locator(".chip-add").click();
@@ -48,7 +48,7 @@ test("arrows pick a suggestion, and Enter still commits what was typed", async (
   await page
     .locator(".db-table tbody tr", { hasText: "Slow Bloom EP" })
     .locator(".db-title")
-    .click();
+    .dblclick();
 
   await page.locator(".chip-add").click();
   const input = page.locator(".chip-input");

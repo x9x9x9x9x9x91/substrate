@@ -29,7 +29,7 @@ test("the keyboard button holds one coordinate across every desktop surface", as
   expect(await slot(page, "03-database")).toEqual(base);
 
   // the split: an entry open beside the grid, close × next to the slot
-  await page.locator(".db-table tbody tr", { hasText: "Gero" }).locator(".db-title").click();
+  await page.locator(".db-table tbody tr", { hasText: "Gero" }).locator(".db-title").dblclick();
   await expect(page.locator(".db-note .note-title")).toHaveValue("Gero");
   expect(await slot(page, "04-db-split")).toEqual(base);
 

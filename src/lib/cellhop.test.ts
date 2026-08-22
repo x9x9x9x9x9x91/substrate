@@ -65,6 +65,28 @@ test("a horizontal hop from the title column enters the data columns", () => {
   assert.deepEqual(nextEditableCell({ c: 0, r: 1 }, "right", plain), { c: 1, r: 1 });
 });
 
+test("where the Name cell renames in place, the walk includes it", () => {
+  const g = { ...plain, titleEditable: true };
+  // Tab out of the last data column wraps onto the next row's NAME cell,
+  // and Shift-Tab out of the first data column re-opens the one it came from
+  assert.deepEqual(nextEditableCell({ c: 3, r: 0 }, "right", g), { c: 0, r: 1 });
+  assert.deepEqual(nextEditableCell({ c: 1, r: 1 }, "left", g), { c: 0, r: 1 });
+  // and the Name cell's own two neighbours are the row it sits on and the
+  // row above's last column — the walk is reversible through it
+  assert.deepEqual(nextEditableCell({ c: 0, r: 1 }, "right", g), { c: 1, r: 1 });
+  assert.deepEqual(nextEditableCell({ c: 0, r: 1 }, "left", g), { c: 3, r: 0 });
+  // the ends of the table stay the ends
+  assert.equal(nextEditableCell({ c: 0, r: 0 }, "left", g), null);
+  assert.equal(nextEditableCell({ c: 3, r: 3 }, "right", g), null);
+});
+
+test("a read-only Name column is stepped over like a derived one", () => {
+  // no rename route behind the title: Tab walks the data columns alone,
+  // exactly as it did before the Name cell could be edited at all
+  assert.deepEqual(nextEditableCell({ c: 3, r: 0 }, "right", plain), { c: 1, r: 1 });
+  assert.deepEqual(nextEditableCell({ c: 1, r: 1 }, "left", plain), { c: 3, r: 0 });
+});
+
 test("an empty grid has nowhere to hop", () => {
   assert.equal(nextEditableCell({ c: 1, r: 0 }, "down", gridOf([], 0)), null);
   assert.equal(nextEditableCell({ c: 1, r: 0 }, "right", gridOf([undefined], 0)), null);

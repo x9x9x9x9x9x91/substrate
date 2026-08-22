@@ -163,6 +163,8 @@ export function TreeTwisty({
         onToggle();
       }}
       onMouseDown={(e) => e.stopPropagation()}
+      // two quick folds are a fold twice over, never the row's open gesture
+      onDoubleClick={(e) => e.stopPropagation()}
     >
       <ChevronIcon />
     </button>

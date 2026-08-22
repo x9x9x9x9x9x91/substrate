@@ -1,5 +1,5 @@
 import type { NumberLocale } from "../lib/numberLocale";
-import { Fragment } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import type { AggKind, NoteMeta, NumberFormat, PropKind, PropSchema, RollupConfig, SavedViewSort, SelectOption } from "../lib/types";
 import { foldedPropKey, foldedPropStr } from "../lib/types";
 import { aggMarker, aggregationKind, formatAgg, type UnitAgg } from "../lib/aggregate";
@@ -29,6 +29,90 @@ type EditCellState = {
   seed?: string;
   caretAtEnd?: boolean;
 };
+
+/** The Name cell's inline rename editor. A plain click on a Name cell opens
+    it, so renaming a row is the same gesture as editing any other cell; the
+    foldout moved to double-click and Enter. The draft lives here so typing
+    never re-renders the table, and it commits exactly once — Enter, Tab and a
+    click away all land on the same commit, Escape on none of it. */
+function TitleCellInput({
+  title,
+  seed,
+  commit,
+  hop,
+  cancel,
+}: {
+  title: string;
+  /** the text this editor opens carrying; absent = the whole current title */
+  seed?: string;
+  /** commits the draft; `open` asks for the foldout once the rename settles */
+  commit: (value: string, open: boolean) => void;
+  /** Tab: commit and carry the editor on to the neighbouring cell */
+  hop: (value: string, dir: HopDir) => void;
+  cancel: () => void;
+}) {
+  const [text, setText] = useState(seed !== undefined ? seed : title);
+  const ref = useRef<HTMLInputElement | null>(null);
+  const done = useRef(false);
+  // How many clicks have landed INSIDE the field. The pair that opens the
+  // editor starts outside it — its first click lands on the title span, and
+  // only the second reaches the field — so a double-click the field has seen
+  // both halves of is one that happened entirely within an editor that was
+  // already open. That one is the text field's own select-a-word gesture, and
+  // the draft it holds is the user's; the opening pair still opens the note.
+  const clicks = useRef(0);
+  // caret at the end, never a selection: a click on a name is as often "put
+  // the caret here" as "replace this", and only one of those is destructive.
+  // A seeded editor already holds just the keystroke that opened it.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.focus();
+    const end = el.value.length;
+    el.setSelectionRange(end, end);
+  }, []);
+  const once = (run: () => void) => {
+    if (done.current) return;
+    done.current = true;
+    run();
+  };
+  return (
+    <input
+      ref={ref}
+      className="db-cell-txt db-title-txt db-title-edit"
+      value={text}
+      aria-label={`Rename ${title}`}
+      onChange={(e) => setText(e.target.value)}
+      // the cell under it would re-open this very editor
+      onClick={(e) => {
+        clicks.current += 1;
+        e.stopPropagation();
+      }}
+      onDoubleClick={(e) => {
+        // both clicks landed in the field: select the word, keep the draft,
+        // and never let the cell below read this as "open the note"
+        if (clicks.current >= 2) e.stopPropagation();
+      }}
+      onBlur={() => once(() => commit(text, false))}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          e.stopPropagation();
+          once(() => commit(text, true));
+        } else if (e.key === "Tab") {
+          // the same commit-and-move Tab makes in every other column
+          e.preventDefault();
+          e.stopPropagation();
+          once(() => hop(text, e.shiftKey ? "left" : "right"));
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          e.stopPropagation();
+          once(cancel);
+        }
+      }}
+    />
+  );
+}
 
 /** The table layout (split out of DatabasePane): the windowed
     thead/tbody/tfoot render, its group headers and spacers, the aggregation
@@ -105,6 +189,11 @@ export default function DbTableLayout({
   clearSel,
   editCell,
   setEditCell,
+  titleEdit,
+  canRenameTitle,
+  startTitleEdit,
+  cancelTitleEdit,
+  commitTitle,
   schemaEditCell,
   setSchemaEditCell,
   startEdit,
@@ -229,6 +318,16 @@ export default function DbTableLayout({
   clearSel: () => void;
   editCell: EditCellState | null;
   setEditCell: (v: EditCellState | null) => void;
+  /** the open Name-cell rename editor (one at a time, like `editCell`) */
+  titleEdit: { path: string; seed?: string } | null;
+  /** whether the Name column can be renamed at all — false for a mounted
+      folder, whose files the vault does not own */
+  canRenameTitle: boolean;
+  startTitleEdit: (path: string, opts?: { seed?: string }) => void;
+  cancelTitleEdit: () => void;
+  /** resolves the path the note ended at — a rename moves the file — or
+      null where the vault refused the name and the editor is back up on it */
+  commitTitle: (path: string, value: string) => Promise<string | null>;
   schemaEditCell: boolean;
   setSchemaEditCell: (v: boolean) => void;
   startEdit: (
@@ -237,8 +336,10 @@ export default function DbTableLayout({
     el: Element | null | undefined,
     opts?: { seed?: string; caretAtEnd?: boolean }
   ) => void;
-  /** An editor committed and asked to carry on to the next cell */
-  hopEdit: (from: { path: string; key: string }, dir: HopDir) => void;
+  /** An editor committed and asked to carry on to the next cell. `key: null`
+      is the Name column; `row` is where the editor sat, for the rename whose
+      own commit moved the note's path. */
+  hopEdit: (from: { path: string; key: string | null; row?: number }, dir: HopDir) => void;
   commitCell: (value: string | null) => void;
   commitListCell: (path: string, key: string, values: string[]) => void;
   toggleCheckboxCell: (path: string, key: string) => void;
@@ -559,6 +660,38 @@ export default function DbTableLayout({
             {rows.slice(winStart, winEnd).map((n, winIdx) => {
               const r = winStart + winIdx;
               const g = groupStartAt.get(r);
+              // the title reads as text until the cell is being renamed, and
+              // the editor takes the text's exact place — the tree gutter and
+              // the branch badge around it never move
+              const titleBody =
+                titleEdit?.path === n.path ? (
+                  <TitleCellInput
+                    title={n.title}
+                    seed={titleEdit.seed}
+                    commit={(v, open) => {
+                      // the rename moves the file, so the foldout is owed the
+                      // path the note LANDED at, not the one it was clicked at
+                      commitTitle(n.path, v).then((path) => {
+                        // a refused name is still in the editor, waiting to be
+                        // corrected — opening the foldout over it would take it
+                        // away
+                        if (open && path) onOpenNote(path);
+                      });
+                    }}
+                    hop={(v, dir) => {
+                      // the neighbour opens once the rename has settled, so
+                      // the hop starts from the path the note ended at
+                      commitTitle(n.path, v).then((path) => {
+                        // …and a refused name keeps the editor here rather
+                        // than carrying the hop on without it
+                        if (path) hopEdit({ path, key: null, row: r }, dir);
+                      });
+                    }}
+                    cancel={cancelTitleEdit}
+                  />
+                ) : (
+                  <span className="db-cell-txt db-title-txt">{n.title}</span>
+                );
               return (
                 <Fragment key={n.path}>
                   {g ? groupHeaderRow(g.value, g.count) : null}
@@ -569,7 +702,7 @@ export default function DbTableLayout({
                 }
                 // a row hosting an open cell editor stays undraggable — the
                 // menu inside it owns the mouse
-                draggable={editCell?.path !== n.path}
+                draggable={editCell?.path !== n.path && titleEdit?.path !== n.path}
                 onDragStart={(e) => {
                   e.dataTransfer.setData(NOTE_DRAG_MIME, n.path);
                   e.dataTransfer.effectAllowed = "move";
@@ -583,7 +716,10 @@ export default function DbTableLayout({
                   data-fc={0}
                   data-fr={r}
                   data-focus-path={n.path}
-                  className={`db-cell db-title${focusedCls(0, r)}`}
+                  // `editing` is the marker every other cell raises while its
+                  // editor is up; the Name cell now has an editor, so it raises
+                  // it too and the hop reads the same on column 0 as anywhere
+                  className={`db-cell db-title${focusedCls(0, r)}${titleEdit?.path === n.path ? " editing" : ""}`}
                   tabIndex={tabIndexFor(0, r)}
                   onFocus={(e) => {
                     if (e.target === e.currentTarget) setFocus({ c: 0, r, path: n.path });
@@ -598,8 +734,26 @@ export default function DbTableLayout({
                     }
                     plainCellClick(n.path, () => {
                       setFocus({ c: 0, r, path: n.path });
-                      onOpenNote(n.path);
+                      // a plain click renames in place, like every other
+                      // cell; the foldout is the double-click below (and
+                      // Enter). A mounted folder's files cannot be renamed,
+                      // and a click with nothing behind it is a dead click —
+                      // so there the click still opens, exactly as it did.
+                      if (!canRenameTitle) onOpenNote(n.path);
+                      else if (titleEdit?.path !== n.path) startTitleEdit(n.path);
                     });
+                  }}
+                  onDoubleClick={(e) => {
+                    if (e.shiftKey || e.metaKey || e.ctrlKey) return;
+                    e.preventDefault();
+                    // Only the OPENING pair reaches here: a double-click made
+                    // inside the editor is the field's own and stops there.
+                    // So this editor is the one this pair's first click just
+                    // opened, holding nothing but the title it started with —
+                    // dropping it costs nothing, and a dropped draft never
+                    // writes.
+                    cancelTitleEdit();
+                    onOpenNote(n.path);
                   }}
                 >
                   {subSums ? (
@@ -615,11 +769,11 @@ export default function DbTableLayout({
                         title={n.title}
                         onToggle={() => onToggleCollapsed(n.path)}
                       />
-                      <span className="db-cell-txt db-title-txt">{n.title}</span>
+                      {titleBody}
                       <SubBadge sum={subSums.get(n.path)} />
                     </span>
                   ) : (
-                    <span className="db-cell-txt db-title-txt">{n.title}</span>
+                    titleBody
                   )}
                   {/* The bulk toast counts the failures; this is
                       where THIS note's own reason lives, on the row it

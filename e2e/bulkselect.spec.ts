@@ -37,8 +37,8 @@ test("⌘-click toggles rows into a selection; the bar counts them", async ({ pa
 
 test("shift-click ranges from the last plain-clicked row over flat rows indices", async ({ page }) => {
   await openContacts(page);
-  // plain click: today's behavior (the note opens) and the row becomes the anchor
-  await titleCell(page, "Annelies").click();
+  // double-click: the note opens and the row becomes the anchor
+  await titleCell(page, "Annelies").dblclick();
   await expect(page.locator(".note-title")).toHaveValue("Annelies Verbeek");
   await titleCell(page, "Tess").click({ modifiers: ["Shift"] });
   await expect(page.locator(".bulkbar")).toContainText("4 selected");
@@ -144,13 +144,13 @@ test("a bulk trash survives a millisecond boundary mid-selection (SUB-577)", asy
   await expect(titles.nth(1)).toHaveText("Noa");
 });
 
-test("a plain click with a selection active opens the note and clears the selection", async ({
+test("a double-click with a selection active opens the note and clears the selection", async ({
   page,
 }) => {
   await openContacts(page);
   await titleCell(page, "Annelies").click({ modifiers: ["Meta"] });
   await expect(page.locator(".bulkbar")).toContainText("1 selected");
-  await titleCell(page, "Gero").click();
+  await titleCell(page, "Gero").dblclick();
   await expect(page.locator(".note-title")).toHaveValue("Gero");
   await expect(page.locator(".bulkbar")).toHaveCount(0);
   await expect(page.locator("tr.is-selected")).toHaveCount(0);

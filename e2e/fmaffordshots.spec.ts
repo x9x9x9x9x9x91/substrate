@@ -13,7 +13,7 @@ test("shot: the + property chip's key suggestions", async ({ page }) => {
   await page
     .locator(".db-table tbody tr", { hasText: "Slow Bloom EP" })
     .locator(".db-title")
-    .click();
+    .dblclick();
   await expect(page.locator(".note-title")).toHaveValue("Slow Bloom EP");
   await page.locator(".chip-add").click();
   await expect(page.locator(".chip-suggest-row").first()).toBeVisible();

@@ -46,7 +46,7 @@ test("email/phone cells render as typed and open mailto:/tel: links (SUB-181)", 
 });
 
 test("email/phone note chips open externally; right-click edits the raw string (SUB-181)", async ({ page }) => {
-  await page.locator(".db-title-txt", { hasText: "Gero" }).click();
+  await page.locator(".db-title-txt", { hasText: "Gero" }).dblclick();
   await expect(page.locator(".note-title")).toHaveValue("Gero");
 
   await expect(page.locator(".chip .url-link", { hasText: "gero@umbra.example" })).toHaveCount(1);
