@@ -305,6 +305,8 @@ const DASHBOARD_ICONS: Record<string, DbIcon> = {
   sync: { glyph: "refresh" },
   // launchd owns the clock this surface watches
   jobs: { glyph: "clock" },
+  // the mark is the layout itself — a tile board is its arrangement
+  grid: { glyph: "grid" },
   // filed paperwork, not money — the wallet already marks the metrics boards
   tax: { glyph: "archive" },
   coding: { glyph: "code" },

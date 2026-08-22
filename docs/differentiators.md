@@ -255,7 +255,8 @@ Capacities, Affine).*
   (`.vault/kinds/<id>/`: a manifest plus an ES module with one `mount(el, ctx)`
   entry point). It syncs with the vault like any other file, so a kind written
   on one machine is there on the next one, and an agent can author one by
-  writing two files. Consent is the whole design: nothing in the vault runs
+  writing two files — the cookbook ships a worked one (`cookbook/week-numbers/`),
+  bundle and board together, installable in a click. Consent is the whole design: nothing in the vault runs
   until you read a review of it — what it is, who wrote it, which files, what
   it can reach — and press enable, and that consent is pinned to those exact
   bytes, per vault and per device. Change a byte and it stops and asks again;
@@ -380,6 +381,12 @@ Capacities, Affine).*
   and undistributed. Rides the iOS lane above; same "in development" line.
   (Obsidian mobile has no widget story; Notion's widgets are cloud-bound —
   this one reads the last-synced local vault.)
+- **Public tile boards**: the `grid` kind is unfenced in the tree — one board
+  assembled from ` ```tile ` fences (sheet-summary cards, a chart, a live
+  database cut, each tile spanning the columns you give it,
+  `cookbook/grid-board/`) — but public-build users only get it with the next
+  release. Until a release carries the unfenced build, say "landing", never
+  shipped.
 - **E2E-encrypted sync**: implemented end to end — encrypted blob-store
   transport (XChaCha20-Poly1305 per object, Argon2id passphrase wrap), an
   open-source single-tenant server, and a `blob+https://` remote type in the

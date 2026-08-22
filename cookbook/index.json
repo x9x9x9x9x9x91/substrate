@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-08-18",
+  "updated": "2026-08-22",
   "about": "Substrate dashboard cookbook — copyable surface recipes. Each recipe is a folder of plain markdown files: the dashboard note plus every sheet, database note, or contact it binds to, so a copied recipe renders with numbers on the first open. Install = copy the recipe's files into your vault (keep the Dashboards/ nesting or don't — folders never decide database membership). An agent can read any recipe and adapt the sample rows, formulas, and card binds to your real data.",
   "recipes": [
     {
@@ -233,6 +233,44 @@
         "Tasks/Slow Bloom EP repress decision.md"
       ],
       "shot": "shots/tasks.png"
+    },
+    {
+      "id": "grid-board",
+      "title": "Label board",
+      "kind": "grid",
+      "blurb": "One board out of three unlike things: bound stat cards, a bar chart over a database, and a live cut of the notes behind it. Each ```tile fence is one cell, in document order; span: 2 makes a tile take both tracks, and a tile that would sit alone on its row widens itself rather than leave half a row empty. A broken fence draws its error in its own cell and the rest of the board still renders.",
+      "adapt": "Point the cards tile's source: at your own sheet and name its summaries; change the chart tile's source: to one of your types and its x:/y: to the property you want bucketed; set the view tile's type: and query: to the cut you actually want in front of you. Add or delete fences to add or delete tiles.",
+      "expects": { "sheets": ["Holdings"], "databases": ["release"] },
+      "files": [
+        "Dashboards/Label Board.md",
+        "Holdings.md",
+        "Releases/Fern Static.md",
+        "Releases/Halide.md",
+        "Releases/Night Circuit.md",
+        "Releases/Paper Kite.md",
+        "Releases/Slow Bloom EP.md"
+      ],
+      "shot": "shots/grid-board.png"
+    },
+    {
+      "id": "week-numbers",
+      "title": "Release weeks (a kind you own)",
+      "kind": "week-numbers",
+      "blurb": "Not a built-in: the renderer ships inside the recipe, at .vault/kinds/week-numbers/. The year draws as ISO weeks shaded by how many releases landed in each one, this week outlined, every square opening its notes. It is one plain ES module written against the documented kind API (vault-format.md \u00a75.8) \u2014 the custom-kind path walked from the docs alone.",
+      "adapt": "The board's own props drive it: track: is the type: to count, date: the date property to bucket on, year: the year to draw. To make it yours, edit .vault/kinds/week-numbers/index.js \u2014 it is a plain file in your vault, not something the app owns. Substrate asks you to enable the bundle once, and asks again whenever its bytes change, so an edit costs one more confirmation. Install this recipe once per vault: a second install lands copies beside the bundle files rather than replacing them, and the folder's shape is what the app reads.",
+      "expects": { "sheets": [], "databases": ["release"] },
+      "files": [
+        "Dashboards/Release Weeks.md",
+        ".vault/kinds/week-numbers/kind.json",
+        ".vault/kinds/week-numbers/index.js",
+        ".vault/kinds/week-numbers/style.css",
+        "Releases/Fern Static.md",
+        "Releases/Halide.md",
+        "Releases/Night Circuit.md",
+        "Releases/Paper Kite.md",
+        "Releases/Slow Bloom EP.md"
+      ],
+      "shot": "shots/week-numbers.png"
     }
   ]
 }

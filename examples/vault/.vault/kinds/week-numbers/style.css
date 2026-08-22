@@ -1,0 +1,43 @@
+/* The bundle's own layout. Every colour comes from an app token, so the board
+   follows the theme and stays legible when a print remaps them to ink. */
+
+.wk-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(46px, 1fr));
+  gap: 4px;
+  margin: 10px 0 4px;
+}
+
+.wk-cell {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 6px 6px 5px;
+  font: inherit;
+  color: var(--text-2);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  cursor: default;
+}
+
+/* The ramp is mixed out of the two tokens the cell already sits between, so a
+   busy week reads as more ink either way: text over panel on screen, and the
+   same mix over paper's white when a print remaps them. */
+.wk-cell[data-level="1"] { background: color-mix(in srgb, var(--text-2) 12%, var(--bg-panel)); }
+.wk-cell[data-level="2"] { background: color-mix(in srgb, var(--text-2) 26%, var(--bg-panel)); }
+.wk-cell[data-level="3"] {
+  background: color-mix(in srgb, var(--text-2) 44%, var(--bg-panel));
+  color: var(--text-1);
+}
+.wk-cell[data-path=""] { cursor: default; }
+.wk-cell:not([data-path=""]) { cursor: pointer; }
+
+.wk-cell[data-now="1"] {
+  border-color: var(--text-2);
+  color: var(--text-1);
+}
+
+.wk-num { font-size: 11px; opacity: 0.75; }
+.wk-count { font-size: 13px; font-variant-numeric: tabular-nums; }

@@ -1,0 +1,9 @@
+{
+  "id": "week-numbers",
+  "title": "Week numbers",
+  "api": 1,
+  "entry": "index.js",
+  "style": "style.css",
+  "icon": "calendar",
+  "description": "The year as ISO weeks, shaded by how much landed in each one."
+}

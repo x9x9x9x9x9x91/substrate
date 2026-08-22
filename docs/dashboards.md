@@ -33,6 +33,54 @@ and a month grid loses its last columns — they can re-earn it. The
 machine-specific kinds never had it, `tax` excepted (it is built to be handed
 over on paper).
 
+### `grid` — compose a board from tiles
+
+A grid dashboard puts cards, charts, and live database cuts on one responsive
+board. Configuration lives in document-order ` ```tile ` fences in the body;
+`span: 2` makes a tile wide. The host key is named `tile` so a chart tile can
+keep the chart dialect's own `kind: bar|line` unchanged.
+
+````markdown
+---
+type: dashboard
+dashboard: grid
+---
+
+```tile
+tile: cards
+source: {{Holdings}}
+cards: Total value = total | usd | emph, Crypto = crypto | usd
+```
+
+```tile
+tile: chart
+source: release
+x: released:month
+y: count
+kind: bar
+title: Releases per month
+```
+
+```tile
+tile: view
+type: release
+query: status:mastering
+span: 2
+```
+````
+
+Cards use `Label = summary | option` entries separated by commas. The source
+must be `{{Sheet Name}}`; options are the metrics formats (`eur`, `usd`,
+`number`, `pct`), `digits=N`, `emph`, and `accent:<name>` (see **Style tokens**
+below). Emphasis is counted across the whole
+board, not restarted per tile: at most two values stay sharp. Chart keys after
+`tile:`/`span:` are exactly the ` ```chart ` contract below; view keys are
+exactly the ` ```view ` contract. A malformed tile shows its own error and its
+siblings keep rendering. Tiles flow in fence order, collapse to one column in
+a narrow pane, and render flat when targeted by a workbook page. Grid boards
+carry no Print button — on paper the tile grid collapses to a stack, so the
+composed board is not honest print output (see the print roster in
+`e2e/dashprintroster.spec.ts`).
 
 ### `metrics` — stat cards over a sheet
 
@@ -1093,6 +1141,8 @@ design system owns taste; a board picks from what it offers.
 - The same `accent` name rides the other card surfaces: a ` ```cards ` fence
   card, and a ` ```progress ` fence, where it tints the goal's label and leaves
   the bar neutral.
+- It rides a grid tile card (`| accent:teal`) too, and `size: tall` likewise
+  rides a chart tile, which takes the chart dialect unchanged.
 
 Accent and `emph` are independent: hue says what a card is *about*, `emph` says
 which card *matters*. Accenting everything therefore can't quietly spend the

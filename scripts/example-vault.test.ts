@@ -17,6 +17,7 @@ import { parseTimelineConfig, timelineData } from "../src/lib/timeline.ts";
 import { parseHub } from "../src/lib/hub.ts";
 import { parseViewSpec } from "../src/lib/embeds.ts";
 import { collectCardsFences, parseBind, parseCardsBlock } from "../src/lib/metriccards.ts";
+import { parseGridBlocks } from "../src/lib/grid.ts";
 import { parseProgressBlocks } from "../src/lib/progress.ts";
 import { parseFoodRows } from "../src/lib/food.ts";
 import { parseFoodDb } from "../src/lib/fooddb.ts";
@@ -25,7 +26,7 @@ import { parseSnapshotsFromBody } from "../src/lib/dashboard.ts";
 import { buildTasksDashboard } from "../src/lib/tasksDashboard.ts";
 import type { NoteMeta, SchemaConfig } from "../src/lib/types.ts";
 import { GLYPH_IDS, ICON_TINTS } from "../src/lib/dbicons.ts";
-import { BUILT_IN_KINDS } from "../src/lib/kinds.ts";
+import { BUILT_IN_KINDS, kindApiFit, parseKindManifest } from "../src/lib/kinds.ts";
 
 // The example vault (examples/vault/) ships in the repo as the runnable demo
 // for docs/dashboards.md. This suite parses every file through the same lib
@@ -201,11 +202,41 @@ test("the seed's documented view example parses to the keys it claims (SUB-474)"
 // render, and this now fails instead of passing against a stale list.
 test("dashboard kinds are ones the app dispatches", () => {
   const kinds = BUILT_IN_KINDS;
+  // a vault may also carry its own renderer at `.vault/kinds/<id>/`
+  // (vault-format §5.8) — this vault ships one, so the demo boards may name it
+  const resident = new Set(
+    readdirSync(join(VAULT, ".vault", "kinds"), { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name)
+  );
   const dashboards = notes.filter((n) => n.props["type"] === "dashboard");
-  assert.equal(dashboards.length, 20);
+  assert.equal(dashboards.length, 22);
   for (const n of dashboards) {
     const k = n.props["dashboard"];
-    assert.ok(typeof k === "string" && kinds.has(k), `${n.path}: unknown dashboard kind "${k}"`);
+    assert.ok(
+      typeof k === "string" && (kinds.has(k) || resident.has(k)),
+      `${n.path}: unknown dashboard kind "${k}"`
+    );
+  }
+});
+
+test("the vault-resident kind bundles parse through the real manifest parser", () => {
+  const dir = join(VAULT, ".vault", "kinds");
+  const ids = readdirSync(dir, { withFileTypes: true })
+    .filter((e) => e.isDirectory())
+    .map((e) => e.name);
+  assert.ok(ids.length > 0, "the demo vault should ship at least one custom kind");
+  for (const id of ids) {
+    const res = parseKindManifest(id, readFileSync(join(dir, id, "kind.json"), "utf8"));
+    assert.ok(res.ok, `${id}/kind.json is invalid: ${res.ok ? "" : res.reason}`);
+    assert.equal(kindApiFit(res.manifest.api), "ok", `${id}: api ${res.manifest.api} is out of range`);
+    // every file the manifest names has to be in the folder, or the pane the
+    // recipe installs is a card explaining what is missing
+    const files = new Set(readdirSync(join(dir, id)));
+    assert.ok(files.has(res.manifest.entry), `${id}: entry ${res.manifest.entry} is missing`);
+    if (res.manifest.style) {
+      assert.ok(files.has(res.manifest.style), `${id}: style ${res.manifest.style} is missing`);
+    }
   }
 });
 
@@ -427,6 +458,44 @@ test("Release Charts fences parse clean and name real sources", () => {
     const src = b.config.source;
     if (src.kind === "db") assert.ok(dbTypes.has(src.type), `chart over unknown database "${src.type}"`);
     else assert.ok(loadSheet(src.name), `chart over unknown sheet "${src.name}"`);
+  }
+});
+
+test("Label Board's tile fences parse clean and name real sources", () => {
+  const n = byStem("Label Board");
+  assert.ok(n, "Dashboards/Label Board.md missing");
+  const blocks = parseGridBlocks(n.body);
+  assert.equal(blocks.length, 3, "the board composes a cards tile, a chart tile and a view tile");
+  assert.deepEqual(
+    blocks.map((b) => b.tile?.kind),
+    ["cards", "chart", "view"]
+  );
+
+  const model = loadSheet("Holdings");
+  assert.ok(model, "Holdings sheet missing — the board's cards tile reads it");
+  const ev = evaluateSheet(model, fx);
+
+  for (const b of blocks) {
+    assert.equal(b.error, null, `tile fence error: ${b.error}`);
+    const tile = b.tile;
+    assert.ok(tile, "tile fence produced no tile");
+    if (tile.kind === "cards") {
+      for (const card of tile.cards) {
+        const bind = parseBind(card.bind);
+        assert.ok(bind, `card "${card.label}" has an unparseable bind`);
+        assert.equal(bind.sheet, "Holdings", `card bind targets unknown sheet "${bind.sheet}"`);
+        assert.ok(!isErr(findSummary(ev, bind.name)), `bind {{Holdings.${bind.name}}} resolves no summary`);
+      }
+    } else if (tile.kind === "chart") {
+      const chart = tile.chart;
+      assert.ok(chart.bind !== "history", "chart tile should name a source");
+      const src = chart.source;
+      if (src.kind === "db") assert.ok(dbTypes.has(src.type), `chart over unknown database "${src.type}"`);
+      else assert.ok(loadSheet(src.name), `chart over unknown sheet "${src.name}"`);
+    } else {
+      const type = tile.view.type;
+      assert.ok(type && dbTypes.has(type), `view over unknown database "${type}"`);
+    }
   }
 });
 
