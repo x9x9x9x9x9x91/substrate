@@ -1145,6 +1145,33 @@ export interface VaultSyncStatus {
   /** Where the vault syncs to, so the pane can show it and refill its field.
    * Never the token or the passphrase — those are write-only. */
   remote_url: string | null;
+  /** An end-to-end-encrypted vault whose history a purge or trim rewrote here:
+   * no leg can succeed until the server's copy is replaced with this one. Its
+   * own boolean rather than a reading of `last_error`, because it is true from
+   * the moment the rewrite lands — before any leg has run and failed — and
+   * because the pane decides whether to offer the way out from it. */
+  rewrite_blocked: boolean;
+  /** Set when a pull found that another device published a rewritten history
+   * over the store while this device was holding work that history has no line
+   * to. Sync stays paused until someone here adopts that history — which
+   * discards the work named in this record — so the pane needs the cost, not
+   * just the fact. `null` on every ordinary vault. */
+  replaced_store: ReplacedStoreState | null;
+}
+
+/** What adopting a replaced store would cost this device. Measured fresh on
+ * every status call, because the pause can stand for days while someone keeps
+ * writing. */
+export interface ReplacedStoreState {
+  /** Snapshots this device holds that the history on the server has no line to
+   * — the ones adopting discards, whether or not they ever reached the server,
+   * since a replacement drops both alike. `null` when the count could not be
+   * worked out — which is not zero, and the pane says so rather than claiming
+   * nothing is at stake. */
+  discarded_snapshots: number | null;
+  /** Edits in the working tree that no snapshot holds. `null` when the tree
+   * could not be read: unknown, not none. */
+  unsaved_edits: boolean | null;
 }
 
 /** The kind of remote a vault syncs to. `hosted` is a `blob+https://` remote:

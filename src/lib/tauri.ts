@@ -31,6 +31,7 @@ import type {
   TagFolder,
   TrashEntry,
   RemoteKind,
+  ReplacedStoreState,
   VaultSyncStatus,
   ViewsConfig,
 } from "./types.ts";
@@ -357,6 +358,14 @@ declare global {
         (the wrapped key does not open). Unstaged, the store is empty and a
         save enrolls, which is the path the older specs walk. */
     __mockHostedVault?: (vault: { token: string; passphrase: string } | null) => void;
+    /** stage the state a purge or trim leaves behind: an end-to-end-encrypted
+        vault whose history no longer matches the server's copy, so every leg
+        refuses until that copy is replaced */
+    __mockSyncRewriteBlocked?: (blocked: boolean) => void;
+    /** stage the other end of that state: another device published a rewritten
+        history over the store while this one was holding work it has no line
+        to, so pulls are paused until someone here adopts it. `null` clears */
+    __mockSyncReplacedStore?: (state: ReplacedStoreState | null) => void;
     /** boot with sync already configured — the state a returning device is
         in. Read once at mock init, so this too is an addInitScript seam */
     __mockSyncConfigured?: boolean;
@@ -2008,7 +2017,14 @@ const mockTrash: (TrashEntry & {
 // conflict state instead of from the last command's result.
 let mockVaultSyncStatus: Omit<
   VaultSyncStatus,
-  "conflicted" | "privacy_error" | "privacy_paths" | "notice" | "remote_kind" | "remote_url"
+  | "conflicted"
+  | "privacy_error"
+  | "privacy_paths"
+  | "notice"
+  | "remote_kind"
+  | "remote_url"
+  | "rewrite_blocked"
+  | "replaced_store"
 > = {
   // a returning device boots configured; a spec stages that with
   // addInitScript, before the app (and its auto-sync lane) mounts
@@ -2084,6 +2100,53 @@ let mockHostedVault: { token: string; passphrase: string } | null = null;
     the store is approaching the number of objects one sync can work through,
     or nothing. Staged by a spec; read only by `vault_sync_push`. */
 let mockSyncNotice: string | null = null;
+
+/** A purge or trim rewrote this vault's history, so an end-to-end-encrypted
+    remote refuses every leg until the server's copy is replaced. Kept OUTSIDE
+    `mockVaultSyncStatus` because the engine reads it from the repository on
+    every status call, and it outlives the commands that replace that record.
+    Staged by a spec; only the replacement clears it. */
+let mockRewriteBlocked = false;
+
+/** The pause a replacement leaves on a device that consented to nothing.
+    Outside `mockVaultSyncStatus` for the same reason as the marker above: the
+    engine reads it from the repository on every status call, and it outlives
+    the commands that replace that record. Staged by a spec; only adopting
+    clears it. */
+let mockReplacedStore: ReplacedStoreState | null = null;
+
+/** Engine parity for the wording both the refusal and the adoption use: the
+    cost this device carries, in the words the pane and the error share. */
+function mockReplacedStoreCost(state: ReplacedStoreState): string {
+  const snapshots =
+    state.discarded_snapshots === null || state.discarded_snapshots === 0
+      ? null
+      : state.discarded_snapshots === 1
+        ? "1 snapshot taken here"
+        : `${state.discarded_snapshots} snapshots taken here`;
+  if (snapshots && state.unsaved_edits) return `${snapshots}, and edits no snapshot holds yet`;
+  if (snapshots) return snapshots;
+  // Engine parity for the branch measuring against the replacement head made
+  // reachable: a device the new history already contains carries no cost.
+  return state.unsaved_edits === false
+    ? "nothing the server's history is missing"
+    : "edits no snapshot holds yet";
+}
+
+/** Engine parity: the notice opens the cost as a sentence, the refusal folds
+    it into one. */
+function mockCapitalize(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function mockReplacedStorePause(state: ReplacedStoreState): string {
+  return (
+    "hosted sync is paused: another device rewrote this vault's history (a purge or trim) and " +
+    "published it over the copy on the server, and this device holds work that new history has " +
+    `no line to: ${mockReplacedStoreCost(state)}. Adopting the server's history, from the Vault ` +
+    "sync pane, discards that work and starts sync again."
+  );
+}
 
 /** The sticky half, kept OUTSIDE `mockVaultSyncStatus` for the same reason the
     privacy notice is: every command below replaces that record wholesale, and
@@ -4820,6 +4883,13 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         // engine parity: the URL leaves here with any embedded credentials
         // replaced by dots, because this is the string a pane shows
         remote_url: mockRedactUserinfo(mockSyncRemote.url),
+        // engine parity: hosted remote plus the rewrite marker, read from the
+        // repository — true from the moment the rewrite lands, before any leg
+        // has run and failed
+        rewrite_blocked: mockRewriteBlocked && mockSyncRemote.kind === "hosted",
+        // engine parity: the marker a refused pull left in the repository,
+        // with its cost re-measured on every call
+        replaced_store: mockSyncRemote.kind === "hosted" ? mockReplacedStore : null,
       } satisfies VaultSyncStatus;
     case "vault_sync_set_remote": {
       const url = String(args?.url ?? "").trim();
@@ -4965,6 +5035,20 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       return null;
     }
     case "vault_sync_push": {
+      if (mockRewriteBlocked && mockSyncRemote.kind === "hosted") {
+        throw new Error(
+          "hosted sync is paused: this vault's history was rewritten here by a purge or " +
+            "trim, and the server still holds the history from before it, which this push " +
+            "cannot build on. Replacing the server's copy with this vault, from the Vault " +
+            "sync pane, starts sync again.",
+        );
+      }
+      // engine parity: the mirror state refuses the uploading leg too, in the
+      // pause's own words rather than in the generic line that would send the
+      // user to Pull — the leg that is also refusing
+      if (mockReplacedStore && mockSyncRemote.kind === "hosted") {
+        throw new Error(mockReplacedStorePause(mockReplacedStore));
+      }
       if (!mockVaultSyncStatus.configured) throw new Error("vault sync remote is not configured");
       mockSyncCalls.push("vault_sync_push");
       const report: SyncReport = {
@@ -4985,6 +5069,17 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
     }
     case "vault_sync_pull": {
       if (!mockVaultSyncStatus.configured) throw new Error("vault sync remote is not configured");
+      if (mockRewriteBlocked && mockSyncRemote.kind === "hosted") {
+        throw new Error(
+          "hosted sync is paused: this vault's history was rewritten here by a purge or " +
+            "trim, so it no longer matches the copy on the server. Pulling would bring the " +
+            "removed history back. Replacing the server's copy with this vault, from the " +
+            "Vault sync pane, starts sync again.",
+        );
+      }
+      if (mockReplacedStore && mockSyncRemote.kind === "hosted") {
+        throw new Error(mockReplacedStorePause(mockReplacedStore));
+      }
       mockSyncCalls.push("vault_sync_pull");
       if (mockPullPlan.conflicted) {
         const report: SyncReport = {
@@ -5015,6 +5110,65 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       // an auto-pull's invalidation rides the same event
       if (changed.length > 0) window.__mockEmit?.("vault:pulled", changed);
       return clean;
+    }
+    case "vault_sync_replace_hosted": {
+      if (!mockVaultSyncStatus.configured) throw new Error("vault sync remote is not configured");
+      if (mockSyncRemote.kind !== "hosted") {
+        throw new Error(
+          "replacing the server's copy is only possible for an end-to-end-encrypted remote",
+        );
+      }
+      if (!mockRewriteBlocked) {
+        throw new Error(
+          "this vault's history has not been rewritten here, so there is nothing for a " +
+            "replacement to repair; use Push",
+        );
+      }
+      mockSyncCalls.push("vault_sync_replace_hosted");
+      const report: SyncReport = {
+        pushed: 4,
+        pulled: 0,
+        conflicted: [],
+        head: "7b41d0c95e6a",
+        // engine parity: a push checks nothing out
+        changed: [],
+      };
+      // engine parity: the push the replacement runs is what clears the
+      // marker, so sync is ordinary from the next leg onward
+      mockRewriteBlocked = false;
+      mockVaultSyncStatus = { configured: true, last_result: report, last_error: null };
+      return report;
+    }
+    case "vault_sync_adopt_replaced": {
+      if (!mockVaultSyncStatus.configured) throw new Error("vault sync remote is not configured");
+      if (mockSyncRemote.kind !== "hosted") {
+        throw new Error(
+          "adopting the server's history is only possible for an end-to-end-encrypted remote",
+        );
+      }
+      if (!mockReplacedStore) {
+        throw new Error(
+          "this vault's sync is not paused on a replaced history, so there is nothing to " +
+            "adopt; use Pull",
+        );
+      }
+      mockSyncCalls.push("vault_sync_adopt_replaced");
+      const report: SyncReport = {
+        pushed: 0,
+        pulled: 6,
+        conflicted: [],
+        head: "3c90ab21d4f7",
+        changed: ["Notes/Kept.md"],
+        // engine parity: the adoption never reports as an ordinary pull — the
+        // whole vault was just replaced, and the report is where that is said
+        notice:
+          "This vault moved onto a history another device rewrote (a purge or trim). " +
+          `${mockCapitalize(mockReplacedStoreCost(mockReplacedStore))} discarded here.`,
+      };
+      mockReplacedStore = null;
+      mockVaultSyncStatus = { configured: true, last_result: report, last_error: null };
+      window.__mockEmit?.("vault:pulled", report.changed);
+      return report;
     }
     case "vault_sync_ack_privacy":
       mockPrivacyNotice = null;
@@ -6718,6 +6872,8 @@ if (!isTauri) {
   window.__mockResetSyncRemote = () => {
     mockVaultSyncStatus = { configured: false, last_result: null, last_error: null };
     mockSyncRemote = { kind: "none", url: null };
+    mockRewriteBlocked = false;
+    mockReplacedStore = null;
     mockVaultKeyDocument = null;
     mockVaultKeyHeldLocally = false;
   };
@@ -6898,6 +7054,12 @@ if (!isTauri) {
   window.__mockSyncCalls = () => [...mockSyncCalls];
   window.__mockHostedVault = (vault) => {
     mockHostedVault = vault ? { ...vault } : null;
+  };
+  window.__mockSyncRewriteBlocked = (blocked) => {
+    mockRewriteBlocked = blocked;
+  };
+  window.__mockSyncReplacedStore = (state) => {
+    mockReplacedStore = state ? { ...state } : null;
   };
   window.__mockSetPrivacy = (notice) => {
     mockPrivacyNotice = notice ? { message: notice.message, paths: [...notice.paths] } : null;

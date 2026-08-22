@@ -1625,6 +1625,8 @@ pub fn run() {
             vault_rename_prop,
             vault_clear_prop,
             vault_sync_push,
+            vault_sync_replace_hosted,
+            vault_sync_adopt_replaced,
             vault_sync_pull,
             vault_sync_status,
             vault_sync_set_remote,

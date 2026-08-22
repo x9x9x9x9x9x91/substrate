@@ -614,6 +614,17 @@ export const vaultSyncPull = (origin?: "auto") =>
     ? invoke<SyncReport>("vault_sync_pull", { origin })
     : invoke<SyncReport>("vault_sync_pull");
 export const vaultSyncStatus = () => invoke<VaultSyncStatus>("vault_sync_status");
+/** Publish this vault's history over the hosted store's, ending the pause a
+    purge or trim left behind. Discards what the server holds, so it takes no
+    `origin`: only a person in front of the pane can ask for it. */
+export const vaultSyncReplaceHosted = () =>
+  invoke<SyncReport>("vault_sync_replace_hosted");
+/** Move this device onto the history another device published over the store,
+    letting go of the snapshots and edits that history has no line to. Like the
+    replacement it mirrors, it takes no `origin`: it discards work, so only a
+    person in front of the pane can ask for it. */
+export const vaultSyncAdoptReplaced = () =>
+  invoke<SyncReport>("vault_sync_adopt_replaced");
 /** Raw tokens use HTTP Basic as the password; prefix with `Bearer ` or pass
     an explicit `Basic ` authorization value when the endpoint requires it.
     `cert` pins a self-signed server certificate (PEM) — required for private

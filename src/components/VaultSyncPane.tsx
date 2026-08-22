@@ -3,9 +3,11 @@ import type { RemoteSetup, SyncReport, VaultSyncStatus } from "../lib/types";
 import SyncConflicts from "./SyncConflicts";
 import {
   vaultSyncAckPrivacy,
+  vaultSyncAdoptReplaced,
   vaultSyncChangePassphrase,
   vaultSyncPull,
   vaultSyncPush,
+  vaultSyncReplaceHosted,
   vaultSyncSetRemote,
   vaultSyncStatus,
 } from "../lib/ipc";
@@ -27,6 +29,14 @@ function Result({ report }: { report: SyncReport }) {
       <div className="vault-sync-summary">
         Pushed {report.pushed} <span aria-hidden="true">·</span> Pulled {report.pulled}
       </div>
+      {report.notice && (
+        /* A pull that reset this device onto someone else's rewritten history
+           says so here. Without it the summary reads "Pulled 12" for a vault
+           that was just replaced wholesale. */
+        <div className="vault-sync-notice" role="status">
+          {report.notice}
+        </div>
+      )}
       {report.head && (
         <div className="vault-sync-head">
           Head <code>{report.head.slice(0, 8)}</code>
@@ -61,7 +71,9 @@ export default function VaultSyncPane({
   const [status, setStatus] = useState<VaultSyncStatus | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<SyncAction | "save" | "passphrase" | null>(null);
+  const [busy, setBusy] = useState<
+    SyncAction | "save" | "passphrase" | "replace" | "adopt" | null
+  >(null);
   const [remoteUrl, setRemoteUrl] = useState("");
   const [token, setToken] = useState("");
   const [certPem, setCertPem] = useState("");
@@ -75,6 +87,12 @@ export default function VaultSyncPane({
       The save does not happen until it is pressed a second time — see
       [`downgrades`]. */
   const [downgradeArmed, setDowngradeArmed] = useState(false);
+  /** Arm-then-confirm for replacing the server's copy, same two presses as
+      [`downgrades`]: the first press says what the second one does. */
+  const [replaceArmed, setReplaceArmed] = useState(false);
+  /** The same two presses for the other side of a replacement, where what the
+      second press discards is this device's own work. */
+  const [adoptArmed, setAdoptArmed] = useState(false);
   const [changingPassphrase, setChangingPassphrase] = useState(false);
   const [currentPassphrase, setCurrentPassphrase] = useState("");
   const [nextPassphrase, setNextPassphrase] = useState("");
@@ -130,12 +148,68 @@ export default function VaultSyncPane({
         // carried too: neither a push nor a pull moves the vault
         remote_kind: status?.remote_kind ?? "none",
         remote_url: status?.remote_url ?? null,
+        // carried, not cleared by a report: whether the vault is still paused
+        // is the repository's answer, and the refresh below brings it
+        rewrite_blocked: status?.rewrite_blocked ?? false,
+        replaced_store: status?.replaced_store ?? null,
       });
     } catch (error) {
       setActionError(errText(error));
     } finally {
       await refreshStatus();
       setConflictNonce((n) => n + 1);
+      setBusy(null);
+    }
+  };
+
+  /** The way out of the pause a purge or trim leaves on a hosted vault: send
+      this vault's history over the one the server holds. Two presses — the
+      first one only opens the paragraph that says what the second does — and
+      it never runs by itself, because nothing else in the app discards what a
+      remote holds. */
+  const replaceHosted = async () => {
+    if (busy || !status?.rewrite_blocked) return;
+    if (!replaceArmed) {
+      setReplaceArmed(true);
+      setActionError(null);
+      return;
+    }
+    setBusy("replace");
+    setActionError(null);
+    try {
+      await vaultSyncReplaceHosted();
+    } catch (error) {
+      setActionError(errText(error));
+    } finally {
+      await refreshStatus();
+      setConflictNonce((n) => n + 1);
+      setReplaceArmed(false);
+      setBusy(null);
+    }
+  };
+
+  /** The way out of the pause a replacement leaves on this device: move onto
+      the history the store holds and let go of what this device kept. Two
+      presses like the replacement it mirrors, and for a sharper reason —
+      there, the second press discards what a server holds; here it discards
+      snapshots and edits that live only on this machine. */
+  const adoptReplaced = async () => {
+    if (busy || !status?.replaced_store) return;
+    if (!adoptArmed) {
+      setAdoptArmed(true);
+      setActionError(null);
+      return;
+    }
+    setBusy("adopt");
+    setActionError(null);
+    try {
+      await vaultSyncAdoptReplaced();
+    } catch (error) {
+      setActionError(errText(error));
+    } finally {
+      await refreshStatus();
+      setConflictNonce((n) => n + 1);
+      setAdoptArmed(false);
       setBusy(null);
     }
   };
@@ -325,6 +399,42 @@ export default function VaultSyncPane({
   // store, the auto lane pulls every few minutes, and a warning living on the
   // last result is gone before anyone reads it.
   const storeNotice = status?.notice ?? null;
+  // Every leg of a hosted vault refuses until this ends, so the pane says so
+  // itself rather than leaving the state to be read out of the last error —
+  // which is empty until something has already failed.
+  const rewriteBlocked = status?.rewrite_blocked === true;
+  // The other end of it, on a device that asked for none of this: pulls are
+  // paused because adopting would take work only this machine holds. Same
+  // reason it is its own field rather than something read out of an error.
+  const replacedStore = status?.replaced_store ?? null;
+  // What adopting would spend, in the words the backend's own refusal uses. A
+  // count that could not be worked out is not zero — the sentence names the
+  // loss without a number rather than promising there is none.
+  const adoptCost = (() => {
+    if (!replacedStore) return "";
+    const { discarded_snapshots: snapshots, unsaved_edits: edits } = replacedStore;
+    const taken =
+      snapshots === null
+        ? "snapshots taken here"
+        : snapshots === 0
+          ? null
+          : snapshots === 1
+            ? "1 snapshot taken here"
+            : `${snapshots} snapshots taken here`;
+    // An unreadable working tree is unknown, not clean — the sentence hedges
+    // rather than promising there are no edits to lose.
+    const unsaved =
+      edits === null
+        ? "any edits no snapshot holds yet"
+        : edits
+          ? "edits no snapshot holds yet"
+          : null;
+    if (taken && unsaved) return `${taken}, and ${unsaved}`;
+    // Both empty is a real state, not a placeholder: the pause outlives its
+    // cause when the work it was raised for is reverted or otherwise gone. The
+    // blocks below price that at nothing rather than inventing a loss.
+    return taken ?? unsaved ?? "";
+  })();
   // What the vault syncs as, from the repository. The pane carried no way to
   // say this, so an end-to-end-encrypted vault and a plain one rendered
   // identically — including in the moment one was about to become the other.
@@ -336,12 +446,17 @@ export default function VaultSyncPane({
   const checking = status === null && statusError === null;
   const statusLabel = checking
     ? "Checking"
-    : visibleStatusError
-      ? "Error"
-      : !configured
-        ? "Setup needed"
-        : hasConflicts || privacyError
-          ? "Needs attention"
+    : // Ahead of the last leg's error, which a vault in one of these states
+      // always has once anything has been tried: the state is the answer, and
+      // the refusal is what it looks like from a single leg. Reading "Error"
+      // sends the user looking for what broke rather than at the way out the
+      // pane names below it.
+      hasConflicts || privacyError || rewriteBlocked || replacedStore
+      ? "Needs attention"
+      : visibleStatusError
+        ? "Error"
+        : !configured
+          ? "Setup needed"
           : busy === "push"
             ? "Pushing"
             : busy === "pull"
@@ -365,7 +480,11 @@ export default function VaultSyncPane({
               <h2 id="vault-sync-status-title">Status</h2>
               <span
                 className={`vault-sync-state${
-                  visibleStatusError || hasConflicts || privacyError
+                  visibleStatusError ||
+                  hasConflicts ||
+                  privacyError ||
+                  rewriteBlocked ||
+                  replacedStore
                     ? " danger"
                     : configured && !checking
                       ? " ok"
@@ -380,6 +499,47 @@ export default function VaultSyncPane({
             <div className="vault-sync-status">
               {checking ? (
                 <span className="vault-sync-muted">Checking sync configuration…</span>
+              ) : replacedStore ? (
+                /* Ahead of the last leg's error, the last result and the idle
+                   line — the first would name a symptom and the other two would
+                   say sync is fine. Nothing here syncs until the block below is
+                   answered, and the moment that arms its consent paragraph the
+                   last leg's error is cleared.
+
+                   Ahead of the rewrite line too, in the SAME order the blocks
+                   below use. A device can hold both states, and the blocks
+                   render the pause alone there; leading with the rewrite would
+                   send the reader down the page looking for a door that is not
+                   on the screen. */
+                <div>
+                  <div className="vault-sync-status-title">Sync is paused</div>
+                  <p className="vault-sync-muted">
+                    Another device rewrote this vault&apos;s history, and this device holds
+                    work that history does not — so nothing syncs until that is answered,
+                    below.
+                  </p>
+                  {visibleStatusError && (
+                    <div className="vault-sync-error" role="alert">
+                      {visibleStatusError}
+                    </div>
+                  )}
+                </div>
+              ) : rewriteBlocked ? (
+                /* Same placement and the same reason as the block above: the
+                   state is the answer, and the last leg's error is only what
+                   that state looks like from one push. */
+                <div>
+                  <div className="vault-sync-status-title">Sync is paused</div>
+                  <p className="vault-sync-muted">
+                    This vault&apos;s history was rewritten here, so no push or pull runs until
+                    the server&apos;s copy is replaced — below.
+                  </p>
+                  {visibleStatusError && (
+                    <div className="vault-sync-error" role="alert">
+                      {visibleStatusError}
+                    </div>
+                  )}
+                </div>
               ) : visibleStatusError ? (
                 // the estate's one error banner, not a red line of its own:
                 // a sync that failed says it the way a board that failed does
@@ -424,6 +584,152 @@ export default function VaultSyncPane({
             {storeNotice && (
               <div className="vault-sync-notice" role="status">
                 {storeNotice}
+              </div>
+            )}
+
+            {/* One block at a time, and the pause below wins when a device is
+                in both states. Replacing is refused while this device is paused
+                on someone else's replacement — it would republish the history
+                that device purged — so offering the button here would be
+                offering a door the backend has locked, ahead of the one that
+                actually opens. */}
+            {rewriteBlocked && !replacedStore && (
+              <div className="vault-sync-privacy" role="alert">
+                <h3>Sync is paused: this vault&apos;s history was rewritten</h3>
+                <p className="vault-sync-muted">
+                  A purge or trim rewrote this vault&apos;s history here, so it no longer
+                  matches the copy on the server. Pushing cannot build on that copy, and
+                  pulling would bring the removed history back — so both stop until the two
+                  agree again.
+                </p>
+                <p className="vault-sync-muted">
+                  Replacing the server&apos;s copy with this vault starts sync again. If the
+                  server&apos;s history has moved past what this device has answered for,
+                  the replace refuses and says what stands in the way — usually with an
+                  offer to adopt the server&apos;s history.
+                </p>
+                {replaceArmed && (
+                  <div className="vault-sync-downgrade" role="alert">
+                    <h3>This replaces what the server holds</h3>
+                    <p>
+                      The server&apos;s copy of this vault is replaced by this device&apos;s
+                      history. Anything another device pushed since the rewrite, and has not
+                      reached this device, is left behind — and there is no way to bring it
+                      here first, because sync is paused on both ends until this runs.
+                    </p>
+                    <p>
+                      Other devices stop syncing the next time they pull, and none of them
+                      is moved onto this history until someone standing at it agrees: each
+                      is shown what it holds that this history has no line to — including
+                      snapshots it already sent to the server, which this replacement
+                      discards along with the rest.
+                    </p>
+                    <p>
+                      The removed history stops being reachable, but its encrypted objects
+                      stay on the server until the store is cleared there.
+                    </p>
+                  </div>
+                )}
+                <div className="vault-sync-actions">
+                  {replaceArmed && (
+                    <button
+                      type="button"
+                      className="vault-sync-button"
+                      disabled={busy !== null}
+                      onClick={() => setReplaceArmed(false)}
+                    >
+                      Cancel
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className={`vault-sync-button${replaceArmed ? " danger" : ""}`}
+                    disabled={busy !== null}
+                    onClick={() => void replaceHosted()}
+                  >
+                    {busy === "replace" ? (
+                      <span className="sync-spinner" />
+                    ) : replaceArmed ? (
+                      "Replace the server’s copy"
+                    ) : (
+                      "Replace the server’s copy…"
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {replacedStore && (
+              <div className="vault-sync-privacy" role="alert">
+                <h3>Sync is paused: another device rewrote this vault&apos;s history</h3>
+                <p className="vault-sync-muted">
+                  A purge or trim removed something from this vault&apos;s history —
+                  usually published from another device over the server&apos;s copy; a
+                  rewrite made here with nothing recorded to check the server against
+                  lands in the same pause. A rewrite reissues every snapshot it carries
+                  forward, so this device&apos;s history and the server&apos;s no longer
+                  share a line — including where they hold the same notes.
+                </p>
+                <p className="vault-sync-muted">
+                  Nothing here has been changed or lost. Sync stays paused until this device
+                  moves onto the new history —{" "}
+                  {adoptCost
+                    ? `which discards ${adoptCost}. Copy anything you need out of this vault first: once it runs, it cannot be undone from here.`
+                    : "which now costs this device nothing, because the work this pause was raised for is no longer here."}
+                </p>
+                {adoptArmed && (
+                  <div className="vault-sync-downgrade" role="alert">
+                    <h3>This discards work on this device</h3>
+                    <p>
+                      This device is reset onto the history the server holds.{" "}
+                      {adoptCost
+                        ? `What it holds instead — ${adoptCost} — goes, including from this device’s own history, because keeping it would put back the content the other device removed.`
+                        : "It holds nothing that history is missing, so nothing here is discarded."}
+                    </p>
+                    <p>
+                      Everything the server holds arrives in their place. The device syncs
+                      normally from then on.
+                    </p>
+                    {rewriteBlocked && (
+                      <p>
+                        A purge or trim ran here too, and the server&apos;s history is not
+                        the one it produced — so anything removed by that rewrite and still
+                        held on the server comes back with the rest. Purge it again from
+                        this device once sync is running, and publish that.
+                      </p>
+                    )}
+                  </div>
+                )}
+                <div className="vault-sync-actions">
+                  {adoptArmed && (
+                    <button
+                      type="button"
+                      className="vault-sync-button"
+                      disabled={busy !== null}
+                      onClick={() => setAdoptArmed(false)}
+                    >
+                      Cancel
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className={`vault-sync-button${adoptArmed ? " danger" : ""}`}
+                    disabled={busy !== null}
+                    onClick={() => void adoptReplaced()}
+                  >
+                    {busy === "adopt" ? (
+                      <span className="sync-spinner" />
+                    ) : adoptArmed ? (
+                      adoptCost ? (
+                        "Discard this device\u2019s work and sync"
+                      ) : (
+                        "Move onto the server\u2019s history"
+                      )
+                    ) : (
+                      "Move onto the server\u2019s history\u2026"
+                    )}
+                  </button>
+                </div>
               </div>
             )}
 
@@ -517,6 +823,8 @@ export default function VaultSyncPane({
                   notice: status?.notice ?? null,
                   remote_kind: status?.remote_kind ?? "none",
                   remote_url: status?.remote_url ?? null,
+                  rewrite_blocked: status?.rewrite_blocked ?? false,
+                  replaced_store: status?.replaced_store ?? null,
                 });
                 setActionError(null);
                 void refreshStatus();
