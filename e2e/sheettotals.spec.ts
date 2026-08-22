@@ -81,6 +81,58 @@ test("an empty totals cell writes a new summary; quick-picks prefill the input",
   await expect(totalsCell(page, 4)).toContainText("paid_count");
 });
 
+// A machine-written sheet — a budget loop rewriting a per-category block — is
+// how one column collects far more summaries than a person would add by hand:
+// the totals cell only offers its "+" while it is empty, so the UI alone never
+// builds a stack this deep. Written through the source view, the way the file
+// on disk arrives.
+const CAPPED_BODY = [
+  "Per-category budget.",
+  "",
+  "```csv",
+  "category,spent_eur",
+  "Rent,1290",
+  "Food,511.4",
+  "Studio,355",
+  "Travel,262.8",
+  "```",
+  "",
+  "```formulas",
+  'spent_rent = SUMIF(category, "Rent", spent_eur)',
+  'spent_food = SUMIF(category, "Food", spent_eur)',
+  'spent_studio = SUMIF(category, "Studio", spent_eur)',
+  'spent_travel = SUMIF(category, "Travel", spent_eur)',
+  "spent_all = SUM(spent_eur)",
+  "```",
+  "",
+].join("\n");
+
+test("one column takes three summaries; the overflow goes to the footer", async ({ page }) => {
+  await openFixedCosts(page);
+  await page.locator('.sheet-tool[title="View note source"]').click();
+  await expect(page.locator(".sheet-src .cm-editor")).toBeVisible();
+  await page.locator(".sheet-src .cm-content").click();
+  // ControlOrMeta: CodeMirror's `Mod-` follows the browser's platform, not the app's
+  await page.keyboard.press("ControlOrMeta+a");
+  await page.keyboard.insertText(CAPPED_BODY);
+  await page.locator('.sheet-tool[title="Back to grid"]').click();
+  await expect(page.locator(".sheet-table")).toBeVisible();
+
+  // spent_eur is column 1; five summaries describe it, three fit
+  const stack = totalsCell(page, 1);
+  await expect(stack.locator(".sheet-total-name")).toHaveCount(3);
+  await expect(stack).toContainText("spent_rent");
+  await expect(stack).toContainText("spent_studio");
+  await expect(stack).not.toContainText("spent_travel");
+
+  // the two it could not take are visible, not dropped
+  const footer = page.locator(".sheet-summary");
+  const more = footer.locator(".sheet-sum-more");
+  if (await more.count()) await more.click();
+  await expect(footer).toContainText("spent_travel");
+  await expect(footer).toContainText("spent_all");
+});
+
 test("Enter on a totals add control opens its editor, not the last data cell", async ({ page }) => {
   await openFixedCosts(page);
   const lastDataFocus = dataCell(page, 0, 0);

@@ -2636,6 +2636,56 @@ export default function DatabasePane({
   const draftRow =
     newTitle !== null ? <div className="row db-draft">{draftInput}</div> : null;
 
+  /** Sub-items live behind THIS column, so the switch does too — the same
+      "configure the thing from the thing" lane a folder's home is set
+      through. The switch works on a relation pointing back at this database
+      and nothing else, and a menu that simply left the entry out on every
+      other column never said so: the feature was findable only by someone who
+      had already assembled the column shape it needs. So the entry stays,
+      turned off, carrying the rule it is waiting on — a relation aimed
+      somewhere else names where it aims, and any other column names the
+      property to add. That last one only while no tree exists: once a column
+      IS the parent link the rule has been read, and repeating it in every
+      other column's menu is noise. */
+  const subItemsItems = (col: string) => {
+    if (!onSetParentProp) return [];
+    const schema = byFoldedKey(typeSchema, col);
+    const marked = !!parentProp && parentProp.toLowerCase() === col.toLowerCase();
+    const target = (schema?.type ?? "").trim();
+    const icon = <SubItemsIcon />;
+    const label = "Nest sub-items under this";
+    if (schema?.kind === "relation" && target.toLowerCase() === dbType.trim().toLowerCase())
+      return [
+        {
+          label: marked ? "Stop nesting sub-items" : label,
+          icon,
+          run: () => onSetParentProp(marked ? null : col),
+        },
+      ];
+    const noop = () => {};
+    if (schema?.kind === "relation")
+      return [
+        {
+          label,
+          icon,
+          run: noop,
+          why: target
+            ? `Links ${target} — sub-items need a relation pointing back at ${dbType}.`
+            : `Names no database — sub-items need a relation pointing back at ${dbType}.`,
+        },
+      ];
+    return parentProp
+      ? []
+      : [
+          {
+            label,
+            icon,
+            run: noop,
+            why: `Add a relation property pointing at ${dbType}, then nest under it here.`,
+          },
+        ];
+  };
+
   // Admin popovers — rendered in every layout branch: the ＋ add-
   // property form (anchored at the header ＋ or the view menu) and a column's
   // schema editor (anchored at its table header caret)
@@ -2678,30 +2728,7 @@ export default function DatabasePane({
               icon: <PenIcon />,
               run: () => setEditSchemaCol({ col: colMenu.col, anchor: colMenu.anchor }),
             },
-            // Sub-items live behind THIS column, so the switch does too —
-            // the same "configure the thing from the thing" lane a folder's
-            // home is set through. Offered only on a relation pointing back
-            // at this database: nothing else can name a row's parent.
-            ...(onSetParentProp &&
-            byFoldedKey(typeSchema, colMenu.col)?.kind === "relation" &&
-            (byFoldedKey(typeSchema, colMenu.col)?.type ?? "").trim().toLowerCase() ===
-              dbType.trim().toLowerCase()
-              ? [
-                  {
-                    label:
-                      parentProp && parentProp.toLowerCase() === colMenu.col.toLowerCase()
-                        ? "Stop nesting sub-items"
-                        : "Nest sub-items under this",
-                    icon: <SubItemsIcon />,
-                    run: () =>
-                      onSetParentProp(
-                        parentProp && parentProp.toLowerCase() === colMenu.col.toLowerCase()
-                          ? null
-                          : colMenu.col
-                      ),
-                  },
-                ]
-              : []),
+            ...subItemsItems(colMenu.col),
             { label: "Rename property…", icon: <PenIcon />, run: () => onRenameProp(colMenu.col) },
             { label: "Remove property…", icon: <TrashIcon />, run: () => onRemoveProp(colMenu.col) },
           ]}

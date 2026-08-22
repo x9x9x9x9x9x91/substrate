@@ -272,3 +272,75 @@ test("the board nests cards inside their own column (SUB-1300)", async ({ page }
   await todo.locator(".db-card", { hasText: "Alpha" }).locator(".db-tree-chevron").click();
   await expect(todo.locator(".db-card.db-card-child")).toHaveCount(0);
 });
+
+// Discoverability: the switch used to render ONLY on a relation already
+// pointing back at its own database, so every other column's menu was silent
+// about sub-items — the one reader who needed the rule (nothing nested yet)
+// was the one reader never told it. Now the entry stays, turned off, carrying
+// the precondition it waits on.
+test("an ineligible column keeps the entry and names the missing precondition", async ({
+  page,
+}) => {
+  const off = () =>
+    page.locator(".colmenu .colmenu-off", { hasText: "Nest sub-items under this" });
+
+  // a plain text column: the rule is which property to add
+  await colMenu(page, "Status");
+  await expect(off()).toHaveCount(1);
+  await expect(off()).toContainText("Add a relation property pointing at Subtree");
+  // off means off — nothing to click, so nothing can be marked from here
+  await expect(
+    page.locator(".colmenu button.dots-item", { hasText: "Nest sub-items under this" })
+  ).toHaveCount(0);
+  await page.keyboard.press("Escape");
+
+  // the eligible relation carries the live entry, as it always did
+  await colMenu(page, "Parent task");
+  await expect(off()).toHaveCount(0);
+  await expect(
+    page.locator(".colmenu button.dots-item", { hasText: "Nest sub-items under this" })
+  ).toHaveCount(1);
+  await page.keyboard.press("Escape");
+
+  // and once a tree exists the rule has been read: the text column stops
+  // repeating it, while the marked column offers the way back out
+  await markParent(page, "Parent task", "Nest sub-items under this");
+  await colMenu(page, "Status");
+  await expect(page.locator(".colmenu", { hasText: "Nest sub-items" })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await colMenu(page, "Parent task");
+  await expect(
+    page.locator(".colmenu button.dots-item", { hasText: "Stop nesting sub-items" })
+  ).toHaveCount(1);
+});
+
+test("a relation aimed at another database says where it aims", async ({ page }) => {
+  await newDatabase(page, "Other", "note");
+  // the ＋ add-property control rides the table header, so a row comes first
+  await newEntry(page, "One");
+  await addRelationProp(page, "linked", "Subtree");
+  await colMenu(page, "Linked");
+  const off = page.locator(".colmenu .colmenu-off", { hasText: "Nest sub-items under this" });
+  await expect(off).toHaveCount(1);
+  await expect(off).toContainText("Links Subtree");
+  await expect(off).toContainText("relation pointing back at Other");
+});
+
+test("a relation with no database picked yet says that too", async ({ page }) => {
+  // the add-property form will not save a relation until a target is chosen,
+  // so a half-configured one arrives the way it does in life: from a
+  // hand-edited vault, where the key is there and the target line is not
+  await page.evaluate(() => {
+    window.__mockEditSchema!("Subtree", {
+      status: { options: [] },
+      "parent task": { options: [], kind: "relation", type: "Subtree" },
+      linked: { options: [], kind: "relation" },
+    });
+    window.__mockEmit!("vault:config-changed");
+  });
+  await colMenu(page, "Linked");
+  const off = page.locator(".colmenu .colmenu-off", { hasText: "Nest sub-items under this" });
+  await expect(off).toHaveCount(1);
+  await expect(off).toContainText("Names no database");
+  await expect(off).toContainText("relation pointing back at Subtree");
+});

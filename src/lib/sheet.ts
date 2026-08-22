@@ -642,6 +642,12 @@ export interface TotalsRow {
   absorbed: Set<string>;
 }
 
+/** How many summaries one totals cell may stack before the rest go to the
+    footer. Three is what a cell can show without the row outgrowing the
+    scrollport it is pinned to — sum/avg/max of one column, the case the
+    stacking rule was written for. */
+export const STACK_CAP = 3;
+
 /** Which summaries belong in the in-grid totals row, and under which column.
  *
  * The rule is the formula's own references: strip cross-sheet refs and refs
@@ -665,7 +671,13 @@ export interface TotalsRow {
  * because the folded-name rule already says nothing may resolve such a name to data.
  *
  * Several summaries may share one column (`sum` and `avg` of the same column);
- * they stack in that cell in fence order rather than one silently winning. */
+ * they stack in that cell in fence order rather than one silently winning —
+ * up to `STACK_CAP` of them. Past that the stack stops being a totals row and
+ * starts being a second table: a budget sheet with a SUMIF per category puts
+ * ten summaries under one column, and the row — pinned to the bottom of the
+ * scroller — grows taller than the scrollport and paints over the data rows it
+ * is meant to summarize. The overflow is not dropped; it falls through to the
+ * footer chips, which fold and expand on demand. */
 export function totalsRow(model: SheetModel): TotalsRow {
   const byColumn = new Map<number, string[]>();
   const absorbed = new Set<string>();
@@ -698,8 +710,10 @@ export function totalsRow(model: SheetModel): TotalsRow {
     const col = colIndex.get(only);
     if (col === undefined) continue; // reference to nothing on this sheet
     const at = byColumn.get(col);
-    if (at) at.push(f.name);
-    else byColumn.set(col, [f.name]);
+    if (at) {
+      if (at.length >= STACK_CAP) continue; // full stack — the footer keeps the rest
+      at.push(f.name);
+    } else byColumn.set(col, [f.name]);
     absorbed.add(f.name.toLowerCase());
   }
   return { byColumn, absorbed };

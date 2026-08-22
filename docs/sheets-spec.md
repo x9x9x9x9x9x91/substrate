@@ -374,7 +374,9 @@ them here. What matters at sheet level:
     carries its rate on the sheet that did the converting, next to the line
     that did it.
 - **Totals row**: a row pinned under the data rows, one cell per
-  column. A named summary whose formula's row-shaped references resolve to
+  column. The pin is conditional: a row taller than a third of the
+  scrollport lets go and becomes the table's last row again, so totals can
+  never hide the data rows they summarize. A named summary whose formula's row-shaped references resolve to
   exactly one data or computed column renders in that column's cell — muted
   name over value — so `monthly_total = SUM(monthly_eur)` sits under
   `monthly_eur`. A filtered sum describes the column it *sums*, not the column
@@ -383,8 +385,9 @@ them here. What matters at sheet level:
   than what the number is about. `COUNTIF` counts rows, so it keeps sitting
   under the column it filters. Everything the rule can't place (several
   columns, a cross-sheet total, a bare constant, an ambiguous name) stays in
-  the footer, which is therefore only the leftovers. Several summaries over one column
-  stack in that cell in fence order.
+  the footer. Several summaries over one column stack in that cell in fence
+  order, up to three per column — past the cap the rest join the footer
+  chips, so the footer holds both the unplaceable and the overflow.
   Clicking an empty cell opens a `name = formula` editor with Sum/Avg/Min/Max/
   Count quick-picks. Sum/Avg/Min/Max prefill `name = FN(column)`. Count is
   value-aware: a column with non-blank, non-error values but no numeric cells

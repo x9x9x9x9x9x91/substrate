@@ -1647,6 +1647,17 @@ describe("SUB-937 — totals row placement", () => {
     assert.deepEqual(totalsRow(parseSheet(body)).byColumn.get(0), ["s", "a", "m"]);
   });
 
+  test("a column's stack stops at three; the overflow stays in the footer", () => {
+    // a budget sheet's per-category SUMIFs all describe one column: unbounded,
+    // the row grows taller than the scrollport it is pinned to and covers the
+    // data rows. The fourth onwards render as footer chips instead.
+    const lines = ["s = SUM(cost)", "a = AVG(cost)", "m = MAX(cost)", "n = MIN(cost)"];
+    const body = "```csv\ncost\n10\n20\n```\n\n```formulas\n" + lines.join("\n") + "\n```\n";
+    const t = totalsRow(parseSheet(body));
+    assert.deepEqual(t.byColumn.get(0), ["s", "a", "m"]);
+    assert.equal(t.absorbed.has("n"), false, "past the cap → footer, never dropped");
+  });
+
   test("a computed column's aggregate lands under the computed column", () => {
     const body =
       "```csv\nunits,price\n2,3\n4,5\n```\n\n```formulas\nline = units * price\ntotal = SUM(line)\n```\n";

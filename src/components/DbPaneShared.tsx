@@ -192,7 +192,12 @@ export type Focus = { c: number; r: number; path: string };
 
 /** Anchored popover menu for a table column header — portal-rendered
     like SelectMenu, because a CSS dropdown inside the horizontally scrolling
-    table body gets clipped. Closes on pick, outside click, or Escape. */
+    table body gets clipped. Closes on pick, outside click, or Escape.
+
+    An item may be OFF instead of absent: `why` states the precondition it is
+    waiting on, in the kind hint's voice, and the row renders inert. A feature
+    whose entry only appears once its precondition already holds teaches
+    nobody — the off row is how the menu says what would turn it on. */
 export function ColMenu({
   anchor,
   items,
@@ -200,7 +205,13 @@ export function ColMenu({
   up,
 }: {
   anchor: AnchorRect;
-  items: { label: string; icon?: React.ReactNode; run: () => void }[];
+  items: {
+    label: string;
+    icon?: React.ReactNode;
+    run: () => void;
+    /** the unmet precondition, one plain line; renders the row inert */
+    why?: string;
+  }[];
   onClose: () => void;
   /** open upward (footer cells sit at the bottom edge of the scrollport) */
   up?: boolean;
@@ -228,19 +239,37 @@ export function ColMenu({
     : { left: Math.min(anchor.left, window.innerWidth - 200), top: anchor.bottom + 4 };
   return createPortal(
     <div className={`colmenu${up ? " flip-up" : ""}`} style={style} ref={boxRef}>
-      {items.map((it) => (
-        <button
-          key={it.label}
-          className="dots-item"
-          onClick={() => {
-            onClose();
-            it.run();
-          }}
-        >
-          {it.icon}
-          {it.label}
-        </button>
-      ))}
+      {items.map((it) =>
+        it.why ? (
+          // reachable by keyboard, since the reader tabbing the menu is the
+          // one the precondition is written for — announced, never activatable
+          <div
+            key={it.label}
+            className="dots-item colmenu-off"
+            role="menuitem"
+            aria-disabled="true"
+            tabIndex={0}
+          >
+            {it.icon}
+            <span className="colmenu-off-text">
+              <span className="dots-label">{it.label}</span>
+              <span className="colmenu-why">{it.why}</span>
+            </span>
+          </div>
+        ) : (
+          <button
+            key={it.label}
+            className="dots-item"
+            onClick={() => {
+              onClose();
+              it.run();
+            }}
+          >
+            {it.icon}
+            {it.label}
+          </button>
+        )
+      )}
     </div>,
     document.body
   );

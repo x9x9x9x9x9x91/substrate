@@ -175,6 +175,11 @@ export default function SheetGrid({
     map: new Map(),
   });
   const cellRefs = useRef(new Map<string, HTMLDivElement>());
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const totalsRef = useRef<HTMLTableRowElement | null>(null);
+  /** the totals row has outgrown its share of the scrollport and gave up its
+      bottom pin rather than paint over the data rows */
+  const [totalsLoose, setTotalsLoose] = useState(false);
   const pendingFocus = useRef(false);
   const editingRef = useRef(editing);
   editingRef.current = editing;
@@ -480,6 +485,29 @@ export default function SheetGrid({
       if (docRef.current) docRef.current = null;
     };
   }, [docRef, source]);
+
+  /* The totals row is pinned to the bottom of the scroller, so its height is
+     height the data rows never get back: past a point the pin stops keeping
+     totals in view and starts hiding the rows they summarize. Over a third of
+     the scrollport, the pin is worth less than the rows it covers — the row
+     goes back to being the last row of the table, reachable by scrolling.
+     Measured rather than capped in CSS: the row's height is its content's, and
+     a short pane makes an ordinary two-summary stack too tall as surely as a
+     long stack does in a tall one. */
+  useEffect(() => {
+    const scroll = scrollRef.current;
+    const totals = totalsRef.current;
+    if (!scroll || !totals || typeof ResizeObserver === "undefined") return;
+    const sync = () => {
+      const port = scroll.clientHeight;
+      setTotalsLoose(port > 0 && totals.offsetHeight > port / 3);
+    };
+    sync();
+    const ro = new ResizeObserver(sync);
+    ro.observe(scroll);
+    ro.observe(totals);
+    return () => ro.disconnect();
+  }, [totals, rowCount, source]);
 
   const startEdit = (r: number, c: number) => {
     if (readOnly) return; // a sheet read at an old commit opens no cell
@@ -1187,7 +1215,7 @@ export default function SheetGrid({
   return (
     <div className="sheet">
       {toolbar}
-      <div className="sheet-scroll" onKeyDown={onGridKeyDown}>
+      <div className="sheet-scroll" ref={scrollRef} onKeyDown={onGridKeyDown}>
         <table className="sheet-table">
           <thead>
             <tr>
@@ -1293,7 +1321,10 @@ export default function SheetGrid({
                 one cell per column, holding the summaries that describe that
                 column. An empty cell writes a new one. */}
             {model.hasCsv && cols > 0 && (
-              <tr className="sheet-totals">
+              <tr
+                className={"sheet-totals" + (totalsLoose ? " sheet-totals-loose" : "")}
+                ref={totalsRef}
+              >
                 {model.headers.map((_, c) => totalsCell(c))}
                 {ev.computed.map((_, c) => totalsCell(dataCols + c))}
                 <td className="sheet-spacer" />
