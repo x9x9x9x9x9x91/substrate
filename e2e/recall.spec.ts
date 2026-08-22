@@ -70,9 +70,10 @@ test("on: a past hit says where and when it lived, and collapses its versions", 
 
   const group = page.locator(".search-past .search-group", { hasText: "Masters/veilwork.md" });
   await expect(group).toHaveCount(1);
-  // the lifespan clause is the whole claim of a recall result
-  await expect(group.locator(".search-note-hint")).toContainText("March 2026");
-  await expect(group.locator(".search-note-hint")).toContainText("June 2026");
+  // the lifespan clause is the whole claim of a recall result, rendered in
+  // the date dial's default (de-DE) like every other date in the app
+  await expect(group.locator(".search-note-hint")).toContainText("März 2026");
+  await expect(group.locator(".search-note-hint")).toContainText("Juni 2026");
   // near-identical versions are one row plus an honest count of the rest
   await expect(group.locator(".search-past-more")).toHaveText("3 older versions collapsed");
   await expect(group.locator(".search-snippet mark")).toContainText("the low end");

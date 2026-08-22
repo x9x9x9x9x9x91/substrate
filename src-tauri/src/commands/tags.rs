@@ -1,21 +1,15 @@
 //! Tags and tag folders.
 //!
 //! Per-note tags are already on `NoteMeta` (computed at index time), so the
-//! frontend gets them free with every note it already loads. These commands
-//! cover what the index alone cannot answer: the vault-wide tag universe
-//! (autocomplete + the builder's chip picker), the tag folder definitions in
-//! `.vault/tagfolders.json`, and the acting-tags write.
+//! frontend gets them free with every note it already loads — including the
+//! vault-wide tag universe, which the frontend counts off the index it is
+//! already holding. These commands cover what the index alone cannot answer:
+//! the tag folder definitions in `.vault/tagfolders.json`, and the
+//! acting-tags write.
 
-use crate::vault::{NoteMeta, TagCount, TagFolder};
+use crate::vault::{NoteMeta, TagFolder};
 use crate::{AppState, SnapDirty};
 use tauri::State;
-
-/// Every tag in the vault with its note count, most-used first — the source
-/// for `#` autocomplete and the tag folder builder's chip picker.
-#[tauri::command]
-pub(crate) fn vault_tags(state: State<AppState>) -> Vec<TagCount> {
-    state.0.lock().unwrap().tag_universe()
-}
 
 #[tauri::command]
 pub(crate) fn vault_tag_folders_read(state: State<AppState>) -> Vec<TagFolder> {

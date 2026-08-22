@@ -1,4 +1,4 @@
-import { daysBetween, shiftDate } from "./dates.ts";
+import { daysBetween, daysInMonth, shiftDate } from "./dates.ts";
 import { byFoldedKey, propSchemaFor, typeSchemaFor } from "./schemalookup.ts";
 import type { NoteMeta, SchemaConfig } from "./types.ts";
 import { foldedPropKey, foldedPropStr, FUNCTIONAL_TYPES, propStr } from "./types.ts";
@@ -346,12 +346,8 @@ export function addDays(d: Date, n: number): Date {
 export function addMonths(d: Date, n: number): Date {
   const out = new Date(d.getFullYear(), d.getMonth() + n, 1);
   // keep the day of month where it exists (Jan 31 + 1mo → Feb 28)
-  out.setDate(Math.min(d.getDate(), daysInMonth(out.getFullYear(), out.getMonth())));
+  out.setDate(Math.min(d.getDate(), daysInMonth(out.getFullYear(), out.getMonth() + 1)));
   return out;
-}
-
-export function daysInMonth(year: number, month0: number): number {
-  return new Date(year, month0 + 1, 0).getDate();
 }
 
 export function sameDay(a: Date, b: Date): boolean {
@@ -373,7 +369,7 @@ export function startOfWeek(d: Date): Date {
 export function monthGridDays(year: number, month0: number): Date[] {
   const first = startOfWeek(new Date(year, month0, 1));
   const firstWeekday = (new Date(year, month0, 1).getDay() + 6) % 7; // Monday = 0
-  const weeks = Math.ceil((firstWeekday + daysInMonth(year, month0)) / 7);
+  const weeks = Math.ceil((firstWeekday + daysInMonth(year, month0 + 1)) / 7);
   return Array.from({ length: weeks * 7 }, (_, i) => addDays(first, i));
 }
 

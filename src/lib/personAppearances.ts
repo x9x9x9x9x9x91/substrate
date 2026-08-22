@@ -1,3 +1,11 @@
+/* Where a person turns up: the mentions rail on a person note, built by
+   matching that person's handles against the rest of the vault.
+
+   Named for the person rather than for "appearances" alone because
+   `appearance.ts` sits one letter away and means something else entirely —
+   the look of the app, glow and accent tone. Two files whose names differed
+   by an `s` were a standing invitation to import the wrong one. */
+
 import { entriesForNote } from "./calendar.ts";
 import { propValues } from "./query.ts";
 import type { FullSearchHit, NoteMeta, SchemaConfig } from "./types.ts";

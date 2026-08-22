@@ -2,6 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createDashUndoStore } from "../components/useDashUndo.ts";
 
+/* Named for its subject rather than for a squashed spelling of it: the suite
+   only scans a few roots and `src/components` is not one of them, so a test
+   for a file over there lives here and has to carry the name to say so. */
+
 test("board undo store publishes direction availability and stable empty snapshots (SUB-726)", () => {
   const store = createDashUndoStore();
   const empty = store.getSnapshot();

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   daysAgoIso,
   daysBetween,
+  daysInMonth,
   durationFrom,
   formatDateHuman,
   isIsoDate,
@@ -289,4 +290,16 @@ test("durationFrom: an operand past Date's range is no duration (SUB-1281)", () 
   assert.equal(durationFrom(`${"9".repeat(320)}d`, "2026-07-17"), null);
   // big-but-landable durations still resolve to a real day
   assert.match(durationFrom("365000d", "2026-07-17")!, /^\d{4}-\d{2}-\d{2}$/);
+});
+
+test("daysInMonth: months are 1-based, and it is the only copy", () => {
+  // the 1-based contract, guarded because the calendar hands it 0-based
+  // month numbers plus one and a silent off-by-one would shift whole grids
+  assert.equal(daysInMonth(2026, 1), 31, "January");
+  assert.equal(daysInMonth(2026, 12), 31, "December");
+  assert.equal(daysInMonth(2026, 2), 28);
+  assert.equal(daysInMonth(2024, 2), 29, "leap year");
+  assert.equal(daysInMonth(2000, 2), 29, "divisible by 400");
+  assert.equal(daysInMonth(1900, 2), 28, "divisible by 100 but not 400");
+  assert.equal(daysInMonth(2026, 4), 30);
 });

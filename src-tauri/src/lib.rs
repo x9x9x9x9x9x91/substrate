@@ -1601,7 +1601,6 @@ pub fn run() {
             vault_move,
             vault_sidebar_order,
             vault_set_sidebar_order,
-            vault_tags,
             vault_tag_folders_read,
             vault_tag_folders_write,
             vault_note_add_tags,

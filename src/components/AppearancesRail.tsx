@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FullSearchHit, NoteMeta, SchemaConfig } from "../lib/types";
-import { buildAppearances, hasHandlesKey, noteHandles } from "../lib/appearances";
+import { buildAppearances, hasHandlesKey, noteHandles } from "../lib/personAppearances";
 import { vaultSearchFull } from "../lib/ipc";
 import { formatDateHuman } from "../lib/dates";
 import { BacklinkIcon, ClockIcon, FileIcon } from "./Icons";

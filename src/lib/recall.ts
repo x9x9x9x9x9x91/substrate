@@ -5,12 +5,13 @@
    of a recall result ("lived in Masters/veilwork.md March–June 2026, deleted in
    77c0de1"), and a claim that specific deserves a test rather than a render. */
 
+import { dateLocale } from "./dateLocale.ts";
 import type { RecallGroup } from "./types";
 
 /** "4 Mar 2026" — a past version is a moment, so it is named by its day
     rather than by "3 days ago": the whole point of the row is WHEN. */
 export function dayLabel(ms: number): string {
-  return new Date(ms).toLocaleDateString(undefined, {
+  return new Date(ms).toLocaleDateString(dateLocale(), {
     day: "numeric",
     month: "short",
     year: "numeric",
@@ -22,7 +23,7 @@ export function dayLabel(ms: number): string {
     day of each version is already on the version rows underneath. */
 export function lifespan(g: RecallGroup): string {
   const month = (ms: number) =>
-    new Date(ms).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+    new Date(ms).toLocaleDateString(dateLocale(), { month: "long", year: "numeric" });
   const from = month(g.first_ts_ms);
   const to = month(g.last_ts_ms);
   const when = from === to ? from : `${from} – ${to}`;

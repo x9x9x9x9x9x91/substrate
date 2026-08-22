@@ -85,6 +85,9 @@ export function durationFrom(text: string, from: string): string | null {
   return toIso(t.getFullYear(), t.getMonth() + 1, t.getDate());
 }
 
+/** How long a month is, leap years included. `m` is 1-based (January = 1) —
+    the app's one answer to this question, so the calendar's 0-based month
+    numbers add one on the way in rather than keeping a second copy. */
 export function daysInMonth(y: number, m: number): number {
   return new Date(y, m, 0).getDate();
 }
