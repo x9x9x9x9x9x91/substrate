@@ -575,6 +575,16 @@ fn apply_hotkey(app: &tauri::AppHandle, name: &'static str, desired: &str, activ
     if desired == active {
         return;
     }
+    // A blank chord means "no chord", not a typo: unregister whatever was on
+    // and stay quiet. Without this the empty case takes the parse-failure arm
+    // below and toasts a rejection at someone who deliberately cleared the row.
+    if desired.trim().is_empty() {
+        if let Ok(old) = active.trim().parse::<Shortcut>() {
+            app.global_shortcut().unregister(old).ok();
+        }
+        active.clear();
+        return;
+    }
     match desired.trim().parse::<Shortcut>() {
         Ok(new) => match app.global_shortcut().register(new) {
             Ok(()) => {
