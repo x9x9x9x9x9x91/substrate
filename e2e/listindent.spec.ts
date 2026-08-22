@@ -72,3 +72,30 @@ test("a resting task hangs; its widget state and raw state both carry the pair",
   expect(Number(raw![1])).toBeGreaterThan(0);
   expect(raw![1]).not.toBe(resting![1]);
 });
+
+// The resting hang of a top-level task is nothing but the checkbox widget's
+// own advance — no indent, no trailing spaces — so the rendered line is a
+// direct read of the constant the decorator adds. Measuring the toggle in the
+// live browser and comparing the two turns a silent drift into a red gate:
+// change `.cm-task-toggle`'s width or margin and this fails naming both ends.
+test("the task widget's hang equals the toggle's measured advance", async ({ page }) => {
+  await bootWelcome(page);
+  await page.keyboard.insertText("- [ ] a task item\n\nprose to park the cursor on\n");
+  const task = page.locator(".cm-content .cm-line", { hasText: "a task item" }).first();
+  await page.locator(".cm-content").getByText("park the cursor").click();
+  const toggle = task.locator(".cm-task-toggle");
+  await expect(toggle).toBeVisible();
+
+  // border-box width plus the margin that separates it from the text — the
+  // pair the decorator's constant stands in for
+  const measured = await toggle.evaluate((el) => {
+    const style = getComputedStyle(el);
+    return el.getBoundingClientRect().width + parseFloat(style.marginRight);
+  });
+  const hang = Number(HANG_RE.exec((await task.getAttribute("style")) ?? "")?.[1]);
+
+  expect(
+    hang,
+    `the line hangs ${hang}px but the toggle measures ${measured}px — .cm-task-toggle's width/margin-right in styles.css and TASK_TOGGLE_ADVANCE in Editor.tsx have drifted apart`
+  ).toBeCloseTo(measured, 1);
+});
