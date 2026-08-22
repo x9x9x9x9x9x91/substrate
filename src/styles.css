@@ -9595,12 +9595,11 @@ body.agenda-window .palette:focus-visible {
   font-weight: 400;
 }
 
-/* Same accent ring for the inline draft title — the wrapper's
-   outline marks the pending row, this one marks where focus sits in it */
-.db-draft-input:focus-visible {
-  outline: 1.5px solid var(--accent);
-  outline-offset: 1px;
-}
+/* The draft input paints no ring of its own: the wrapper's accent
+   outline (.db-draft / the draft cell below) is the focus indicator —
+   the input is autofocused for the draft's whole life and blur commits
+   it, so wrapper-visible ⇔ input-focused. A second ring on the input
+   read as a frame inside a frame. */
 
 tr.db-draft-tr td.db-title {
   padding: 7px 10px;
@@ -14582,6 +14581,18 @@ span.asset-thumb svg {
   display: grid;
 }
 
+/* the app's scrollbars are classic (styled ::-webkit-scrollbar), so a bar
+   takes 10px of layout. The canvas scroller always carries one; the header
+   and strip usually don't — and their 1fr columns then sit a scrollbar's
+   worth wide of the canvas columns below. All three rows run overflow-y:
+   scroll so each always owns the same 10px lane (the track is invisible —
+   only the thumb is painted). Not scrollbar-gutter: WebKit computes it but
+   reserves nothing next to legacy custom scrollbars, and WKWebView is the
+   engine the app ships in. */
+.cal-weekdays.week {
+  overflow-y: scroll;
+}
+
 /* the all-day strip: sizes to its tallest cell's cards, capped so a loaded
    week never squeezes the canvas out; scrolls internally past the cap */
 .cal-grid.week {
@@ -14589,7 +14600,7 @@ span.asset-thumb svg {
   grid-auto-rows: max-content;
   align-content: start;
   max-height: 34%;
-  overflow-y: auto;
+  overflow-y: scroll;
   border-bottom: 1px solid var(--border-soft);
 }
 
@@ -14602,7 +14613,7 @@ span.asset-thumb svg {
 .cal-wk-scroll {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
+  overflow-y: scroll;
 }
 
 .cal-wk-canvas {
@@ -14652,11 +14663,10 @@ span.asset-thumb svg {
   background: var(--hover);
 }
 
-/* the focused day's canvas half wears the strip cell's ring, so
-   keyboard focus reads as one column across both surfaces */
-.cal-wk-col.focused {
-  box-shadow: inset 0 0 0 1.5px var(--border-strong);
-}
+/* the focused day's canvas half paints nothing — you know where you
+   clicked, and the strip cell's top mark already names the day; the inset
+   ring the column used to wear repeated it at full volume. Keyboard focus
+   keeps the accent ring via :focus-visible below. */
 
 /* The column is the week's tab stop and holds real DOM focus, so
    keyboard focus draws the app's accent ring — same treatment every other
@@ -14878,10 +14888,11 @@ span.asset-thumb svg {
   opacity: 0.55;
 }
 
+/* the focused day marks itself at its top edge and no louder — you know
+   where you clicked; the full ring it used to wear shouted it */
 .cal-day.focused {
   background: var(--hover);
-  box-shadow: inset 0 0 0 1.5px var(--border-strong);
-  border-radius: 2px;
+  box-shadow: inset 0 2px 0 var(--border-strong);
 }
 
 /* drag hover on a cell: the hover wash plus one accent hairline, so the
