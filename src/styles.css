@@ -10189,7 +10189,10 @@ tr.db-draft-tr,
 .sheet-table th {
   position: sticky;
   top: 0;
-  z-index: 1;
+  /* above the totals row's cells, which are sticky at the same depth: on a tie
+     the later row in the table wins, and the totals would print through the
+     column names whenever a short scrollport made the two bands meet */
+  z-index: 2;
   background: var(--bg-panel);
   text-align: left;
   font-size: 12px;

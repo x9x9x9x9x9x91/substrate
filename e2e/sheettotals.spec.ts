@@ -274,3 +274,51 @@ test("shift+arrow extends the selection; a text range reports count only", async
   await page.keyboard.press("Escape");
   await expect(page.locator(".sheet-selstat")).toHaveCount(0);
 });
+
+test("the column names stay legible where a short pane makes the totals row meet them", async ({
+  page,
+}) => {
+  // a pane short enough that the last rows, the totals row and the column
+  // names all want the same band — the case the overprint was reported from
+  await page.setViewportSize({ width: 1100, height: 420 });
+  await openFixedCosts(page);
+  await page.locator(".sheet-scroll").evaluate((el) => {
+    el.scrollTop = el.scrollHeight;
+  });
+  await page.waitForTimeout(120);
+
+  // a totals row tall enough to reach the column names has always outgrown a
+  // third of the scrollport, so the band this test stages is a LOOSE row —
+  // the pinned row and the header are geometrically unable to meet while
+  // that cap is live. A loose row can end up under the header by painting
+  // order alone, so the hit-test can stay green with the header's own layer
+  // reverted; the layer order is asserted directly instead, which is the
+  // thing this fix changes and the thing a regression would take back.
+  await expect(page.locator(".sheet-totals")).toHaveClass(/sheet-totals-loose/);
+
+  const verdict = await page.evaluate(() => {
+    const head = document.querySelector(".sheet-table th") as HTMLElement | null;
+    const cell = document.querySelector(".sheet-totals td:nth-child(2)") as HTMLElement | null;
+    if (!head || !cell) return "missing";
+    const headZ = Number.parseInt(getComputedStyle(head).zIndex, 10);
+    if (!Number.isFinite(headZ)) return "header-unlayered";
+    // the layer the header must beat is the PINNED rule's — a loose cell
+    // computes `auto` and loses to any positive header layer regardless, so
+    // the row's class is lifted for one read to measure the pinned rule
+    const row = cell.closest("tr") as HTMLElement;
+    row.classList.remove("sheet-totals-loose");
+    const pinnedZ = Number.parseInt(getComputedStyle(cell).zIndex, 10);
+    row.classList.add("sheet-totals-loose");
+    if (Number.isFinite(pinnedZ) && headZ <= pinnedZ) return "header-under-totals";
+    const h = head.getBoundingClientRect();
+    const t = cell.getBoundingClientRect();
+    const from = Math.max(h.top, t.top);
+    const to = Math.min(h.bottom, t.bottom);
+    // the hit-test is only worth anything if the two really do meet here
+    if (to - from < 4) return "no-overlap";
+    const hit = document.elementFromPoint(h.left + h.width / 2, (from + to) / 2);
+    return hit?.closest("thead") ? "header" : "totals";
+  });
+
+  expect(verdict).toBe("header");
+});
