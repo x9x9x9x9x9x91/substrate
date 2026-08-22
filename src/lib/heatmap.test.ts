@@ -152,6 +152,17 @@ test("CRLF fences parse", () => {
   assert.equal(blocks[0].config?.date, "d");
 });
 
+test("an opener with a stray trailing space still parses", () => {
+  // the likeliest hand-typo of an opener; the year grid simply never drew.
+  for (const open of ["```heatmap ", "```HeatMap\t"]) {
+    const blocks = parseHeatmapBlocks(open + "\nsource: s\ndate: d\nvalue: count\n```");
+    assert.equal(blocks.length, 1, open);
+    assert.equal(blocks[0].error, null, open);
+  }
+  // still bare-form: a real second word is prose
+  assert.equal(parseHeatmapBlocks("```heatmap year\nsource: s\ndate: d\nvalue: count\n```").length, 0);
+});
+
 test("a mixed-case opener parses, like the hub's dispatcher (SUB-1129)", () => {
   const blocks = parseHeatmapBlocks("```HeatMap\nsource: session\ndate: logged\nvalue: count\n```");
   assert.equal(blocks.length, 1);

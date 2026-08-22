@@ -21,7 +21,12 @@ const RUST_END = "(?:```|\\z)";
 
 /** A machine-fence pattern in the current grammar, for the given lang groups. */
 const pattern = (tailed: string, bare: string, end: string) =>
-  "```(?:(?:" + tailed + ")(?:[ \\t][^`\\n]*)?|" + bare + ")\\r?\\n[\\s\\S]*?" + end;
+  "```(?:(?:" +
+  tailed +
+  ")(?:[ \\t][^`\\n]*)?|(?:" +
+  bare +
+  ")[ \\t]*)\\r?\\n[\\s\\S]*?" +
+  end;
 
 const inv = (tailed: string, bare: string, end = JS_END): FenceInventory =>
   parseFencePattern(pattern(tailed, bare, end), "test");
@@ -285,14 +290,14 @@ const ONE_SIDED_EDITS: { name: string; from: string; to: string; expect: RegExp 
   },
   {
     name: "a language moved from the tailed group to the bare one",
-    from: "|[Cc][Aa][Rr][Dd][Ss])(?:[ \\t][^`\\n]*)?|csv",
-    to: ")(?:[ \\t][^`\\n]*)?|[Cc][Aa][Rr][Dd][Ss]|csv",
+    from: "|[Cc][Aa][Rr][Dd][Ss])(?:[ \\t][^`\\n]*)?|(?:csv",
+    to: ")(?:[ \\t][^`\\n]*)?|(?:[Cc][Aa][Rr][Dd][Ss]|csv",
     expect: /tailed: src\/lib\/fences\.ts has "cards"/,
   },
   {
     name: "a case fold added to a bare-form language",
-    from: "|csv|",
-    to: "|[Cc][Ss][Vv]|",
+    from: "csv|formulas",
+    to: "[Cc][Ss][Vv]|formulas",
     expect: /bare: "csv" is spelled differently/,
   },
   {
@@ -308,6 +313,15 @@ const ONE_SIDED_EDITS: { name: string; from: string; to: string; expect: RegExp 
     expect: /not the same LIST/,
   },
   { name: "the CRLF opener dropped (SUB-913)", from: ")\\r?\\n", to: ")\\n", expect: "throws" },
+  {
+    // a bare-form opener typed with a stray space renders the live board, so
+    // one side dropping the allowance means that board's config lands back in
+    // the search index while the other side strips it
+    name: "the bare group's trailing-whitespace allowance dropped",
+    from: ")[ \\t]*)\\r?\\n",
+    to: "))\\r?\\n",
+    expect: "throws",
+  },
   {
     name: "the backtick guard dropped from the tail (SUB-983)",
     from: "[ \\t][^`\\n]*",

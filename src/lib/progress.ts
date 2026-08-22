@@ -202,9 +202,13 @@ export function progressLabel(config: ProgressConfig): string {
   return raw.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
 }
 
-/** All ```progress fences in a note body, in order. Never throws. */
+/** All ```progress fences in a note body, in order. Never throws.
+
+    A trailing space on the opener (```progress␠) opens the fence like the
+    bare form — the commonest hand-typed slip, and refusing it drew a board of
+    zero goals over a note that plainly holds one. */
 export function parseProgressBlocks(body: string): ProgressBlock[] {
-  const re = /```progress\r?\n([\s\S]*?)```/g;
+  const re = /```progress[ \t]*\r?\n([\s\S]*?)```/g;
   const out: ProgressBlock[] = [];
   let m;
   while ((m = re.exec(body)) !== null) {

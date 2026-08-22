@@ -91,9 +91,13 @@ export function parseCalendarConfig(inner: string): CalendarConfig {
   return { source, date, label, query };
 }
 
-/** All ```calendar fences in a note body, in order. Never throws. */
+/** All ```calendar fences in a note body, in order. Never throws.
+
+    A trailing space on the opener (```calendar␠) opens the fence like the
+    bare form — the commonest hand-typed slip, and refusing it drew a board of
+    zero calendars over a note that plainly holds one. */
 export function parseCalendarBlocks(body: string): CalendarBlock[] {
-  const re = /```calendar\r?\n([\s\S]*?)```/g;
+  const re = /```calendar[ \t]*\r?\n([\s\S]*?)```/g;
   const out: CalendarBlock[] = [];
   let m: RegExpExecArray | null;
   while ((m = re.exec(body)) !== null) {

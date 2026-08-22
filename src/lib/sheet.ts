@@ -89,14 +89,18 @@ export interface Fence {
 // The closing ``` must sit on its own line — at the start of a line or at the
 // very end of the body — and outside a quoted cell: a ``` inside a quoted CSV
 // cell is data, not the end of the fence. CRLF is tolerated after the opening
-// fence. Quotes follow CSV rules ("" is an escaped quote); formula strings
-// can't span lines, so quote state resets per line outside the csv fence.
+// fence, as is trailing horizontal whitespace on the opener line (```csv␠ is
+// the bare opener with a stray space in it, and reading it as prose left the
+// sheet empty with nothing said about why). Quotes follow CSV rules ("" is an
+// escaped quote); formula strings can't span lines, so quote state resets per
+// line outside the csv fence.
 export function findFence(body: string, lang: string): Fence | null {
   const open = "```" + lang;
   const multiline = lang === "csv";
   let from = body.indexOf(open);
   while (from >= 0) {
     let innerStart = from + open.length;
+    while (body[innerStart] === " " || body[innerStart] === "\t") innerStart++;
     if (body.startsWith("\r\n", innerStart)) innerStart += 2;
     else if (body[innerStart] === "\n") innerStart += 1;
     else {

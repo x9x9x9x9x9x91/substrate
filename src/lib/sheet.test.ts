@@ -988,6 +988,26 @@ test("CRLF body: the fence is found and a cell write round-trips (SUB-218)", () 
   );
 });
 
+test("an opener with a stray trailing space is found, and a write normalizes it", () => {
+  // the likeliest hand-typo of an opener: the sheet was closed and complete,
+  // and the pane showed nothing at all.
+  const body = "```csv \nname,note\na,x\n```\n\n```formulas\t\ntotal = COUNT(name)\n```\n";
+  const m = parseSheet(body);
+  assert.equal(m.hasCsv, true, "fence found despite the stray space");
+  assert.deepEqual(m.headers, ["name", "note"]);
+  assert.deepEqual(
+    m.formulas.map((f) => f.name),
+    ["total"]
+  );
+  // writing back rewrites the opener to its canonical spelling, so the typo
+  // survives exactly until the next edit
+  const next = setSheetCell(body, 0, 1, "z");
+  assert.ok(next.startsWith("```csv\n"), "opener normalized on write");
+  assert.deepEqual(parseSheet(next).rows, [["a", "z"]]);
+  // a real second word is still a plain code box
+  assert.equal(parseSheet("```csv raw\nname\na\n```\n").hasCsv, false);
+});
+
 test("classification: forward references resolve against the whole fence (SUB-218)", () => {
   // a row mixing a summary with a LATER computed row stays a data row
   const m = parseSheet(

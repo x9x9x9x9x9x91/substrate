@@ -261,6 +261,27 @@ test("every declared fence language behaves like its group (generated)", () => {
   }
 });
 
+test("stripMachineFences: a bare-form opener typed with a stray space still strips", () => {
+  // ```calendar␠ names no second word — it is the bare opener with a stray
+  // space, the likeliest way to mistype one by hand, and every bare-form
+  // parser reads it as the opener and draws the live board. A drawn board
+  // whose config sits in the search index is the leak this strip exists to
+  // close. Lockstep twin: machine_fence_strip_accepts_stray_opener_space in
+  // src-tauri/src/vault/mod.rs asserts this same corpus.
+  for (const lang of BARE_MACHINE_FENCE_LANGS) {
+    for (const pad of [" ", "\t", "  "]) {
+      const body = "a\n```" + lang + pad + "\nsecret: 1\n```\nb";
+      assert.equal(stripMachineFences(body), "a\n\n\n\nb", lang + " with padding strips");
+    }
+  }
+  // …and the same opener on a CRLF body, where the padding sits before the CR
+  const crlf = "a\r\n```calendar \r\nsecret: 1\r\n```\r\nb";
+  assert.ok(!stripMachineFences(crlf).includes("secret"), "stray space before CRLF strips");
+  // a real second word is still prose, padded or not
+  const prose = "a\n```calendar month \nsecret: 1\n```\nb";
+  assert.equal(stripMachineFences(prose), prose, "a tailed bare-form opener stays prose");
+});
+
 test("stripMachineFences handles CRLF fences (SUB-913)", () => {
   const body = "prose\r\n```view\r\ntype: release\r\n```\r\ntail";
   const out = stripMachineFences(body);
@@ -280,6 +301,12 @@ test("isTailedBareFence marks exactly the tailed bare-form openers (SUB-965)", (
     ["csv", "raw"],
     ["formulas", "x"],
     ["CALENDAR", "month"],
+    // whitespace no parser skips: only [ \t] is the bare-opener allowance, so
+    // a non-breaking space stays prose on every surface rather than mounting a
+    // live board whose config no stripper reaches
+    ["calendar", "\u00a0"],
+    ["csv", " \u00a0"],
+    ["formulas", "\u3000"],
   ] as const) {
     assert.equal(isTailedBareFence(lang, tail), true, `${lang} ${tail} is prose`);
   }
@@ -290,6 +317,9 @@ test("isTailedBareFence marks exactly the tailed bare-form openers (SUB-965)", (
     ["csv", ""],
     ["formulas", ""],
     ["calendar", "\r"], // a CRLF body's opener line, not a tail
+    ["calendar", " "], // a stray space is not a second word
+    ["csv", " \t"],
+    ["formulas", " \r"],
     ["view", "table"],
     ["chart", "compact"],
     ["cards", "two-up"],

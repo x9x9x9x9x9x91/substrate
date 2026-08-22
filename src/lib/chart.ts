@@ -312,9 +312,14 @@ export function parseChartConfig(inner: string): ChartConfig {
   };
 }
 
-/** All ```chart fences in a note body, in order. Never throws. */
+/** All ```chart fences in a note body, in order. Never throws.
+
+    A trailing space on the opener (```chart␠) opens the fence like the bare
+    form: it is the commonest hand-typed slip, and refusing it drew a board of
+    zero charts over a note that plainly holds one. Anything else after the
+    lang is still a tail this parser does not read. */
 export function parseChartBlocks(body: string): ChartBlock[] {
-  const re = /```chart\r?\n([\s\S]*?)```/g;
+  const re = /```chart[ \t]*\r?\n([\s\S]*?)```/g;
   const out: ChartBlock[] = [];
   let m;
   while ((m = re.exec(body)) !== null) {

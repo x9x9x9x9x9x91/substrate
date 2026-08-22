@@ -41,6 +41,13 @@ impl Grid {
 /// closing-shaped ``` is taken anyway, so a malformed sheet still yields the
 /// rows above the damage instead of nothing.
 ///
+/// Trailing horizontal whitespace on the opener line is skipped, exactly as
+/// the TS twin skips it: ```csv␠ names no second word, it is the bare opener
+/// typed with a stray space, and the sheet pane reads it as one. Without the
+/// same allowance here the grid the app shows would be a grid the scheduler
+/// cannot see, and its date cells would never notify. A real second word
+/// (```csv raw) is still prose on both sides.
+///
 /// Scanning bytes is safe here: every sentinel is ASCII, and no byte of a
 /// multi-byte UTF-8 sequence can equal an ASCII byte.
 pub fn find_fence<'a>(body: &'a str, lang: &str) -> Option<&'a str> {
@@ -50,6 +57,9 @@ pub fn find_fence<'a>(body: &'a str, lang: &str) -> Option<&'a str> {
     let mut from = body.find(&open)?;
     loop {
         let mut inner_start = from + open.len();
+        while matches!(bytes.get(inner_start), Some(&b' ') | Some(&b'\t')) {
+            inner_start += 1;
+        }
         if body[inner_start..].starts_with("\r\n") {
             inner_start += 2;
         } else if bytes.get(inner_start) == Some(&b'\n') {
@@ -235,6 +245,24 @@ mod tests {
     fn csv_fence_named_in_prose_is_not_an_opener() {
         let g = grid("write ```csv inline, then:\n\n```csv\na,b\n1,2\n```\n");
         assert_eq!(g.headers, ["a", "b"]);
+    }
+
+    #[test]
+    fn opener_with_a_stray_trailing_space_is_still_the_opener() {
+        // Lockstep twin of "an opener with a stray trailing space is found,
+        // and a write normalizes it" in src/lib/sheet.test.ts - same corpus.
+        // The sheet pane renders this grid; a scheduler that could not find
+        // it would leave every date cell in it unnotified.
+        let g = grid("```csv \nname,note\na,x\n```\n");
+        assert_eq!(g.headers, ["name", "note"]);
+        assert_eq!(g.rows, [["a", "x"]]);
+        // a tab, and a CRLF opener carrying one, read the same way
+        assert_eq!(grid("```csv\t\nname,note\na,x\n```\n").rows, [["a", "x"]]);
+        assert_eq!(grid("```csv \r\nname,note\r\na,x\r\n```\r\n").rows, [["a", "x"]]);
+        // a real second word is still prose, so the next real opener wins
+        let g = grid("```csv raw\nnope\n```\n\n```csv\nname\na\n```\n");
+        assert_eq!(g.headers, ["name"]);
+        assert!(sheet_grid("```csv raw\nname,note\na,x\n```\n").is_none());
     }
 
     #[test]
