@@ -20,7 +20,7 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src", "scripts"],
+  "include": ["src", "scripts", "docs/kind-api.d.ts"],
   "exclude": ["scripts/ux-audit/shots"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

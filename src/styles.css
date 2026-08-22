@@ -10364,6 +10364,20 @@ th.sheet-computed:hover {
   vertical-align: top;
 }
 
+/* A totals row taller than a third of the scrollport keeps its cells' looks
+   and loses the pin — pinned, it would cover the rows it summarizes rather
+   than accompany them. SheetGrid measures and sets the class. */
+/* relative, not static: the summary editor draws absolutely inside its cell
+   and needs the cell to stay its containing block. */
+.sheet-totals-loose td {
+  position: relative;
+  bottom: auto;
+  /* auto, not the pinned rule's 1: a loose row scrolls under the sticky
+     header like any data row — keeping the raised level would paint it over
+     the header it scrolls past */
+  z-index: auto;
+}
+
 .sheet-totals-cell {
   padding: 0;
   position: relative;
@@ -16097,6 +16111,49 @@ body.col-resizing * {
   border: 1px solid var(--border-strong);
   border-radius: 8px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+}
+
+/* an entry the menu keeps but cannot run yet: the row's own metrics, dimmed,
+   with the unmet precondition under the label in the kind hint's voice. Inert
+   by construction — a div, so there is nothing to click and no hover lift */
+.colmenu-off {
+  align-items: flex-start;
+  max-width: 260px;
+  color: var(--text-3);
+  cursor: default;
+}
+
+/* the row shares the live rows' class for their metrics, so it also inherits
+   their hover lift — hold it back, or the one row that cannot be clicked
+   would be the one that lights up most convincingly */
+.dots-item.colmenu-off:hover {
+  background: transparent;
+  color: var(--text-3);
+}
+
+.colmenu-off svg {
+  margin-top: 1px;
+  opacity: 0.6;
+}
+
+.colmenu-off-text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+  /* the label and the reason both quote database names the reader chose,
+     which are routinely one unbroken word */
+  overflow-wrap: anywhere;
+}
+
+.colmenu-off .dots-label {
+  white-space: normal;
+}
+
+.colmenu-why {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-3);
 }
 
 .db-th-add {

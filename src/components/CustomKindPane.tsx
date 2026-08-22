@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { NoteMeta, PropValue, SchemaConfig } from "../lib/types";
+import type { NoteContent, NoteMeta, PropValue, SchemaConfig, SetPropResult } from "../lib/types";
 import {
   vaultCreate,
   vaultList,
@@ -109,8 +109,13 @@ export interface CustomKindPaneProps {
 /** The class names a kind may render through — the app's voice, so a kind
     follows the theme without shipping a stylesheet. Identity mapping today;
     the indirection is the point, because it lets the app rename a class
-    without breaking every installed kind. */
-const KIND_CSS: Record<string, string> = Object.freeze({
+    without breaking every installed kind.
+
+    Deliberately un-annotated: `Record<string, string>` would widen the keys to
+    `string` and the published roster in `docs/kind-api.d.ts` could then gain or
+    lose a class with nothing to notice. Inferred, `keyof typeof KIND_CSS` is
+    the roster itself, and the assertion below pins the two together. */
+const KIND_CSS = Object.freeze({
   "dash-metrics": "dash-metrics",
   "dash-metric": "dash-metric",
   "dash-metric-sub": "dash-metric-sub",
@@ -585,7 +590,11 @@ async function importKindModule(id: string, entry: string, hash: string): Promis
     boundary — a kind that wants raw IPC has it; the point is that the easy
     path is the safe one. */
 function makeCtx(
-  el: Element,
+  /* `HTMLElement`, not `Element`: it IS the element `mount` gets (`drawn`
+     above), and publishing the wider type would have `ctx.el.style` fail to
+     type-check where `el.style` passes — one element, two answers, in the
+     file that exists to stop exactly that. */
+  el: HTMLElement,
   id: string,
   subs: Set<() => void>,
   note: { current: { path: string; title: string; props: Record<string, unknown>; body: string } },
@@ -673,3 +682,58 @@ function makeCtx(
     kindId: id,
   };
 }
+
+// ---------- the published contract, pinned ----------
+
+/* `docs/kind-api.d.ts` is what a kind author codes against, and a copy of a
+   contract is only worth anything if it cannot quietly stop being true. These
+   are that guarantee, spent at compile time: `tsc --noEmit` is a branch gate,
+   the .d.ts is inside `include`, so a ctx member added, renamed, dropped or
+   reshaped here reddens the build until the published file says so too. They
+   cost nothing at runtime — nothing below emits.
+
+   `Equal` is the usual mutual-assignability trick: two identical conditional
+   types are only assignable to each other when their branches are, which is
+   strict enough to catch a widened key or a lost `| null`. */
+type Equal<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
+type Expect<T extends true> = T;
+
+type Ctx = ReturnType<typeof makeCtx>;
+/* Derived from ctx rather than imported from `../lib/sheet`, so the rows
+   below pin what a kind is actually handed, not a sibling type that happens
+   to agree today. */
+type SheetOut = Awaited<ReturnType<Ctx["sheet"]>>;
+
+export type KindContractPinned = [
+  /* Same members, both directions. `kindId` is excluded because it is the one
+     thing on ctx the contract does not promise (see above). */
+  Expect<Equal<Exclude<keyof Ctx, "kindId">, keyof SubstrateKindCtx>>,
+  /* Same shapes: every signature and return type still satisfies the published
+     one. Membership alone would let `sheet()` change what it resolves to. */
+  Expect<Ctx extends SubstrateKindCtx ? true : false>,
+  /* The structures ctx hands back, and the two closed rosters. Both
+     directions on each: `Ctx extends SubstrateKindCtx` above catches a member
+     dropped or reshaped inside one of these, but not one ADDED, and a
+     published structure quietly missing a member is the same rot as a
+     published member with the wrong shape. */
+  Expect<Equal<NoteMeta, SubstrateNoteMeta>>,
+  Expect<Equal<PropValue, SubstratePropValue>>,
+  Expect<Equal<NoteContent, SubstrateNoteContent>>,
+  Expect<Equal<SetPropResult, SubstrateSetPropResult>>,
+  /* The sheet pair is the one deliberate subset: what `ctx.sheet` resolves to
+     is the app's own parsed and evaluated sheet, and a kind has no contract
+     to the formula lines, their parse errors, the ragged-row record, the
+     `hasCsv` flag or the collision map. So the omissions are NAMED instead of
+     ignored — a member added app-side falls outside these `Omit`s and reddens
+     the build until it is either published in the .d.ts or added here on
+     purpose. The .d.ts says the same thing in prose on `SubstrateSheet`, so
+     an author who logs the object and sees more knows why. */
+  Expect<Equal<keyof SheetOut, keyof SubstrateSheet>>,
+  Expect<
+    Equal<Omit<SheetOut["model"], "formulas" | "errors" | "ragged" | "hasCsv">, SubstrateSheetModel>
+  >,
+  Expect<Equal<Omit<SheetOut["ev"], "collisions">, SubstrateSheetEval>>,
+  Expect<Equal<(typeof ACCENT_NAMES)[number], SubstrateAccentName>>,
+  Expect<Equal<keyof typeof KIND_CSS, SubstrateKindClass>>,
+];

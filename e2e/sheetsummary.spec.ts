@@ -6,11 +6,11 @@ import { expect, test, type Page } from "@playwright/test";
 // sheets holding no currency at all. These specs drive the three fixes through
 // the real grid: blank-line groups, one rollup chip, a conditional stamp.
 
-// The totals row absorbs every summary that describes one column, so
-// the summary bar under this sheet only ever holds the leftovers — the second
-// group here is deliberately made of summaries no column can claim (over other
-// summaries, over two columns, a bare constant), which is what keeps the
-// blank-line grouping visible at all.
+// The totals row absorbs the summaries that describe one column — three per
+// column, past which a cell would grow tall enough to cover the data rows — so
+// the summary bar under this sheet holds the leftovers: the second group here
+// is deliberately made of summaries no column can claim (over other summaries,
+// over two columns, a bare constant), plus net_eur's overflow past the third.
 const FINANCE = `---
 type: sheet
 title: Holdings
@@ -127,13 +127,16 @@ test("the first group is the headline; the rest sit behind one toggle", async ({
   await expect(page.locator(".sheet-sum-rest")).toHaveCount(0);
 
   const more = page.locator(".sheet-sum-more");
-  await expect(more).toHaveText("show all (3)");
+  // seven, not three: net_eur carries seven single-column summaries and the
+  // totals cell takes three, so the four it turns away land here beside the
+  // ones no column could claim
+  await expect(more).toHaveText("show all (7)");
   const controlledId = await more.getAttribute("aria-controls");
   expect(controlledId).toBeTruthy();
   await expect(more).toHaveAttribute("aria-expanded", "false");
   await more.click();
   const details = page.locator(`[id="${controlledId}"]`);
-  await expect(details.locator(".sheet-sum")).toHaveCount(3);
+  await expect(details.locator(".sheet-sum")).toHaveCount(7);
   await expect(details).toContainText("vat_rate");
   await expect(more).toHaveAttribute("aria-expanded", "true");
   await expect(more).toHaveText("hide");

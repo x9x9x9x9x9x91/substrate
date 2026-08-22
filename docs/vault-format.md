@@ -2474,6 +2474,23 @@ or `ctx.toast`.
 | `ctx.toast(msg, action?)` | `⇒ void` | The app's single toast slot; the optional action is a `{ label, run }` button. |
 | `ctx.setState(s \| null)` | `⇒ void` | Feed the head's state dot — `{ color, label }` shows it, `null` keeps it quiet. `color` is any CSS color, painted as the dot's background; omit it for a label with no dot. |
 
+**The table above is also a file.** [`kind-api.d.ts`](kind-api.d.ts) declares
+this contract — `mount`, every ctx member, and every structure ctx hands back.
+Dropped next to a bundle's `index.js` it types a plain `.js` file in any editor
+with TypeScript, with no import, no config and nothing added to the bundle at
+runtime. It is not a second source of truth: the app asserts its own ctx
+against those declarations at compile time, so the two cannot drift apart
+without the build saying so.
+
+**There is one screen palette and it is dark.** No runtime theme switch
+exists, so a kind needs no light variant and gets nothing from a
+`prefers-color-scheme` block — the app's own colours never answer it. Colour
+belongs to the app: render through `ctx.css`, take anything else from the
+tokens (`var(--text-2)`, `var(--border)`, `var(--bg-panel)`), and name mood
+through `ctx.accents`. The one ground that does invert is paper — a printed
+board remaps those same tokens to ink on white — so a hard-coded light-on-dark
+hex is legible on screen and gone on the page.
+
 **What each roster class goes on.** The names in `ctx.css` are a vocabulary
 of objects, not a layout system: most of them expect a particular element, and
 several are styled only in a particular nesting. What the app's own boards do

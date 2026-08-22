@@ -1245,9 +1245,13 @@ callback, is yours to stop — and, the other way round, a timer the app arms
 because your mount dispatched a `window` event it listens for is taken away
 with your pane, so reach the app through `ctx` rather than through the
 document. Two things it enforces rather than trusts — write
-outside `el` and the app undoes it and shows a card instead of your kind, and
-a `mount` promise that neither settles nor draws for five seconds becomes a
-card naming the stall rather than a pane that stays blank. `el` stays the same element across redraws while your `innerHTML`
+outside `el` and the app repairs the structure (nodes you added out there are
+removed, nodes you removed are put back), stops the kind and shows a card
+instead of your pane, and a `mount` promise that neither settles nor draws for
+five seconds becomes a card naming the stall rather than a pane that stays
+blank. Read that first one as a backstop, not a licence: it restores the shape
+of the document, not an attribute, text node or inline style you overwrote in
+place, and nothing at all that wasn't the DOM. `el` stays the same element across redraws while your `innerHTML`
 replaces its children, so wire clicks as one delegated listener on `el`, not
 on children that vanish with the next draw. `ctx.setState({ color, label })`
 lights the dot in the header — `color` is any CSS color; `null` keeps it
@@ -1264,6 +1268,21 @@ for the one underneath, so a delegated handler just stops firing for that
 element with nothing in the UI to say why. If you place by coordinate, make
 collisions impossible — stack into sub-rows, nudge, or fall back to flow —
 rather than trusting the data to stay sparse.
+
+**The app is dark, and there is no light theme to design for.** There is one
+screen palette, the dark one; nothing at runtime switches it, so a kind does
+not need a light variant, a toggle, or a `prefers-color-scheme` block — that
+last one is not "unsupported" so much as inert, since the app's own colours
+never answer it. What you do need is to take your colours from the app rather
+than from your own hexes: render through `ctx.css` and, for your bundle's own
+stylesheet, `var(--text-2)`, `var(--border)`, `var(--bg-panel)` and the rest of
+the tokens. Two payoffs. Your board keeps matching the app when a token moves,
+instead of being the one pane that stayed the old grey. And it is the only way
+a kind survives the one ground that genuinely does invert: a printed board
+renders on paper, where those same tokens remap to ink on white. A hard-coded
+`#e8e8ea` is legible on screen and invisible on the page. For colour with
+meaning use `ctx.accents` — put a name from that roster on `data-accent` and
+the app resolves the hue for both grounds.
 
 Beyond `notes()` (whose optional argument is a plain predicate:
 `ctx.notes((n) => n.props.type === "gear")`), ctx gives you `read(path)`,
@@ -1284,6 +1303,27 @@ to, so coerce before you compare. `Number(n.props.bpm) > 128`, not
 `n.props.bpm > 128` — the second one silently does a string comparison the day
 a note writes its tempo in quotes, and draws a wrong board rather than an
 error.
+
+**You can have the whole contract as types.**
+[`kind-api.d.ts`](kind-api.d.ts) declares `mount`, every ctx member and
+everything ctx hands back. Copy it next to your `index.js` — the declarations
+are global, so an editor with TypeScript picks it up for a plain `.js` file
+with no import and no config — and annotate the export:
+
+```js
+/** @type {SubstrateKind} */
+export default {
+  mount(el, ctx) { /* ctx.sheet(…), ctx.css[…], … all complete now */ },
+};
+```
+
+Nothing about it is a dependency: it never runs, the app never reads it, and a
+bundle that ships without it behaves identically. What it buys is the class of
+mistake this page can only warn about — `sheet.rows` for `ev.rows`, a class
+name off the roster, a write missing its guard — caught while you type instead
+of on a blank pane. It cannot go stale, either: the app asserts against these
+declarations in its own typecheck, so a ctx member that changed shape fails
+the build until the published file agrees.
 
 **A second pass, using more of the roster.** The thirteen names in `ctx.css`
 are a vocabulary of objects, not a layout system, and most of them want a
