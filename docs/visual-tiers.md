@@ -37,8 +37,14 @@ is only to answer "did this change?", never "is this right?".
   clean checkout of the branch:
 
   ```
-  npm run e2e -- visualbaselines --update-snapshots
+  npm run e2e -- visualbaselines --update-snapshots=all
   ```
+
+  `=all` rather than a bare flag: bare means "changed", which rewrites only the
+  baselines that failed, and a repaint smaller than `maxDiffPixelRatio` passes.
+  Absorbing a change deliberately has to include the changes the comparison was
+  built to forgive, or the run goes green while the PNG keeps asserting colors
+  the app no longer paints.
 
   Then re-run it *without* `--update-snapshots` before you commit: recorded is
   not the same as reproducible, and a baseline that only holds on the run that
