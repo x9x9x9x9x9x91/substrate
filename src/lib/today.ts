@@ -48,6 +48,19 @@ export function pickedDay(n: NoteMeta): string | null {
   return splitDayTime(raw)?.day ?? null;
 }
 
+/** The mark naming the day's ONE headline. Deliberately not date-shaped:
+    an ISO value on an undeclared prop lands on the calendar (the pick's own
+    free visibility), and a headline is not a second appointment. It means
+    something only while the note is picked for today — a mark left on a note
+    that fell off the day is inert until the note is picked again. */
+export const FOCUS_PROP = "focus";
+
+/** Does this note carry the headline mark? */
+export function isFocused(n: NoteMeta): boolean {
+  const raw = foldedPropStr(n.props, FOCUS_PROP);
+  return raw === "true" || raw === "yes";
+}
+
 /** The state every Pick surface reads to decide its label. The
     pane is no longer the only place the verb lives — the row menu, the open
     note's ⋯ menu and the palette all ask this same question about the note
@@ -61,6 +74,8 @@ export interface PickedItem {
   /** the note's earliest timed entry today from its OTHER date props (a
       picked 14:00 call stays a 14:00 call); absent = all-day */
   time?: string;
+  /** the day's headline — at most one picked item ever carries it */
+  focused?: boolean;
 }
 
 export interface LeftoverItem {
@@ -150,10 +165,18 @@ export function todayData(notes: NoteMeta[], schema: SchemaConfig, today: string
     const t = timeByPath.get(p.note.path);
     if (t) p.time = t;
   }
+  // the headline sits on top, whatever its time; everything else keeps the
+  // agenda's order. Extra marks are demoted rather than shown: a day has one
+  // headline by definition, so a second mark left by a stale write must not
+  // render as a second one
+  for (const p of picked) if (isFocused(p.note)) p.focused = true;
   picked.sort(
     (a, b) =>
-      (a.time ?? "").localeCompare(b.time ?? "") || a.note.title.localeCompare(b.note.title)
+      Number(b.focused ?? false) - Number(a.focused ?? false) ||
+      (a.time ?? "").localeCompare(b.time ?? "") ||
+      a.note.title.localeCompare(b.note.title)
   );
+  for (let i = 1; i < picked.length; i++) picked[i].focused = false;
   leftovers.sort((a, b) => b.day.localeCompare(a.day) || a.note.title.localeCompare(b.note.title));
 
   return { today, title: todayTitle(today), scheduled, due, picked, leftovers };
