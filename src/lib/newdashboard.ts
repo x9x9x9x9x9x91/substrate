@@ -24,7 +24,7 @@ export interface DashboardKindOption {
   /** the note's title when the user names none */
   title: string;
   /** starter body: what this kind reads. The pane's empty state carries the
-      "add a ```tile fence" style instruction, so the body never repeats it. */
+      "add a ```chart fence" style instruction, so the body never repeats it. */
   body: string;
 }
 
@@ -42,12 +42,6 @@ export const NEW_DASHBOARD_KINDS: readonly DashboardKindOption[] = [
     blurb: "a designed home page of live fences",
     title: "Home",
     body: "A home page laid out from ordinary markdown: `## ` headings become sections, a run of callouts becomes a card row, and ` ```view `, ` ```chart `, ` ```cards `, ` ```progress ` and ` ```calendar ` fences render live between them.\n",
-  },
-  {
-    kind: "grid",
-    blurb: "cards, charts and database cuts as tiles",
-    title: "Board",
-    body: "A board of tiles. Each ` ```tile ` fence in this body is one tile, in document order; `span: 2` makes a tile wide.\n",
   },
   {
     kind: "metrics",

@@ -257,7 +257,6 @@ test("a dashboard control resolves to its own pane's tip, not the shared dashboa
   assert.equal(infoTipForElement(card as unknown as Element)?.title, "Metric");
 });
 
-
 test("a hero reads as its own board's, not as the board that first got a tip", () => {
   const food = new Stub({ classes: ["dash-hero", "food-hero"] });
   const label = new Stub({ classes: ["dash-label"], text: "net kcal today" });

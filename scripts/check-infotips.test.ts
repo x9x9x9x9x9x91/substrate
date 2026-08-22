@@ -130,8 +130,8 @@ test("a class matches on its whole name, not as a prefix of a longer one", () =>
   assert.ok(!rendersClass('className="tasks-checklist"', "tasks-check"));
   // a hyphen is part of the name, not a boundary: these names are built by
   // suffixing, so a file left holding only the error variant is a rename
-  assert.ok(!rendersClass('<div className="grid-tile-err">', "grid-tile"));
-  assert.ok(rendersClass('<section className={`grid-tile${span ? " span-2" : ""}`}>', "grid-tile"));
+  assert.ok(!rendersClass('<div className="sync-row-err">', "sync-row"));
+  assert.ok(rendersClass('<section className={`sync-row${paused ? " is-paused" : ""}`}>', "sync-row"));
 });
 
 /* ── the cross-check ────────────────────────────────────────────────────── */

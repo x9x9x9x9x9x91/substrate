@@ -140,7 +140,7 @@ import { markdownLinkLabel, TASK_PREFIX_RE } from "../lib/markdown";
 import { listLinePrefix, walkSpan, type TabPin } from "../lib/listindent";
 import { scanAudioAnnotationFences } from "../lib/audio-annotations";
 import { extractLink, extractTitle } from "../lib/extractnote";
-import { parseAccent } from "../lib/styletokens";
+import { parseCalloutStyle } from "../lib/styletokens";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
 import { tableActions, tableCellAtOffset, type TableAction } from "../lib/tablemenu";
 import { errText } from "../lib/errtext";
@@ -212,10 +212,10 @@ interface OutlineHeading {
   text: string;
 }
 
-// the optional `|accent` tail is the bounded style token — kept in
+// the optional style tail carries the bounded style tokens — kept in
 // lockstep with src/lib/hub.ts, which reads the same two shapes. The editor
-// hides the whole prefix either way; group 3 is the accent name, unvalidated
-// here and resolved by parseAccent before it can reach a colour.
+// hides the whole prefix either way; group 3 is the raw tail, unvalidated here
+// and resolved by parseCalloutStyle before any part of it reaches a colour.
 const BLOCK_PREFIX_RE =
   /^(\s*)(?:#{1,6}\s+|[-*+]\s+(?:\[[ xX]\]\s+)?|\d+[.)]\s+|>\s+(?:\[!(?:note|warn|idea)(?:\|[^\]]*)?\]\s*)?)?/i;
 const CALLOUT_HEADER_RE = /^(\s*>\s*\[!(note|warn|idea)(?:\|([^\]]*))?\]\s*)/i;
@@ -880,10 +880,12 @@ function addCalloutDecorations(
     const header = CALLOUT_HEADER_RE.exec(first.text);
     if (!header || !isBlockquoteLine(state, first.from)) continue;
     const kind = header[2].toLowerCase() as CalloutKind;
-    // the same accent the hub board reads, so an accented callout
+    // the same tail the hub board reads, so an accented callout
     // looks accented where it is written, not only where it is rendered. The
-    // glyph keeps the KIND hue — accent marks mood, the glyph marks type.
-    const accent = parseAccent(header[3]);
+    // glyph keeps the KIND hue — accent marks mood, the glyph marks type. The
+    // width the tail may also carry is the board's business, not the editor's:
+    // a note is one column wide wherever it is typed.
+    const accent = parseCalloutStyle(header[3]).accent;
     let lastNumber = number;
     while (lastNumber < state.doc.lines) {
       const next = state.doc.line(lastNumber + 1).text;

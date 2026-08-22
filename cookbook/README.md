@@ -43,7 +43,6 @@ one-line prompt.
 | [`jobs/`](jobs) | jobs | every launchd job on the machine: schedule, exit history, freshness |
 | [`tax/`](tax) | tax | tax-year readiness: totals, documents still owed, printable |
 | [`tasks/`](tasks) | tasks | a working board over your task notes, late work first |
-| [`grid-board/`](grid-board) | grid | cards, a chart and a live cut composed onto one board |
 | [`week-numbers/`](week-numbers) | week-numbers | a renderer you own, shipped in the vault beside the board |
 
 Screenshots live in [`shots/`](shots) — each is the recipe's own files

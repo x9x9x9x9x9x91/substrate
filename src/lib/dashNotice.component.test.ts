@@ -29,11 +29,11 @@ test("an empty state is a dot and its sentence, in the house voice", async (t) =
   const { DashEmpty } = await notice();
   const rendered = await renderComponent(
     t,
-    createElement(DashEmpty, null, "No tiles yet — add a tile fence to this note.")
+    createElement(DashEmpty, null, "No cards yet — add a cards fence to this note.")
   );
 
   const box = must(rendered.one(".dash-empty"), "the empty state");
-  assert.match(box.textContent ?? "", /No tiles yet/);
+  assert.match(box.textContent ?? "", /No cards yet/);
   // the mark is structural: a kind cannot ship an empty state without one,
   // which is what the faint one-line footers were missing
   assert.equal(box.querySelectorAll(".dash-dot").length, 1);

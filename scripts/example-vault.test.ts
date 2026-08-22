@@ -17,7 +17,6 @@ import { parseTimelineConfig, timelineData } from "../src/lib/timeline.ts";
 import { parseHub } from "../src/lib/hub.ts";
 import { parseViewSpec } from "../src/lib/embeds.ts";
 import { collectCardsFences, parseBind, parseCardsBlock } from "../src/lib/metriccards.ts";
-import { parseGridBlocks } from "../src/lib/grid.ts";
 import { parseProgressBlocks } from "../src/lib/progress.ts";
 import { parseFoodRows } from "../src/lib/food.ts";
 import { parseFoodDb } from "../src/lib/fooddb.ts";
@@ -210,7 +209,7 @@ test("dashboard kinds are ones the app dispatches", () => {
       .map((e) => e.name)
   );
   const dashboards = notes.filter((n) => n.props["type"] === "dashboard");
-  assert.equal(dashboards.length, 22);
+  assert.equal(dashboards.length, 21);
   for (const n of dashboards) {
     const k = n.props["dashboard"];
     assert.ok(
@@ -458,44 +457,6 @@ test("Release Charts fences parse clean and name real sources", () => {
     const src = b.config.source;
     if (src.kind === "db") assert.ok(dbTypes.has(src.type), `chart over unknown database "${src.type}"`);
     else assert.ok(loadSheet(src.name), `chart over unknown sheet "${src.name}"`);
-  }
-});
-
-test("Label Board's tile fences parse clean and name real sources", () => {
-  const n = byStem("Label Board");
-  assert.ok(n, "Dashboards/Label Board.md missing");
-  const blocks = parseGridBlocks(n.body);
-  assert.equal(blocks.length, 3, "the board composes a cards tile, a chart tile and a view tile");
-  assert.deepEqual(
-    blocks.map((b) => b.tile?.kind),
-    ["cards", "chart", "view"]
-  );
-
-  const model = loadSheet("Holdings");
-  assert.ok(model, "Holdings sheet missing — the board's cards tile reads it");
-  const ev = evaluateSheet(model, fx);
-
-  for (const b of blocks) {
-    assert.equal(b.error, null, `tile fence error: ${b.error}`);
-    const tile = b.tile;
-    assert.ok(tile, "tile fence produced no tile");
-    if (tile.kind === "cards") {
-      for (const card of tile.cards) {
-        const bind = parseBind(card.bind);
-        assert.ok(bind, `card "${card.label}" has an unparseable bind`);
-        assert.equal(bind.sheet, "Holdings", `card bind targets unknown sheet "${bind.sheet}"`);
-        assert.ok(!isErr(findSummary(ev, bind.name)), `bind {{Holdings.${bind.name}}} resolves no summary`);
-      }
-    } else if (tile.kind === "chart") {
-      const chart = tile.chart;
-      assert.ok(chart.bind !== "history", "chart tile should name a source");
-      const src = chart.source;
-      if (src.kind === "db") assert.ok(dbTypes.has(src.type), `chart over unknown database "${src.type}"`);
-      else assert.ok(loadSheet(src.name), `chart over unknown sheet "${src.name}"`);
-    } else {
-      const type = tile.view.type;
-      assert.ok(type && dbTypes.has(type), `view over unknown database "${type}"`);
-    }
   }
 });
 

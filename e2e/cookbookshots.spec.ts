@@ -503,48 +503,6 @@ const SHOTS: Shot[] = [
     },
   },
   {
-    id: "grid-board",
-    nav: "Label Board",
-    installs: [
-      { file: "Dashboards/Label Board.md", target: "Dashboards/Label Board.md", cloneFrom: "Dashboards/Overview.md" },
-      { file: "Holdings.md", target: "Holdings.md" },
-      { file: "Releases/Night Circuit.md", target: "Releases/Night Circuit.md", cloneFrom: "Slow Bloom EP.md" },
-      { file: "Releases/Fern Static.md", target: "Releases/Fern Static.md", cloneFrom: "Slow Bloom EP.md" },
-      { file: "Releases/Slow Bloom EP.md", target: "Releases/Slow Bloom EP.md", cloneFrom: "Slow Bloom EP.md" },
-      { file: "Releases/Halide.md", target: "Releases/Halide.md", cloneFrom: "Slow Bloom EP.md" },
-      { file: "Releases/Paper Kite.md", target: "Releases/Paper Kite.md", cloneFrom: "Slow Bloom EP.md" },
-    ],
-    ready: async (page) => {
-      // three fences, three tiles, and each one drawing its own thing — a
-      // board whose chart tile failed would still count three sections
-      await expect(page.locator(".grid-tile")).toHaveCount(3);
-      await expect(page.locator(".grid-tile .dash-card")).toHaveCount(3);
-      await expect(page.locator(".grid-tile .dash-card-usd", { hasText: "—" })).toHaveCount(0);
-      await expect(page.locator(".grid-tile .dash-chart")).toHaveCount(1);
-      await expect(page.locator(".grid-tile .embed-view-table")).toHaveCount(1);
-      await expect(page.locator(".dash-alert")).toHaveCount(0);
-      await expect(page.locator(".dash-card-miss")).toHaveCount(0);
-    },
-    post: async (page) => {
-      // the mock roster ships releases of its own — they would fill the chart
-      // and the view tile with rows the recipe's files don't explain, so they
-      // go (the release-arc shot drops the same five for the same reason).
-      await page.evaluate(() => {
-        const w = window as unknown as {
-          __mockDeleteNote: (p: string) => void;
-          __mockEmit: (e: string) => void;
-        };
-        for (const p of ["Slow Bloom EP.md", "Static Bouquet.md", "Vessel Songs.md", "Fern Palace.md", "Glass Havens.md"]) {
-          w.__mockDeleteNote(p);
-        }
-        w.__mockEmit("vault:changed");
-      });
-      // what is left is the recipe's own five: four statuses in the chart, and
-      // the one release actually in mastering under the view tile
-      await expect(page.locator(".grid-tile .embed-view-table tbody tr")).toHaveCount(1);
-    },
-  },
-  {
     id: "week-numbers",
     nav: "Release Weeks",
     // the renderer is part of the recipe, so the shot installs the bundle's

@@ -197,6 +197,34 @@ test("a callout takes an accent after the kind", () => {
   assert.deepEqual(cards.callouts[0].body, ["body"]);
 });
 
+test("a callout takes a span after the kind, with or without an accent", () => {
+  const blocks = parseHub(
+    "> [!note|span:2] Wide\n> [!warn|teal|span:2] Wide and teal\n> [!idea|span:1] Narrow\n> [!note] Plain\n"
+  );
+  const cards = blocks[0];
+  if (cards.kind !== "cards") assert.fail("want cards");
+  assert.deepEqual(
+    cards.callouts.map((c) => [c.title, c.accent, c.span]),
+    [
+      ["Wide", undefined, 2],
+      ["Wide and teal", "teal", 2],
+      ["Narrow", undefined, 1],
+      ["Plain", undefined, undefined],
+    ]
+  );
+});
+
+test("an unreadable span leaves the card at its default width, not broken", () => {
+  for (const tail of ["span:3", "span:50%", "span:", "span", "teal|span:wide"]) {
+    const blocks = parseHub(`> [!note|${tail}] Still a note\n> body\n`);
+    const cards = blocks[0];
+    if (cards.kind !== "cards") assert.fail(`want cards for "${tail}"`);
+    assert.equal(cards.callouts[0].kind, "note");
+    assert.equal(cards.callouts[0].title, "Still a note");
+    assert.equal(cards.callouts[0].span, undefined);
+  }
+});
+
 test("an off-roster accent leaves a working callout, not a blockquote", () => {
   for (const tail of ["chartreuse", "#14b8a6", "", "12px"]) {
     const blocks = parseHub(`> [!note|${tail}] Still a note\n> body\n`);

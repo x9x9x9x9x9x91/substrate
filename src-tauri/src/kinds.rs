@@ -62,7 +62,6 @@ pub const KIND_API_MIN: u32 = 1;
 /// each other by `built_ins_match_the_typescript_list` below.
 pub const BUILT_IN_KINDS: &[&str] = &[
     "metrics",
-    "grid",
     "yield-apr",
     "sync",
     "jobs",
