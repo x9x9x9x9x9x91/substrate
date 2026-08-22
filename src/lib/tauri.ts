@@ -455,13 +455,6 @@ let mockMcpGrants: {
   access: "read" | "write";
 }[] = [];
 
-/** The demo backend's copy of the backend rule: a grant addressed by prefix —
-    revoked or re-granted — takes folder rows only, so a row of another kind is
-    left standing whatever prefix it carries. */
-function mockFolderGrant(_grant: (typeof mockMcpGrants)[number]): boolean {
-  return true;
-}
-
 
 
 
@@ -1251,7 +1244,6 @@ const PERF_DB_COUNT = (() => {
   return Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), 50_000) : 0;
 })();
 
-
 if (PERF_DB_COUNT > 0) {
   const PLUGIN_DEVS = [
     "FabFilter", "Valhalla", "Soundtoys", "UAD", "Waves", "Arturia",
@@ -1402,7 +1394,6 @@ const mockImages: { rel: string; text: string; truncated?: boolean }[] = [
     text: "Album order\n1. Halfway Signal\n2. Paper Weather\n3. Long Shore\nmixdown by Friday",
   },
 ];
-
 
 const mockFolderFiles: {
   name: string;
@@ -3213,7 +3204,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       if (!client) throw new Error("client name must not be empty");
       const prefix = "Projects";
       const existing = mockMcpGrants.find(
-        (grant) => grant.client === client && grant.prefix === prefix && mockFolderGrant(grant)
+        (grant) => grant.client === client && grant.prefix === prefix
       );
       if (existing) existing.access = access;
       else mockMcpGrants.push({ client, prefix, access });
@@ -3222,7 +3213,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
     case "mcp_grant_revoke":
       mockMcpGrants = mockMcpGrants.filter(
         (grant) =>
-          !(grant.client === args?.client && grant.prefix === args?.prefix && mockFolderGrant(grant))
+          !(grant.client === args?.client && grant.prefix === args?.prefix)
       );
       return mockMcpGrants.map((grant) => ({ ...grant }));
     case "mcp_grants_revoke_all":

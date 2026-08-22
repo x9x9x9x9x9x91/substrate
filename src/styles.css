@@ -4779,7 +4779,6 @@ body.agenda-window .palette:focus-visible {
   color: var(--text-2);
 }
 
-
 /* ————— cookbook —————
    A browsable shelf of the recipes the app ships with. Each recipe is a wide
    row: its screenshot on the left at a fixed column, the prose and the install
@@ -18467,7 +18466,6 @@ body.termhud-resizing-ew .termhud {
   background: var(--hover);
 }
 
-
 .mcp-client-hint {
   margin-top: 7px;
 }
@@ -19546,7 +19544,6 @@ button.receipts-row:hover {
   color: var(--text-2);
   background: var(--hover);
 }
-
 
 
 

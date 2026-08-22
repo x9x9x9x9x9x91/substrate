@@ -19,9 +19,8 @@ function formatSeenAt(at: string): string {
   return Number.isNaN(when.getTime()) ? "" : ` (${when.toLocaleString()})`;
 }
 
-/** How a row names what it opens. A folder row says its prefix; a row that
-    opens something other than a folder says that instead of showing an empty
-    path as if it were the whole vault. */
+/** How a row names the folder it opens, without showing an empty path as if
+    it were the whole vault. */
 function grantLabel(grant: McpGrant): string {
   return grant.prefix || "Whole vault";
 }
@@ -31,15 +30,12 @@ function grantTarget(grant: McpGrant): string {
   return grant.prefix || "the whole vault";
 }
 
-/** One row's identity. Two rows of the same client can share the empty prefix
-    — a whole-vault folder grant and a row that opens no folder at all — so
-    what the row opens has to be part of the key. */
+/** One row's identity: the client plus the folder it opens. */
 function grantKey(grant: McpGrant): string {
   return `${grant.client}\u0000${grant.prefix}`;
 }
 
-/** Revokes go to the command that addresses this row's kind: a folder row by
-    its prefix, another kind by what it names. */
+/** Revokes address the row by its prefix. */
 function revokeGrant(grant: McpGrant): Promise<McpGrant[]> {
   return mcpGrantRevoke(grant.client, grant.prefix);
 }
@@ -104,7 +100,6 @@ export default function McpSettings({ onToast }: McpSettingsProps) {
       setBusy("");
     }
   }, [access, client, onToast]);
-
 
   const revoke = useCallback(
     async (grant: McpGrant) => {

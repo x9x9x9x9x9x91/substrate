@@ -243,27 +243,6 @@ pub(super) fn device_key_placement(root: &Path) -> DeviceKeyPlacement {
     }
 }
 
-/// Whether `service` has a device copy for this exact account, asked by
-/// ATTRIBUTES only — no user-presence prompt, so a status read can call it.
-/// Deliberately the narrow question: the archive has no doctor and no
-/// moved-folder story to tell, only "does the unlock lane exist here".
-#[cfg(all(not(test), any(target_os = "macos", target_os = "ios")))]
-pub(super) fn key_enrolled_for(service: &str, account: &Path) -> bool {
-    enrolled_count(service, Some(&account.to_string_lossy())) > 0
-}
-
-#[cfg(all(not(test), not(any(target_os = "macos", target_os = "ios"))))]
-pub(super) fn key_enrolled_for(_service: &str, _account: &Path) -> bool {
-    false
-}
-
-/// Tests never read the developer's or the rig's real Keychain — but they do
-/// read the stand-in below, which they can set.
-#[cfg(test)]
-pub(super) fn key_enrolled_for(service: &str, account: &Path) -> bool {
-    device_keychain::contains(service, account)
-}
-
 #[cfg(all(not(test), not(any(target_os = "macos", target_os = "ios"))))]
 pub(super) fn device_key_placement(_root: &Path) -> DeviceKeyPlacement {
     DeviceKeyPlacement::Unsupported
@@ -299,11 +278,7 @@ pub(super) mod device_keychain {
     use std::path::Path;
 
     thread_local! {
-        /// `(service, account)` to the enrolled bytes, or `None` for an item
-        /// that exists by attributes and refuses its data — a cancelled
-        /// prompt, a sensor that would not read. Enrollment and answering are
-        /// two different facts, and an attributes-only search can only ever
-        /// see the first.
+        /// `(service, account)` to the enrolled bytes.
         static ITEMS: RefCell<HashMap<(String, String), Option<String>>> =
             RefCell::new(HashMap::new());
     }
@@ -317,20 +292,6 @@ pub(super) mod device_keychain {
         ITEMS.with(|items| {
             items.borrow_mut().insert(item_key(service, account), Some(identity.to_string()))
         });
-    }
-
-    /// Enroll an item that is there but will not give its data up.
-    pub(in crate::vault) fn enroll_refusing(service: &str, account: &Path) {
-        ITEMS.with(|items| items.borrow_mut().insert(item_key(service, account), None));
-    }
-
-    /// Un-enroll: a machine that never offered the lane for this account.
-    pub(in crate::vault) fn forget(service: &str, account: &Path) {
-        ITEMS.with(|items| items.borrow_mut().remove(&item_key(service, account)));
-    }
-
-    pub(super) fn contains(service: &str, account: &Path) -> bool {
-        ITEMS.with(|items| items.borrow().contains_key(&item_key(service, account)))
     }
 
     pub(super) fn read(service: &str, account: &Path) -> Option<String> {

@@ -143,7 +143,6 @@ Settings preserves unknown top-level and per-grant keys when it edits this
 file, leaving room for later transport/subject metadata. A corrupt file keeps
 the sidecar closed and is reported by Settings rather than overwritten.
 
-
 ## Setup (phase 1)
 
 The macOS bundle carries `substrate-mcp` beside the main executable at

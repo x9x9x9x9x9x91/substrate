@@ -279,15 +279,6 @@ const SCOPE_STRICT: &str = " AND path IN (SELECT path FROM search_scope)";
 const SCOPE_LISTING: &str =
     " AND (path IN (SELECT path FROM search_scope) OR path LIKE 'mount://%')";
 
-
-/// The strict allow-list, with a row class this build may not carry admitted
-/// beside it when the caller asks for it. The identity function wherever that
-/// class is absent, and for an unscoped query, which restricts nothing to
-/// begin with.
-fn admitting_clause(strict: &'static str, _admit: bool) -> &'static str {
-    strict
-}
-
 /// Whether a path belongs to a class [`SCOPE_LISTING`] lets past the
 /// allow-list — the rows a scoped count deliberately does not speak for.
 fn scope_admitted(path: &str) -> bool {
@@ -307,22 +298,6 @@ struct ScopeClause {
 /// than mounted files are, so they leave the palette by the same door and for
 /// the same reason. The search pane renders them; the palette cannot.
 const IMAGE_EXCLUDED: &str = " AND path NOT LIKE 'image://%'";
-
-/// An exclusion hook for a row class this build may not carry. Assembled
-/// rather than declared so it costs exactly nothing — an empty string ANDed
-/// onto the query — wherever the class it names is absent.
-fn excluded_class_clause(_exclude: bool) -> &'static str {
-    #[allow(unused_mut, unused_assignments)]
-    let mut clause = "";
-    clause
-}
-
-/// Whether a returned row belongs to a class the note COUNT never speaks for,
-/// scope or none — the runtime twin of [`excluded_class_clause`] on the rows
-/// that came back. False everywhere the class it names is absent.
-fn count_excluded(_path: &str) -> bool {
-    false
-}
 
 /// Twin of [`QUICK_SEARCH_MOUNT_CLAUSE`] for image rows.
 const QUICK_SEARCH_IMAGE_CLAUSE: &str = IMAGE_EXCLUDED;
@@ -394,20 +369,6 @@ impl Engine {
         scope: Option<&[String]>,
         exclude_app_files: bool,
     ) -> Vec<SearchHit> {
-        self.search_admitting(q, scope, exclude_app_files, false)
-    }
-
-
-    /// The palette-shaped search both entry points run. `_admit` names a row
-    /// class the strict allow-list would otherwise drop; it is false for every
-    /// caller in a build that carries no such class.
-    fn search_admitting(
-        &self,
-        q: &str,
-        scope: Option<&[String]>,
-        exclude_app_files: bool,
-        _admit: bool,
-    ) -> Vec<SearchHit> {
         let q = q.trim();
         if q.is_empty() {
             return Vec::new();
@@ -417,9 +378,7 @@ impl Engine {
             // (`QUICK_SEARCH_MOUNT_CLAUSE`), so admitting a class it would only
             // throw away again would just spend page slots on it
             let Ok(clause) = self.apply_scope(scope).map(|s| s.strict) else { return Vec::new() };
-            let clause = admitting_clause(clause, _admit);
             let app = app_files_clause(exclude_app_files);
-            let excluded = excluded_class_clause(!(_admit && scope.is_some()));
             // title (1) and props (4) come back marked purely to read WHERE the
             // match landed: a note whose only hit is a prop value would
             // otherwise return its opening body prose, which marks nothing. The
@@ -429,7 +388,7 @@ impl Engine {
                 "SELECT path, snippet(notes_fts, 2, ?2, ?3, ' … ', 14), \
                  highlight(notes_fts, 1, ?2, ?3), snippet(notes_fts, 4, ?2, ?3, ' … ', 14) \
                  FROM notes_fts \
-                 WHERE notes_fts MATCH ?1{clause}{app}{QUICK_SEARCH_MOUNT_CLAUSE}{QUICK_SEARCH_IMAGE_CLAUSE}{excluded} \
+                 WHERE notes_fts MATCH ?1{clause}{app}{QUICK_SEARCH_MOUNT_CLAUSE}{QUICK_SEARCH_IMAGE_CLAUSE} \
                  ORDER BY rank LIMIT 30"
             );
             let mut stmt = match self.db.prepare(&sql) {
@@ -553,17 +512,13 @@ impl Engine {
         let empty = || FullSearchResult { hits: Vec::new(), total_notes: 0, truncated: false };
         let Ok(ScopeClause { strict, listing }) = self.apply_scope(scope) else { return empty() };
         let app = app_files_clause(exclude_app_files);
-        let excluded_page = excluded_class_clause(scope.is_some());
-        // The count takes it either way, scope or none — see the exclusion
-        // hook's own note, and `MOUNT_CLAUSE`/`IMAGE_EXCLUDED` beside it.
-        let excluded_count = excluded_class_clause(true);
         let expr = fts_match_expr(q);
         // Notes and pictures are two pages, not one. The scope clause above
         // restricts notes; a picture is in no note list and would otherwise
         // have to be admitted wholesale, which is exactly what lets pictures
         // the pane will filter away eat the note page's slots. The LISTING
         // form: mount rows are the class the pane re-filters client-side.
-        let notes_where = format!("{listing}{app}{MOUNT_CLAUSE}{IMAGE_EXCLUDED}{excluded_page}");
+        let notes_where = format!("{listing}{app}{MOUNT_CLAUSE}{IMAGE_EXCLUDED}");
         // the true size of the match set, so a capped page can say so — under
         // a scope, of the set the allow-list SPOKE FOR: the admitted classes
         // ride past it unjudged, and counting them here would print a total
@@ -576,7 +531,7 @@ impl Engine {
             .db
             .query_row(
                 &format!(
-                    "SELECT COUNT(*) FROM notes_fts WHERE notes_fts MATCH ?1{strict}{app}{MOUNT_CLAUSE}{IMAGE_EXCLUDED}{excluded_count}"
+                    "SELECT COUNT(*) FROM notes_fts WHERE notes_fts MATCH ?1{strict}{app}{MOUNT_CLAUSE}{IMAGE_EXCLUDED}"
                 ),
                 [&expr],
                 |r| r.get::<_, i64>(0),
@@ -590,15 +545,10 @@ impl Engine {
         // a scope the admitted classes were counted by neither side of the
         // query, and reading them as overflow would make an uncapped page
         // claim truncation. Unscoped, the count covers every note row
-        // returned, minus the classes it excludes outright
-        // ([`count_excluded`]) — an unscoped page may still hold those, and
-        // reading them as overflow would make an uncapped page claim
-        // truncation exactly as an admitted class would. Pictures join the
-        // page only after this, so they are never in the truncation math at
-        // all.
+        // returned. Pictures join the page only after this, so they are never
+        // in the truncation math at all.
         let counted_out = out
             .iter()
-            .filter(|h| !count_excluded(&h.hit.path))
             .filter(|h| !(scope.is_some() && scope_admitted(&h.hit.path)))
             .count() as u32;
         let total_notes = total_notes.max(counted_out);

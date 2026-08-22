@@ -31,22 +31,13 @@ impl From<&Grant> for McpGrantView {
     }
 }
 
-/// Whether a stored row is the folder kind the pane's revoke button targets.
-/// A row that opens a store instead of a folder carries a prefix too — a
-/// marker rather than a folder — so a prefix match alone never tells the two
-/// kinds apart, and revoking or editing one must never reach the other.
-fn is_folder_grant(_grant: &Grant) -> bool {
-    true
-}
-
 /// How a folder row is addressed: by its client and its prefix. Both the
 /// revoke and the add-upsert ask it, and so do their tests — a `State` wrapper
 /// is all that keeps a test from calling the command itself, and a second copy
 /// of the rule written inline is exactly where the two kinds drift apart.
 fn addresses_folder_grant(grant: &Grant, client: &str, prefix: &str) -> bool {
-    grant.client == client && grant.prefix == prefix && is_folder_grant(grant)
+    grant.client == client && grant.prefix == prefix
 }
-
 
 #[derive(Serialize)]
 pub(crate) struct McpSetup {
@@ -131,7 +122,6 @@ pub(crate) fn mcp_grants_revoke_all(
     scopes.save(&onboarding.config_dir)?;
     Ok(Vec::new())
 }
-
 
 /// The name the door last saw at `initialize`, for the pane's diagnostic line.
 /// Never an error: a missing or unreadable breadcrumb just means "nothing seen".
@@ -295,7 +285,6 @@ mod tests {
         assert_eq!(updated.grants.len(), 1, "same client+folder is an upsert");
         assert_eq!(updated.grants[0].access, Access::Write);
     }
-
 
     #[test]
     fn root_folder_becomes_the_empty_prefix() {

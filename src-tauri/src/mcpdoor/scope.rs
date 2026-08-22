@@ -67,15 +67,7 @@ impl Grant {
         }
     }
 
-    /// Whether this grant speaks for vault paths at all. True for every grant
-    /// whose kind this build knows as a folder grant — which, where no other
-    /// kind exists, is all of them.
-    fn grants_paths(&self) -> bool {
-        true
-    }
-
 }
-
 
 /// The whole grant set for this machine. Unknown keys in the file are
 /// preserved-by-ignoring, same posture as `AppConfig`.
@@ -132,9 +124,7 @@ impl ScopeSet {
     pub fn load(cfg_dir: &Path) -> Self {
         let mut set = Self::load_for_edit(cfg_dir).unwrap_or_default();
         set.grants.retain(|g| {
-            validate_client(&g.client).is_ok()
-                && validate_prefix(&g.prefix).is_ok()
-                && validate_kind(g).is_ok()
+            validate_client(&g.client).is_ok() && validate_prefix(&g.prefix).is_ok()
         });
         set
     }
@@ -159,7 +149,6 @@ impl ScopeSet {
         for g in &self.grants {
             validate_client(&g.client)?;
             validate_prefix(&g.prefix)?;
-            validate_kind(g)?;
         }
         fs::create_dir_all(cfg_dir).map_err(|e| e.to_string())?;
         let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
@@ -202,7 +191,6 @@ impl ScopeSet {
         let ceiling = if is_write_denied(&rel) { Access::Read } else { Access::Write };
         self.grants
             .iter()
-            .filter(|g| g.grants_paths())
             .filter(|g| {
                 normalize_rel(&g.prefix).is_some_and(|p| covers(&p, &rel))
             })
@@ -225,10 +213,8 @@ impl ScopeSet {
         }
         self.grants
             .iter()
-            .filter(|g| g.grants_paths())
             .any(|g| normalize_rel(&g.prefix).is_some_and(|p| covers(&rel, &p)))
     }
-
 
     /// Decide access for a path that will actually be touched on disk.
     /// Canonicalizes what exists (for a not-yet-existing target, its parent —
@@ -354,18 +340,6 @@ fn validate_prefix(prefix: &str) -> Result<(), String> {
         Some(n) if n == prefix => Ok(()),
         _ => Err(format!("invalid grant prefix: {prefix:?}")),
     }
-}
-
-/// A grant may name a kind other than a folder, and a stored kind has to be
-/// one this build knows, at a level it actually implements. Always `Ok` where
-/// no such kind exists — the hook costs nothing then.
-///
-/// Both callers matter and mean different things: `save` refuses, so the pane
-/// can never write a row whose meaning is undefined, and `load` drops, so a
-/// hand-edited file cannot decide anything the pane would have refused. Same
-/// posture [`validate_client`] and [`validate_prefix`] already have.
-fn validate_kind(_grant: &Grant) -> Result<(), String> {
-    Ok(())
 }
 
 /// Client names come from MCP initialize and also land in git receipts. Keep
@@ -600,7 +574,6 @@ mod tests {
         // create into a missing directory is a deny, not a mkdir -p
         assert_eq!(s.decide_resolved(root, "Notes/nodir/new.md"), Decision::Deny);
     }
-
 
     #[cfg(unix)]
     #[test]
