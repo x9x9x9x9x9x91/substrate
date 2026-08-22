@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { settingsTab } from "./settings";
 
 // The two appearance dials in ⌘, — Glow (0-100) and Accent tone
 // (four curated presets + a ±12° nudge). Runs against the mock backend, so
@@ -64,6 +65,7 @@ async function openSettings(page: Page) {
   await page.evaluate(() => window.__mockSetEchoOnWrites?.(true));
   await page.keyboard.press("Meta+,");
   await expect(page.locator(".settings-sheet")).toBeVisible();
+  await settingsTab(page, "appearance");
 }
 
 function row(page: Page, label: string) {
@@ -127,6 +129,7 @@ test("the glow dial lights the line language, then the bars, and pays nothing at
 
   // back to 0: not a 0px shadow, no filter at all — the rules stop matching
   await page.keyboard.press("Meta+,");
+  await settingsTab(page, "appearance");
   await row(page, "Glow").locator(".settings-range").fill("0");
   await expect(page.locator("html")).not.toHaveAttribute("data-glow", /.*/);
   await expect(page.locator("html")).not.toHaveAttribute("data-glow-bars", /.*/);
@@ -151,6 +154,7 @@ test("glow blooms the emphasised card values, and only the emphasised ones", asy
     .toBe("none");
 
   await page.keyboard.press("Meta+,");
+  await settingsTab(page, "appearance");
   await row(page, "Glow").locator(".settings-range").fill("0");
   await page.keyboard.press("Escape");
   await expect.poll(() => styleOf(page, sharp, "textShadow")).toBe("none");
@@ -213,6 +217,7 @@ test("the fine-tune slider nudges the chosen tone and clears itself at 0", async
   );
 
   await page.keyboard.press("Meta+,");
+  await settingsTab(page, "appearance");
   await row(page, "Tone fine-tune").locator(".settings-range").fill("0");
   await expect.poll(() => scalar(page, "--tone-nudge")).toBe("0");
 });

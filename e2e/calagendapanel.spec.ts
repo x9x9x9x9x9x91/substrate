@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { settingsTab } from "./settings";
 
 // The Upcoming panel's three moving parts, in the gate suite rather than in a
 // probe: the header latch folds it away and brings it back, the Settings
@@ -21,6 +22,7 @@ async function openCalendar(page: Page) {
 async function openSettings(page: Page) {
   await page.locator(".side-tools").getByRole("button", { name: "Settings" }).click();
   await expect(page.locator(".settings-sheet")).toBeVisible();
+  await settingsTab(page, "appearance");
 }
 
 const panelBox = (page: Page) =>

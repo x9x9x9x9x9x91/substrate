@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { settingsTab } from "./settings";
 
 // Deep Recall's user walk, which is a consent walk before it is a search one:
 // the index over the vault's whole history is opt-in per vault per device, so
@@ -13,6 +14,7 @@ import { expect, test, type Page } from "@playwright/test";
 async function openSettings(page: Page) {
   await page.locator(".side-tools").getByRole("button", { name: "Settings" }).click();
   await expect(page.locator(".settings-sheet")).toBeVisible();
+  await settingsTab(page, "vault");
 }
 
 async function search(page: Page, q: string) {

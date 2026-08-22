@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { settingsTab } from "./settings";
 
 // Custom dashboard kinds: a `dashboard:` value naming a bundle in
 // the vault mounts that bundle's mount(el, ctx) module behind the standard
@@ -230,6 +231,7 @@ test("the trust rider re-enables a drifted kind on its own, and only then", asyn
 
   // the rider is granted by hand, from the surface that owns standing consent
   await page.keyboard.press("Meta+,");
+  await settingsTab(page, "vault");
   await page.locator("[data-testid=kind-trust-gear-log]").check();
   await expect(page.locator("[data-testid=kind-trust-gear-log]")).toBeChecked();
   await page.keyboard.press("Escape");
@@ -277,6 +279,7 @@ test("ticking the rider on a drift review does not enable the changed code", asy
   await review.locator("[data-testid=kind-enable]").click();
   await expect(page.locator(".kind-host .kind-body .dash-hero")).toHaveText("gear rack: Overview");
   await page.keyboard.press("Meta+,");
+  await settingsTab(page, "vault");
   await expect(page.locator("[data-testid=kind-trust-gear-log]")).toBeChecked();
 });
 
@@ -490,6 +493,7 @@ test("Settings lists the vault's kinds, disables one, and keeps the folder", asy
   await expect(page.locator(".kind-host .kind-body .dash-hero")).toHaveText("gear rack: Overview");
 
   await page.keyboard.press("Meta+,");
+  await settingsTab(page, "vault");
   const section = page.locator("[data-testid=settings-kinds]");
   await expect(section).toBeVisible();
   await expect(section).toContainText("Gear log");
@@ -535,6 +539,7 @@ test("Settings shows no Kinds section in a vault with no kinds", async ({ page }
   await page.waitForFunction(() => typeof window.__mockClearKinds === "function");
   await page.evaluate(() => window.__mockClearKinds?.());
   await page.keyboard.press("Meta+,");
+  await settingsTab(page, "vault");
   await expect(page.locator(".settings-sheet")).toHaveCount(1);
   await expect(page.locator("[data-testid=settings-kinds]")).toHaveCount(0);
 });

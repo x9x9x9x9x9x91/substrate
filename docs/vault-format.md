@@ -5042,7 +5042,10 @@ side, `tags` from the other) is a deliberate follow-up; the reporting pass
 Plain notes the app treats specially — all optional, all just files:
 
 - `Settings.md` (vault root) — app settings as frontmatter: `capture-hotkey`
-  (default `alt+space`), `close-to-tray` (default `false`), and the ⌘⇧T terminal
+  (default `alt+space`), `voice-hotkey` (macOS only, default
+  `alt+shift+space`; starts recording a voice note on the first press and
+  stops and files it on the second — no window in between),
+  `close-to-tray` (default `false`), and the ⌘⇧T terminal
   HUD's `terminal-command` (agent CLI typed into the fresh shell; empty = plain
   shell), `terminal-cwd` (start folder, `~` expands; empty = the vault folder),
   `terminal-dock` (`bottom` or `right`, default `bottom`; anything else

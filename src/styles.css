@@ -18081,14 +18081,62 @@ body.termhud-resizing-ew .termhud {
 
 /* ── Settings sheet (⌘,) ──────────────────────────── */
 
+/* One frame for all six tabs. The shortcut sheet sizes to its content, so
+   before this the settings sheet stood 526px tall on General and 309px on
+   Experimental: picking a tab resized the window under the pointer and the
+   footer jumped up to meet it. Fixing the sheet's height and letting the body
+   take whatever is left makes it a frame the tabs are swapped inside. On a
+   short window it yields to the same 100vh - 220px cap the sheet always had,
+   and the body scrolls for the difference. */
 .settings-sheet {
   width: 620px;
+  height: min(520px, calc(100vh - 220px));
+}
+
+.settings-sheet .shortcut-sheet-body {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
 }
 
 .settings-title {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  /* the tab strip carries the space under the title now */
+  padding-bottom: 8px;
+}
+
+/* The sheet's tab strip, in the agent ledger's idiom: latched buttons under
+   the title rather than a second chrome. Six of them fit the sheet's width at
+   this size, and they wrap rather than widen it if a tab is ever added. */
+.settings-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  /* 18px lines the strip up with the title above it and, once the body's own
+     6px is added, with the label of every row below it */
+  padding: 0 18px 10px;
+}
+
+.settings-tab {
+  padding: 3px 9px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.settings-tab:hover {
+  background: var(--hover);
+}
+
+.settings-tab.on {
+  color: var(--text-1);
+  border-color: var(--border);
+  background: var(--surface-faint);
 }
 
 .settings-raw {
@@ -18131,11 +18179,13 @@ body.termhud-resizing-ew .termhud {
   color: var(--text-3);
 }
 
-/* One line under the Experimental heading, said once for the whole section
+/* One line at the top of the Experimental tab, said once for the whole tab
    rather than per switch. Aligned to the rows' text column (12px) and
-   set in the hint's own voice — a caveat, not a warning. */
+   set in the hint's own voice — a caveat, not a warning. It opens the tab
+   now that the tab's name is its heading, so it carries its own room above
+   instead of tucking under one. */
 .settings-experimental-note {
-  margin: -1px 12px 2px;
+  margin: 4px 12px 4px;
 }
 
 /* the terminal-font row's "not found" line: the hint's own type, one
@@ -18333,6 +18383,7 @@ body.termhud-resizing-ew .termhud {
 .settings-chips {
   flex: none;
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
 }
 
@@ -18387,19 +18438,40 @@ body.termhud-resizing-ew .termhud {
   --chip-tone: hsl(274.4deg 57.6% 76.9%);
 }
 
-/* A two-option row (number format) — the send-link expiry picker's
-   latched-button idiom rather than a <select>, so both options stay readable
-   without opening anything */
+/* A latched-button row — the send-link expiry picker's idiom rather than a
+   <select>, so every option stays readable without opening anything.
+
+   It wraps, and rows with more than a couple of options stack it under the
+   text instead of parking it in the control column. Five locale samples in a
+   single non-wrapping control column is wider than the sheet, and the sheet
+   body scrolls (overflow-y: auto makes the x axis scrollable too) — which is
+   what let the whole sheet slide sideways into empty space. */
 .settings-choice {
   flex: none;
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
+/* a row whose control is too wide to sit beside its label: text on top, the
+   control on its own full-width line beneath */
+.settings-row-stack {
+  display: block;
+}
+
+.settings-row-stack .settings-choice {
+  margin-top: 8px;
+}
+
 /* the sheet's section headings reuse the palette's label voice; they need
-   room above them because a settings row is taller than a palette row */
+   room above them because a settings row is taller than a palette row —
+   except the one that opens a tab, which has the strip right above it */
 .settings-sheet .palette-section {
   margin-top: 10px;
+}
+
+.settings-sheet .shortcut-sheet-body > .palette-section:first-child {
+  margin-top: 2px;
 }
 
 .settings-missing {

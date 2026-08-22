@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { openSettings } from "./settings";
 
 // Context-bound capture. What the chip does in the window it lives
 // in: whether it shows at all, what one keystroke does to it, and which
@@ -124,16 +125,17 @@ test("a pasted link takes no chip — url_capture carries no props", async ({ pa
   await expect(page.locator(CHIP)).toHaveCount(0);
 });
 
-test("the Experimental section carries the toggle, and only it offers the grant", async ({
+test("the Experimental tab carries the toggle, and only it offers the grant", async ({
   page,
 }) => {
   await page.goto("/");
   await expect(page.locator(".list-title")).toHaveText("Notes");
-  await page.locator(".side-tools").getByRole("button", { name: "Settings" }).click();
-  await expect(page.locator(".settings-sheet")).toBeVisible();
+  await openSettings(page, "experimental");
 
+  // the tab's own name is its heading, so the tab opens on the caveat and
+  // carries no section head of its own
   const sheet = page.locator(".settings-sheet");
-  await expect(sheet.locator(".palette-section", { hasText: "Experimental" })).toHaveCount(1);
+  await expect(sheet.locator(".palette-section", { hasText: "Experimental" })).toHaveCount(0);
   await expect(sheet.locator(".settings-experimental-note")).toContainText(
     "may change or disappear"
   );
@@ -155,7 +157,7 @@ test("the Experimental section carries the toggle, and only it offers the grant"
 
   // it survives a close and reopen, like every other setting
   await page.keyboard.press("Escape");
-  await page.locator(".side-tools").getByRole("button", { name: "Settings" }).click();
+  await openSettings(page, "experimental");
   await expect(
     page.locator("[data-testid=experimental-experimental-context-capture]").getByRole("switch")
   ).toHaveAttribute("aria-checked", "true");
@@ -187,7 +189,7 @@ test.describe("shots", () => {
   test("shot: Experimental settings section", async ({ page }) => {
     await page.goto("/");
     await expect(page.locator(".list-title")).toHaveText("Notes");
-    await page.locator(".side-tools").getByRole("button", { name: "Settings" }).click();
+    await openSettings(page, "experimental");
     const row = page.locator("[data-testid=experimental-experimental-context-capture]");
     await row.scrollIntoViewIfNeeded();
     await row.getByRole("switch").click();

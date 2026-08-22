@@ -1,4 +1,8 @@
 import { expect, test } from "@playwright/test";
+import { openSettings, settingsTab } from "./settings";
+// the sheet's declared tabs, not a copy: a seventh tab has to be walked by
+// these guards, and a copy is exactly what would quietly skip it
+import { SETTINGS_TABS } from "../src/lib/settingsTabs";
 
 // The settings gear in the lower-left tools row, and the terminal
 // quick-actions list it opens onto — a YAML string list on disk, one entry
@@ -14,8 +18,7 @@ test("the gear opens settings and the quick-actions list round-trips", async ({ 
   const gear = tools.getByRole("button", { name: "Settings" });
   await expect(gear).toHaveCount(1);
 
-  await gear.click();
-  await expect(page.locator(".settings-sheet")).toBeVisible();
+  await openSettings(page, "terminal");
 
   const actions = page.locator("#set-terminal-actions");
   await expect(actions).toBeVisible();
@@ -28,7 +31,7 @@ test("the gear opens settings and the quick-actions list round-trips", async ({ 
   await page.keyboard.press("Escape");
   await expect(page.locator(".settings-sheet")).toHaveCount(0);
 
-  await gear.click();
+  await openSettings(page, "terminal");
   await expect(page.locator("#set-terminal-actions")).toHaveValue(
     "Sweep inbox: /inbox-sweep\nLog calories: /cal"
   );
@@ -37,8 +40,7 @@ test("the gear opens settings and the quick-actions list round-trips", async ({ 
 test("the terminal dock choice round-trips (SUB-864)", async ({ page }) => {
   // a segmented radiogroup rather than a text box, so it commits on click —
   // there is no blur step to forget
-  const gear = page.locator(".side-tools").getByRole("button", { name: "Settings" });
-  await gear.click();
+  await openSettings(page, "terminal");
 
   const dock = page.locator("#set-terminal-dock");
   await expect(dock).toBeVisible();
@@ -61,7 +63,7 @@ test("the terminal dock choice round-trips (SUB-864)", async ({ page }) => {
   await page.keyboard.press("Escape");
   await expect(page.locator(".settings-sheet")).toHaveCount(0);
 
-  await gear.click();
+  await openSettings(page, "terminal");
   await expect(
     page.locator("#set-terminal-dock").getByRole("radio", { name: "Right" })
   ).toHaveAttribute("aria-checked", "true");
@@ -69,7 +71,7 @@ test("the terminal dock choice round-trips (SUB-864)", async ({ page }) => {
   // and back — picking the default clears the key rather than writing it
   await page.locator("#set-terminal-dock").getByRole("radio", { name: "Bottom" }).click();
   await page.keyboard.press("Escape");
-  await gear.click();
+  await openSettings(page, "terminal");
   await expect(
     page.locator("#set-terminal-dock").getByRole("radio", { name: "Bottom" })
   ).toHaveAttribute("aria-checked", "true");
@@ -91,8 +93,7 @@ test("the terminal-font row warns when the family doesn't resolve (SUB-873)", as
   await page.reload();
   await expect(page.locator(".list-title")).toHaveText("Notes");
 
-  const gear = page.locator(".side-tools").getByRole("button", { name: "Settings" });
-  await gear.click();
+  await openSettings(page, "terminal");
 
   const font = page.locator("#set-terminal-font");
   const warn = page.getByTestId("font-missing");
@@ -122,16 +123,13 @@ test("the terminal-font row warns when the family doesn't resolve (SUB-873)", as
 test("escaping out of the box keeps the edit", async ({ page }) => {
   // the field commits on blur, and Esc unmounts the sheet — so without an
   // explicit blur on the way out the typing is thrown away
-  const tools = page.locator(".side-tools");
-  const gear = tools.getByRole("button", { name: "Settings" });
-
-  await gear.click();
+  await openSettings(page, "terminal");
   const actions = page.locator("#set-terminal-actions");
   await actions.fill("Standup: /standup");
   await page.keyboard.press("Escape");
   await expect(page.locator(".settings-sheet")).toHaveCount(0);
 
-  await gear.click();
+  await openSettings(page, "terminal");
   await expect(page.locator("#set-terminal-actions")).toHaveValue("Standup: /standup");
 
   // same for the backdrop, and for a single-line field
@@ -141,6 +139,64 @@ test("escaping out of the box keeps the edit", async ({ page }) => {
   await page.locator(".overlay").click({ position: { x: 8, y: 400 } });
   await expect(page.locator(".settings-sheet")).toHaveCount(0);
 
-  await gear.click();
+  await openSettings(page, "terminal");
   await expect(page.locator("#set-terminal-cwd")).toHaveValue("/tmp/from-backdrop");
+});
+
+test("the sheet has nothing to the right of itself", async ({ page }) => {
+  // The body scrolls vertically, which makes the horizontal axis scrollable
+  // too — so any control wider than the sheet turns into a slide into empty
+  // space. Nothing in here may be wider than the sheet.
+  await openSettings(page);
+
+  const body = page.locator(".settings-sheet .shortcut-sheet-body");
+  for (const { id } of SETTINGS_TABS) {
+    await settingsTab(page, id);
+    expect(
+      await body.evaluate((el) => el.scrollWidth - el.clientWidth),
+      `the ${id} tab scrolls into empty space`
+    ).toBe(0);
+  }
+});
+
+test("every tab opens at its top, under a heading, and the sheet keeps one height", async ({
+  page,
+}) => {
+  // The polish pass' three invariants. A tab whose first rows sit above its
+  // first section head reads as strays; a tab that opens part-way down its own
+  // list shows the reader the middle of nowhere; and a sheet that resizes per
+  // tab moves the footer under the pointer every time someone picks a tab.
+  //
+  // The walk leaves every tab scrolled to its bottom before moving on, because
+  // that is the ordinary path — most tabs are taller than the frame, so a
+  // reader arrives at the next tab from a scrolled one. Reading the first child
+  // alone would pass with the panel scrolled anywhere; the scroll position is
+  // the assertion with the teeth.
+  await openSettings(page);
+
+  const sheet = page.locator(".settings-sheet");
+  const body = sheet.locator(".shortcut-sheet-body");
+  const heights: number[] = [];
+
+  for (const { id } of SETTINGS_TABS) {
+    await settingsTab(page, id);
+    const opener = await body.evaluate(
+      (el) => (el.firstElementChild as HTMLElement | null)?.className ?? ""
+    );
+    expect(opener, `the ${id} tab opens on something other than a heading`).toMatch(
+      // Experimental's heading is its tab name, so it opens on its caveat
+      /palette-section|settings-experimental-note/
+    );
+    expect(
+      await body.evaluate((el) => el.scrollTop),
+      `the ${id} tab opens part-way down, carrying the last tab's scroll`
+    ).toBe(0);
+    heights.push((await sheet.boundingBox())!.height);
+    // scroll to the bottom, so the next tab is picked from a scrolled tab
+    await body.evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
+  }
+
+  expect(new Set(heights.map(Math.round)).size, `the sheet resizes per tab: ${heights}`).toBe(1);
 });

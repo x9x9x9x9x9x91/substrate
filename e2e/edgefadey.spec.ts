@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { openDb } from "./nav";
+import { openSettings } from "./settings";
 
 // The shared vertical edge fade. One gate — useEdgeFade() plus
 // .edge-fade-y in styles.css — serves every scroller that opts in: a dozen
@@ -24,7 +25,10 @@ async function toBottom(page: Page, sel: string) {
 
 test("settings sheet: fades down, never at the bottom stop", async ({ page }) => {
   await page.goto("/");
-  await page.locator(".side-tools").getByRole("button", { name: "Settings" }).click();
+  // one tab's worth of settings is what scrolls now, so the fade is measured
+  // on the longest of them — Sharing, which carries the outbound switches and
+  // the grant panes under them
+  await openSettings(page, "sharing");
   const body = page.locator(".shortcut-sheet-body");
   await expect(body).toBeVisible();
 
@@ -36,7 +40,7 @@ test("settings sheet: fades down, never at the bottom stop", async ({ page }) =>
   await expect(body).toHaveClass(/edge-more-y/);
   await expect(body).not.toHaveClass(/edge-scrolled-y/);
 
-  // bottom stop: the last row ("Show app files") renders crisp — this is the
+  // bottom stop: the tab's last row renders crisp — this is the
   // Defect itself, where the fade used to be unconditional
   await toBottom(page, ".shortcut-sheet-body");
   await expect(body).not.toHaveClass(/edge-more-y/);

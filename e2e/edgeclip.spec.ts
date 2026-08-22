@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { openDb } from "./nav";
+import { openSettings } from "./settings";
 
 // Evidence + probe run — not a gate.
 //   SHOTS=1 npx playwright test e2e/edgeclip.spec.ts
@@ -30,7 +31,7 @@ test.use({ viewport: { width: 1400, height: 900 } });
 
 test("settings sheet", async ({ page }) => {
   await page.goto("/");
-  await page.locator(".side-tools").getByRole("button", { name: "Settings" }).click();
+  await openSettings(page, "sharing");
   const body = page.locator(".shortcut-sheet-body");
   await expect(body).toBeVisible();
   await page.waitForTimeout(400);
@@ -42,8 +43,8 @@ test("settings sheet", async ({ page }) => {
   const sheet = await page.locator(".shortcut-sheet").boundingBox();
   console.log("SHEET BOX", JSON.stringify(sheet));
 
-  // the acceptance case: scrolled to the last row ("Show app files"), where
-  // the fade used to dissolve the row it was meant to point at
+  // the acceptance case: scrolled to the tab's last row, where the fade used
+  // to dissolve the row it was meant to point at
   await body.evaluate((el) => {
     el.scrollTop = el.scrollHeight;
   });

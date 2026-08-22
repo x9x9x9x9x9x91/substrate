@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { openSettings } from "./settings";
 
 // The three outbound-request switches and the number format row.
 // The switches default ON and are enforced at the call sites that initiate a
@@ -7,11 +8,6 @@ import { expect, test, type Page } from "@playwright/test";
 // the enrichment fetch doesn't. Send as link: the dialog explains the switch
 // instead of offering a send. (fx-rates is enforced in useFx, covered there.)
 
-async function openSettings(page: Page) {
-  await page.locator(".side-tools").getByRole("button", { name: "Settings" }).click();
-  await expect(page.locator(".settings-sheet")).toBeVisible();
-}
-
 async function closeSettings(page: Page) {
   await page.keyboard.press("Escape");
   await expect(page.locator(".settings-sheet")).toHaveCount(0);
@@ -19,7 +15,7 @@ async function closeSettings(page: Page) {
 
 /** flip one `net-*` switch off and leave the sheet */
 async function turnOff(page: Page, key: string) {
-  await openSettings(page);
+  await openSettings(page, "sharing");
   const sw = page.locator(`#set-${key}`);
   await expect(sw).toHaveAttribute("aria-checked", "true"); // default ON
   await sw.click();
@@ -40,7 +36,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("the outbound switches default on, live under one heading, and persist", async ({ page }) => {
-  await openSettings(page);
+  await openSettings(page, "sharing");
 
   // one heading answers "what does this app talk to?" — the three rows sit
   // under it rather than scattered through the form. Counted, not just found:
@@ -57,7 +53,7 @@ test("the outbound switches default on, live under one heading, and persist", as
   await closeSettings(page);
 
   // the write went to Settings.md, not component state
-  await openSettings(page);
+  await openSettings(page, "sharing");
   await expect(page.locator("#set-net-fx-rates")).toHaveAttribute("aria-checked", "false");
   // and the other two are untouched — each row is its own key
   await expect(page.locator("#set-net-link-titles")).toHaveAttribute("aria-checked", "true");
@@ -145,7 +141,7 @@ test("send-as-link off: the dialog names the switch instead of offering a send",
 }) => {
   // configure a relay first, so what closes the dialog is the switch and not
   // the pre-existing unconfigured state
-  await openSettings(page);
+  await openSettings(page, "sharing");
   const relay = page.locator("#set-share-relay-url");
   await relay.fill("https://drop.example.org");
   await relay.blur();
