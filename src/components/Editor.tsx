@@ -1096,7 +1096,8 @@ const listIndentRemeasure = StateEffect.define<null>();
 
 /** The rendered advance of a resting task's CheckboxWidget: 14px border-box
     toggle + 7px margin-right (`.cm-task-toggle`, styles.css) — fixed px, so
-    one constant holds at every font size. */
+    one constant holds at every font size. e2e/listindent.spec.ts measures the
+    rendered toggle and fails if the stylesheet moves out from under it. */
 const TASK_TOGGLE_ADVANCE = 21;
 
 function contentFont(view: EditorView): string {

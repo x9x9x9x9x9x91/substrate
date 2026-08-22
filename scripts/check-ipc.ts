@@ -47,9 +47,24 @@ export function camel(snake: string): string {
  * code, so an `invoke()` inside one is still seen. Rust mode treats `/* … *\/`
  * as nesting (which Rust allows) and blanks char literals (`'"'` would
  * otherwise open a phantom string) while leaving lifetimes (`&'a str`) alone.
+ * Rust raw strings (`r"…"`, `r#"…"#`, `br##"…"##`) are blanked whole: they
+ * carry no escapes, so their text is read to the matching `"` plus the same
+ * run of `#`, never to the first bare `"` inside.
+ *
+ * `label` is the source's path; failures quote it with the line they hit, so
+ * a shape the lexer cannot read points at the code that broke it.
  */
-export function blankNonCode(src: string, mode: "ts" | "rust" = "ts"): string {
+export function blankNonCode(src: string, mode: "ts" | "rust" = "ts", label = ""): string {
   const out = src.split("");
+  /** `file:12: let s = r#"…` — a lexer failure is useless without the line. */
+  const where = (at: number) => {
+    const line = src.slice(0, at).split("\n").length;
+    const start = src.lastIndexOf("\n", at - 1) + 1;
+    const nl = src.indexOf("\n", at);
+    const text = src.slice(start, nl === -1 ? src.length : nl).trim();
+    const head = text.length > 60 ? `${text.slice(0, 60)}…` : text;
+    return `${label ? `${label}:` : "line "}${line}: ${head}`;
+  };
   const blank = (from: number, to: number) => {
     for (let i = from; i < to && i < out.length; i++) if (out[i] !== "\n") out[i] = " ";
   };
@@ -96,10 +111,10 @@ export function blankNonCode(src: string, mode: "ts" | "rust" = "ts"): string {
             if (d === 0) break;
           } else j++;
         }
-        if (d !== 0) throw new Error("unterminated block comment");
+        if (d !== 0) throw new Error(`unterminated block comment opened at ${where(i)}`);
       } else {
         const end = src.indexOf("*/", i + 2);
-        if (end === -1) throw new Error("unterminated block comment");
+        if (end === -1) throw new Error(`unterminated block comment opened at ${where(i)}`);
         j = end + 2;
       }
       blank(i, j);
@@ -126,11 +141,36 @@ export function blankNonCode(src: string, mode: "ts" | "rust" = "ts"): string {
       }
       // lifetime — ordinary code
     }
+    // Rust raw string: `r"…"`, `r#"…"#`, `br##"…"##`. There are no escapes
+    // inside one, so a `"` or a trailing `\` in the text closes nothing — the
+    // generic quote scanner below would stop at the wrong `"` and leave every
+    // later quote in the file paired off by one.
+    if (mode === "rust" && (src[i] === "r" || src[i] === "b") && !/[A-Za-z0-9_]/.test(src[i - 1] ?? "")) {
+      const k = src[i] === "b" ? i + 1 : i;
+      if (src[k] === "r") {
+        let h = k + 1;
+        while (src[h] === "#") h++;
+        if (src[h] === '"') {
+          const closer = `"${"#".repeat(h - k - 1)}`;
+          const body = h + 1;
+          const end = src.indexOf(closer, body);
+          if (end === -1)
+            throw new Error(
+              `unterminated raw string: ${src.slice(i, body)} opened at ${where(i)} — no closing ${closer}`
+            );
+          blank(body, end);
+          prev = '"';
+          i = end + closer.length;
+          continue;
+        }
+      }
+    }
     if (quotes.includes(src[i])) {
       const quote = src[i];
       let j = i + 1;
       while (j < src.length && src[j] !== quote) j += src[j] === "\\" ? 2 : 1;
-      if (j >= src.length) throw new Error(`unterminated ${quote} literal`);
+      if (j >= src.length)
+        throw new Error(`unterminated ${quote} literal opened at ${where(i)}`);
       blank(i + 1, j);
       prev = quote;
       i = j + 1;
@@ -179,7 +219,7 @@ export function blankNonCode(src: string, mode: "ts" | "rust" = "ts"): string {
           break;
         } else j++;
       }
-      if (j >= src.length) throw new Error("unterminated ` literal");
+      if (j >= src.length) throw new Error(`unterminated \` literal opened at ${where(i)}`);
       if (i === j + 2) {
         prev = "{"; // inside a hole: a leading `/` there starts a regex
         continue;
@@ -287,8 +327,8 @@ export interface RustCommand {
 }
 
 /** Command names listed in `generate_handler![…]`, module paths stripped. */
-export function parseHandlerList(libRs: string): string[] {
-  const code = blankNonCode(libRs, "rust");
+export function parseHandlerList(libRs: string, label = "src-tauri/src/lib.rs"): string[] {
+  const code = blankNonCode(libRs, "rust", label);
   const marker = code.indexOf("generate_handler!");
   if (marker === -1) throw new Error("no generate_handler! found in lib.rs");
   const open = code.indexOf("[", marker);
@@ -296,7 +336,7 @@ export function parseHandlerList(libRs: string): string[] {
   const close = matchDelim(code, open);
   const body = libRs.slice(open + 1, close);
   const names: string[] = [];
-  for (const entry of splitTopLevel(blankNonCode(body, "rust"))) {
+  for (const entry of splitTopLevel(blankNonCode(body, "rust", label))) {
     const m = /^(?:[A-Za-z_][A-Za-z0-9_]*::)*([a-z_][a-z0-9_]*)$/.exec(entry);
     if (!m) throw new Error(`unparseable generate_handler! entry: ${JSON.stringify(entry)}`);
     names.push(m[1]);
@@ -312,7 +352,7 @@ export function parseHandlerList(libRs: string): string[] {
  * builds disagree about the wire format and that is itself drift.
  */
 export function parseRustCommands(src: string, label: string): Map<string, RustCommand> {
-  const code = blankNonCode(src, "rust");
+  const code = blankNonCode(src, "rust", label);
   const out = new Map<string, RustCommand>();
   const attr = /#\[tauri::command\]/g;
   let m: RegExpExecArray | null;
@@ -371,7 +411,7 @@ export interface TsInvoke {
  * a spread or a variable is thrown, because its keys can't be verified.
  */
 export function parseTsInvokes(src: string, label: string): TsInvoke[] {
-  const code = blankNonCode(src);
+  const code = blankNonCode(src, "ts", label);
   const out: TsInvoke[] = [];
   // `invoke` / `invoke<T>` / `tauriInvoke`, then `("cmd"` — the command name
   // is read from the ORIGINAL source at the same offset (blanking hollowed it)
@@ -426,7 +466,7 @@ export function parseTsInvokes(src: string, label: string): TsInvoke[] {
 
 /** Commands the mock backend's dispatch switch handles. */
 export function parseMockCases(src: string, label: string): string[] {
-  const code = blankNonCode(src);
+  const code = blankNonCode(src, "ts", label);
   /* Exact name, not a prefix: `function mockDispatch` also matches
      mockDispatchAfterLatency, which is declared first. That only ever worked
      because the wrapper carries no switch of its own — the day it grows one,
@@ -624,7 +664,7 @@ export function collect(): Inventories {
   }
 
   return {
-    rustRegistered: parseHandlerList(libRs),
+    rustRegistered: parseHandlerList(libRs, "src-tauri/src/lib.rs"),
     rustCommands,
     tsInvokes,
     mockCases: parseMockCases(mockTs, "src/lib/tauri.ts"),

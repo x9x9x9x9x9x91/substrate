@@ -78,8 +78,59 @@ test("blankNonCode nests Rust block comments", () => {
   assert.ok(!out.includes("b"));
 });
 
+test("blankNonCode blanks Rust raw strings in every hash form", () => {
+  const src = [
+    'let a = r"plain";',
+    'let b = r#"one # hash"#;',
+    'let c = br##"two ## hashes"##;',
+    'let d = br"bytes";',
+    "fn tail() {}",
+  ].join("\n");
+  const out = blankNonCode(src, "rust");
+  assert.equal(out.length, src.length);
+  for (const text of ["plain", "one # hash", "two ## hashes", "bytes"])
+    assert.ok(!out.includes(text), `${text} is hollowed`);
+  assert.ok(out.includes("fn tail() {}"), "the scanner stays in phase past the raw strings");
+});
+
+test("blankNonCode: a raw string's quotes and backslashes close nothing", () => {
+  // the shape a JSON fixture takes in a Rust test — a bare `"` inside r#"…"#
+  const src = 'let j = r#"{"k": "v\\"}"#;\nfn tail() {}';
+  const out = blankNonCode(src, "rust");
+  assert.ok(!out.includes('"k"'), "the fixture text is hollowed");
+  assert.ok(out.includes("fn tail() {}"), "quote pairing survives the fixture");
+});
+
+test("a raw string's text is never mistaken for a command declaration", () => {
+  const src = ['let doc = r#"', "#[tauri::command]", "fn not_a_command(x: String) {}", '"#;'].join(
+    "\n"
+  );
+  assert.equal(parseRustCommands(src, "fixture.rs").size, 0);
+});
+
+test("`r` as an ordinary identifier does not start a raw string", () => {
+  const src = 'let r = 1;\nlet s = "text";\nfn tail() {}';
+  const out = blankNonCode(src, "rust");
+  assert.ok(out.includes("let r = 1;"));
+  assert.ok(out.includes("fn tail() {}"));
+});
+
 test("blankNonCode throws on an unterminated literal", () => {
   assert.throws(() => blankNonCode('const a = "oops;'), /unterminated/);
+});
+
+test("a lexer failure names the file and line that broke it", () => {
+  // the misleading-error repro: before raw strings were understood, this file
+  // failed with a bare `unterminated " literal` — no file, no line, no cause
+  const src = 'fn a() {}\nlet s = r#"unclosed;\nfn b() {}';
+  assert.throws(
+    () => blankNonCode(src, "rust", "commands/example.rs"),
+    /unterminated raw string: r#" opened at commands\/example\.rs:2: let s = r#"unclosed; — no closing "#/
+  );
+  assert.throws(
+    () => blankNonCode('fn a() {}\nlet s = "unclosed;', "rust", "commands/example.rs"),
+    /unterminated " literal opened at commands\/example\.rs:2:/
+  );
 });
 
 test("matchDelim finds the matching close; unbalanced input throws", () => {

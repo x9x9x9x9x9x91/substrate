@@ -419,13 +419,11 @@ test("the checked-in TS regex carries no flags beyond /g", () => {
   assert.equal(MACHINE_FENCE_RE.flags, "g");
 });
 
-test("a hashed raw string fails loudly rather than being misread", () => {
-  // blankNonCode (shared with check-ipc) knows plain Rust strings only, so
-  // rewriting the regex as r#"…"# stops the checker with a parse error instead
-  // of quietly comparing half a pattern. Loud is the contract; if the Rust side
-  // ever needs the hashed form, teach blankNonCode first.
+test("a hashed raw string is read whole, quotes in the pattern and all", () => {
+  // blankNonCode now lexes r#"…"#, so the hashed form — the one a pattern
+  // containing a bare `"` has to use — is read rather than half-compared.
   const src = 'fn machine_fence_re() {\n    Regex::new(r#"a"b"#).unwrap()\n}';
-  assert.throws(() => parseRustPattern(src, "fake.rs"));
+  assert.equal(parseRustPattern(src, "fake.rs"), 'a"b');
 });
 
 test("parseRustPattern throws rather than guessing", () => {
