@@ -104,18 +104,6 @@ pub(crate) fn build_vault_snapshot(
     build_vault_snapshot_from(hist, point)
 }
 
-/// The same projection addressed by any revspec — a branch name, a tag, a
-/// sha HEAD has since moved off. The scrubber can use the list-and-find form
-/// above because it only ever offers commits on the current line; a change set
-/// projects a base its own branch has already left behind.
-pub(crate) fn build_vault_snapshot_at(
-    hist: &History,
-    spec: &str,
-) -> Result<HistoryVaultSnapshot, String> {
-    let point = hist.point_at(spec)?;
-    build_vault_snapshot_from(hist, point)
-}
-
 fn build_vault_snapshot_from(
     hist: &History,
     point: VaultHistoryPoint,

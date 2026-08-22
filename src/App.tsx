@@ -219,9 +219,8 @@ import AssetsPane from "./components/AssetsPane";
 import ShelfPane from "./components/ShelfPane";
 import Palette, { type StartStage } from "./components/Palette";
 import ShortcutOverlay from "./components/ShortcutOverlay";
-import KeyHints from "./components/KeyHints";
+import KeyHints, { type HoldHudCtx } from "./components/KeyHints";
 import KeyAssignHud from "./components/KeyAssignHud";
-import ModKeyHud, { type ModKeyHudCtx } from "./components/ModKeyHud";
 import InfoView from "./components/InfoView";
 import DonationNag from "./components/DonationNag";
 import TooltipHost from "./components/Tooltip";
@@ -435,7 +434,7 @@ export default function App() {
   const [calNewSeq, setCalNewSeq] = useState(0);
   const { toast, setToast, showToast } = useToast();
   const { zoom, applyZoom } = useZoom(showToast);
-  useUpdater(showToast);
+  const { checkNow: checkUpdates } = useUpdater(showToast);
   useWidgetSummary(indexedNotes, vaultEpoch);
   // Database management: which admin dialog is open (null = none);
   // create's fromSidebar marks the Folders "+" entry point — the new db is
@@ -4622,7 +4621,7 @@ export default function App() {
   /* The hold HUD's context. The dispatcher above builds its ctx per
      keydown, which the HUD can't reuse — a held modifier is a state, not an
      event. `typing` is deliberately absent: it is knowable only at the
-     moment the hold arms, so ModKeyHud samples the live focus itself rather than
+     moment the hold arms, so KeyHints samples the live focus itself rather than
      take a value this memo would serve stale. Overlays suppress the HUD
      outright, so anything they'd add is moot. */
   /* The header chevron's supply. The availability expression is the
@@ -4639,7 +4638,7 @@ export default function App() {
     goBack,
   };
 
-  const hudCtx: ModKeyHudCtx = useMemo(
+  const hudCtx: HoldHudCtx = useMemo(
     () => ({
       view,
       overlay,
@@ -4881,16 +4880,11 @@ export default function App() {
     }
   };
 
-  // The change-set strip is the private surface's, and so is the class that
-  // makes room for it: both leave together.
-  const changeSetClass =
-    "";
-
   return (
     <UndoContext.Provider value={undoApi}>
     <NavContext.Provider value={navApi}>
     <div
-      className={`app${mobile ? " mobile" : ""}${timeTravelOpen ? " time-travel-open" : ""}${timePoint ? " viewing-past" : ""}${changeSetClass}${playing ? " has-player" : ""}`}
+      className={`app${mobile ? " mobile" : ""}${timeTravelOpen ? " time-travel-open" : ""}${timePoint ? " viewing-past" : ""}${playing ? " has-player" : ""}`}
       onPointerDown={onMobilePointerDown}
       onPointerUp={onMobilePointerUp}
       onPointerCancel={() => {
@@ -5661,9 +5655,9 @@ export default function App() {
           onShowSheet={() => setShortcutsOpen(true)}
           canUndo={undoStack.peekUndo(undoState) !== null}
           canRedo={undoStack.peekRedo(undoState) !== null}
-        >
-          <ModKeyHud enabled={modHud} ctx={hudCtx} />
-        </KeyHints>
+          hudEnabled={modHud}
+          hudCtx={hudCtx}
+        />
       )}
       {settingsOpen && (
         <SettingsPane
@@ -5690,6 +5684,7 @@ export default function App() {
           }}
           onRejectVaultSeal={() => removeSealScope("", true)}
           onRemoveVaultSeal={() => removeSealScope("")}
+          onCheckUpdates={checkUpdates}
         />
       )}
       {sealScopeDialog && (

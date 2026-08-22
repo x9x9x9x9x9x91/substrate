@@ -974,10 +974,31 @@ fn push_inner<G>(
 
     let tracking_ref = format!("refs/remotes/{REMOTE}/{branch}");
     let current_ref = transport.read_ref(MAX_REF_ENVELOPE_BYTES)?;
+    // Carried forward by every push, whatever it does: the store is the only
+    // place every device looks, so a boundary dropped by one ordinary push is
+    // a purge that stops holding for everyone.
+    let mut superseded: Vec<Oid> = Vec::new();
     if let Some(remote_ref) = current_ref.as_ref() {
         let document = decrypt_ref(key, &remote_ref.bytes)?;
         require_branch(&branch, &document.branch)?;
         let remote_oid = parse_oid(&document.head)?;
+        superseded = document.superseded_oids()?;
+        // The purge boundary, and the one refusal that has to come before
+        // `diverged` is even consulted. A device that never rewrote anything
+        // but synced before the purge holds the removed note in its own
+        // history, and its push is an ORDINARY fast-forward: the replacement
+        // collapsed the store head onto an ancestor this device already has,
+        // so nothing else here fires — no divergence, no rewrite marker, no
+        // replacement to check. Publishing it would put the purged note back
+        // on the server and, from the next pull, on every device. Refused into
+        // the same pause the replaced-store devices meet, and marked, so the
+        // pane offers the adopt door rather than a refusal with no way out.
+        if replace == Replace::No && crosses_purge_boundary(&repo, &superseded, local_oid) {
+            super::mark_store_replaced(&repo, remote_oid)?;
+            return Err(replaced_store_pause_error(
+                HeldLocally::measure(&repo, remote_oid).ok().as_ref(),
+            ));
+        }
         let diverged = remote_oid != local_oid
             && (repo.find_commit(remote_oid).is_err()
                 || !repo.graph_descendant_of(local_oid, remote_oid).unwrap_or(false));
@@ -1043,6 +1064,12 @@ fn push_inner<G>(
                     }
                 }
             }
+            // Past the guards, so this push is about to publish over
+            // `remote_oid` — the position every device that has not yet
+            // adopted is still standing on, and the head their next push
+            // would fast-forward from. Written down here because the store is
+            // the only thing all of them read.
+            record_purge_boundary(&mut superseded, remote_oid);
         }
     }
 
@@ -1093,7 +1120,12 @@ fn push_inner<G>(
     // — the next push is answered these same names out of the server's own
     // list, and only then are they cached.
 
-    let document = RefDocument { version: 1, branch: branch.clone(), head: local_oid.to_string() };
+    let document = RefDocument {
+        version: if superseded.is_empty() { 1 } else { REF_VERSION_SUPERSEDED },
+        branch: branch.clone(),
+        head: local_oid.to_string(),
+        superseded: superseded.iter().map(|oid| oid.to_string()).collect(),
+    };
     let encrypted_ref = encrypt_ref(key, &document)?;
     let expected = current_ref.as_ref().map(|value| value.version.as_str());
     match transport.compare_and_swap_ref(expected, &encrypted_ref)? {
@@ -1361,6 +1393,7 @@ fn pull_inner<G>(
     let document = decrypt_ref(key, &remote_ref.bytes)?;
     require_branch(&branch, &document.branch)?;
     let remote_oid = parse_oid(&document.head)?;
+    let superseded = document.superseded_oids()?;
 
     // HEAD is re-read after the network leg: the local snapshot thread runs it
     // ahead of the remote constantly during editing, and those ticks bring
@@ -1373,7 +1406,14 @@ fn pull_inner<G>(
         // An unborn HEAD is the first join, which always checks out.
         None => false,
     };
-    if integrated {
+    // A history that still reaches a purge boundary is not integrated with the
+    // store, however far ahead of it this device stands — the store's head is
+    // an ancestor here precisely BECAUSE the purge collapsed it onto one. Left
+    // to the shortcut, the one device whose push is being refused would be told
+    // there is nothing to do: a deadlock with a green tick on it, and no door.
+    let crosses =
+        local_oid.map(|local| crosses_purge_boundary(&repo, &superseded, local)).unwrap_or(false);
+    if integrated && !crosses {
         // A store this device already stands on is not one it can still owe an
         // answer about, so an older refusal's marker goes here too.
         super::clear_store_replaced(&repo)?;
@@ -1404,7 +1444,10 @@ fn pull_inner<G>(
         // pause heals when the store turns ordinary again.
         let pause_stands_on_marker =
             super::store_replaced(&repo) && seen.is_none() && history_rewritten(&repo);
-        if pause_stands_on_marker || store_left_this_device_behind(&repo, seen, remote_oid) {
+        if pause_stands_on_marker
+            || crosses
+            || store_left_this_device_behind(&repo, seen, remote_oid)
+        {
             let held = HeldLocally::measure(&repo, remote_oid)?;
             if consent == AdoptConsent::Withheld && held.anything() {
                 // The tracking ref deliberately stays where it is. Moving it to
@@ -1790,6 +1833,32 @@ fn replaced_store_redo_error() -> String {
         .to_string()
 }
 
+/// Whether this device's history still reaches one of the store's purge
+/// boundaries — the heads a replacing push published over.
+///
+/// Asked of the LOCAL graph, and only of it. A boundary commit the local object
+/// database does not hold is one this device's history cannot reach, which is
+/// the answer; the single way that reads wrong is a repository missing objects
+/// of its own history, where nothing else would be trustworthy either.
+fn crosses_purge_boundary(repo: &Repository, superseded: &[Oid], local_oid: Oid) -> bool {
+    superseded.iter().any(|boundary| {
+        *boundary == local_oid || repo.graph_descendant_of(local_oid, *boundary).unwrap_or(false)
+    })
+}
+
+/// Record a head a replacing push is publishing over, oldest first and each
+/// one once. See [`MAX_SUPERSEDED_HEADS`] for what the cap costs.
+fn record_purge_boundary(superseded: &mut Vec<Oid>, overwritten: Oid) {
+    if superseded.contains(&overwritten) {
+        return;
+    }
+    superseded.push(overwritten);
+    if superseded.len() > MAX_SUPERSEDED_HEADS {
+        let excess = superseded.len() - MAX_SUPERSEDED_HEADS;
+        superseded.drain(..excess);
+    }
+}
+
 fn store_was_replaced(repo: &Repository, seen: Option<Oid>, remote_oid: Oid) -> bool {
     let Some(seen) = seen else {
         // Nothing was ever taken from this store, so there is no position for
@@ -2042,12 +2111,44 @@ fn diverged_key_document_error() -> String {
         .into()
 }
 
+/// The ref version a store carries once it remembers a purge boundary. Written
+/// only when there is a boundary to carry, so a store that was never purged
+/// stays byte-identical to what every earlier build wrote and reads; one that
+/// has been purged tells those builds its version is unsupported rather than
+/// letting them push the purged history back over it.
+const REF_VERSION_SUPERSEDED: u8 = 2;
+
+/// How many purge boundaries a store remembers. The ref envelope is capped at
+/// [`MAX_REF_ENVELOPE_BYTES`] and each boundary costs 43 bytes of it, so the
+/// list cannot grow without end. Trimming the oldest is what that costs: a
+/// device stranded from before the 33rd purge in a vault's life is no longer
+/// recognised as stranded, and its push republishes what that purge removed.
+const MAX_SUPERSEDED_HEADS: usize = 32;
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RefDocument {
     version: u8,
     branch: String,
     head: String,
+    /// The heads a replacing push published OVER, oldest first — this store's
+    /// purge boundaries. A device whose own history still reaches one of them
+    /// holds the pre-purge copy, whatever its position relative to the current
+    /// head, and its push has to be refused rather than fast-forwarded.
+    ///
+    /// Skipped when empty, so a store that was never purged writes the same
+    /// document it always did.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    superseded: Vec<String>,
+}
+
+impl RefDocument {
+    /// The boundaries as ids. A head that will not parse is a corrupt ref, not
+    /// an empty boundary list: answering "no boundary" there would let the
+    /// next ordinary push undo the purge.
+    fn superseded_oids(&self) -> Result<Vec<Oid>, String> {
+        self.superseded.iter().map(|head| parse_oid(head)).collect()
+    }
 }
 
 struct PlainObject {
@@ -2131,10 +2232,26 @@ fn decrypt_ref(key: &MasterKey, envelope: &[u8]) -> Result<RefDocument, String> 
         return Err("hosted sync ref exceeds the prototype size limit".into());
     }
     let plaintext = decrypt_envelope(REF_MAGIC, key, REF_KEY_INFO, REF_AAD, envelope)?;
+    // Version before shape. The document is strict about unknown fields, so a
+    // ref written by a newer build fails the full parse first and would arrive
+    // as "invalid payload" — the one message that reads like corruption when
+    // the truth is simply an older reader.
+    #[derive(Deserialize)]
+    struct RefVersion {
+        version: u8,
+    }
+    let stamped: RefVersion = serde_json::from_slice(&plaintext)
+        .map_err(|_| "hosted sync ref has an invalid payload".to_string())?;
+    if stamped.version != 1 && stamped.version != REF_VERSION_SUPERSEDED {
+        return Err(format!("hosted sync ref version {} is unsupported", stamped.version));
+    }
     let document: RefDocument = serde_json::from_slice(&plaintext)
         .map_err(|_| "hosted sync ref has an invalid payload".to_string())?;
-    if document.version != 1 {
-        return Err(format!("hosted sync ref version {} is unsupported", document.version));
+    // Boundaries under a v1 stamp are a ref that contradicts itself: the stamp
+    // says "any build may push to me", the contents say a purge has to hold.
+    // Refuse it rather than pick the half that loses the purge.
+    if document.version == 1 && !document.superseded.is_empty() {
+        return Err("hosted sync ref has an invalid payload".into());
     }
     parse_oid(&document.head)?;
     Ok(document)
@@ -2477,7 +2594,12 @@ mod tests {
     }
 
     fn publish_test_ref(store: &FileBlobStore, key: &MasterKey, head: Oid) {
-        let document = RefDocument { version: 1, branch: "main".into(), head: head.to_string() };
+        let document = RefDocument {
+            version: 1,
+            branch: "main".into(),
+            head: head.to_string(),
+            superseded: Vec::new(),
+        };
         let envelope = encrypt_ref(key, &document).unwrap();
         assert!(matches!(
             store.compare_and_swap_ref(None, &envelope).unwrap(),
@@ -2949,6 +3071,171 @@ mod tests {
         );
         assert!(b.join("After.md").is_file(), "the second device never adopted the new history");
         assert!(!b.join("Secret.md").exists(), "the purged note came back to the second device");
+    }
+
+    /// The purge-vs-plain-push leg: a device that never rewrote anything, whose
+    /// history simply CONTAINS the purged note, pushing an ordinary
+    /// fast-forward. The purge removed a note added in the last commit, so the
+    /// rewrite collapsed the head onto a commit that device already holds —
+    /// which is what makes its push a fast-forward, and what made the purged
+    /// note come back to the server and from there to every device.
+    #[test]
+    fn a_purge_holds_against_an_ordinary_push_from_a_device_that_never_rewrote() {
+        let scratch = TempDir::new().unwrap();
+        let a = scratch.path().join("vault-a");
+        let b = scratch.path().join("vault-b");
+        let c = scratch.path().join("vault-c");
+        let history_a = vault(&a);
+        let history_b = vault(&b);
+        let _history_c = vault(&c);
+        let store = FileBlobStore::new(scratch.path().join("blob-store")).unwrap();
+        let key = MasterKey::from_bytes([29; 32]);
+        let head_of =
+            |root: &Path| Repository::open(root).unwrap().head().unwrap().target().unwrap();
+        let store_head = || {
+            let bytes = store.read_ref(MAX_REF_ENVELOPE_BYTES).unwrap().unwrap().bytes;
+            decrypt_ref(&key, &bytes).unwrap()
+        };
+
+        write_note(&a, "Keep.md", "keep me\n");
+        history_a.snapshot("keep").unwrap();
+        push(&a, &key, &store, || ()).unwrap();
+        let kept = head_of(&a);
+
+        write_note(&a, "Secret.md", "erase me everywhere\n");
+        history_a.snapshot("secret").unwrap();
+        push(&a, &key, &store, || ()).unwrap();
+        let secret_head = head_of(&a);
+
+        // The second device syncs BEFORE the purge and then keeps working. It
+        // rewrites nothing and races nothing: it is simply a device that was
+        // up to date at the wrong moment.
+        pull(&b, &key, &store, || ()).unwrap();
+        assert!(b.join("Secret.md").is_file(), "the fixture never gave device B the note");
+        write_note(&b, "Later.md", "written on b after the sync\n");
+        history_b.snapshot("later").unwrap();
+        assert!(
+            Repository::open(&b).unwrap().graph_descendant_of(head_of(&b), secret_head).unwrap(),
+            "the fixture is not the ancestor-head shape: B does not build on the purged commit"
+        );
+
+        // The purge takes out a note the LAST commit added, so the rewrite has
+        // nothing to reissue and the head lands back on the commit before it —
+        // one every other device already holds.
+        fs::remove_file(a.join("Secret.md")).unwrap();
+        history_a.purge_files(&["Secret.md"]).unwrap();
+        assert_eq!(head_of(&a), kept, "the fixture is not the ancestor-head shape");
+        push_replacing_remote(&a, &key, &store, || ()).unwrap();
+        assert_eq!(store_head().head, kept.to_string());
+        assert_eq!(
+            store_head().superseded,
+            vec![secret_head.to_string()],
+            "the store forgot which head the purge published over"
+        );
+
+        // Device B's push is an ordinary fast-forward — the store's head is an
+        // ancestor of its own — and this is the leg that used to republish the
+        // purged note to the server and every device.
+        let refused = push(&b, &key, &store, || ()).unwrap_err();
+        assert!(refused.contains("rewrote this vault's history"), "{refused}");
+        assert!(refused.contains("Vault sync pane"), "the refusal named no way out: {refused}");
+        assert_eq!(
+            store_head().head,
+            kept.to_string(),
+            "the refused push published device B's head over the purge"
+        );
+
+        // What "never reaches the store" means for a store that never deletes
+        // an object: nothing reachable from its head carries the note, so a
+        // device joining now is handed the purged history, not the old one.
+        pull(&c, &key, &store, || ()).unwrap();
+        assert!(!c.join("Secret.md").exists(), "the purged note reached a fresh device");
+        assert!(c.join("Keep.md").is_file(), "the fresh device got no vault at all");
+
+        // And B is not told everything is fine. Its pull is the door: the
+        // store's head being an ancestor of B's is exactly what the purge did,
+        // so "already integrated" would leave B refused forever with nothing
+        // to press.
+        let paused = pull(&b, &key, &store, || ()).unwrap_err();
+        assert!(paused.contains("rewrote this vault's history"), "{paused}");
+        assert!(paused.contains("snapshots taken here"), "the pause named no cost: {paused}");
+        assert!(b.join("Secret.md").is_file(), "the refusal already moved device B");
+
+        // Asked and answered, B adopts the purged history and syncs on.
+        pull_adopting_replaced(&b, &key, &store, || ()).unwrap();
+        assert!(!b.join("Secret.md").exists(), "the purged note survived the adopt on device B");
+        assert!(b.join("Keep.md").is_file(), "the adopt left device B without the vault");
+        write_note(&b, "AfterAdopt.md", "written after the adopt\n");
+        history_b.snapshot("after adopt").unwrap();
+        push(&b, &key, &store, || ()).unwrap();
+        assert_eq!(store_head().head, head_of(&b).to_string());
+        assert_eq!(
+            store_head().superseded,
+            vec![secret_head.to_string()],
+            "an ordinary push dropped the boundary, so the purge stops holding for everyone else"
+        );
+    }
+
+    /// The other half of the boundary: it must cost an ordinary offline device
+    /// nothing. This one was away while the store moved on past a purge, so it
+    /// is BEHIND the head and its history runs through the replacement — the
+    /// shape a fast-forward refusal would break if it asked the wrong question.
+    #[test]
+    fn an_offline_device_catches_up_and_pushes_across_a_purge_boundary() {
+        let scratch = TempDir::new().unwrap();
+        let a = scratch.path().join("vault-a");
+        let d = scratch.path().join("vault-d");
+        let history_a = vault(&a);
+        let history_d = vault(&d);
+        let store = FileBlobStore::new(scratch.path().join("blob-store")).unwrap();
+        let key = MasterKey::from_bytes([31; 32]);
+        let head_of =
+            |root: &Path| Repository::open(root).unwrap().head().unwrap().target().unwrap();
+        let store_head = || {
+            let bytes = store.read_ref(MAX_REF_ENVELOPE_BYTES).unwrap().unwrap().bytes;
+            decrypt_ref(&key, &bytes).unwrap()
+        };
+
+        write_note(&a, "Keep.md", "keep me\n");
+        history_a.snapshot("keep").unwrap();
+        push(&a, &key, &store, || ()).unwrap();
+        write_note(&a, "Secret.md", "erase me everywhere\n");
+        history_a.snapshot("secret").unwrap();
+        push(&a, &key, &store, || ()).unwrap();
+        let secret_head = head_of(&a);
+        fs::remove_file(a.join("Secret.md")).unwrap();
+        history_a.purge_files(&["Secret.md"]).unwrap();
+        push_replacing_remote(&a, &key, &store, || ()).unwrap();
+        assert_eq!(store_head().superseded, vec![secret_head.to_string()]);
+
+        // This device joins the store as it is after the purge, then goes away.
+        pull(&d, &key, &store, || ()).unwrap();
+        assert!(!d.join("Secret.md").exists());
+        let joined = head_of(&d);
+
+        // The store moves on twice without it.
+        write_note(&a, "One.md", "one\n");
+        history_a.snapshot("one").unwrap();
+        push(&a, &key, &store, || ()).unwrap();
+        write_note(&a, "Two.md", "two\n");
+        history_a.snapshot("two").unwrap();
+        push(&a, &key, &store, || ()).unwrap();
+        assert_ne!(store_head().head, joined.to_string(), "the fixture left the device behind");
+
+        // Coming back is ordinary: it catches up, and what it wrote while away
+        // pushes with no refusal, no pause and no adopt.
+        write_note(&d, "Away.md", "written while offline\n");
+        history_d.snapshot("away").unwrap();
+        pull(&d, &key, &store, || ()).unwrap();
+        assert!(d.join("Two.md").is_file(), "the catch-up brought nothing back");
+        push(&d, &key, &store, || ()).unwrap();
+        assert_eq!(store_head().head, head_of(&d).to_string());
+        assert_eq!(
+            store_head().superseded,
+            vec![secret_head.to_string()],
+            "the catch-up push dropped the boundary"
+        );
+        assert!(!d.join("Secret.md").exists(), "the purged note came back through the catch-up");
     }
 
     /// What the pause is priced against: the replacement head, and nothing

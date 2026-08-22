@@ -282,15 +282,6 @@ impl History {
         crate::githist::history_snapshot_files(&self.root, id)
     }
 
-    /// One snapshot addressed by any revspec, not just by position on the
-    /// current line. libgit2 on both platforms, like `snapshot_files`.
-    pub fn point_at(&self, spec: &str) -> Result<VaultHistoryPoint, String> {
-        if !self.enabled {
-            return Err(FOREIGN_MSG.into());
-        }
-        crate::githist::history_point_at(&self.root, spec)
-    }
-
     /// Every change of one frontmatter fact, oldest first, with the boundary
     /// before which this vault can say nothing (docs/time-travel-spec.md §5).
     /// Like `snapshot_files`, libgit2 serves this on desktop and mobile alike:

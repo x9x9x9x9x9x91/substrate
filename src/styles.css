@@ -14720,6 +14720,10 @@ span.asset-thumb svg {
    engine the app ships in. */
 .cal-weekdays.week {
   overflow-y: scroll;
+  /* overflow-y alone computes the other axis to auto, so the header could
+     grow a horizontal bar of its own the grid below never shows. It has
+     nothing to scroll sideways to — the columns are the pane's width. */
+  overflow-x: hidden;
 }
 
 /* the all-day strip: sizes to its tallest cell's cards, capped so a loaded
@@ -15022,6 +15026,21 @@ span.asset-thumb svg {
 .cal-day.focused {
   background: var(--hover);
   box-shadow: inset 0 2px 0 var(--border-strong);
+}
+
+/* Keyboard focus in the month grid: the day-number button is the day's
+   tab stop, so the cell it names wears the accent ring on its behalf — the
+   same treatment the week column takes via :focus-visible, and the same trade
+   the property rows make (the inner control drops its outline, the container
+   rings). Inset because the cell clips its overflow and has no room to bleed.
+   The quiet .focused top mark is a different fact — which day the shortcuts
+   act on — and stays for every day that is not the one holding DOM focus. */
+.cal-grid.month .cal-daynum:focus-visible {
+  outline: none;
+}
+
+.cal-grid.month .cal-day:has(> .cal-daynum:focus-visible) {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
 }
 
 /* drag hover on a cell: the hover wash plus one accent hairline, so the

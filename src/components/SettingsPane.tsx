@@ -16,6 +16,8 @@ import {
   voiceSupported,
 } from "../lib/ipc";
 import type { VoiceModelState } from "../lib/ipc";
+import { CHANGELOG } from "../lib/changelog";
+import type { UpdateCheck } from "../hooks/useUpdater";
 import RecallSettings from "./RecallSettings";
 import ReflexesSettings from "./ReflexesSettings";
 import { normalizeNumberInput } from "../lib/aggregate";
@@ -174,6 +176,72 @@ function VoiceModelRow({ onToast }: { onToast: (msg: string) => void }) {
   );
 }
 
+/** Which build this is, and a way to ask the release feed whether it is still
+    the newest one.
+
+    The app already looks on its own every twelve hours and says nothing when
+    it finds nothing — which is indistinguishable, from the outside, from an
+    updater that is broken or a feed that was never published. This row is the
+    question asked out loud: the same check, with all three of its answers
+    written down. Finding something hands straight over to the standing
+    Install offer; it never installs anything by itself. */
+function AboutRow({ onCheckUpdates }: { onCheckUpdates: () => Promise<UpdateCheck> }) {
+  const [asking, setAsking] = useState(false);
+  const [answer, setAnswer] = useState<UpdateCheck | null>(null);
+  const live = useRef(true);
+  useEffect(() => {
+    live.current = true;
+    return () => {
+      live.current = false;
+    };
+  }, []);
+
+  const version = CHANGELOG[0]?.version ?? "";
+  return (
+    <>
+      <div className="palette-section">About</div>
+      <div className="settings-row" data-testid="about-row">
+        <div className="settings-row-text">
+          <div className="settings-label">{version ? `Substrate ${version}` : "Substrate"}</div>
+          <div className="settings-hint" data-testid="update-status">
+            {answer === null
+              ? "the app looks for a new release on its own every few hours; this asks now"
+              : answer.state === "current"
+              ? "up to date"
+              : answer.state === "unreachable"
+              ? "couldn't reach the update feed — no answer from the release server"
+              : answer.stage === "ready"
+              ? `Substrate ${answer.version} is installed — restart to finish`
+              : answer.stage === "downloading"
+              ? `Substrate ${answer.version} is downloading — its progress is at the bottom of the window`
+              : `Substrate ${answer.version} is available — install it from the offer at the bottom of the window`}
+          </div>
+        </div>
+        <button
+          className="settings-raw"
+          data-testid="check-updates"
+          disabled={asking}
+          onClick={() => {
+            setAsking(true);
+            // the check answers for every outcome it has, including the
+            // failures, so there is no rejection left to leave the button
+            // spinning — the catch is the belt to that braces
+            onCheckUpdates()
+              .catch((): UpdateCheck => ({ state: "unreachable" }))
+              .then((result) => {
+                if (!live.current) return;
+                setAnswer(result);
+                setAsking(false);
+              });
+          }}
+        >
+          {asking ? "checking…" : "check for updates"}
+        </button>
+      </div>
+    </>
+  );
+}
+
 interface SettingsPaneProps {
   onClose: () => void;
   onEditRaw: () => void;
@@ -190,6 +258,9 @@ interface SettingsPaneProps {
   onConfirmVaultSeal: () => void;
   onRejectVaultSeal: () => void;
   onRemoveVaultSeal: () => void;
+  /** Ask the release feed, once, on this click — the same check the app runs
+      on its own, so a find lands in the standing Install offer. */
+  onCheckUpdates: () => Promise<UpdateCheck>;
 }
 
 interface Field {
@@ -771,6 +842,7 @@ export default function SettingsPane({
   onConfirmVaultSeal,
   onRejectVaultSeal,
   onRemoveVaultSeal,
+  onCheckUpdates,
 }: SettingsPaneProps) {
   const undo = useUndo();
   const [values, setValues] = useState<Record<string, string> | null>(null);
@@ -1526,6 +1598,9 @@ export default function SettingsPane({
               says which chord records, the next whether anything can
               transcribe what it records */}
           {tab === "general" && values && <VoiceModelRow onToast={onToast} />}
+          {/* last on the tab: which build this is, and the one question about
+              it the app otherwise only ever answers unprompted */}
+          {tab === "general" && <AboutRow onCheckUpdates={onCheckUpdates} />}
           {/* a plain layout preference, so it sits with the other
               preferences rather than below the consequential switches */}
           {tab === "appearance" && <CalendarSettings />}
