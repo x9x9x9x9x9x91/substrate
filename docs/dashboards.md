@@ -24,10 +24,14 @@ vault it opens, which you don't want inside this repo.)
 
 These read only the vault. They work anywhere.
 
-`metrics`, `charts` and `hub` also leave the app: the head's **Print** action
-prints the live pane as designed — a workbook's *active* page, not
-every page — through the same `@media print` surface notes use (Save as PDF
-lives in the dialog). The machine-specific kinds stay screen-only.
+`metrics`, `charts`, `hub` and `heatmap` also leave the app: the head's
+**Print** action prints the live pane as designed — a workbook's *active* page,
+not every page — through the same `@media print` surface notes use (Save as PDF
+lives in the dialog). The rest stay screen-only: `grid` and `calendar` carried
+the action once and lost it, because a tile grid collapses to a stack on paper
+and a month grid loses its last columns — they can re-earn it. The
+machine-specific kinds never had it, `tax` excepted (it is built to be handed
+over on paper).
 
 
 ### `metrics` — stat cards over a sheet
