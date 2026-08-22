@@ -7,7 +7,7 @@
 # docs-only branch cannot break anything the suite measures (the prose-only
 # exception already lets those ride the train). This script generalizes it into a
 # diff→gates mapping, so a branch pays for the suites it can plausibly have
-# broken and nothing else. The merge train's union run still covers all six
+# broken and nothing else. The merge train's union run still covers all seven
 # gates before main moves — nothing lands ungated.
 #
 # Usage (from the worktree being gated):
@@ -18,12 +18,15 @@
 #   scripts/branch-gates.sh --detach --no-wait # unknown flags pass through to the runner
 #
 # Tiers (first match wins per file; the run is the union over all files, and
-# any full-tier file forces all six):
+# any full-tier file forces all seven):
 #   docs/**, site/**, root-level *.md   none            inert prose rides the merge train
 #   gate/build config (see full list)   full            these shape every gate's meaning
-#   src-tauri/**                        cargo,ios,test  `test` kept: the TS↔Rust contract
+#   src-tauri/**                        cargo,ios,test,macsmoke
+#                                                       `test` kept: the TS↔Rust contract
 #                                                       tests (check-ipc and friends) live
-#                                                       there; e2e skipped — it drives the
+#                                                       there; macsmoke: only Rust diffs can
+#                                                       break the cfg(macos) build it
+#                                                       certifies; e2e skipped — it drives the
 #                                                       vite mock frontend, so no Rust is in
 #                                                       that loop at all
 #   e2e/**, playwright.config.*         e2e,lint        specs are outside tsc's include
@@ -49,8 +52,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib/checkout-guard.sh"
 guard_checkout_freshness branch-gates.sh
 
-# Canonical gate order (verify-gates.sh): tsc, test, cargo, ios, e2e, lint.
-ALL_GATES="tsc test cargo ios e2e lint"
+# Canonical gate order (verify-gates.sh): tsc, test, cargo, ios, e2e, lint, macsmoke.
+ALL_GATES="tsc test cargo ios e2e lint macsmoke"
 
 gates_for() { # path -> "none" | "full" | space-separated gate names
   local p="$1"
@@ -74,7 +77,7 @@ gates_for() { # path -> "none" | "full" | space-separated gate names
       echo full; return ;;
   esac
   case "$p" in
-    src-tauri/*)                echo "cargo ios test" ;;
+    src-tauri/*)                echo "cargo ios test macsmoke" ;;
     e2e/*|playwright.config.*)  echo "e2e lint" ;;
     src/*)                      echo "tsc test cargo e2e lint" ;;
     scripts/*)                  echo "tsc test lint" ;;
@@ -114,7 +117,7 @@ fi
 
 # Union the per-file tiers. Plain flag variables, not associative arrays —
 # the rigs' /bin/bash is 3.2.
-w_tsc=0; w_test=0; w_cargo=0; w_ios=0; w_e2e=0; w_lint=0
+w_tsc=0; w_test=0; w_cargo=0; w_ios=0; w_e2e=0; w_lint=0; w_macsmoke=0
 FULL=0
 for f in "${FILES[@]}"; do
   tier="$(gates_for "$f")"

@@ -18,7 +18,7 @@ function gatesFor(...files: string[]): string {
   return line.replace("branch-gates: gates = ", "").trim();
 }
 
-const FULL = "tsc,test,cargo,ios,e2e,lint";
+const FULL = "tsc,test,cargo,ios,e2e,lint,macsmoke";
 
 test("docs and site prose ride the merge train", () => {
   const verdict = gatesFor("README.md", "docs/publish.md", "site/index.html");
@@ -32,8 +32,8 @@ test("a src diff runs the TS-facing gates plus cargo (a Rust test reads src/)", 
   assert.equal(gatesFor("src/lib/kinds.ts"), "tsc,test,cargo,e2e,lint");
 });
 
-test("a Rust diff runs cargo+ios and keeps `test` for the TS↔Rust contract suites", () => {
-  assert.equal(gatesFor("src-tauri/src/commands/voice.rs"), "test,cargo,ios");
+test("a Rust diff runs cargo+ios+macsmoke and keeps `test` for the TS↔Rust contract suites", () => {
+  assert.equal(gatesFor("src-tauri/src/commands/voice.rs"), "test,cargo,ios,macsmoke");
 });
 
 test("a scripts diff runs tsc/test/lint (tsconfig includes scripts/)", () => {
@@ -45,14 +45,14 @@ test("an e2e spec runs e2e+lint — specs sit outside tsc's include", () => {
   assert.equal(gatesFor("playwright.config.ts"), "e2e,lint");
 });
 
-test("tiers union across files; src + Rust together is the full six", () => {
+test("tiers union across files; src + Rust together is the full seven", () => {
   assert.equal(gatesFor("src/lib/query.ts", "src-tauri/src/lib.rs"), FULL);
 });
 
 test("markdown that is DATA classifies by its tree, not as prose", () => {
   // The seeded vault is include_str!'d and asserted by Rust tests...
-  assert.equal(gatesFor("src-tauri/src/seed/welcome.md"), "test,cargo,ios");
-  assert.equal(gatesFor("src-tauri/src/seed/revisions/AGENTS.md"), "test,cargo,ios");
+  assert.equal(gatesFor("src-tauri/src/seed/welcome.md"), "test,cargo,ios,macsmoke");
+  assert.equal(gatesFor("src-tauri/src/seed/revisions/AGENTS.md"), "test,cargo,ios,macsmoke");
   // ...the cookbook tree is walked by scripts/cookbook.test.ts...
   assert.equal(gatesFor("cookbook/recipes/x.md"), "test");
   assert.equal(gatesFor("cookbook/index.json"), "test");
@@ -73,7 +73,7 @@ test("docs files add nothing to a code diff's subset", () => {
   assert.equal(gatesFor("README.md", "scripts/append-row.ts"), "tsc,test,lint");
 });
 
-test("build config and gate infrastructure force the full six", () => {
+test("build config and gate infrastructure force the full seven", () => {
   for (const f of [
     "package.json",
     "tsconfig.json",
@@ -89,7 +89,7 @@ test("build config and gate infrastructure force the full six", () => {
   }
 });
 
-test("an unclassifiable path is conservative: full six", () => {
+test("an unclassifiable path is conservative: full seven", () => {
   assert.equal(gatesFor("rust-toolchain.toml"), FULL);
   assert.equal(gatesFor("design/options/sketch.md"), FULL);
 });

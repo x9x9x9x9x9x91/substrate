@@ -7,11 +7,11 @@
 # one command, so the verdict step starts from observed numbers.
 #
 # Run from the worktree whose branch you are adjudicating (any cwd inside it):
-#   scripts/verify-gates.sh                    # all six gates
+#   scripts/verify-gates.sh                    # all seven gates
 #   scripts/verify-gates.sh --only tsc,lint    # subset while iterating
 #   scripts/verify-gates.sh --ref <commit>     # assert HEAD == the claimed commit
 #
-# Gates (AGENTS.md merge rules): tsc, test, cargo, ios, e2e, lint.
+# Gates (AGENTS.md merge rules): tsc, test, cargo, ios, e2e, lint, macsmoke.
 #
 # The `ios` leg is a cross-compile CHECK (`cargo check --target
 # aarch64-apple-ios --lib`) — no linking, no signing, no simulator. It exists
@@ -44,7 +44,7 @@ cd "$ROOT"
 . "$ROOT/scripts/lib/cargo-target.sh"
 substrate_use_shared_cargo_target
 
-ONLY="tsc,test,cargo,ios,e2e,lint"
+ONLY="tsc,test,cargo,ios,e2e,lint,macsmoke"
 REF=""
 ORIG_ARGS=("$@")
 while [[ $# -gt 0 ]]; do
@@ -53,14 +53,14 @@ while [[ $# -gt 0 ]]; do
             ONLY="$2"; shift 2 ;;
     --ref)  [[ $# -ge 2 ]] || { echo "verify-gates: --ref needs a value" >&2; exit 2; }
             REF="$2"; shift 2 ;;
-    *) echo "verify-gates: unknown arg '$1' (flags: --only tsc,test,cargo,ios,e2e,lint --ref <commit>)" >&2
+    *) echo "verify-gates: unknown arg '$1' (flags: --only tsc,test,cargo,ios,e2e,lint,macsmoke --ref <commit>)" >&2
        exit 2 ;;
   esac
 done
 
 for g in ${ONLY//,/ }; do
-  case "$g" in tsc|test|cargo|ios|e2e|lint) ;; *)
-    echo "verify-gates: unknown gate '$g' (valid: tsc,test,cargo,ios,e2e,lint)" >&2; exit 2 ;;
+  case "$g" in tsc|test|cargo|ios|e2e|lint|macsmoke) ;; *)
+    echo "verify-gates: unknown gate '$g' (valid: tsc,test,cargo,ios,e2e,lint,macsmoke)" >&2; exit 2 ;;
   esac
 done
 
@@ -160,6 +160,22 @@ print_failure_detail() { # name, log
       # playwright's numbered failure list: "  1) [chromium] › e2e/x.spec.ts:12:3 › Suite › name ───"
       names=$(grep -E "^[[:space:]]+[0-9]+\) " "$log" | sed 's/[[:space:]]*─*[[:space:]]*$//')
       first=$(grep -m1 -E "^[[:space:]]+(Error:|expect\()" "$log") ;;
+    macsmoke)
+      # Three red shapes: the wrong-host refusal (its one CLASS line is the
+      # whole story), a compile error from the all-targets check, or mac test
+      # failures — the last two are the cargo leg's shapes exactly.
+      if grep -q "^verify-gates: macsmoke CLASS" "$log"; then
+        names=$(grep "^verify-gates: macsmoke CLASS" "$log")
+      elif grep -q "^failures:$" "$log"; then
+        names=$(awk '/^failures:$/ { buf = ""; next }
+                     /^[[:space:]]+[A-Za-z_]/ { buf = buf $0 "\n" }
+                     END { printf "%s", buf }' "$log")
+        first=$(grep -m1 "panicked at" "$log")
+      else
+        names=$(grep -E "^error(\[E[0-9]+\])?:" "$log")
+        first=$(awk '/^error(\[E[0-9]+\])?:/ { on = 1 }
+                     on && /^ +--> / { print; exit }' "$log")
+      fi ;;
     lint)
       # eslint stacks "path" then "  L:C  error  msg  rule"; rejoin them so a
       # name is diagnosable on its own line.
@@ -218,6 +234,18 @@ run_gate() { # name, command...
     lint)
       summary=$([[ $rc -eq 0 ]] && echo "clean" || grep "✖" "$log" | tail -1)
       summary=${summary:-"exit $rc (see log)"} ;;
+    macsmoke)
+      if grep -q "^verify-gates: macsmoke CLASS" "$log"; then
+        summary="needs a Darwin host — see detail"
+      elif grep -q "^test result:" "$log"; then
+        summary=$(grep "^test result:" "$log" | sed 's/^test result: //' | paste -sd '; ' -)
+        summary="mac check --all-targets + $summary"
+      elif [[ $rc -eq 0 ]]; then
+        summary="mac check --all-targets clean; test half = cargo leg on this host"
+      else
+        local merrs; merrs=$(grep -cE "^error(\[E[0-9]+\])?:" "$log" || true)
+        summary="$merrs macOS compile errors"
+      fi ;;
   esac
   NAMES+=("$name"); TIMES+=("$((end - start))s"); SUMMARIES+=("$summary")
   if [[ $rc -eq 0 ]]; then
@@ -275,6 +303,37 @@ ios_check() {
   cargo check --target "$IOS_TARGET" --lib --manifest-path src-tauri/Cargo.toml
 }
 
+# The macsmoke leg: the per-merge proof that the macOS build still
+# compiles and its tests still pass. The cargo leg answers that only for
+# whatever host it ran on, and the fleet has Linux hosts (px1) — on Linux,
+# every `cfg(target_os = "macos")` module (panel, tray, voice, sealed, ocr,
+# mcpdoor…) simply does not compile, so its code AND its tests are invisible
+# to a green cargo leg there. Same philosophy as the ios leg: on the wrong
+# host class this FAILS with the reason, never skips — a skip would read as
+# green on a run that certified nothing about the Mac binary.
+#
+# Two parts, sized for the per-merge budget (~5 min; measured ~1–3 min warm
+# on an M4):
+#   1. `cargo check --all-targets` — compiles lib, binaries and every test
+#      target with the mac cfg on, which is the half the ios leg's lesson
+#      says otherwise stays unchecked.
+#   2. `cargo test --lib` — but only when the `cargo` leg is NOT in this same
+#      battery: one battery is one host, so when both legs run here the cargo
+#      leg IS the mac test pass and repeating it would double the wall-clock
+#      for no new evidence. The full mac e2e/build/proof sweep is the nightly
+#      pass (scripts/nightly-mac-pass.sh), not this leg.
+macsmoke_check() {
+  if [[ "$(uname -s)" != "Darwin" ]]; then
+    echo "verify-gates: macsmoke CLASS — this leg certifies the macOS build (cfg(target_os=\"macos\") code and its tests) and needs a Darwin host; a green here on Linux would be exactly the blindness the leg exists to close"
+    return 1
+  fi
+  cargo check --all-targets --manifest-path src-tauri/Cargo.toml || return 1
+  case ",$ONLY," in
+    *,cargo,*) return 0 ;;
+  esac
+  cargo test --lib --manifest-path src-tauri/Cargo.toml
+}
+
 for g in ${ONLY//,/ }; do
   case "$g" in
     tsc)   run_gate tsc   npx tsc --noEmit ;;
@@ -283,6 +342,7 @@ for g in ${ONLY//,/ }; do
     ios)   run_gate ios   ios_check ;;
     e2e)   run_gate e2e   npm run e2e ;;
     lint)  run_gate lint  npm run lint ;;
+    macsmoke) run_gate macsmoke macsmoke_check ;;
   esac
 done
 

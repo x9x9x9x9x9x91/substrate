@@ -148,6 +148,11 @@ Ad-hoc, never committed as baselines. This is the `SHOTS=1` family of specs
 (`e2e/*shots.spec.ts`) writing evidence images, plus screenshots taken from the
 real app, plus live walkthroughs.
 
+This tier also has a standing vehicle: `e2e/macproofs.spec.ts`
+(opt-in, `MAC_PROOFS=1`) captures the same ten core surfaces the Tier 1
+baselines gate on, on a macOS host.
+
+
 Two jobs:
 
 1. **Owner-facing pixel proofs.** Anything shown to judge a design decision has

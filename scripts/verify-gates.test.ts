@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -444,4 +444,107 @@ test("a run already under the lock does not re-wrap", () => {
     assert.ok(!r.stdout.includes("LOCK-WRAP"), `a wrapped run must not wrap again:\n${r.stdout}`);
     assert.match(r.stdout, /verify-gates @/, "the gates should have run directly");
   });
+});
+
+// ── The macsmoke leg's two behavioural promises ───────────────────────────
+// 1. On a non-Darwin host it FAILS with the CLASS line — never skips, so a
+//    Linux run can never read as having certified the Mac binary.
+// 2. When the `cargo` leg shares the battery it collapses to the cheap
+//    all-targets check — one battery is one host, so repeating `cargo test
+//    --lib` would double the wall-clock for no new evidence.
+// A separate harness from the diagnosis one above: these need a cargo stub
+// that RECORDS its argv (the collapse is about which commands ran) and a
+// uname stub that decides the host class.
+
+type SmokeRepo = { dir: string; repo: string; bin: string; cargoLog: string };
+
+function makeSmokeRepo(unameSays: string): SmokeRepo {
+  const dir = mkdtempSync(join(tmpdir(), "substrate-macsmoke-"));
+  const repo = join(dir, "repo");
+  mkdirSync(join(repo, "scripts/lib"), { recursive: true });
+  cpSync(join(ROOT, "scripts/verify-gates.sh"), join(repo, "scripts/verify-gates.sh"));
+  cpSync(join(ROOT, "scripts/lib/checkout-guard.sh"), join(repo, "scripts/lib/checkout-guard.sh"));
+  mkdirSync(join(repo, "node_modules/.bin"), { recursive: true });
+  writeFileSync(join(repo, "node_modules/.bin/eslint"), "#!/usr/bin/env bash\nexit 0\n");
+  chmodSync(join(repo, "node_modules/.bin/eslint"), 0o755);
+
+  const git = (...args: string[]) => execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" });
+  git("init", "-q", "-b", "main");
+  git("config", "user.name", "Gate Test");
+  git("config", "user.email", "gate@example.test");
+  git("add", "-A");
+  git("commit", "-qm", "tooling");
+
+  const bin = join(dir, "bin");
+  mkdirSync(bin);
+  const cargoLog = join(dir, "cargo.log");
+  writeFileSync(join(bin, "uname"), `#!/usr/bin/env bash\necho "${unameSays}"\n`);
+  chmodSync(join(bin, "uname"), 0o755);
+  writeFileSync(join(bin, "cargo"), `#!/usr/bin/env bash\necho "cargo $*" >> "${cargoLog}"\nexit 0\n`);
+  chmodSync(join(bin, "cargo"), 0o755);
+  return { dir, repo, bin, cargoLog };
+}
+
+function runSmoke(r: SmokeRepo, only: string) {
+  return spawnSync("bash", [join(r.repo, "scripts/verify-gates.sh"), "--only", only], {
+    cwd: r.repo,
+    env: {
+      ...process.env,
+      PATH: `${r.bin}:${process.env.PATH}`,
+      SUBSTRATE_GATES_LOCK_HELD: "1",
+      SUBSTRATE_ALLOW_STALE_SCRIPTS: "1",
+    },
+    encoding: "utf8",
+  });
+}
+
+function smokeCargoCalls(r: SmokeRepo): string[] {
+  try {
+    return readFileSync(r.cargoLog, "utf8").trim().split("\n").filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+test("macsmoke on a non-Darwin host FAILS with the CLASS line — never skips", () => {
+  const r = makeSmokeRepo("Linux");
+  try {
+    const res = runSmoke(r, "macsmoke");
+    assert.equal(res.status, 1, res.stdout + res.stderr);
+    assert.match(res.stdout, /macsmoke CLASS — this leg certifies the macOS build/);
+    assert.match(res.stdout, /macsmoke\s+FAIL/);
+    assert.match(res.stdout, /needs a Darwin host/);
+    // The refusal is the whole gate: no cargo invocation happened.
+    assert.deepEqual(smokeCargoCalls(r), []);
+  } finally {
+    rmSync(r.dir, { recursive: true, force: true });
+  }
+});
+
+test("macsmoke alone on a Mac runs both halves: all-targets check, then the lib tests", () => {
+  const r = makeSmokeRepo("Darwin");
+  try {
+    const res = runSmoke(r, "macsmoke");
+    assert.equal(res.status, 0, res.stdout + res.stderr);
+    const calls = smokeCargoCalls(r);
+    assert.equal(calls.length, 2, calls.join("\n"));
+    assert.match(calls[0], /^cargo check --all-targets/);
+    assert.match(calls[1], /^cargo test --lib/);
+  } finally {
+    rmSync(r.dir, { recursive: true, force: true });
+  }
+});
+
+test("macsmoke collapses to the check when cargo shares the battery — the test half runs once", () => {
+  const r = makeSmokeRepo("Darwin");
+  try {
+    const res = runSmoke(r, "cargo,macsmoke");
+    assert.equal(res.status, 0, res.stdout + res.stderr);
+    const calls = smokeCargoCalls(r);
+    assert.equal(calls.filter((c) => /^cargo test --lib/.test(c)).length, 1, calls.join("\n"));
+    assert.equal(calls.filter((c) => /^cargo check --all-targets/.test(c)).length, 1, calls.join("\n"));
+    assert.match(res.stdout, /test half = cargo leg on this host/);
+  } finally {
+    rmSync(r.dir, { recursive: true, force: true });
+  }
 });
