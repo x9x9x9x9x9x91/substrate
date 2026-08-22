@@ -78,6 +78,12 @@
 #                                   suite never makes a live call (the rigs
 #                                   have no token and must not need one)
 #   SUBSTRATE_TRAIN_PREFLIGHT_GRACE fresh-claim window in seconds (default 300)
+#   SUBSTRATE_HISTORY_PAGE          how many history events to ask for when
+#                                   dating the current state (default 100, max
+#                                   250). Raise it for an issue busy enough
+#                                   that even a proven newest-first page cannot
+#                                   reach a transition; lowering it only makes
+#                                   skips more likely, never adoptions.
 set -euo pipefail
 
 die() { printf 'train-preflight: %s\n' "$*" >&2; exit 2; }
@@ -343,15 +349,30 @@ foreign_worktree_for() { # candidate, issue id -> "live|detached|parked <branch>
 # ready. Only a state transition counts as churn.
 #
 # `orderBy: createdAt` is pinned rather than left to the API's default, so the
-# page is meant to be the NEWEST twenty events — but that is an assumption about
+# page is meant to be the NEWEST events — but that is an assumption about
 # somebody else's API, and the whole churn guard rests on it. Taking the newest
 # stamp PRESENT in an oldest-first page would hand back a real-but-stale age:
 # large, past the settle window, ADOPT — silently wrong, not loudly skipped.
 # So the page boundary is asked about directly: `pageInfo { hasNextPage }`, and
-# a SATURATED page means the age is unknown whatever the order turns out to be.
-# Same for labels: an issue with more than a page of them could otherwise carry
-# the human gate off the end, and a gate that pages away is not a gate.
-HISTORY_PAGE=20
+# a saturated page is only readable when the order can be PROVEN from the page
+# itself (see `newestFirst` below) — never on the strength of the `orderBy`
+# alone. Same for labels: an issue with more than a page of them could
+# otherwise carry the human gate off the end, and a gate that pages away is not
+# a gate.
+#
+# The page is deep by default because a shallow one fails closed FOREVER on the
+# issues that matter most: a branch through dual review, a fix round and a
+# re-review accumulates transitions plus label, attachment and comment events,
+# and at twenty a page of those is saturated no matter how long the branch
+# settles. That is not a wait, it is a branch the script can never adopt.
+# Depth alone is only a bigger number to outgrow, so it is the junior half of
+# the fix — the order proof is what closes the class.
+HISTORY_PAGE="${SUBSTRATE_HISTORY_PAGE:-100}"
+# Interpolated straight into the query text, so it is checked as a plain
+# integer here rather than trusted: an unvalidated override is query injection
+# wearing a page size. 250 is the tracker's own per-page ceiling.
+[[ "$HISTORY_PAGE" =~ ^[1-9][0-9]{0,2}$ ]] && [[ "$HISTORY_PAGE" -le 250 ]] ||
+  die "SUBSTRATE_HISTORY_PAGE must be a whole number of events from 1 to 250 (got: $HISTORY_PAGE)"
 LABEL_PAGE=30
 GQL="query(\$id: String!) {
   viewer { id name displayName }
@@ -407,20 +428,36 @@ process.stdin.on("end", () => {
   const labelNodes = ((issue.labels && issue.labels.nodes) || []).map((l) => l && l.name);
   out("labels", labelNodes.join(","));
   out("labelstruncated", saturated(issue.labels, Number(process.env.SUBSTRATE_LABEL_PAGE) || 30) ? "1" : "");
-  const stamps = ((issue.history && issue.history.nodes) || [])
-    .filter((n) => n && n.toState && n.createdAt)
-    .map((n) => Date.parse(n.createdAt))
-    .filter((t) => Number.isFinite(t));
+  const events = ((issue.history && issue.history.nodes) || [])
+    .filter((n) => n && n.createdAt)
+    .map((n) => ({ at: Date.parse(n.createdAt), toState: Boolean(n.toState) }))
+    .filter((e) => Number.isFinite(e.at));
+  const stamps = events.filter((e) => e.toState).map((e) => e.at);
   // Newest wins regardless of the order the API returned them in — but only
-  // when the page is known to hold every event. On a saturated page the newest
-  // transition may be off the end, and a stale-but-real age reads as "settled
-  // long ago" and adopts. With no usable transition, or no complete page, the
-  // age is UNKNOWN and says so — an absent key would read downstream as
-  // "nothing to wait for" and adopt.
-  const historyComplete = !saturated(issue.history, Number(process.env.SUBSTRATE_HISTORY_PAGE) || 20);
+  // when the newest transition is known to BE in the page. On a saturated page
+  // it may be off the end, and a stale-but-real age reads as "settled long ago"
+  // and adopts. With no usable transition, or a page that cannot be shown to
+  // reach the newest one, the age is UNKNOWN and says so — an absent key would
+  // read downstream as "nothing to wait for" and adopt.
+  //
+  // Two ways the page can reach it. Either it holds EVERY event (not
+  // saturated), or it is demonstrably newest-first: the timestamps never climb
+  // and drop at least once, which no oldest-first page of distinct events can
+  // fake. In that order everything past the boundary is older than everything
+  // in the page, so the newest transition present is the newest there is, and
+  // a busy issue stops being permanently unadoptable. This is read off the
+  // RESPONSE, not off the `orderBy` we asked for: an API that quietly changes
+  // its ordering makes the proof fail and the answer go back to unknown, which
+  // is the direction this script is allowed to be wrong in.
+  const historyComplete = !saturated(issue.history, Number(process.env.SUBSTRATE_HISTORY_PAGE) || 100);
+  const times = events.map((e) => e.at);
+  const newestFirst =
+    times.length >= 2 &&
+    times.every((t, i) => i === 0 || t <= times[i - 1]) &&
+    times.some((t, i) => i > 0 && t < times[i - 1]);
   out(
     "laststateage",
-    historyComplete && stamps.length
+    (historyComplete || newestFirst) && stamps.length
       ? Math.max(0, Math.round((Date.now() - Math.max(...stamps)) / 1000))
       : "unknown",
   );
@@ -602,13 +639,13 @@ for candidate in "${CANDIDATES[@]}"; do
   # round costs a round; racing them costs the branch.
   #
   # An age that could not be established counts as INSIDE the window, not
-  # outside it. An empty history page, a page of twenty comment events with the
-  # transition pushed off the end, a schema change — each of those means the
-  # question "was this claimed a moment ago?" went unanswered, and an
-  # unanswered question is never an adopt here.
+  # outside it. An empty history page, a full page of comment events whose
+  # order cannot be proven so the transition may be off the end, a schema
+  # change — each of those means the question "was this claimed a moment ago?"
+  # went unanswered, and an unanswered question is never an adopt here.
   if [[ "$verdict" == ADOPT ]]; then
     if [[ -z "$laststateage" || "$laststateage" == unknown ]]; then
-      verdict="SKIP state age unknown — left to settle (no state transition in the issue's history)"
+      verdict="SKIP state age unknown — left to settle (no readable state transition in the issue's history; raise SUBSTRATE_HISTORY_PAGE if the issue is that busy)"
     elif [[ "$laststateage" -lt "$GRACE" ]]; then
       verdict="SKIP freshly claimed — state changed ${laststateage}s ago, inside the ${GRACE}s settle window"
     fi
