@@ -390,7 +390,7 @@ test("series-5 is fixed across every preset and the full nudge range", () => {
     const start = tone.id === "sky" ? 0 : table.indexOf(`:root[data-tone="${tone.id}"]`);
     const laterStarts = TONES.map((next) => table.indexOf(`:root[data-tone="${next.id}"]`))
       .filter((at) => at > start);
-    const end = laterStarts.length > 0 ? Math.min(...laterStarts) : table.indexOf("The dashboard accent family");
+    const end = laterStarts.length > 0 ? Math.min(...laterStarts) : table.indexOf("The accent family (owner");
     const block = table.slice(start, end);
     assert.match(block, /--tone-series-5:\s*#c9b98f;/i, `${tone.id} screen series-5 moved`);
     assert.match(block, /--tone-paper-series-5:\s*#8f7a3f;/i, `${tone.id} paper series-5 moved`);
@@ -456,6 +456,237 @@ test("no tone, at any nudge, drops a family colour below 3:1 on its ground", () 
   );
   assert.ok(contrast("#c9b98f", "#090909") >= 3, "fixed screen series-5 lost contrast");
   assert.ok(contrast("#8f7a3f", "#ffffff") >= 3, "fixed paper series-5 lost contrast");
+});
+
+/* ————— the family is APP-WIDE, and its fills carry a readable ink —————
+
+   Amended 2026-08-22 (owner's call): the tone dial drives the whole app, not
+   just the dashboard. Two things have to hold for that to be safe, and both
+   are asserted from the stylesheet rather than from a copy of its numbers.
+
+   First the ROUTING: the interactive tokens at :root must read from the tone
+   family, or the app silently keeps a second accent alongside the dial.
+
+   Second the INK. Every tone's fill weight is light — white on it is 1.6:1
+   at the worst tone/nudge pair, which is why the on-fill text had to flip to
+   a dark ink. That ink is one token, and it must clear normal-text contrast
+   against every fill it can ever sit on. */
+
+/** the `:root` block — up to the first nested rule */
+function rootBlock(css: string): string {
+  const at = css.indexOf(":root {");
+  assert.ok(at >= 0, "styles.css no longer opens with a :root block");
+  return css.slice(at, css.indexOf("\n}", at));
+}
+
+test("the interactive tokens at :root read from the tone family", () => {
+  const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+  const root = rootBlock(css);
+  for (const [token, slot] of [
+    ["--accent", "--tone-accent"],
+    ["--accent-soft", "--tone-accent-soft"],
+    ["--accent-text", "--tone-accent-text"],
+    ["--link", "--tone-accent-text"],
+  ] as const) {
+    assert.match(
+      root,
+      new RegExp(`\\${token}:\\s*var\\(\\${slot}\\);`),
+      `${token} no longer follows the tone dial — the app would wear two accent families`
+    );
+  }
+  // the retired app-wide indigo must not survive as a token value anywhere;
+  // --code-keyword is a syntax colour, a different palette, and keeps its hex
+  const tokens = css.replace(/--code-[a-z0-9-]+:[^;]*;/g, "");
+  assert.doesNotMatch(tokens, /:\s*#5e6ad2\b/i, "the fixed indigo accent is still declared");
+  assert.doesNotMatch(tokens, /:\s*#8b95e8\b/i, "the fixed indigo link is still declared");
+});
+
+/** the one ink that sits on an --accent fill, read out of :root */
+function onAccent(css: string): string {
+  const m = /--on-accent:\s*(#[0-9a-f]{6});/i.exec(rootBlock(css));
+  assert.ok(m, ":root no longer declares --on-accent");
+  return m![1].toLowerCase();
+}
+
+test("--on-accent clears 4.5:1 on every tone across the whole nudge range", () => {
+  const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+  const ink = onAccent(css);
+  const table = sliceFrom(css, "accent tone table");
+  const re =
+    /--tone-accent:\s*hsl\(calc\(\(([\d.]+)\s*\+\s*var\(--tone-nudge\)\)\s*\*\s*1deg\)\s+([\d.]+)%\s+([\d.]+)%/g;
+  const fills = [...table.matchAll(re)];
+  assert.equal(fills.length, TONES.length, "expected one --tone-accent fill per preset");
+
+  let worst = { ratio: Infinity, where: "" };
+  for (const [i, m] of fills.entries()) {
+    const [hue, s, l] = [Number(m[1]), Number(m[2]), Number(m[3])];
+    // every integer the slider can land on, not just its ends: the fills are
+    // hue arithmetic and a ratio's worst point need not sit at a bound
+    for (let n = -NUDGE_MAX; n <= NUDGE_MAX; n++) {
+      const ratio = contrast(ink, hslToHex(hue + n, s, l));
+      if (ratio < worst.ratio) worst = { ratio, where: `${TONES[i].id} at ${n}` };
+    }
+  }
+  assert.ok(
+    worst.ratio >= 4.5,
+    `on-fill ink falls to ${worst.ratio.toFixed(2)}:1 on ${worst.where} — pick a darker ink, do not lower this floor`
+  );
+  // and the ink white USED to be is exactly what the floor exists to keep out
+  assert.ok(
+    contrast("#ffffff", hslToHex(Number(fills[0][1]), Number(fills[0][2]), Number(fills[0][3]))) < 4.5,
+    "white would now pass — the fill weights moved and this guard is stale"
+  );
+});
+
+test("the checkbox ticks carry --on-accent's value", () => {
+  const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+  const ink = onAccent(css);
+  // a data URI is an opaque image: it cannot read a custom property, so the
+  // three ticks write the value out and this test is what keeps them in step
+  const strokes = [...css.matchAll(/<path[^>]*stroke="([^"]+)"/g)].map((m) => m[1]);
+  assert.ok(strokes.length >= 3, "the checkbox tick glyphs went missing");
+  for (const stroke of strokes) {
+    assert.equal(
+      stroke.replace("%23", "#").toLowerCase(),
+      ink,
+      "a tick glyph drifted off --on-accent — it would sit white on a lit fill"
+    );
+  }
+});
+
+/** the stylesheet with every top-level `@media print` block cut out. The rule
+    below is about the SCREEN ground: paper remaps the fill to a dark weight
+    and the ink with it, so a light ink there is correct rather than a bug.
+    Cutting the blocks out beats truncating at the first one — the calendar
+    feed form and the count pip both live PAST it, and truncation would leave
+    them outside the check. */
+function screenOnly(css: string): string {
+  let out = "";
+  let at = 0;
+  for (;;) {
+    const open = css.indexOf("\n@media print {", at);
+    if (open < 0) return out + css.slice(at);
+    out += css.slice(at, open);
+    let depth = 0;
+    let i = css.indexOf("{", open);
+    for (; i < css.length; i++) {
+      if (css[i] === "{") depth++;
+      else if (css[i] === "}" && --depth === 0) break;
+    }
+    assert.ok(i < css.length, "an @media print block never closes");
+    at = i + 1;
+  }
+}
+
+test("no control paints white text on an accent fill", () => {
+  const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+  const screen = screenOnly(css);
+  assert.ok(
+    screen.includes(".cal-feed-form-actions button.primary"),
+    "the screen slice lost rules that sit after the print block"
+  );
+  for (const m of screen.matchAll(/\{([^{}]*background(?:-color)?:\s*var\(--accent\)[^{}]*)\}/g)) {
+    assert.doesNotMatch(
+      m[1],
+      /color:\s*(?:#fff(?:fff)?|white|var\(--text-1\))\s*;/i,
+      `a filled control kept a light ink on the accent: ${m[1].trim().slice(0, 80)}`
+    );
+  }
+});
+
+/* ————— and the ink a control INHERITS, not only the one it declares —————
+
+   The rule above only sees one block at a time, so it is blind to the shape
+   a variant button actually has: a base class carries the ink and a modifier
+   class swaps the fill under it, two rules apart. That shape shipped both
+   ways on this branch — a danger variant that inherited the near-black
+   on-accent ink onto red.
+
+   The reach here is deliberately narrow, because a full cascade is not worth
+   simulating: a base is only counted when its selector is a single compound
+   of nothing but classes (`.vault-sync-save`, `.selmenu-btn`), which is what
+   a base class looks like, and a variant is only paired with it when the
+   variant's own last compound carries every one of those classes — i.e. one
+   element can match both. Pseudo-elements are out: a `::after` bar has a
+   fill and no text, so an inherited ink paints nothing. */
+
+/** rules as (selector, body) pairs, comments stripped so a selector can never
+    be a run of prose that happened to precede a brace */
+function ruleList(css: string): Array<{ sel: string; body: string }> {
+  const bare = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  return [...bare.matchAll(/([^{}]*)\{([^{}]*)\}/g)].map((m) => ({ sel: m[1], body: m[2] }));
+}
+
+const classesOf = (sel: string) => new Set(sel.match(/\.[A-Za-z0-9_-]+/g) ?? []);
+
+/** the base classes whose rule declares `ink` — selector is one compound of
+    classes and nothing else, the shape a base class has */
+function inkBases(rules: ReturnType<typeof ruleList>, ink: RegExp): string[] {
+  const out: string[] = [];
+  for (const { sel, body } of rules) {
+    if (!ink.test(`;${body}`)) continue;
+    for (const one of sel.split(",")) {
+      const t = one.trim();
+      if (/^(?:\.[A-Za-z0-9_-]+)+$/.test(t)) out.push(t);
+    }
+  }
+  return out;
+}
+
+/** every rule that paints `fill` without declaring an ink of its own, paired
+    with each base above whose classes its own element would also match */
+function inherited(
+  rules: ReturnType<typeof ruleList>,
+  fill: RegExp,
+  bases: string[]
+): Array<{ variant: string; base: string }> {
+  const found: Array<{ variant: string; base: string }> = [];
+  for (const { sel, body } of rules) {
+    if (!fill.test(body) || /(?:^|;)\s*color:\s*/.test(`;${body}`)) continue;
+    for (const one of sel.split(",")) {
+      const t = one.trim();
+      if (t.includes("::")) continue;
+      const last = classesOf(t.split(/[ >+~]+/).pop() ?? "");
+      for (const base of bases) {
+        if (base !== t && [...classesOf(base)].every((c) => last.has(c))) {
+          found.push({ variant: t, base });
+        }
+      }
+    }
+  }
+  return found;
+}
+
+test("a control that swaps its fill does not keep the other fill's ink", () => {
+  const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+  const rules = ruleList(screenOnly(css));
+  assert.ok(rules.length > 500, "the rule scan found almost nothing — the parse drifted");
+
+  // white ink inherited onto an accent fill: the same failure the block-local
+  // rule above catches, one rule further away
+  const light = inherited(
+    rules,
+    /background(?:-color)?:\s*var\(--accent\)/,
+    inkBases(rules, /(?:^|;)\s*color:\s*(?:#fff(?:fff)?|white|var\(--text-1\))\s*;/i)
+  );
+  assert.deepEqual(
+    light,
+    [],
+    `a filled control inherits a light ink onto the accent: ${JSON.stringify(light)}`
+  );
+
+  // and the mirror image: the near-black on-accent ink inherited onto a red
+  // fill, which is the destructive control's own failure mode
+  const dark = inherited(
+    rules,
+    /background(?:-color)?:\s*var\(--danger\)/,
+    inkBases(rules, /(?:^|;)\s*color:\s*var\(--on-accent\)\s*;/)
+  );
+  assert.deepEqual(
+    dark,
+    [],
+    `a destructive control inherits the on-accent ink onto the danger fill: ${JSON.stringify(dark)}`
+  );
 });
 
 /* ————— the categorical band ramp is NOT part of the tone family —————

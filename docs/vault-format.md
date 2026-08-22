@@ -5146,9 +5146,11 @@ Plain notes the app treats specially — all optional, all just files:
   bars join above 70; `0` is the shipped look and switches the effect off
   entirely rather than drawing a zero-width one), `accent-tone` (`sky` —
   the default and the shipped family — `teal`, `indigo` or
-  `violet`; picks the hue the dashboard accent family wears, on
-  screen and in print, while the state colours red/amber/green and a `by:`
-  split's own categorical band ramp all stay put) and `accent-tone-nudge` (−12..12 degrees of
+  `violet`; picks the hue the app's one accent family wears, on
+  screen and in print — the cell cursor, focus rings, text selection,
+  filled buttons, links and every dashboard mark move together, while the
+  selected sidebar row, the state colours red/amber/green and a `by:` split's
+  own categorical band ramp all stay put) and `accent-tone-nudge` (−12..12 degrees of
   hue offset around the chosen tone; out-of-range values clamp, and the
   bound is what keeps every ramp colour clear of 3:1 on both grounds).
   All three degrade to their default on any value the reader can't make

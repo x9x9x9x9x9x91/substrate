@@ -67,22 +67,29 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-test("dashboard accent stays scoped and cannot replace reserved state tokens (SUB-932)", async ({
+test("one accent family app-wide, and it cannot replace reserved state tokens", async ({
   page,
 }) => {
   await openDash(page, "Overview");
 
-  // Outside a dashboard, the app keeps its interactive indigo. The dashboard
-  // inherits the chosen V1 sky without moving the app-wide root token.
+  // The accent family is app-wide: chrome outside a dashboard and the
+  // dashboard itself resolve the SAME token value, the tone dial's default
+  // sky. Two families on screen at once was the incoherence this replaced.
   await expect
     .poll(() => resolvedColor(page, ".side-item", "--accent"))
-    .toBe("rgb(94, 106, 210)");
+    .toBe("rgb(108, 192, 236)");
   await expect
     .poll(() => resolvedColor(page, ".dash-inner", "--accent"))
     .toBe("rgb(108, 192, 236)");
 
-  // State remains a separate semantic band. Dashboard scoping may replace
-  // accent/series tokens, never the state or schema-option tokens.
+  // The on-fill ink is the near-black, everywhere — a light fill cannot
+  // carry white text.
+  await expect
+    .poll(() => resolvedColor(page, ".side-item", "--on-accent"))
+    .toBe("rgb(9, 9, 9)");
+
+  // State remains a separate semantic band. The accent family may move with
+  // the dial, never the state or schema-option tokens.
   for (const [stateToken, value] of [
     ["--danger", "rgb(235, 87, 87)"],
     ["--ok", "rgb(76, 183, 130)"],
@@ -259,8 +266,11 @@ test("hub: cards, table and link text clone — links stay on paper as content",
   await page.emulateMedia({ media: "print" });
   const link = surface.locator(".dash-link", { hasText: "Slow Bloom EP" }).first();
   await expect(link).toBeVisible();
-  // links wear the note print path's blue — one concept, one treatment
-  await expect(link).toHaveCSS("color", "rgb(61, 75, 181)");
+  // links wear the note print path's link colour — one concept, one treatment.
+  // That colour now follows the accent tone like every other link in the app,
+  // at the paper text weight: dark enough to read as ink on white, where the
+  // screen weight would print as a pale wash. This is the default tone.
+  await expect(link).toHaveCSS("color", "rgb(20, 89, 122)");
   await expect(surface.locator(".dash-actions")).toBeHidden();
 });
 

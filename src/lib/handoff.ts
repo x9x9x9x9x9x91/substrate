@@ -11,6 +11,7 @@
     end of the same byte format. Keep the three in lockstep. */
 
 import { renderPrintBody, escapeHtml, type AssetSrc } from "./print.ts";
+import { resolveTokenColor } from "./tokencolor.ts";
 import { foldedPropKey } from "./types.ts";
 
 /** Sealed-payload layout: magic + format version, then the fresh 96-bit
@@ -115,14 +116,20 @@ export function buildHandoffLink(relayUrl: string, id: string, keyB64: string): 
   return `${relayUrl.replace(/\/+$/, "")}/h/${id}#${keyB64}`;
 }
 
-/** Minimal self-contained styling for the handed-off document. The app's
-    print CSS lives inside styles.css and leans on app tokens; a recipient's
-    browser has neither, so the document carries its own small light-page
-    sheet keyed to the same `print-*` class contract renderPrintBody emits.
-    Exported because the site exporter builds its stylesheet on top of it:
-    both surfaces render the same markup for a browser that has none of the
-    app's own CSS, so they share the base rather than drifting apart. */
-export const DOC_CSS = `
+/** The accent weight the document sheet paints its links and its ticked
+    task boxes with. It is a LITERAL, not a token: the recipient's browser has
+    none of the app's CSS, so `var(--tone-paper-accent-text)` there resolves to
+    nothing at all. The value is the tone family's PAPER text weight — the
+    document is a white page, and the screen weights are tuned for a near-black
+    ground — and white on it clears 7:1, which is what keeps the ticked box's
+    mark readable. This is the SHIPPED family's (sky's) paper text weight,
+    lifted from the tone table; it is the fallback for every caller that has
+    no document to read the wearer's live tone out of. */
+export const SHIPPED_PAPER_ACCENT = "#14597a";
+
+/** The document sheet, with one accent baked into it. */
+export function docCss(accent: string = SHIPPED_PAPER_ACCENT): string {
+  return `
 :root { color-scheme: light; }
 body { margin: 0; background: #f6f7f8; font: 15px/1.65 -apple-system, BlinkMacSystemFont,
   "Segoe UI", Roboto, sans-serif; color: #1b1e22; }
@@ -144,16 +151,38 @@ table { border-collapse: collapse; margin: 1em 0; font-size: .92em; }
 th, td { border: 1px solid #dfe2e6; padding: .35em .7em; text-align: left; }
 th { background: #f6f7f8; }
 hr { border: none; border-top: 1px solid #e6e8eb; margin: 2em 0; }
-a { color: #3d4bb5; }
+a { color: ${accent}; }
 ul, ol { padding-left: 1.4em; }
 li.print-task { list-style: none; margin-left: -1.4em; }
 .print-box { display: inline-block; width: 1em; height: 1em; border: 1.5px solid #b6bac1;
   border-radius: 3px; margin-right: .5em; font-size: .8em; line-height: 1em;
   text-align: center; vertical-align: -.1em; }
-.print-task.done .print-box { background: #3d4bb5; border-color: #3d4bb5; color: #fff; }
-.print-link { color: #3d4bb5; }
+.print-task.done .print-box { background: ${accent}; border-color: ${accent}; color: #fff; }
+.print-link { color: ${accent}; }
 .print-embed, .print-missing { color: #71767e; font-style: italic; }
 `;
+}
+
+/** The live tone's paper accent, for a document being built inside the app.
+    A sealed document is a photograph: it should carry the family its author
+    was looking at when they sent it, not whatever the shipped default happens
+    to be. Outside the app — a node test, or any caller with no document —
+    this is the shipped family, which is also what a statically-built sheet
+    (see SITE_CSS in publish.ts) carries. */
+export function liveDocCss(): string {
+  return docCss(resolveTokenColor("--tone-paper-accent-text", SHIPPED_PAPER_ACCENT));
+}
+
+/** Minimal self-contained styling for the handed-off document. The app's
+    print CSS lives inside styles.css and leans on app tokens; a recipient's
+    browser has neither, so the document carries its own small light-page
+    sheet keyed to the same `print-*` class contract renderPrintBody emits.
+    Exported because the site exporter builds its stylesheet on top of it:
+    both surfaces render the same markup for a browser that has none of the
+    app's own CSS, so they share the base rather than drifting apart. A site
+    is many pages built from a module-scope constant, so it takes the shipped
+    family; the two single-document builders below take the live one. */
+export const DOC_CSS = docCss();
 
 /** One note → one standalone HTML document: title, props line, rendered
     body, all assets already inlined by the caller's `assetSrc`. This is the
@@ -169,7 +198,7 @@ export function buildHandoffDocument(opts: {
     "<!doctype html>\n<html><head><meta charset=\"utf-8\">" +
     `<meta name="viewport" content="width=device-width, initial-scale=1">` +
     `<title>${escapeHtml(opts.title)}</title>` +
-    `<style>${DOC_CSS}</style></head><body><main>` +
+    `<style>${liveDocCss()}</style></head><body><main>` +
     `<h1 class="print-title">${escapeHtml(opts.title)}</h1>` +
     (opts.propsLine ? `<div class="print-props">${opts.propsLine}</div>` : "") +
     renderPrintBody(opts.body, opts.assetSrc) +
