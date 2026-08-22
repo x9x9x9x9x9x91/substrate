@@ -1,7 +1,7 @@
 /** Whether the surface on screen can print itself, and how.
  *
  * Print is a per-dashboard button (`DashPrintButton`), on the kinds portable
- * enough to look right on paper — eight of them, not all. The palette wants
+ * enough to look right on paper — six of them, not all. The palette wants
  * the same capability as a row, because ⌘P opens the palette everywhere and
  * the muscle-memory press should land next to printing rather than nowhere.
  *

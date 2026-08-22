@@ -27,7 +27,7 @@ import {
 } from "../lib/calendar";
 import { iconForType, iconsByType, typeTint } from "../lib/dbicons";
 import { ChevronLeftIcon, ChevronRightIcon, RepeatIcon } from "./Icons";
-import { DashHead, DashPrintButton } from "./DashHead";
+import { DashHead } from "./DashHead";
 import { useTodayIso } from "./useTodayIso";
 import { DashAlert, DashEmpty } from "./DashNotice";
 import { errText } from "../lib/errtext";
@@ -335,7 +335,6 @@ export default function CalendarFenceDashboard({
           state={{
             label: `${blocks.length} ${blocks.length === 1 ? "calendar" : "calendars"}`,
           }}
-          actions={<DashPrintButton />}
           sourcePath={meta.path}
           onOpenSource={onOpenSource}
         />

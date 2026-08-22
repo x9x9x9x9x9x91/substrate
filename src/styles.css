@@ -13720,6 +13720,18 @@ span.asset-thumb svg {
     color: var(--danger);
   }
 
+  /* select-value pills are the same story one step further out: the tint is
+     the mark, but the word inside it is text, and its screen ink mixes 78%
+     toward #fff for the dark ground. On the panel that lands between 1.41:1
+     (yellow) and 1.91:1 (gray) over the pill's own 16% wash — a value you can
+     see the colour of and not read. Mixing the same tint 45% into the block's
+     body ink instead keeps every pill its own hue and puts the range at
+     5.05:1–6.36:1, clear of the 4.5:1 this block holds text to. The wash under
+     it is the mark and stays as it is. */
+  #print-surface .opt-pill {
+    color: color-mix(in srgb, var(--pill) 45%, #1b1e22);
+  }
+
   /* the chart language now draws in accent tokens, which the block above
      remaps to their paper weights. Tinted bars keep their schema or series hue
      via the inline --bar; the stack and pointer-only affordances still need
