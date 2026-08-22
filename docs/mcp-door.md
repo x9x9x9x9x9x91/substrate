@@ -3,7 +3,8 @@
 The contract for the MCP door and its headless twin, the CLI door. Phase 1 is
 built and user-reachable: the scope engine, the stdio server
 (`src-tauri/src/mcpdoor/`, sidecar binary `substrate-mcp`) and the Settings
-grant pane all ship. Grants are created, inspected and revoked in Settings;
+grant pane all ship. Grants are created, inspected and revoked on the ⌘, sheet's **Sharing**
+tab;
 hand-editing `mcp-scopes.json` is not part of the user workflow.
 
 To wire a client up, jump straight to [Setup](#setup-phase-1); everything
@@ -270,7 +271,7 @@ which caller made which edit.
 Four calls that shape the surface, recorded so a later change is a decision
 rather than a drift:
 
-- **Grant UX**: Settings pane only — a folder picker in Settings, no
+- **Grant UX**: Settings pane only — a folder picker on the Sharing tab, no
   per-folder context menu. Granting is a deliberate act in one place, not
   something you can do by reflex while browsing.
 - **Naming**: MCP stays the user-facing name. No friendlier label papering

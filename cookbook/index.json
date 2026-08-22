@@ -172,7 +172,7 @@
     {
       "id": "studio-year",
       "title": "Studio year",
-      "kind": "heatmap",
+      "kind": "hub",
       "blurb": "Two year grids over one log sheet — one square per day, shaded by how long you sat down, then by how often. The year comes from the rows, not from a setting, so the grid keeps telling the truth as the log grows.",
       "adapt": "Log your own sessions in Studio Log.md — a date column and a number column is the whole contract; point date: and value: at them (value: count needs no number at all).",
       "expects": { "sheets": ["Studio Log"], "databases": [] },
@@ -182,7 +182,7 @@
     {
       "id": "release-arc",
       "title": "Release arc",
-      "kind": "timeline",
+      "kind": "hub",
       "blurb": "Every release as a bar from the day recording started to the day it shipped, lanes grouped by status; a release with no end date is a dot rather than a bar, so nothing is claimed about when it lands. A second fence narrows the same data to what actually shipped.",
       "adapt": "Give your own type two date props (here recording_start and released) and point start:/end: at them; group: buckets the lanes and query: filters the fence.",
       "expects": { "sheets": [], "databases": ["release"] },

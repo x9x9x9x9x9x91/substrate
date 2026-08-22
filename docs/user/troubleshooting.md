@@ -60,7 +60,7 @@ owns, and a fresh vault reads better without them. The file is still on disk, in
 Finder, in backups, and in sync — only the app's note lists, search, and palette
 filter it out.
 
-Turn on **Settings (⌘,) → Show app files** to see them again. Only those exact
+Turn on **Settings (⌘,) → General → Show app files** to see them again. Only those exact
 root filenames are hidden; a note of your own with a similar name, or one in a
 subfolder, is never affected. See
 [files, settings, and views](files-and-settings.md).

@@ -32,7 +32,7 @@ replacement for a separate whole-folder backup.
 
 1. Copy the backed-up vault folder to the location where you want to keep it.
    Keep the backup itself until you have checked the restore.
-2. Open Substrate and press **⌘,**. In the Vault row, choose **switch…**, then
+2. Open Substrate and press **⌘,** and open the **Vault** tab. In the Vault row, choose **switch…**, then
    **Open an existing folder** and select the restored folder. On first launch,
    use **Open an existing folder** on the welcome screen instead.
 3. Restart when prompted, then check a few notes and embedded files.

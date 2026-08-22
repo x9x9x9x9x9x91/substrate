@@ -38,8 +38,8 @@ one-line prompt.
 | [`annual-report/`](annual-report) | metrics | the year in cards + charts, printable as a designed PDF |
 | [`sync/`](sync) | sync | a control surface over whatever already syncs your files |
 | [`coding/`](coding) | coding | every repo under one folder, sorted by what needs doing |
-| [`studio-year/`](studio-year) | heatmap | a year of days as squares, shaded from one log sheet |
-| [`release-arc/`](release-arc) | timeline | start-to-ship bars per release, lanes grouped by status |
+| [`studio-year/`](studio-year) | hub | a year of days as squares, shaded from one log sheet |
+| [`release-arc/`](release-arc) | hub | start-to-ship bars per release, lanes grouped by status |
 | [`jobs/`](jobs) | jobs | every launchd job on the machine: schedule, exit history, freshness |
 | [`tax/`](tax) | tax | tax-year readiness: totals, documents still owed, printable |
 | [`tasks/`](tasks) | tasks | a working board over your task notes, late work first |

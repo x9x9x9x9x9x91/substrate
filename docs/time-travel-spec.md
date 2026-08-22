@@ -5,17 +5,29 @@ a weight curve charted straight from a frontmatter key's past — computed from 
 git history every vault has been accruing since its first launch. No snapshot
 system gets built; the snapshots are already there.
 
-**Status: spec only. Nothing here is built.** The open product-shape questions
-sit at the top. File refs are against main's tip at the time of writing; symbols
-are the stable reference, line numbers may drift. Every claim about current
-behaviour below carries a `file:line` anchor, or is marked **assumption** where
-it wasn't verified in code.
+**Status: §7.2's first slice shipped in 0.23.0; §4 did not.** `PROP()` and
+`AT()` are in the formula engine (`src/lib/formula.ts`, `SCALAR_FNS`), the
+chart `history:` source parses and renders (`src/lib/chart.ts`), and the
+shared Rust lane engine underneath all of it is `src-tauri/src/factlane.rs`,
+reached through `history.rs` / `githist.rs` and a `commands/history.rs`
+command. What is **not** built: §4's persisted lane cache — every lane is
+still walked out of git per call — and its measurement gate was never run.
+§5.3's key-rename stitching stays out by §7.1's own choice. The open
+product-shape questions below were answered by the slice that shipped; read
+them as the record of why it works the way it does.
+
+File refs are against main's tip at the time of writing; symbols are the
+stable reference, line numbers may drift. Every claim about current
+behaviour below carries a `file:line` anchor, or is marked **assumption**
+where it wasn't verified in code.
 
 This spec is subordinate to the **receipts spec** — the separate design for
 showing a fact's full change history — on everything the two share: the
 key-following lane engine, its storage, and its invalidation contract. Where this
 document would diverge from it, it says so out loud (§5.4) rather than quietly
-designing a second engine.
+designing a second engine. That worked out: one engine shipped for both, and
+`src-tauri/src/factlane.rs`'s module doc names receipts, `AT()`/`PROP()` and
+the chart `history:` source as its three consumers.
 
 ---
 
@@ -75,7 +87,7 @@ belongs to which is half this spec's job.
 | | Addresses by | Returns | State |
 |---|---|---|---|
 | **Time scrubber** | snapshot *position* | the whole vault, projected | **shipped** |
-| **Receipts** | one fact | all its changes, with actors | spec-ready |
+| **Receipts** | one fact | all its changes, with actors | **shipped** |
 | **Time-travel queries** | one fact + a *date* | one value (or a date-series) | this spec |
 
 

@@ -611,7 +611,7 @@ invent slugs. A non-`http(s)` or empty `url` renders the title unlinked.
 
 **Plugging in a curator.** The head carries a **refresh button** once a
 `feed-curator` command is configured — the pane's own "plug in a curator" card
-writes it, or set the key in `Settings.md` (⌘, → Feed curator does the same):
+writes it, or set the key in `Settings.md` (⌘, → Terminal → Feed curator does the same):
 
 ```yaml
 feed-curator: ~/scripts/curate-news.sh
@@ -773,8 +773,11 @@ at,yield_usd,principal_usd
 ```
 ````
 
-`dashboard: charts` names this renderer outright, so a note keeps it even
-before the first fence is written.
+`dashboard: yield-apr` names this renderer outright, so a note keeps it even
+before the first fence is written. (`charts` is the other name-it-outright
+case, and it names the chart-fence dashboard rather than this one —
+`src/lib/kinds.ts` reserves it, `DashboardPane` dispatches it fence or no
+fence.)
 
 A note with `type: dashboard` and **no `dashboard:` key at all** falls back by
 body content: ` ```chart ` fences → charts, ` ```heatmap ` fences → the heatmap

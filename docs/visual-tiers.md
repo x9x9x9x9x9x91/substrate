@@ -60,8 +60,9 @@ is only to answer "did this change?", never "is this right?".
   silently swallows the difference. Nothing is broken by that, but the record
   says one branch's change moved pixels that another branch's change moved.
   So name the absorbed delta in the commit message. On `sub/1238-design`,
-  `dash-overview.png` picked up the sidebar's "This day, before" entry from
-  merge 31afcfe9d, which re-recorded `all-notes.png` alone.
+  `dash-overview.png` picked up a sidebar entry another branch had added in
+  merge 31afcfe9d, which re-recorded `all-notes.png` alone. (That entry has
+  since been removed again — the anecdote is the rule, not the surface.)
 - **Determinism is load-bearing.** The mock seeds date their fixtures off
   `Date.now()` at module load, so the spec installs a fixed clock and pins the
   timezone to UTC before the first navigation. Anything genuinely unstable gets
