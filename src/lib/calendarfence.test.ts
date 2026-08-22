@@ -438,6 +438,21 @@ test("the title is derived, and the foot names the source", () => {
   assert.equal(calendarSourceDesc(sh), "sheet: Holdings");
 });
 
+test("parseCalendarBlocks: an opener with a stray trailing space still parses", () => {
+  // the likeliest hand-typo of an opener: the fence closes, so no banner fired
+  // and no month drew — the pane was blank with nothing to act on.
+  for (const open of ["```calendar ", "```calendar\t"]) {
+    const blocks = parseCalendarBlocks(open + "\nsource: release\ndate: released\n```");
+    assert.equal(blocks.length, 1, open);
+    assert.equal(blocks[0].error, null, open);
+  }
+  // a real second word is still a plain code box, as the hub reads it
+  assert.equal(
+    parseCalendarBlocks("```calendar month\nsource: release\ndate: released\n```").length,
+    0
+  );
+});
+
 test("parseCalendarBlocks: an unclosed fence is a banner, not a silent zero", () => {
   const blocks = parseCalendarBlocks("```calendar\nsource: release\ndate: released\n");
   assert.equal(blocks.length, 1);

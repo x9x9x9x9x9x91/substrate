@@ -128,6 +128,22 @@ test("parseChartBlocks: finds all fences in order, keeps errors per block", () =
   assert.equal(parseChartBlocks("no fences here").length, 0);
 });
 
+test("parseChartBlocks: an opener with a stray trailing space still parses", () => {
+  // the likeliest hand-typo of an opener. Rejecting it drew nothing and said
+  // nothing — the fence looked closed to every check, so the board was simply
+  // blank where a chart had been written.
+  for (const open of ["```chart ", "```chart\t", "```chart  "]) {
+    const blocks = parseChartBlocks(open + "\nsource: release\nx: released:month\ny: count\n```");
+    assert.equal(blocks.length, 1, open);
+    assert.equal(blocks[0].error, null, open);
+  }
+  // a real second word is still a plain code box, not a chart
+  assert.equal(
+    parseChartBlocks("```chart wide\nsource: release\nx: released:month\ny: count\n```").length,
+    0
+  );
+});
+
 test("parseChartBlocks: parses CRLF chart fences (SUB-930)", () => {
   const body =
     "prose\r\n```chart\r\nsource: release\r\nx: released:month\r\ny: count\r\n```\r\ntail";

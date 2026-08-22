@@ -374,6 +374,18 @@ test("parseProgressBlocks: an unclosed fence is a banner, not a silent zero", ()
   );
 });
 
+test("parseProgressBlocks: an opener with a stray trailing space still parses", () => {
+  // the likeliest hand-typo of an opener: it used to draw nothing and say
+  // nothing, because the fence was closed and only the opener was refused.
+  for (const open of ["```progress ", "```progress\t"]) {
+    const blocks = parseProgressBlocks(open + "\nlabel: A\nvalue: {{S.a}}\ntarget: 10\n```");
+    assert.equal(blocks.length, 1, open);
+    assert.equal(blocks[0].error, null, open);
+  }
+  // a real second word is still a plain code box
+  assert.equal(parseProgressBlocks("```progress wide\nlabel: A\nvalue: {{S.a}}\ntarget: 10\n```").length, 0);
+});
+
 test("parseProgressBlocks: no banner over a goal the board just drew", () => {
   const config = "label: A\nvalue: {{S.a}}\ntarget: 10";
   for (const body of [

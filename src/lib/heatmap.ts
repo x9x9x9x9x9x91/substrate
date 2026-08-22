@@ -112,10 +112,13 @@ export function parseHeatmapConfig(inner: string): HeatmapConfig {
     nothing in the dashboard pane, and the strip pass already
     follows the wider spelling (CASE_FOLDING_BARE_LANGS in fences.ts), so a
     mixed-case fence's config is out of the search index either way. Still
-    bare-form: the `\r?\n` right after the lang rejects a tailed opener, which
-    is prose for every bare-form language. */
+    bare-form: only horizontal whitespace may follow the lang, so a tailed
+    opener — prose for every bare-form language — is still refused. That
+    whitespace is allowed because a stray space is a typo, not a second word:
+    ```heatmap␠ used to match nothing at all and draw a blank board with no
+    sentence about why. */
 export function parseHeatmapBlocks(body: string): HeatmapBlock[] {
-  const re = /```heatmap\r?\n([\s\S]*?)```/gi;
+  const re = /```heatmap[ \t]*\r?\n([\s\S]*?)```/gi;
   const out: HeatmapBlock[] = [];
   let m;
   while ((m = re.exec(body)) !== null) {

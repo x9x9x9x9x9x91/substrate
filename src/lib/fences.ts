@@ -99,11 +99,21 @@ const foldCase = (lang: string) => lang.replace(/[a-z]/g, (c) => `[${c.toUpperCa
     or a tailed opener renders live while its config stays indexed (the
     machine-fence leak class from the other direction). `tail` is
     the info string after the first word — bodies arrive line-split, so a
-    trailing CR (a CRLF opener) is not a tail. */
+    trailing CR (a CRLF opener) is not a tail.
+
+    A stray space or tab is not a tail either: ```calendar␠ names no second
+    word, it is the bare opener typed with a stray space, and every bare-form
+    parser now reads it as one. Counting it as a tail here would send exactly
+    that opener to a code box on the surfaces that ask this — the hub would
+    draw prose over a fence the pane draws live, which is the silence this
+    rule exists to end. The allowance stops at the same [ \t] the parsers and
+    both strip twins spell: a non-breaking space (or any other exotic
+    whitespace) IS a tail here, because no parser skips it — reading it as
+    bare would mount a live board whose config nothing strips. */
 export function isTailedBareFence(lang: string, tail: string): boolean {
   return (
     (BARE_MACHINE_FENCE_LANGS as readonly string[]).includes(lang.toLowerCase()) &&
-    tail.replace(/\r$/, "") !== ""
+    !/^[ \t]*\r?$/.test(tail)
   );
 }
 
@@ -116,6 +126,12 @@ export function isTailedBareFence(lang: string, tail: string): boolean {
     swallow the rest of its line and blank prose to the next fence
     review finding; the guard also closes the same pre-existing leak for
     ```view tails). CRLF openers (```view\r\n) strip too.
+
+    The bare-form group carries `[ \t]*` before the newline because its
+    parsers do: ```calendar␠ is the likeliest way to mistype an opener by
+    hand, it renders the live board, and a rendering fence whose config stays
+    in the search index is the machine-fence leak. The live-dispatch group
+    needs no such allowance — its tail already swallows a trailing space.
 
     The live-dispatch group — plus every bare-form lang whose own dispatcher
     folds case (heatmap) — is spelled per-letter ([Vv][Ii][Ee][Ww]) by
@@ -131,11 +147,11 @@ export function isTailedBareFence(lang: string, tail: string): boolean {
 export const MACHINE_FENCE_RE = new RegExp(
   "```(?:(?:" +
     TAILED_MACHINE_FENCE_LANGS.map(foldCase).join("|") +
-    ")(?:[ \\t][^`\\n]*)?|" +
+    ")(?:[ \\t][^`\\n]*)?|(?:" +
     BARE_MACHINE_FENCE_LANGS.map((l) => (CASE_FOLDING_BARE_LANGS.has(l) ? foldCase(l) : l)).join(
       "|"
     ) +
-    ")\\r?\\n[\\s\\S]*?(?:```|$)",
+    ")[ \\t]*)\\r?\\n[\\s\\S]*?(?:```|$)",
   "g"
 );
 
@@ -196,9 +212,10 @@ function blankQuotedFences(body: string): string {
       them, indented ones included;
     - only openers of THIS language are looked for, so an unrelated block
       left open elsewhere in the note is not this fence's problem;
-    - the opener tolerates trailing spaces (```chart␠), which is the likeliest
-      way to write one by hand and which every parser here rejects — so the
-      note that most needs the banner is the one that used to go silent.
+    - the opener tolerates trailing spaces (```chart␠), the likeliest way to
+      mistype one by hand: the parsers read it as an opener too, so a
+      trailing-space fence that never closes is this banner's, and a closed one
+      simply renders.
 
     `foldCase` follows the parser's own opener — heatmap dispatches
     case-insensitively, the rest do not. */

@@ -184,6 +184,11 @@ pub struct FmState {
 /// tailed one renders as plain code and stays searchable prose. A tail may not contain a backtick: an inline prose mention of an
 /// opener must never swallow its line and blank prose to the next fence.
 /// CRLF openers (```view\r\n) strip too.
+/// The bare-form group takes trailing horizontal whitespace ([ \t]* before the
+/// newline) because its parsers do: ```calendar␠ is a mistyped bare opener,
+/// not a tail, and it renders the live board — so its config leaves the index
+/// like any other rendering fence. The live-dispatch group needs no such
+/// allowance; its tail already covers a trailing space.
 /// The live-dispatch group is spelled per letter ([Vv][Ii][Ee][Ww]) because
 /// every frontend reader lowercases the info string's first word before
 /// matching — ```View renders as a widget, so its config must leave the index
@@ -214,7 +219,7 @@ fn machine_fence_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
         Regex::new(
-            r"```(?:(?:[Vv][Ii][Ee][Ww]|[Cc][Hh][Aa][Rr][Tt]|[Pp][Rr][Oo][Gg][Rr][Ee][Ss][Ss]|[Cc][Aa][Rr][Dd][Ss])(?:[ \t][^`\n]*)?|csv|formulas|[Hh][Ee][Aa][Tt][Mm][Aa][Pp]|[Cc][Aa][Ll][Ee][Nn][Dd][Aa][Rr]|[Tt][Ii][Mm][Ee][Ll][Ii][Nn][Ee])\r?\n[\s\S]*?(?:```|\z)",
+            r"```(?:(?:[Vv][Ii][Ee][Ww]|[Cc][Hh][Aa][Rr][Tt]|[Pp][Rr][Oo][Gg][Rr][Ee][Ss][Ss]|[Cc][Aa][Rr][Dd][Ss])(?:[ \t][^`\n]*)?|(?:csv|formulas|[Hh][Ee][Aa][Tt][Mm][Aa][Pp]|[Cc][Aa][Ll][Ee][Nn][Dd][Aa][Rr]|[Tt][Ii][Mm][Ee][Ll][Ii][Nn][Ee])[ \t]*)\r?\n[\s\S]*?(?:```|\z)",
         )
             .unwrap()
     })
@@ -3802,6 +3807,36 @@ mod tests {
             !strip_machine_fences(timeline).contains("source: release"),
             "bare timeline strips"
         );
+    }
+
+    #[test]
+    fn machine_fence_strip_accepts_stray_opener_space() {
+        // A trailing space after a bare-form lang names no second word - it
+        // is the bare opener typed with a stray space, and every bare-form
+        // parser reads it as the opener and draws the live board. A drawn
+        // board whose config stayed
+        // in the search index is the leak this strip exists to close.
+        // Lockstep twin: the "stray space" test in src/lib/fences.test.ts,
+        // same corpus.
+        for lang in ["csv", "formulas", "heatmap", "calendar", "timeline"] {
+            for pad in [" ", "\t", "  "] {
+                let body = format!("a\n```{lang}{pad}\nsecret: 1\n```\nb");
+                let out = strip_machine_fences(&body);
+                assert!(!out.contains("secret"), "config stripped for {lang}{pad:?}: {out:?}");
+                assert_eq!(
+                    out.matches('\n').count(),
+                    body.matches('\n').count(),
+                    "line map kept"
+                );
+            }
+        }
+        // ...and the same opener on a CRLF body, where the padding sits before
+        // the CR.
+        let crlf = "a\r\n```calendar \r\nsecret: 1\r\n```\r\nb";
+        assert!(!strip_machine_fences(crlf).contains("secret"), "stray space before CRLF strips");
+        // A real second word is still prose, padded or not.
+        let prose = "a\n```calendar month \nsecret: 1\n```\nb";
+        assert_eq!(strip_machine_fences(prose), prose, "tailed bare-form opener stays prose");
     }
 
     #[test]

@@ -41,9 +41,9 @@
  * sides then has its SPELLING compared, because a case-folded id and a plain
  * one are the same id and different matchers (```HeatMap once stripped on
  * one side only). Then the whole PATTERNS are compared, which catches the
- * grammar drifting even while the lists agree — the backtick guard and
- * the CRLF opener were each added to both sides by hand, and either
- * could have missed.
+ * grammar drifting even while the lists agree — the backtick guard, the CRLF
+ * opener and the bare group's trailing-whitespace allowance were each added to
+ * both sides by hand, and any of them could have missed.
  *
  * All three run INDEPENDENTLY: a merge that both adds a language on
  * one side and unfolds another's case would otherwise need one fix-and-re-run
@@ -81,7 +81,8 @@ const END = "<END-OF-INPUT>";
  * same string. Escaped mechanically below rather than by hand, so this stays
  * legible and cannot pick up a hand-escaping typo.
  */
-const TEMPLATE = "```(?:(?:<TAILED>)(?:[ \\t][^`\\n]*)?|<BARE>)\\r?\\n[\\s\\S]*?(?:```|" + END + ")";
+const TEMPLATE =
+  "```(?:(?:<TAILED>)(?:[ \\t][^`\\n]*)?|(?:<BARE>)[ \\t]*)\\r?\\n[\\s\\S]*?(?:```|" + END + ")";
 
 /**
  * One fence language id as it appears INSIDE a pattern. Not simply `[a-z0-9-]+`:
