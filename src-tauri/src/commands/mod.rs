@@ -32,6 +32,7 @@ pub(crate) mod reflexes;
 pub(crate) mod schema;
 pub(crate) mod search;
 pub(crate) mod share;
+pub(crate) mod sharetoken;
 pub(crate) mod syncdash;
 pub(crate) mod tags;
 pub(crate) mod trash;

@@ -152,9 +152,9 @@ test("send-as-link off: the dialog names the switch instead of offering a send",
   await page
     .locator(".list .row", { has: page.getByText("Capture anything", { exact: true }) })
     .click({ button: "right" });
-  await page.locator(".ctx-item", { hasText: "Send as link…" }).click();
+  await page.locator(".ctx-item", { hasText: "Share…" }).click();
 
-  const dialog = page.getByRole("dialog", { name: "Send as link" });
+  const dialog = page.getByRole("dialog", { name: "Share" });
   await expect(dialog).toBeVisible();
   await expect(dialog).toContainText("switched off");
   await expect(dialog).toContainText("Outbound requests");

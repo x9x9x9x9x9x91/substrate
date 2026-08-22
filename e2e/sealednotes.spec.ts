@@ -50,7 +50,7 @@ test("a note seals whole-file, unlocks for a peek, and can return to Markdown", 
   // even UNLOCKED, no plaintext-emitting action reaches the menu — Remove
   // seal is the one deliberate lane back to plaintext (review)
   await page.getByRole("button", { name: "Note actions" }).click();
-  for (const leaky of ["Duplicate", "Export Markdown…", "Export PDF…", "Send as link…"]) {
+  for (const leaky of ["Duplicate", "Export Markdown…", "Export PDF…", "Share…"]) {
     await expect(page.locator(".dots-item", { hasText: leaky })).toHaveCount(0);
   }
   await expect(page.locator(".dots-item", { hasText: "Remove seal…" })).toBeVisible();

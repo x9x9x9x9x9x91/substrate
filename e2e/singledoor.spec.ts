@@ -55,7 +55,7 @@ test("the row menu seals a note and takes the seal back off again", async ({ pag
   // sealed and locked: the plaintext-emitting verbs are gone, and "Lock now"
   // stays away because this session holds no authorization to release
   await rowMenu(page, "Welcome");
-  for (const leaky of ["Duplicate", "Export Markdown…", "Send as link…"]) {
+  for (const leaky of ["Duplicate", "Export Markdown…", "Share…"]) {
     await expect(ctxItem(page, leaky)).toHaveCount(0);
   }
   await expect(ctxItem(page, "Lock now")).toHaveCount(0);

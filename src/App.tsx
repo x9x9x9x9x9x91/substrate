@@ -192,7 +192,7 @@ import {
 } from "./lib/sweep";
 import { pickCsvFile } from "./lib/csvpick";
 import type { CsvEntry } from "./lib/csvimport";
-import SendLinkDialog from "./components/SendLinkDialog";
+import ShareDialog from "./components/ShareDialog";
 import SealScopeDialog from "./components/SealScopeDialog";
 import TagFolderDialog from "./components/TagFolderDialog";
 import TypeIcon from "./components/TypeIcon";
@@ -385,7 +385,7 @@ export default function App() {
   // behind a pasted link. The capture itself is local and always happens, so
   // this only decides whether the engine then asks that site anything.
   // `net-share-relay`, the other request this app makes, is enforced inside
-  // SendLinkDialog, which reads Settings.md for the relay URL anyway.
+  // the share door, which reads Settings.md for the relay URL anyway.
   const [netLinkTitles, setNetLinkTitles] = useState(true);
   /** `number-locale`: the one dialect every number in the app is
       written in — de-DE `1.234,56` by default. Held as state as well as in the
@@ -457,8 +457,8 @@ export default function App() {
   >(null);
   // CSV import: the picked, parsed file waiting on the import dialog
   const [csvImport, setCsvImport] = useState<{ fileName: string; rows: string[][] } | null>(null);
-  // The note being sent as an encrypted expiring link
-  const [sendLink, setSendLink] = useState<NoteMeta | null>(null);
+  // The note whose share door is open
+  const [share, setShare] = useState<NoteMeta | null>(null);
   // "Mount a folder…": the dialog's open state
   const [mountDialog, setMountDialog] = useState(false);
   /** every mount in the vault, with this machine's binding resolved */
@@ -3409,7 +3409,7 @@ export default function App() {
         exportMarkdown: () => afterOpenFlush(() => exportNoteMarkdown(n).catch(console.error)),
         exportPdf: () => afterOpenFlush(() => exportNotePdf(n).catch(console.error)),
         exportOneSheet: () => afterOpenFlush(() => exportNoteOneSheet(n).catch(console.error)),
-        sendAsLink: () => afterOpenFlush(() => setSendLink(n)),
+        share: () => afterOpenFlush(() => setShare(n)),
         sealed: n.sealed,
         ...noteActionExtras(n),
         togglePick: () => togglePickToday(n.path, !isPickedToday(n, todayIso())),
@@ -5428,7 +5428,7 @@ export default function App() {
                 onTrash={trashNote}
                 onMoveToFolder={startMoveToFolder}
                 onDuplicate={duplicateNote}
-                onSendAsLink={setSendLink}
+                onShare={setShare}
                 onTogglePick={togglePickToday}
                 onTogglePin={setPinned}
                 pinned={pinnedPaths.includes(dbNoteMeta.path)}
@@ -5515,7 +5515,7 @@ export default function App() {
             onTrash={trashNote}
             onMoveToFolder={startMoveToFolder}
             onDuplicate={duplicateNote}
-            onSendAsLink={setSendLink}
+            onShare={setShare}
             onTogglePick={togglePickToday}
             onTogglePin={setPinned}
             pinned={pinnedPaths.includes(selectedMeta.path)}
@@ -5596,7 +5596,7 @@ export default function App() {
           onRenameNote={(path, title) => renameNote(path, title).catch((e) => showToast(errText(e)))}
           onRenameFolder={(path, name) => renameFolder(path, name).catch((e) => showToast(errText(e)))}
           onDuplicate={duplicateNote}
-          onSendAsLink={setSendLink}
+          onShare={setShare}
           onTrashNote={trashNote}
           onTogglePick={togglePickToday}
           onTogglePin={setPinned}
@@ -5737,7 +5737,9 @@ export default function App() {
           onClose={() => setCsvImport(null)}
         />
       )}
-      {sendLink && <SendLinkDialog meta={sendLink} onClose={() => setSendLink(null)} />}
+      {share && (
+        <ShareDialog meta={share} onClose={() => setShare(null)} onToast={showToast} />
+      )}
       {/* Seal/unlock/unseal invoked from a surface that is not the open note:
           the row menu or the palette. Same dialog the pane uses. */}
       {sealDialog && (

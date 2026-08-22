@@ -4,7 +4,13 @@ Substrate's integration surface is deliberately small: the vault is a folder of
 plain markdown, and the files are the only source of truth. This page is the
 index of every supported way to get things **into** and **out of** a vault, each
 linking the document that owns its contract. If a door isn't listed here, it
-doesn't exist — and that's a doc bug worth filing.
+doesn't exist — and that's a doc bug worth filing. The index describes the
+build it ships with: a door this build does not carry has no row here, because
+for this build it is not a door.
+
+The sharing doors are one door with modes — a note's row menu and ⌘K both offer
+a single **Share…**, and the mode picker inside it chooses what kind of sharing
+this is. They are listed as separate rows because each mode is its own contract.
 
 ## Ways in
 
@@ -36,7 +42,7 @@ receipts, and the headless recipe — written up in [MCP door](mcp-door.md): the
 | The files themselves | The vault is plain markdown on disk. Open it in any editor, grep it, back it up, delete Substrate — nothing is trapped. No export step exists because none is needed. | [README §Model](../README.md#model) |
 | Export | Per-note Markdown (with assets) and PDF, per-database CSV of the current view, and link folders that mirror a saved view into Finder — plus the uninstall story. | [Export and uninstall](user/export-and-uninstall.md) |
 | Vault sync | Push/pull the vault's built-in Git history to an HTTPS remote you configure. Nothing is sent until you set a remote and choose Push. | [Sync and security](user/sync-and-security.md) |
-| Send as link | One note, encrypted on your Mac, shared through a relay; the key stays in the link fragment. | [Sync and security §What connects to the network](user/sync-and-security.md#what-connects-to-the-network) |
+| Send as link | The share door's link mode: one note, encrypted on your Mac, shared through a relay; the key stays in the link fragment. Right-click a note → Share…, or ⌘K → Share…. | [Sync and security §What connects to the network](user/sync-and-security.md#what-connects-to-the-network) |
 
 ## Not planned
 

@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import type { NoteMeta } from "../lib/types";
-import { foldedPropKey } from "../lib/types";
 import { shareUpload, vaultRead } from "../lib/ipc";
 import { buildNoteHandoffHtml } from "../lib/export";
 import {
@@ -8,6 +7,7 @@ import {
   EXPIRY_LABELS,
   SIZE_WARN_BYTES,
   buildHandoffLink,
+  parseShareRelayToken,
   parseShareRelayUrl,
   sealHandoff,
   type HandoffExpiry,
@@ -41,9 +41,13 @@ function fmtBytes(n: number, locale: NumberLocale): string {
 export default function SendLinkDialog({
   meta,
   onClose,
+  embedded = false,
 }: {
   meta: NoteMeta;
   onClose: () => void;
+  /** rendered inside the share door, which supplies the overlay, the title
+      and Escape — this panel is then only its own body */
+  embedded?: boolean;
 }) {
   const numberLocale = useNumberLocale();
   const [relay, setRelay] = useState<string | null>(null); // null = still loading settings
@@ -62,6 +66,9 @@ export default function SendLinkDialog({
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
+    // the door that embeds this panel owns Escape; two listeners would both
+    // answer the same key
+    if (embedded) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.stopPropagation();
@@ -70,15 +77,14 @@ export default function SendLinkDialog({
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [onClose]);
+  }, [onClose, embedded]);
 
   useEffect(() => {
     vaultRead(SETTINGS_PATH)
       .then((c) => {
         setRelay(parseShareRelayUrl(c.props));
         setAllowed(netAllowed(c.props, "share-relay"));
-        const t = c.props[foldedPropKey(c.props, "share-relay-token")];
-        setRelayToken(typeof t === "string" ? t.trim() : "");
+        setRelayToken(parseShareRelayToken(c.props));
       })
       .catch(() => setRelay(""));
   }, []);
@@ -139,15 +145,8 @@ export default function SendLinkDialog({
       .catch(() => setErr("Could not copy — select the link and copy manually."));
   };
 
-  return (
-    <div
-      className="overlay"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div className="dbform" role="dialog" aria-label="Send as link">
-        <div className="dbform-title">Send “{meta.title}” as link</div>
+  const body = (
+    <>
 
         {!allowed && (
           <>
@@ -254,6 +253,20 @@ export default function SendLinkDialog({
             </div>
           </>
         )}
+    </>
+  );
+  if (embedded) return body;
+
+  return (
+    <div
+      className="overlay"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="dbform" role="dialog" aria-label="Send as link">
+        <div className="dbform-title">Send “{meta.title}” as link</div>
+        {body}
       </div>
     </div>
   );

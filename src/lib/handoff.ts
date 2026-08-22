@@ -220,3 +220,13 @@ export function parseShareRelayUrl(props: Record<string, unknown>): string {
   if (["disabled", "off"].includes(s.toLowerCase())) return "";
   return /^https?:\/\/.+/i.test(s) ? s : "";
 }
+
+/** `share-relay-token` (Settings.md) — the one secret every share door
+    carries when the relay gates its endpoints. Read here rather than in each
+    door so the doors cannot drift on what counts as "no token": anything that
+    is not a non-empty string is none, and a token is used exactly as written
+    (trimmed), so tokens already handed out keep working. */
+export function parseShareRelayToken(props: Record<string, unknown>): string {
+  const v = props[foldedPropKey(props, "share-relay-token")];
+  return typeof v === "string" ? v.trim() : "";
+}

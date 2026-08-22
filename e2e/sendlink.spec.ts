@@ -34,9 +34,9 @@ test.beforeEach(async ({ page }) => {
 test("cleared relay: the dialog explains setup instead of failing", async ({ page }) => {
   await setRelayUrl(page, "");
   await row(page, "Capture anything").click({ button: "right" });
-  await page.locator(".ctx-item", { hasText: "Send as link…" }).click();
+  await page.locator(".ctx-item", { hasText: "Share…" }).click();
 
-  const dialog = page.getByRole("dialog", { name: "Send as link" });
+  const dialog = page.getByRole("dialog", { name: "Share" });
   await expect(dialog).toBeVisible();
   await expect(dialog).toContainText("Hosted sharing is off");
   await expect(dialog).toContainText("Settings");
@@ -46,9 +46,9 @@ test("cleared relay: the dialog explains setup instead of failing", async ({ pag
 
 test("fresh vault uses the hosted relay without setup", async ({ page }) => {
   await row(page, "Capture anything").click({ button: "right" });
-  await page.locator(".ctx-item", { hasText: "Send as link…" }).click();
+  await page.locator(".ctx-item", { hasText: "Share…" }).click();
 
-  const dialog = page.getByRole("dialog", { name: "Send as link" });
+  const dialog = page.getByRole("dialog", { name: "Share" });
   await dialog.getByRole("button", { name: "Create link" }).click();
   const url = new URL(await dialog.getByRole("textbox", { name: "Share link" }).inputValue());
   expect(url.origin).toBe("https://drop.substrate.zone");
@@ -60,9 +60,9 @@ test("configured relay: expiry defaults to 7 days, link carries the key in the f
   await setRelayUrl(page, "https://drop.example.org");
 
   await row(page, "Capture anything").click({ button: "right" });
-  await page.locator(".ctx-item", { hasText: "Send as link…" }).click();
+  await page.locator(".ctx-item", { hasText: "Share…" }).click();
 
-  const dialog = page.getByRole("dialog", { name: "Send as link" });
+  const dialog = page.getByRole("dialog", { name: "Share" });
   await expect(dialog).toBeVisible();
   // honesty copy: the relay stores ciphertext, the key stays in the link
   await expect(dialog).toContainText("the relay stores ciphertext");
@@ -95,12 +95,12 @@ test("configured relay: expiry defaults to 7 days, link carries the key in the f
 test("the open note's ⋯ menu and the palette carry the action too", async ({ page }) => {
   // ⋯ menu on the open note (Welcome is open from boot)
   await page.getByRole("button", { name: "Note actions" }).click();
-  await expect(page.locator(".dots-item", { hasText: "Send as link…" })).toBeVisible();
+  await expect(page.locator(".dots-item", { hasText: "Share…" })).toBeVisible();
   await page.keyboard.press("Escape");
 
   // palette actions stage for the current note
   await page.keyboard.press("Meta+k");
   await page.locator(".palette-item", { hasText: "Actions:" }).click();
-  await expect(page.locator(".palette-item", { hasText: "Send as link…" })).toBeVisible();
+  await expect(page.locator(".palette-item", { hasText: "Share…" })).toBeVisible();
   await page.keyboard.press("Escape");
 });

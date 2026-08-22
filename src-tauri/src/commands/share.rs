@@ -8,6 +8,7 @@
 //! like every other fetch (a synced Settings.md must not be
 //! able to point the app at the local network).
 
+use super::sharetoken::bearing;
 use crate::net;
 use base64::Engine;
 use serde::Deserialize;
@@ -21,7 +22,9 @@ struct StoreReply {
 /// POST the sealed payload to `<relay>/api/store` and return the handoff id.
 /// `payload_b64` carries the ciphertext across IPC (IPC is JSON; ~33%
 /// overhead on a bounded payload beats teaching the bridge raw bytes).
-/// `token` rides as a bearer header when the relay gates its store endpoint.
+/// `token` rides as a bearer header when the relay gates its store endpoint —
+/// attached through the doors' shared token API (`sharetoken::bearing`), so
+/// every share door carries the same secret the same way.
 pub fn share_store(
     relay_url: &str,
     payload_b64: &str,
@@ -47,13 +50,9 @@ pub fn share_store(
         .redirects(0)
         .user_agent("Substrate/0.1 (handoff upload; ciphertext only)")
         .build();
-    let mut req = agent
-        .post(url.as_str())
+    let req = bearing(agent.post(url.as_str()), token)
         .set("Content-Type", "application/octet-stream")
         .set("X-Handoff-Expiry", expiry);
-    if let Some(t) = token {
-        req = req.set("Authorization", &format!("Bearer {t}"));
-    }
     let resp = req.send_bytes(&payload).map_err(|e| net::redact_message(&e.to_string()))?;
     if resp.status() != 201 {
         return Err(format!("relay refused the upload ({})", resp.status()));
