@@ -6,10 +6,7 @@ import {
   vaultSyncResolveFinish,
   vaultSyncResolveSet,
 } from "../lib/ipc";
-
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+import { errText } from "../lib/errtext";
 
 const CHOICES: { id: ConflictChoice; label: string }[] = [
   { id: "mine", label: "Keep mine" },
@@ -108,7 +105,7 @@ export default function SyncConflicts({ onResolved }: { onResolved: (report: Syn
       setState(await vaultSyncConflicts());
       if (!keepError) setError(null);
     } catch (err) {
-      setError(errorText(err));
+      setError(errText(err));
     }
   }, []);
 
@@ -128,7 +125,7 @@ export default function SyncConflicts({ onResolved }: { onResolved: (report: Syn
           : await vaultSyncResolveSet(file.path, choice),
       );
     } catch (err) {
-      setError(errorText(err));
+      setError(errText(err));
       await refresh(true);
     } finally {
       setBusy(false);
@@ -144,7 +141,7 @@ export default function SyncConflicts({ onResolved }: { onResolved: (report: Syn
       setState(null);
       onResolved(report);
     } catch (err) {
-      setError(errorText(err));
+      setError(errText(err));
       await refresh(true);
     } finally {
       setBusy(false);

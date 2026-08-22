@@ -80,11 +80,11 @@ export function isValidKindId(id: string): boolean {
 
 /** What a `dashboard:` prop resolves to. `body-scan` is the legacy
     path and belongs to notes that name no kind at all — one or more
-    ` ```chart ` fences make it a charts dashboard, none leaves it the yield
-    tracker (§5.5). A value that IS named but isn't a built-in resolves to
-    `unknown`, never to that fallback: answering "show me gear-log" with a
-    yield tracker — a financial instrument, its snapshot form included —
-    is the same wrong answer `KindState` refuses to give for bundles. */
+    ` ```chart ` fences make it a charts dashboard, none leaves it the help
+    card (§5.5). A value that IS named but isn't a built-in resolves to
+    `unknown`, never to that scan: answering "show me gear-log" with whatever
+    the body happens to look like is the same wrong answer `KindState`
+    refuses to give for bundles. */
 export type DashboardDispatch =
   | { dispatch: "built-in"; kind: string }
   | { dispatch: "body-scan" }
@@ -173,6 +173,22 @@ export function resolveDispatchTail(kind: string): DashboardTail {
     doesn't offer names it can't render. */
 export function knownKindList(): string {
   return [...BUILT_IN_KINDS].sort().join(", ");
+}
+
+/** A `type: dashboard` note that gives no instruction at all — no
+    `dashboard:` key, and a body with no ` ```chart `, ` ```heatmap ` or
+    ` ```calendar ` fence in it. It used to end at the yield tracker, so an
+    empty dashboard note meant a personal APR instrument: a live currency
+    fetch, a snapshot form, and a Claim button writing `claimed_usd` back into
+    a note whose author had asked for none of it. The honest answer is the
+    same card an unknown kind gets — what this note says, and what it could
+    say instead. */
+export function unconfiguredDashboardMessage(): string {
+  return (
+    "this dashboard names no kind and its body holds no chart, heatmap or " +
+    "calendar fence, so there is nothing to render yet — add a `dashboard:` " +
+    `property, or write a fence. Known kinds: ${knownKindList()}`
+  );
 }
 
 /** `kind.json`. `title` + `description` are what the enable card shows a
@@ -478,8 +494,8 @@ export interface KindBundleInfo extends KindBundle {
 
 /** What a pane should render for one bundle. Exactly one of these, always:
     a kind that can't be resolved shows a card naming the reason, never the
-    charts-or-yield fallback (that fallback is for typos, and using it here
-    would answer "show me gear-log" with a yield tracker). */
+    body scan (the scan belongs to notes that name no kind, and using it here
+    would answer "show me gear-log" with whatever fence the body holds). */
 export type KindState =
   | { state: "enabled"; manifest: KindManifest }
   | { state: "hash-drift"; manifest: KindManifest }

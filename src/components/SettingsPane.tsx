@@ -68,6 +68,7 @@ import { HOSTED_HANDOFF_RELAY_URL } from "../lib/handoff";
 import McpSettings from "./McpSettings";
 import CalendarSettings from "./CalendarSettings";
 import { visibleSettingsTabs, type SettingsTabId } from "../lib/settingsTabs";
+import { errText } from "../lib/errtext";
 
 const Onboarding = lazy(() => import("./Onboarding"));
 
@@ -161,7 +162,7 @@ function VoiceModelRow({ onToast }: { onToast: (msg: string) => void }) {
               setFailed("");
               voiceModelDownload().catch((e) => {
                 setBusy(false);
-                onToast(String(e));
+                onToast(errText(e));
               });
             }}
           >
@@ -364,7 +365,7 @@ function ExperimentalSection({
                     setTrusted(ok);
                     if (!ok) onToast("approve Substrate in System Settings → Privacy & Security → Accessibility");
                   })
-                  .catch((e) => onToast(String(e)));
+                  .catch((e) => onToast(errText(e)));
               }}
             >
               grant access…
@@ -912,7 +913,7 @@ export default function SettingsPane({
             setSaved((s) => ({ ...s, [key]: next }));
             void onSettingsChanged();
           })
-          .catch((e) => onToast(`couldn't save ${key} (${e})`));
+          .catch((e) => onToast(`couldn't save ${key} (${errText(e)})`));
         return;
       }
       const next = values[key].trim();
@@ -951,7 +952,7 @@ export default function SettingsPane({
           setSaved((s) => ({ ...s, [key]: next }));
           void onSettingsChanged();
         })
-        .catch((e) => onToast(`couldn't save ${key} (${e})`));
+        .catch((e) => onToast(`couldn't save ${key} (${errText(e)})`));
     },
     [values, saved, onSettingsChanged, onToast, reconcileSettings, undo]
   );
@@ -973,7 +974,7 @@ export default function SettingsPane({
           setSaved((s) => ({ ...s, [key]: next }));
           void onSettingsChanged();
         })
-        .catch((e) => onToast(`couldn't save ${key} (${e})`));
+        .catch((e) => onToast(`couldn't save ${key} (${errText(e)})`));
     },
     [values, onSettingsChanged, onToast, reconcileSettings, undo]
   );
@@ -1003,7 +1004,7 @@ export default function SettingsPane({
           setSaved((s) => ({ ...s, [key]: value }));
           void onSettingsChanged();
         })
-        .catch((e) => onToast(`couldn't save ${key} (${e})`));
+        .catch((e) => onToast(`couldn't save ${key} (${errText(e)})`));
     },
     [values, saved, onSettingsChanged, onToast, reconcileSettings, undo]
   );
@@ -1105,7 +1106,7 @@ export default function SettingsPane({
         })
         .catch((e) => {
           rollbackAppearance(f.key);
-          onToast(`couldn't save ${f.key} (${e})`);
+          onToast(`couldn't save ${f.key} (${errText(e)})`);
         });
     },
     [
@@ -1142,7 +1143,7 @@ export default function SettingsPane({
         })
         .catch((e) => {
           rollbackAppearance(f.key);
-          onToast(`couldn't save ${f.key} (${e})`);
+          onToast(`couldn't save ${f.key} (${errText(e)})`);
         });
     },
     [

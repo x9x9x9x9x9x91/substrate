@@ -62,6 +62,7 @@ import Editor from "./Editor";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
 import { NoteIcon, TableIcon } from "./Icons";
 import EmptyState from "./EmptyState";
+import { errText } from "../lib/errtext";
 
 interface CellPos {
   r: number;
@@ -224,7 +225,7 @@ export default function SheetGrid({
           const content = await vaultRead(resolved.path);
           map.set(name, parseSheet(content.body));
         } catch (e) {
-          map.set(name, ferr(String(e)));
+          map.set(name, ferr(errText(e)));
         }
       }
       if (!gone) setCross({ key: crossNames.join("|"), map });

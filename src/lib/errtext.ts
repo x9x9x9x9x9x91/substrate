@@ -35,7 +35,19 @@ export function midSentence(text: string): string {
 export function thrownText(e: unknown): string {
   if (e instanceof Error) return errText(e);
   if (typeof e === "string" && e.trim() !== "") return e.trim();
+  // A plain object with a message is the common shape of a failure crossing a
+  // boundary — a rejected value from another window, a backend fault that lost
+  // its Error on the way over. It carries a sentence; naming its shape instead
+  // would throw the sentence away and tell the reader nothing.
+  const carried = carriedMessage(e);
+  if (carried) return carried;
   return `it threw ${thrownShape(e)}, not an error`;
+}
+
+function carriedMessage(e: unknown): string {
+  if (typeof e !== "object" || e === null) return "";
+  const message = (e as { message?: unknown }).message;
+  return typeof message === "string" ? message.trim() : "";
 }
 
 function thrownShape(e: unknown): string {

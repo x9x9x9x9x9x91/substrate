@@ -1,7 +1,12 @@
 import type { MutableRefObject } from "react";
 import type { NoteMeta, SavedView, SchemaConfig } from "../lib/types";
 import { parseChartBlocks } from "../lib/chart";
-import { dashboardProp, resolveDashboardKind, resolveDispatchTail } from "../lib/kinds";
+import {
+  dashboardProp,
+  resolveDashboardKind,
+  resolveDispatchTail,
+  unconfiguredDashboardMessage,
+} from "../lib/kinds";
 import { parseHeatmapBlocks } from "../lib/heatmap";
 import { parseCalendarBlocks } from "../lib/calendarfence";
 import { builtInShadowNotice, resolveKindPane } from "../lib/kindpane";
@@ -64,7 +69,7 @@ interface DashboardPaneProps {
 }
 
 /** `dashboard: charts` — the chart-fence renderer by name, fences
-    or not. Reads the body the same way `ChartOrYield` does — heatmap fences
+    or not. Reads the body the same way `BodyScanDashboard` does — heatmap fences
     included, hung under the charts: naming the kind must not silently drop a
     fence the same body renders when the kind is left off. An empty
     body renders the charts shell with no sections rather than a wrong tracker. */
@@ -84,17 +89,23 @@ function heatmapAfter(props: DashboardPaneProps, body: string) {
   ) : undefined;
 }
 
-/** An unrecognized `dashboard:` value: a quiet inline card naming
-    the reason, in the one `DashAlert` voice every board's errors speak —
-    the same banner a view fence gives an unknown database. Never the yield
-    tracker: that fallback belongs to notes that name no kind at all. */
-function UnknownKindDashboard({ message, ...props }: DashboardPaneProps & { message: string }) {
+/** The card every board that cannot render itself shows: the head it would
+    have had, its state label, and one `DashAlert` line saying why — the one
+    voice every board's errors speak, and the same banner a view fence gives
+    an unknown database. Never a different dashboard in its place: answering
+    a note the app can't render with some other board is the wrong answer this
+    card exists to refuse. */
+function DashMessageCard({
+  label,
+  message,
+  ...props
+}: DashboardPaneProps & { label: string; message: string }) {
   return (
     <div className="note">
       <div className="dash-inner">
         <DashHead
           title={props.meta.title}
-          state={{ label: "unknown kind" }}
+          state={{ label }}
           sourcePath={props.meta.path}
           onOpenSource={props.onOpenSource}
         />
@@ -102,6 +113,12 @@ function UnknownKindDashboard({ message, ...props }: DashboardPaneProps & { mess
       </div>
     </div>
   );
+}
+
+/** An unrecognized `dashboard:` value. Never the yield tracker: that used to
+    be where a typo landed. */
+function UnknownKindDashboard({ message, ...props }: DashboardPaneProps & { message: string }) {
+  return <DashMessageCard {...props} label="unknown kind" message={message} />;
 }
 
 /** A built-in kind whose renderer never landed: BUILT_IN_KINDS
@@ -109,32 +126,35 @@ function UnknownKindDashboard({ message, ...props }: DashboardPaneProps & { mess
     scripts/check-kinds.ts fails the build on that gap, which makes this card
     unreachable in a shipped build — it exists because the alternative when it
     isn't is the chart-fence dashboard with nothing in it, and "empty" is a
-    different claim from "this build can't render this". Same quiet
-    `DashAlert` card the unknown-kind path uses. */
+    different claim from "this build can't render this". */
 function MissingKindDashboard({ message, ...props }: DashboardPaneProps & { message: string }) {
+  return <DashMessageCard {...props} label="no renderer" message={message} />;
+}
+
+/** A dashboard note carrying no instruction at all — no kind named, no fence
+    in the body. The help state: what the note is missing, and the kinds it
+    could name. It renders nothing else, which is the point — the yield
+    tracker used to stand here, so an empty dashboard note fetched live
+    currency rates and offered to write `claimed_usd` into itself. */
+function UnconfiguredDashboard(props: DashboardPaneProps) {
   return (
-    <div className="note">
-      <div className="dash-inner">
-        <DashHead
-          title={props.meta.title}
-          state={{ label: "no renderer" }}
-          sourcePath={props.meta.path}
-          onOpenSource={props.onOpenSource}
-        />
-        <DashAlert>{message}</DashAlert>
-      </div>
-    </div>
+    <DashMessageCard
+      {...props}
+      label="nothing configured"
+      message={unconfiguredDashboardMessage()}
+    />
   );
 }
 
 /** Default dashboards: a ```chart fence declares chart blocks, a
-    ```heatmap fence a year grid, a ```calendar fence a month grid;
-    without any of them the note is a yield tracker (the original
-    dashboard). A note carrying both charts and heatmaps leads with its charts
+    ```heatmap fence a year grid, a ```calendar fence a month grid; a body
+    with none of them has asked for nothing, and gets the help card that says
+    so. A note carrying both charts and heatmaps leads with its charts
     and hangs the heatmaps under them, so neither fence goes unrendered for
     having been written second. Reached only by a note with NO `dashboard:`
-    prop — a named-but-unknown kind gets the error card instead. */
-function ChartOrYield(props: DashboardPaneProps) {
+    prop — a named-but-unknown kind gets the error card instead, and
+    `dashboard: yield-apr` names the yield tracker outright. */
+function BodyScanDashboard(props: DashboardPaneProps) {
   const body = useNoteBody(props.meta.path, props.vaultEpoch, props.meta.sealed);
   // only a cold read reaches here now — a remount paints from the seed
   if (body === null) return <div className="note" />;
@@ -144,7 +164,7 @@ function ChartOrYield(props: DashboardPaneProps) {
   if (heat) return <HeatmapDashboard {...props} body={body} />;
   if (parseCalendarBlocks(body).length > 0)
     return <CalendarFenceDashboard {...props} body={body} />;
-  return <YieldDashboard {...props} />;
+  return <UnconfiguredDashboard {...props} />;
 }
 
 /** One dashboard note rendered by its dashboard: kind — the single dispatch
@@ -163,7 +183,7 @@ function DashboardBody(props: DashboardPaneProps) {
   const bundles = useKindBundles(true, props.vaultEpoch);
 
   // no `dashboard:` prop at all — the legacy body scan
-  if (resolved.dispatch === "body-scan") return <ChartOrYield {...props} />;
+  if (resolved.dispatch === "body-scan") return <BodyScanDashboard {...props} />;
   if (custom) {
     // Still asking the backend — never the fallback, and never a "no such
     // kind" card for a kind that may well be installed. The head renders

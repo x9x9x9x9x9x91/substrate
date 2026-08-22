@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { vaultFolders, vaultList } from "../lib/ipc";
 import type { NoteMeta } from "../lib/types";
+import { errText } from "../lib/errtext";
 
 /**
  * the vault index: the note list and folder list the whole app reads from,
@@ -46,7 +47,7 @@ export function useVaultIndex() {
       })
       .catch((err) => {
         console.error(err);
-        setBootError(err instanceof Error ? err.message : String(err));
+        setBootError(errText(err));
       });
     vaultFolders().then(setFolders).catch(console.error);
     setVaultEpoch((e) => e + 1);

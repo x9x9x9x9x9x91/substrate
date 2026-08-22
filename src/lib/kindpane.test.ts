@@ -109,7 +109,7 @@ test("dispatch: the right bundle is picked out of several", () => {
 
 // The regression guard the whole unit exists for: every non-running state
 // still routes to the custom pane, which shows a card. None of them may reach
-// body-scan (the charts-or-yield fallback) or the unknown-kind card — both
+// the body scan or the unknown-kind card — both
 // would answer "show me gear-log" with something that is not gear-log.
 test("dispatch: a present-but-not-running bundle NEVER falls back", () => {
   const cases: Array<[string, KindBundleInfo]> = [

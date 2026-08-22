@@ -75,6 +75,7 @@ import SheetGrid from "./SheetGrid";
 import { parseColumnNotify } from "../lib/sheetnotify";
 import type { SheetRowTarget } from "../hooks/useVaultEvents";
 import { useTypedBody } from "../hooks/useTypedBody";
+import { errText } from "../lib/errtext";
 import DateMenu from "./DateMenu";
 import FileMenu from "./FileMenu";
 import RelationMenu from "./RelationMenu";
@@ -654,7 +655,7 @@ function NotePane({
               return;
             }
             pending.current = p;
-            setSaveError(err instanceof Error ? err.message : String(err));
+            setSaveError(errText(err));
           });
       }
       pending.current = null;
@@ -754,7 +755,7 @@ function NotePane({
             fileGoneRef.current = true;
             setFileGone(true);
           } else {
-            setSaveError(err instanceof Error ? err.message : String(err));
+            setSaveError(errText(err));
           }
         })
         .finally(() => {
@@ -1384,7 +1385,7 @@ function NotePane({
         })
         .catch((err) => {
           settleRename();
-          setTitleError(err instanceof Error ? err.message : String(err));
+          setTitleError(errText(err));
           setTitleDraft(meta.title);
         })
     ).catch(() => {
@@ -1432,7 +1433,7 @@ function NotePane({
         if (pathRef.current !== path) return;
         failedProp.current = { key: actualKey, value };
         failedColumn.current = null;
-        setPropError(err instanceof Error ? err.message : String(err));
+        setPropError(errText(err));
         // re-sync so nothing implies the write landed
         onMutated();
       });
@@ -1462,7 +1463,7 @@ function NotePane({
         // property write actually failed last
         failedProp.current = null;
         failedColumn.current = { column, notify, notifyBefore };
-        setPropError(err instanceof Error ? err.message : String(err));
+        setPropError(errText(err));
         onMutated();
       });
   };

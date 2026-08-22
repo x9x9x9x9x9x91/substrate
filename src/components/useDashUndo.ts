@@ -1,5 +1,5 @@
 // The boards' ⌘Z / ⌘⇧Z stacks: which board a dashboard note renders
-// can depend on its BODY (ChartOrYield reads the file before choosing), so App
+// can depend on its BODY (BodyScanDashboard reads the file before choosing), so App
 // cannot tell from `dashboard:` whether undo or redo is available. The owning
 // pane publishes its live history — same idiom as the workbook's pageStepRef.
 

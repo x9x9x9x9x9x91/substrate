@@ -36,6 +36,7 @@ import {
 import { setPropUndoable } from "../lib/undoprops";
 import { useUndo } from "../lib/undoContext";
 import { TERM_TRUST_KEY, decideInject, isCommandTrusted, withTrusted } from "../lib/termtrust";
+import { errText } from "../lib/errtext";
 
 /** A withheld command: `command` is what the user is asked about and what the
     approval is keyed by, `data` the exact bytes to type once they say yes
@@ -233,7 +234,7 @@ export default function TerminalHud({
           // a reused session may have resized while hidden
           if (!info.fresh) invoke("term_resize", { cols, rows }).catch(() => {});
         })
-        .catch((e) => onToast(`terminal failed to start (${e})`));
+        .catch((e) => onToast(`terminal failed to start (${errText(e)})`));
     });
     return () => {
       cancelAnimationFrame(raf);
@@ -324,7 +325,7 @@ export default function TerminalHud({
       }).catch((e) => {
         // `onSized` is optimistic; return to the note if its write refused.
         void onSettingsChanged();
-        onToast(`couldn't save terminal size (${e})`);
+        onToast(`couldn't save terminal size (${errText(e)})`);
       });
     },
     [onSettingsChanged, onSized, onToast, undo]

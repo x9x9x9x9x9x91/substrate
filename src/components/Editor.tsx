@@ -143,6 +143,7 @@ import { extractLink, extractTitle } from "../lib/extractnote";
 import { parseAccent } from "../lib/styletokens";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
 import { tableActions, tableCellAtOffset, type TableAction } from "../lib/tablemenu";
+import { errText } from "../lib/errtext";
 
 const mdHighlight = HighlightStyle.define([
   { tag: tags.heading1, fontSize: "1.5em", fontWeight: "650", letterSpacing: "-0.012em" },
@@ -2507,7 +2508,7 @@ export default function Editor({
       });
     } catch (err) {
       onToastRef.current?.(
-        `Couldn’t extract selection — ${err instanceof Error ? err.message : String(err)}`
+        `Couldn’t extract selection — ${errText(err)}`
       );
     }
   };
@@ -2519,7 +2520,7 @@ export default function Editor({
     const sel = view.state.selection.main;
     navigator.clipboard
       .writeText(view.state.sliceDoc(sel.from, sel.to))
-      .catch((err) => onToastRef.current?.(`Couldn’t copy — ${err}`));
+      .catch((err) => onToastRef.current?.(`Couldn’t copy — ${errText(err)}`));
   };
 
   const selMenuItems = (): MenuItem[] =>
@@ -2828,7 +2829,7 @@ export default function Editor({
                 // a swallowed rejection — the paste vanished with no sign at
                 // all, since preventDefault already ate the event
                 console.error(err);
-                toast?.(`Import failed: ${err}`);
+                toast?.(`Import failed: ${errText(err)}`);
               })
               .finally(() => at.release());
             return true;
@@ -2856,7 +2857,7 @@ export default function Editor({
             })()
               .catch((err) => {
                 console.error(err);
-                toast?.(`Import failed: ${err}`);
+                toast?.(`Import failed: ${errText(err)}`);
               })
               .finally(() => at.release());
             return true;
@@ -3121,7 +3122,7 @@ export default function Editor({
           })()
             .catch((err) => {
               console.error(err);
-              onToastRef.current?.(`Import failed: ${err}`);
+              onToastRef.current?.(`Import failed: ${errText(err)}`);
             })
             .finally(() => at.release());
         } else {

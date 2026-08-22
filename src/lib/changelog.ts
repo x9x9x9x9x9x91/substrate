@@ -29,6 +29,17 @@
  * `npm test` fails when CHANGELOG.md is stale or those four versions disagree
  * (scripts/gen-changelog.test.ts), so a forgotten step is caught in CI, not by
  * a beta tester reading a changelog that stops three months short.
+ *
+ * WHEN A FEATURE IS REMOVED, ITS HISTORY GOES WITH IT. This array
+ * describes the app as it is, not as it once was, so a removal EDITS the old
+ * entries instead of appending a "we took it out" line beneath them: delete
+ * the items that announced the departing feature — or strike them through
+ * where the old release entry is worth keeping readable as a record — in the
+ * same commit that removes the code, then regenerate CHANGELOG.md. A surface
+ * nobody outside this machine ever saw (a `private: true` item behind a
+ * fence) goes silently; nothing public ever promised it. A feature real
+ * readers used may ALSO get a line in the new release's entry saying it is
+ * gone, on top of the edit, so someone who relied on it learns where it went.
  */
 
 export type ChangelogKind = "new" | "improved" | "fixed";

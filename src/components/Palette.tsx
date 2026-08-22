@@ -72,6 +72,7 @@ import {
   UndoIcon,
 } from "./Icons";
 import EmptyState from "./EmptyState";
+import { errText } from "../lib/errtext";
 
 type Item = {
   id: string;
@@ -470,7 +471,7 @@ export default function Palette({
       // to show itself — report it on the app toast like every sibling surface
       setPropUndoable({ path: note.path, key, value, record: undo.record })
         .then(onMutated)
-        .catch((e) => onToast(`couldn't set ${key} (${e})`));
+        .catch((e) => onToast(`couldn't set ${key} (${errText(e)})`));
     },
     [onMutated, onToast, undo]
   );
@@ -481,14 +482,14 @@ export default function Palette({
         onToast(scanSummary(stats));
         onMutated();
       })
-      .catch((e) => onToast(e instanceof Error ? e.message : String(e)));
+      .catch((e) => onToast(errText(e)));
   }, [onMutated, onToast]);
 
   // a copy or an export that fails says so: these used to reject into the
   // console, so the palette closed on a path that was never on the clipboard
   // and a file that was never written looked exactly like a success
   const toastError = useCallback(
-    (e: unknown) => onToast(e instanceof Error ? e.message : String(e)),
+    (e: unknown) => onToast(errText(e)),
     [onToast]
   );
 

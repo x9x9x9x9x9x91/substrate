@@ -91,6 +91,7 @@ export { cardSubtitle };
 import { ColumnsIcon, DbIcon as DbGlyphIcon, ExportIcon, EyeOffIcon, FilterIcon, PenIcon, PinIcon, PlusIcon, SubItemsIcon, TrashIcon, XIcon } from "./Icons";
 import { BackButton } from "./BackButton";
 import EmptyState from "./EmptyState";
+import { errText } from "../lib/errtext";
 
 interface DatabasePaneProps {
   dbType: string;
@@ -811,7 +812,7 @@ export default function DatabasePane({
   // silence was removed from the cell writes, one lane over. Anything
   // that can fail after its editor has closed reports through here.
   const reportFailure = (what: string) => (err: unknown) => {
-    onToast?.(`couldn’t ${what} — ${err instanceof Error ? err.message : String(err)}`);
+    onToast?.(`couldn’t ${what} — ${errText(err)}`);
   };
 
   const commitNew = () => {
@@ -1487,7 +1488,7 @@ export default function DatabasePane({
         // same frame the toast arrives — never a rejected value left sitting
         // there reading as saved
         setPending((cur) => dropPending(cur, optimistic));
-        onToast?.(`couldn’t save — ${err instanceof Error ? err.message : String(err)}`);
+        onToast?.(`couldn’t save — ${errText(err)}`);
         onMutated();
         return false;
       });

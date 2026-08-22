@@ -14,12 +14,9 @@ import { setPropUndoable } from "../lib/undoprops";
 import { useUndo } from "../lib/undoContext";
 import { SETTINGS_PATH } from "../lib/settings";
 import { BackButton } from "./BackButton";
+import { errText } from "../lib/errtext";
 
 type SyncAction = "push" | "pull";
-
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 function Result({ report }: { report: SyncReport }) {
   const hasConflicts = report.conflicted.length > 0;
@@ -101,7 +98,7 @@ export default function VaultSyncPane({
       if (!urlEdited.current) setRemoteUrl(next.remote_url ?? "");
       setStatusError(null);
     } catch (error) {
-      setStatusError(errorText(error));
+      setStatusError(errText(error));
     }
   }, []);
 
@@ -134,7 +131,7 @@ export default function VaultSyncPane({
         remote_url: status?.remote_url ?? null,
       });
     } catch (error) {
-      setActionError(errorText(error));
+      setActionError(errText(error));
     } finally {
       await refreshStatus();
       setConflictNonce((n) => n + 1);
@@ -151,7 +148,7 @@ export default function VaultSyncPane({
     try {
       await vaultSyncAckPrivacy();
     } catch (error) {
-      setActionError(errorText(error));
+      setActionError(errText(error));
     } finally {
       await refreshStatus();
       setAcking(false);
@@ -245,7 +242,7 @@ export default function VaultSyncPane({
       // cached "no remote" answer is stale the moment a remote lands
       resetSyncConfigured();
     } catch (error) {
-      setSetupError(errorText(error));
+      setSetupError(errText(error));
     } finally {
       await refreshStatus();
       setBusy(null);
@@ -287,7 +284,7 @@ export default function VaultSyncPane({
       setNextPassphraseAgain("");
       setChangeSaved(true);
     } catch (error) {
-      setChangeError(errorText(error));
+      setChangeError(errText(error));
     } finally {
       setBusy(null);
     }
@@ -310,7 +307,7 @@ export default function VaultSyncPane({
       record: undo.record,
     })
       .then(() => onAutoSyncChange?.(next))
-      .catch((error) => setActionError(errorText(error)));
+      .catch((error) => setActionError(errText(error)));
   };
   const report = status?.last_result ?? null;
   const visibleStatusError = actionError ?? statusError ?? status?.last_error ?? null;

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { kindsDisable, kindsSetTrust } from "../lib/ipc";
 import { invalidateKindBundles, useKindBundles } from "../hooks/useKindBundles";
 import { resolveKindState, type KindBundleInfo, type KindState } from "../lib/kinds";
+import { errText } from "../lib/errtext";
 
 /* The Kinds section of Settings — where consent is reviewed after
    the fact.
@@ -51,7 +52,7 @@ export default function KindsSettings() {
     setError(null);
     run()
       .then(() => invalidateKindBundles())
-      .catch((e) => setError(String(e)))
+      .catch((e) => setError(errText(e)))
       .finally(() => setBusy(null));
   };
 

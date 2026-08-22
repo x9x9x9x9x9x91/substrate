@@ -734,6 +734,32 @@ fn history_rewritten(repo: &Repository) -> bool {
     repo.path().join(REWRITE_MARKER).is_file()
 }
 
+/// Whether a hosted vault is in the state where no sync leg can succeed until
+/// something changes: its history was rewritten here and no push has been
+/// accepted since. The hosted transport refuses every pull outright while the
+/// marker stands, and refuses the push the moment the remote holds anything
+/// this history does not contain — which is exactly what a purge leaves
+/// behind. A push the remote CAN still fast-forward is left alone by both
+/// refusals, succeeds, and clears the marker.
+///
+/// It is not a claim that the vault is broken forever, and the wording callers
+/// surface should not read like one. The pull refusal never looks at what the
+/// remote holds, so a vault purged before it had any remote and then enrolled
+/// into a fresh empty store trips this too — and heals itself on its first
+/// accepted push. What is missing is a way for someone to reach that outcome
+/// deliberately from inside the app instead of by accident; that gap is filed
+/// on its own.
+///
+/// Callers use it to class those failures as local rather than transport: a
+/// quiet window meant for an offline device hides them for hours behind a pane
+/// that still reads "Ready".
+pub fn hosted_sync_blocked_by_rewrite(root: &Path) -> bool {
+    let Ok(repo) = owned_repo(root) else {
+        return false;
+    };
+    hosted_remote_base(&repo).is_some() && history_rewritten(&repo)
+}
+
 /// The remote accepted everything this vault has, rewritten history
 /// included, so the marker would only misdescribe the next rejection.
 fn clear_history_rewritten(repo: &Repository) -> Result<(), String> {
@@ -5808,5 +5834,99 @@ mod sim_round_trip {
         let pushed = sync_push(&root, &creds).unwrap();
         println!("SIM PUSH OK: {} commits, head {}", pushed.pushed, pushed.head);
         assert_eq!(pushed.pushed, 1);
+    }
+}
+
+#[cfg(test)]
+mod autosync_peer {
+    use super::*;
+    use std::path::PathBuf;
+
+    /// The second device of the auto-sync verification harness
+    /// (`scripts/autosync-verify.sh`). The harness runs one real app against a
+    /// loopback instance of the hosted sync server; this is the peer it syncs
+    /// with — the same client engine the app calls, driven headlessly so a
+    /// remote change can be made and read back without a second window.
+    ///
+    /// Not a gate test: it does nothing without `SUBSTRATE_PEER_ACTION`, and
+    /// the harness invokes it as
+    /// `cargo test --lib -- --ignored --exact autosync_peer::peer_action --nocapture`.
+    ///
+    /// Actions, all against `SUBSTRATE_PEER_VAULT`:
+    /// - `join`    prepare the vault, save the hosted remote, pull once
+    /// - `push`    write `SUBSTRATE_PEER_PATH` with `SUBSTRATE_PEER_BODY`, snapshot, push
+    /// - `pull`    pull once
+    /// - `read`    print the current bytes of `SUBSTRATE_PEER_PATH`
+    ///
+    /// Every action prints a `PEER <ACTION> ...` line the harness greps, and
+    /// the vault path is fenced to /tmp so this can never be aimed at a real
+    /// vault.
+    #[test]
+    #[ignore]
+    fn peer_action() {
+        let Ok(action) = std::env::var("SUBSTRATE_PEER_ACTION") else {
+            println!("PEER SKIP no SUBSTRATE_PEER_ACTION");
+            return;
+        };
+        let root = PathBuf::from(std::env::var("SUBSTRATE_PEER_VAULT").unwrap());
+        assert!(
+            root.starts_with("/tmp/") || root.starts_with("/private/tmp/"),
+            "the peer vault must be a throwaway under /tmp, got {}",
+            root.display()
+        );
+        let creds = PathBuf::from(std::env::var("SUBSTRATE_PEER_CREDS").unwrap());
+
+        if action == "join" {
+            assert!(history_prepare(&root).unwrap());
+            let setup = sync_set_remote(
+                &root,
+                &creds,
+                &std::env::var("SUBSTRATE_PEER_URL").unwrap(),
+                &std::env::var("SUBSTRATE_PEER_TOKEN").unwrap(),
+                None,
+                std::env::var("SUBSTRATE_PEER_PASSPHRASE").ok().as_deref(),
+            )
+            .unwrap();
+            // an empty store has nothing to pull yet — that is the state the
+            // first device joins into, not a failure of the join
+            match sync_pull(&root, &creds) {
+                Ok(report) => println!(
+                    "PEER JOIN ok enrolment={:?} pulled={} head={}",
+                    setup, report.pulled, report.head
+                ),
+                Err(err) => {
+                    println!("PEER JOIN ok enrolment={setup:?} pulled=none ({err})")
+                }
+            }
+            return;
+        }
+
+        match action.as_str() {
+            "push" => {
+                let path = root.join(std::env::var("SUBSTRATE_PEER_PATH").unwrap());
+                if let Some(parent) = path.parent() {
+                    fs::create_dir_all(parent).unwrap();
+                }
+                fs::write(&path, std::env::var("SUBSTRATE_PEER_BODY").unwrap()).unwrap();
+                history_snapshot(&root, "snapshot (auto-sync harness peer)").unwrap();
+                let report = sync_push(&root, &creds).unwrap();
+                println!("PEER PUSH ok pushed={} head={}", report.pushed, report.head);
+            }
+            "pull" => {
+                let report = sync_pull(&root, &creds).unwrap();
+                println!(
+                    "PEER PULL ok pulled={} head={} changed={:?} conflicted={:?}",
+                    report.pulled, report.head, report.changed, report.conflicted
+                );
+            }
+            "read" => {
+                let path = root.join(std::env::var("SUBSTRATE_PEER_PATH").unwrap());
+                match fs::read_to_string(&path) {
+                    Ok(body) => println!("PEER READ ok bytes={}\n---\n{body}\n---", body.len()),
+                    Err(err) => println!("PEER READ missing {err}"),
+                }
+            }
+            other => panic!("unknown peer action {other}"),
+        }
     }
 }

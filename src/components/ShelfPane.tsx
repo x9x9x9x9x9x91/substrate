@@ -24,6 +24,7 @@ import {
 import { DriveIcon, FileIcon, FolderIcon } from "./Icons";
 import { BackButton } from "./BackButton";
 import EmptyState from "./EmptyState";
+import { errText } from "../lib/errtext";
 
 /* The Drive Shelf.
    One rule runs through every line of this file: nothing here is read from a
@@ -58,7 +59,7 @@ export default function ShelfPane({ view, setView, vaultEpoch }: ShelfPaneProps)
         setDrives(list);
         setError(null);
       })
-      .catch((e) => setError(String(e)));
+      .catch((e) => setError(errText(e)));
     drivesIgnored().then(setIgnored).catch(console.error);
   }, []);
 
@@ -85,7 +86,7 @@ export default function ShelfPane({ view, setView, vaultEpoch }: ShelfPaneProps)
     const t = window.setTimeout(() => {
       driveSearch(q)
         .then((r) => live && setHits(r))
-        .catch((e) => live && setError(String(e)));
+        .catch((e) => live && setError(errText(e)));
     }, 120);
     return () => {
       live = false;
@@ -101,7 +102,7 @@ export default function ShelfPane({ view, setView, vaultEpoch }: ShelfPaneProps)
     let live = true;
     driveEntries(view.id, view.prefix)
       .then((rows) => live && setEntries(rows))
-      .catch((e) => live && setError(String(e)));
+      .catch((e) => live && setError(errText(e)));
     return () => {
       live = false;
     };
@@ -120,7 +121,7 @@ export default function ShelfPane({ view, setView, vaultEpoch }: ShelfPaneProps)
         setDrives(list);
         setError(null);
       })
-      .catch((e) => setError(String(e)))
+      .catch((e) => setError(errText(e)))
       .finally(() => setSyncing(false));
   };
 
@@ -142,7 +143,7 @@ export default function ShelfPane({ view, setView, vaultEpoch }: ShelfPaneProps)
         load();
         if (view.kind === "drive" && view.id === d.id) setView({ kind: "shelf" });
       })
-      .catch((e) => setError(String(e)));
+      .catch((e) => setError(errText(e)));
   };
 
   /* ---------- one drive's catalog ---------- */
@@ -386,7 +387,7 @@ export default function ShelfPane({ view, setView, vaultEpoch }: ShelfPaneProps)
                   onClick={() => {
                     driveUnforget(v)
                       .then(load)
-                      .catch((e) => setError(String(e)));
+                      .catch((e) => setError(errText(e)));
                   }}
                 >
                   Catalog it again

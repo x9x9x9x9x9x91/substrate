@@ -781,11 +781,14 @@ fence.)
 
 A note with `type: dashboard` and **no `dashboard:` key at all** falls back by
 body content: ` ```chart ` fences → charts, ` ```heatmap ` fences → the heatmap
-dashboard (beside charts they hang under them), otherwise the yield tracker. A key
-that *is* written but isn't a kind this build knows renders a small card naming
-it and listing the kinds that exist (SUB-993) — a typo shows you the typo,
-rather than quietly handing you a different dashboard.
-` ```calendar ` fences fall back to the month grids the same way.
+dashboard (beside charts they hang under them). ` ```calendar ` fences fall back
+to the month grids the same way. A body with **none** of those fences renders a
+help card naming the kinds that exist — it used to render this tracker, so a
+note saying only `type: dashboard` became a financial instrument with a live
+rates request and a Claim button that wrote back into it. A key that *is*
+written but isn't a kind this build knows renders that same card naming the
+value — a typo shows you the typo, rather than quietly handing you a different
+dashboard.
 
 ### `tax` — tax-year readiness
 

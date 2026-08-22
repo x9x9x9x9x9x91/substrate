@@ -7,6 +7,7 @@ import { HeroTrash } from "./HeroIcons";
 import { dateLocale } from "../lib/dateLocale";
 import { BackButton } from "./BackButton";
 import EmptyState from "./EmptyState";
+import { errText } from "../lib/errtext";
 
 /** Kinds with no note history behind them: the purge-history lanes skip them.
     An asset was never tracked; a template is a `.vault/` file the
@@ -73,7 +74,7 @@ export default function TrashPane({ vaultEpoch, onRestored, onRestoredFolder }: 
         // a successful load retires the last error — no stale strip under new results
         setError(null);
       })
-      .catch((e) => setError(String(e)));
+      .catch((e) => setError(errText(e)));
   }, []);
 
   useEffect(load, [load, vaultEpoch]);
@@ -105,7 +106,7 @@ export default function TrashPane({ vaultEpoch, onRestored, onRestoredFolder }: 
     setArmed(null);
     setError(null);
     op.then(load).catch((e) => {
-      setError(String(e));
+      setError(errText(e));
       load();
     });
   };
@@ -133,7 +134,7 @@ export default function TrashPane({ vaultEpoch, onRestored, onRestoredFolder }: 
           load();
         })
         .catch((e) => {
-          setError(String(e));
+          setError(errText(e));
           load();
         });
       return;
@@ -144,7 +145,7 @@ export default function TrashPane({ vaultEpoch, onRestored, onRestoredFolder }: 
         load();
       })
       .catch((e) => {
-        setError(String(e));
+        setError(errText(e));
         load();
       });
   };

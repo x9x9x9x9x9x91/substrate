@@ -181,6 +181,7 @@ import {
 } from "./lib/templates";
 import { parseCsv } from "./lib/sheet";
 import { parsePages } from "./lib/pages";
+import { errText } from "./lib/errtext";
 import {
   deleteDbOutcome,
   renameDbOutcome,
@@ -540,7 +541,7 @@ export default function App() {
   }, [savedViews]);
 
   const reloadSealScopes = useCallback(() => {
-    vaultSealScopes().then(setSealScopes).catch((e) => showToast(`couldn't read vault seals (${e})`));
+    vaultSealScopes().then(setSealScopes).catch((e) => showToast(`couldn't read vault seals (${errText(e)})`));
   }, [showToast]);
 
   useEffect(() => {
@@ -570,7 +571,7 @@ export default function App() {
               : `${path ? "Folder" : "Vault"} inheritance stopped — existing encrypted notes stay sealed`
           );
         })
-        .catch((e) => showToast(String(e)));
+        .catch((e) => showToast(errText(e)));
     },
     [reloadSealScopes, showToast]
   );
@@ -1018,7 +1019,7 @@ export default function App() {
         setOverlay(null);
         setSettingsOpen(false);
       } catch (error) {
-        setTimeError(error instanceof Error ? error.message : String(error));
+        setTimeError(errText(error));
       } finally {
         setTimeBusy(false);
       }
@@ -1049,7 +1050,7 @@ export default function App() {
       setTimePoints(points);
       if (points.length === 0) setTimeError("No vault snapshots yet");
     } catch (error) {
-      setTimeError(error instanceof Error ? error.message : String(error));
+      setTimeError(errText(error));
     } finally {
       setTimeBusy(false);
     }
@@ -1102,7 +1103,7 @@ export default function App() {
       setTimePoint(null);
       setTimeTravelOpen(false);
     } catch (error) {
-      setTimeError(error instanceof Error ? error.message : String(error));
+      setTimeError(errText(error));
       // Recovery must never dead-end: the guard is still on with no
       // projection behind it, so a failed re-entry would leave every write
       // blocked and no working control on screen. Re-show the past
@@ -1142,7 +1143,7 @@ export default function App() {
         showToast(`Restored ${note.title}`);
       } catch (error) {
         if (!historyProjectionActive() && timePoint) await selectTimePoint(timePoint.id);
-        setTimeError(error instanceof Error ? error.message : String(error));
+        setTimeError(errText(error));
       } finally {
         setTimeBusy(false);
       }
@@ -1423,7 +1424,7 @@ export default function App() {
         // engine refusals ("a rollup property needs a relation to follow",
         // "“mount” is set by the mount") must reach the user — the editor has
         // already closed by the time this rejects
-        .catch((e) => showToast(String(e)));
+        .catch((e) => showToast(errText(e)));
     },
     [schemaDbKey, schemaPropKey, showToast]
   );
@@ -1452,7 +1453,7 @@ export default function App() {
               : "Folder is back to plain files — the database stays under All databases"
           );
         })
-        .catch((e) => showToast(String(e)));
+        .catch((e) => showToast(errText(e)));
     },
     [showToast, schemaDbKey]
   );
@@ -1471,7 +1472,7 @@ export default function App() {
               : "Sub-items off — the rows are a flat list again"
           );
         })
-        .catch((e) => showToast(String(e)));
+        .catch((e) => showToast(errText(e)));
     },
     [showToast, schemaDbKey]
   );
@@ -1584,7 +1585,7 @@ export default function App() {
             setSchema(await vaultSchemaHomeSet(type, homeFolder));
             refresh();
           } catch (e) {
-            homeErr = String(e);
+            homeErr = errText(e);
           }
         } else if (homeInTree) {
           const label = type.charAt(0).toUpperCase() + type.slice(1);
@@ -1596,7 +1597,7 @@ export default function App() {
             setSchema(await vaultSchemaHomeSet(type, home));
             refresh();
           } catch (e) {
-            homeErr = String(e);
+            homeErr = errText(e);
           }
         }
         setView({ kind: "db", type });
@@ -1620,7 +1621,7 @@ export default function App() {
         }
         setCsvImport({ fileName: picked.name, rows });
       })
-      .catch((e) => showToast(String(e)));
+      .catch((e) => showToast(errText(e)));
   }, [showToast]);
 
   const importCsv = useCallback(
@@ -1699,7 +1700,7 @@ export default function App() {
   const unmount = useCallback(
     (mount: MountInfo, cleanup: boolean) => {
       if (cleanup) setUnmountAsk(mount);
-      else unmountNow(mount, false).catch((e) => showToast(String(e)));
+      else unmountNow(mount, false).catch((e) => showToast(errText(e)));
     },
     [unmountNow, showToast]
   );
@@ -1832,7 +1833,7 @@ export default function App() {
           refresh();
           showToast(`“${mount.name}” → ${picked} — ${scanStatLine(stats)}`);
         })
-        .catch((e) => showToast(String(e)));
+        .catch((e) => showToast(errText(e)));
     },
     [reloadMounts, refresh, showToast]
   );
@@ -1861,14 +1862,14 @@ export default function App() {
           onSelect: () => {
             if (!abs) return;
             mark();
-            fileOpen(abs).catch((e) => showToast(String(e)));
+            fileOpen(abs).catch((e) => showToast(errText(e)));
           },
         },
         {
           label: "Reveal in Finder",
           icon: <FolderIcon />,
           disabled: !abs,
-          onSelect: () => abs && fileReveal(abs).catch((e) => showToast(String(e))),
+          onSelect: () => abs && fileReveal(abs).catch((e) => showToast(errText(e))),
         },
       ];
       if (row.note) {
@@ -1904,7 +1905,7 @@ export default function App() {
       const mark = () => setMountOpen({ id: activeMount.id, path });
       if (activeMount.path && !activeMount.missing && !row.missing) {
         mark();
-        fileOpen(`${activeMount.path}/${row.rel}`).catch((e) => showToast(String(e)));
+        fileOpen(`${activeMount.path}/${row.rel}`).catch((e) => showToast(errText(e)));
         return;
       }
       if (row.note) {
@@ -2038,9 +2039,9 @@ export default function App() {
                 reloadDbMeta();
                 showToast(outcome.message);
               })
-              .catch((e) => showToast(String(e)));
+              .catch((e) => showToast(errText(e)));
         })
-        .catch((e) => showToast(String(e)));
+        .catch((e) => showToast(errText(e)));
     },
     [notes, reloadDbMeta, schema, showToast, schemaDbKey, schemaPropKey]
   );
@@ -2161,7 +2162,7 @@ export default function App() {
   const reportCreateFailure = useCallback(
     (what: string, text?: string) =>
       (err: unknown) => {
-        const head = `couldn’t ${what} — ${err instanceof Error ? err.message : String(err)}`;
+        const head = `couldn’t ${what} — ${errText(err)}`;
         if (!text) {
           showToast(head);
           return;
@@ -2193,7 +2194,7 @@ export default function App() {
           // The palette is already closed by the time this rejects,
           // so the captured text has no UI to return to — preserve it on the
           // clipboard and say so; never fail silently
-          const msg = err instanceof Error ? err.message : String(err);
+          const msg = errText(err);
           navigator.clipboard.writeText(title).then(
             () => showToast(`couldn’t create note (${msg}) — captured text copied to clipboard`),
             () => showToast(`couldn’t create note — ${msg}`)
@@ -2319,7 +2320,7 @@ export default function App() {
       setPropUndoable({ path, key, value, record: undoApi.record, keyLabel: displayColLabel(key) })
         .then(() => refresh())
         .catch((err) => {
-          showToast(`couldn’t save — ${err instanceof Error ? err.message : String(err)}`);
+          showToast(`couldn’t save — ${errText(err)}`);
           refresh();
         });
     },
@@ -2342,7 +2343,7 @@ export default function App() {
       })
         .then(() => refresh())
         .catch((err) => {
-          showToast(`couldn’t save — ${err instanceof Error ? err.message : String(err)}`);
+          showToast(`couldn’t save — ${errText(err)}`);
           refresh();
         });
     },
@@ -2513,7 +2514,7 @@ export default function App() {
               // setDbHome owns the success/refusal toast (a taken
               // folder surfaces as the engine's own error text)
               .then((home) => setDbHome(type, home))
-              .catch((e) => showToast(String(e)));
+              .catch((e) => showToast(errText(e)));
           },
         });
       } else if (view.kind === "db" && inView(meta, view, tagFolders)) setDbNote(meta.path);
@@ -3367,7 +3368,7 @@ export default function App() {
       })
         .then(() => refresh())
         .catch((err) => {
-          showToast(`couldn’t save — ${err instanceof Error ? err.message : String(err)}`);
+          showToast(`couldn’t save — ${errText(err)}`);
           refresh();
         });
     },
@@ -3567,7 +3568,7 @@ export default function App() {
               if (lane === "dashgroups") migrateSidebarGroupFolder(path, null);
               else reloadSidebarOrder();
             })
-            .catch((e) => showToast(String(e)));
+            .catch((e) => showToast(errText(e)));
         },
       },
     ],
@@ -3733,7 +3734,7 @@ export default function App() {
           icon: <FolderIcon />,
           hint: f === cur ? "current" : undefined,
           disabled: f === cur,
-          onSelect: () => moveNote(path, f).catch((e) => showToast(String(e))),
+          onSelect: () => moveNote(path, f).catch((e) => showToast(errText(e))),
         }));
     },
     [orderedDashboards, folders, orderedRootFolders, moveNote, showToast]
@@ -3854,7 +3855,7 @@ export default function App() {
       vaultTagFoldersWrite(next)
         .then(setTagFolders)
         .catch((e) => {
-          showToast(String(e));
+          showToast(errText(e));
           vaultTagFoldersRead().then(setTagFolders).catch(() => {});
         });
       setView({ kind: "tagfolder", id: folder.id });
@@ -3870,7 +3871,7 @@ export default function App() {
       vaultTagFoldersWrite(next)
         .then(setTagFolders)
         .catch((e) => {
-          showToast(String(e));
+          showToast(errText(e));
           vaultTagFoldersRead().then(setTagFolders).catch(() => {});
         });
       // standing on the folder that just went away — the deletion removed a
@@ -3893,7 +3894,7 @@ export default function App() {
       // the add is a union, so a tag the note already had must survive undo
       addTagsUndoable({ path, tags, record: undoApi.record, onApplied: () => refresh() })
         .then(() => showToast(`Tagged ${tags.map((t) => `#${t}`).join(" ")}`))
-        .catch((e) => showToast(String(e)));
+        .catch((e) => showToast(errText(e)));
     },
     [tagFolders, showToast, undoApi, refresh]
   );
@@ -4703,7 +4704,7 @@ export default function App() {
         if (pinnable) setPinned(p, true);
         return;
       }
-      moveNote(p, f).catch((e) => showToast(String(e)));
+      moveNote(p, f).catch((e) => showToast(errText(e)));
     },
     [moveNote, setPinned, showToast]
   );
@@ -4824,13 +4825,13 @@ export default function App() {
 
   const onOpenFile = useCallback(
     (path: string) => {
-      fileOpen(path).catch((e) => showToast(String(e)));
+      fileOpen(path).catch((e) => showToast(errText(e)));
     },
     [showToast]
   );
   const onRevealFile = useCallback(
     (path: string) => {
-      fileReveal(path).catch((e) => showToast(String(e)));
+      fileReveal(path).catch((e) => showToast(errText(e)));
     },
     [showToast]
   );
@@ -5592,10 +5593,10 @@ export default function App() {
           onOpenShortcuts={mobile ? null : () => setShortcutsOpen(true)}
           onAssignKeys={mobile ? null : () => setKeyAssignOpen(true)}
           onCreate={createOrCapture}
-          onCreateFolder={(path) => createFolder(path).catch((e) => showToast(String(e)))}
-          onMoveNote={(path, folder) => moveNote(path, folder).catch((e) => showToast(String(e)))}
-          onRenameNote={(path, title) => renameNote(path, title).catch((e) => showToast(String(e)))}
-          onRenameFolder={(path, name) => renameFolder(path, name).catch((e) => showToast(String(e)))}
+          onCreateFolder={(path) => createFolder(path).catch((e) => showToast(errText(e)))}
+          onMoveNote={(path, folder) => moveNote(path, folder).catch((e) => showToast(errText(e)))}
+          onRenameNote={(path, title) => renameNote(path, title).catch((e) => showToast(errText(e)))}
+          onRenameFolder={(path, name) => renameFolder(path, name).catch((e) => showToast(errText(e)))}
           onDuplicate={duplicateNote}
           onSendAsLink={setSendLink}
           onTrashNote={trashNote}
