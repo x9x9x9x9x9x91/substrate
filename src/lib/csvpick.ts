@@ -12,16 +12,15 @@ import { basename } from "./files.ts";
    files the OS labels by type rather than by name. */
 const ACCEPTS: Record<string, string[]> = {
   csv: [".csv", "text/csv"],
-  xml: [".xml", "application/xml", "text/xml"],
 };
 
 /** Pick one file and read its text: the native dialog in the app, a hidden
     <input type=file> in the browser/mock (no fs outside the vault there).
     Null when the user cancels.
 
-    The offered extensions are the caller's: a plain CSV import wants one
-    thing in the chooser, an importer that also reads a typed export wants
-    both, and neither should see the other's files by default. */
+    The offered extensions are the caller's: an extension with no entry in
+    the table above still reaches the chooser by its dotted form, so a caller
+    that reads another format does not have to teach this module first. */
 export async function pickCsvFile(
   extensions: readonly string[] = ["csv"],
 ): Promise<{ name: string; text: string } | null> {

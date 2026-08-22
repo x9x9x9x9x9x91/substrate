@@ -980,7 +980,6 @@ const mockReflexes: { hasFile: boolean; enabled: boolean; paused: boolean; fileP
   filePaused: false,
 };
 
-
 /** Keep mock pins in the same state Engine::remap_saved_view_prop writes.
     Database and property identities are case-folded; query operator keys are
     case-insensitive for the same reason through parseQuery. */
