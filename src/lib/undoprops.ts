@@ -12,6 +12,7 @@ import { vaultNoteAddTags, vaultRead, vaultSetProp } from "./ipc.ts";
 import { foldedPropKey } from "./types.ts";
 import type { NoteMeta, PropValue, SetPropResult } from "./types.ts";
 import type { UndoEntry, UndoScope } from "./undo.ts";
+import { errText } from "./errtext.ts";
 
 /** A recorder accepts a pre-minted id so a surface that shows its own "Undo"
     button can point that button at the very entry ⌘Z would run. */
@@ -233,7 +234,7 @@ export async function setPropUndoableBulk(opts: {
       out.ok.push({ path, meta });
       priors.push({ path, key: actualKey, prior });
     } catch (e) {
-      out.failed.push({ path, error: String(e) });
+      out.failed.push({ path, error: errText(e) });
     }
   }
   if (priors.length === 0) return out;

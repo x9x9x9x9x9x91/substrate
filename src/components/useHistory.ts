@@ -9,6 +9,7 @@ import {
 import { makeHistorySheetValue } from "../lib/sheet";
 import type { FxResolver, HistoryRef, HistoryResolver } from "../lib/formula";
 import type { FactLane, NoteMeta } from "../lib/types";
+import { errText } from "../lib/errtext";
 
 /** The prefetch half of time-travel queries (docs/time-travel-spec.md
     §3.1). The formula engine is synchronous — a cell cannot await a git
@@ -104,7 +105,7 @@ function run(epoch: number): void {
         err: null,
       });
     } catch (e: unknown) {
-      if (epoch === snapshot.epoch) publish({ ...snapshot, err: String(e) });
+      if (epoch === snapshot.epoch) publish({ ...snapshot, err: errText(e) });
     } finally {
       inFlight = null;
       // `!notesAsked` matters on its own: an epoch bump during this run reset

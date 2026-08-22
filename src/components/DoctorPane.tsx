@@ -4,6 +4,7 @@ import { vaultDoctor } from "../lib/ipc";
 import { NoteIcon, PulseIcon } from "./Icons";
 import { BackButton } from "./BackButton";
 import EmptyState from "./EmptyState";
+import { errText } from "../lib/errtext";
 
 /** Group order and headings — the same order the engine sorts findings in,
     so the pane never reshuffles what the JSON already ordered. */
@@ -43,7 +44,7 @@ export default function DoctorPane({ vaultEpoch, onOpenNote }: DoctorPaneProps) 
         // a successful scan retires the last error — no stale strip under new results
         setError(null);
       })
-      .catch((e) => setError(String(e)));
+      .catch((e) => setError(errText(e)));
   }, []);
 
   useEffect(load, [load, vaultEpoch]);
@@ -56,7 +57,7 @@ export default function DoctorPane({ vaultEpoch, onOpenNote }: DoctorPaneProps) 
         setCopied(true);
         window.setTimeout(() => setCopied(false), 1500);
       })
-      .catch((e) => setError(String(e)));
+      .catch((e) => setError(errText(e)));
   };
 
   const groups: [DoctorKind, string, DoctorFinding[]][] = report

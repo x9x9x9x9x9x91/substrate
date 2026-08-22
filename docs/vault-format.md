@@ -981,11 +981,17 @@ prop names (default `~/Coding`); `tax` → the tax-year readiness board (below);
 holds a fence; `sync` → the sync control surface (below); `jobs` → the launchd
 jobs pane (below).
 **A missing `dashboard` prop looks at the body** — one or more ` ```chart `
-fences makes it a charts dashboard (§5.5), none falls back to the yield
-tracker. So a charts dashboard needs no specific key, just the fences;
-`dashboard: charts` says the same thing by name.
+fences makes it a charts dashboard (§5.5). So a charts dashboard needs no
+specific key, just the fences; `dashboard: charts` says the same thing by name.
 One or more ` ```calendar ` fences makes it a calendar dashboard (§5.5c) the
 same way, and needs no specific key either.
+**A body with no fence of any kind renders the help card** naming the kinds
+this build dispatches — the note has asked for nothing in particular, and
+"nothing in particular" is not a board. It used to fall through to the yield
+tracker, so a `type: dashboard` note with nothing else in it became a
+financial instrument: a live rates request, a snapshot form, and a Claim
+button writing `claimed_usd` (§5.3) back into the note. `dashboard: yield-apr`
+names that tracker outright and is the only way to it.
 
 **Any other value renders an error card** naming the value and listing the
 kinds this build does dispatch — the quiet inline posture a ` ```view `
@@ -1657,7 +1663,7 @@ opener as a block-shaped error naming the missing line, so the board renders one
 failed fence rather than an honest-looking zero.
 In a note with no `dashboard:` prop, that error is also what the body scan sees:
 one unclosed ` ```chart ` opener makes it a charts dashboard showing the failed
-fence, not the yield fallback (§5.2).
+fence, not the no-instruction help card (§5.2).
 
 Every series of a `by` split shares the chart's x axis: a bar series carries the
 whole (zero-filled) axis so stacks line up, and a line series omits keys it has
@@ -2202,11 +2208,11 @@ stays legal on disk and every non-calendar surface still reads it as a range.
 ### 5.8 Custom kind bundles — `.vault/kinds/<id>/`
 
 > **Live.** The loader, the dispatch branch and the enable flow all ship. A
-> `dashboard:` value naming a bundle **never falls through to
-> charts-or-yield**: a kind that can't be resolved — broken manifest, unknown
+> `dashboard:` value naming a bundle **never falls through to the body
+> scan**: a kind that can't be resolved — broken manifest, unknown
 > id, api out of range, not enabled, bytes changed since — renders a card
-> naming the kind and the reason. That fallback is for typos; using it here
-> would answer "show me `gear-log`" with a yield tracker.
+> naming the kind and the reason, rather than a board the note never asked
+> for.
 
 A **custom kind** is dashboard renderer code that lives in the vault. It
 exists so that a dashboard nobody but its owner wants is a file, not a merge
@@ -2425,8 +2431,8 @@ source-note button and the state dot are the app's, so every dashboard —
 built-in or vault-resident — has one header.
 
 **If `mount` throws, or the module fails to import, the pane renders an error
-card naming the kind and the file.** Never a blank pane, and never the
-charts-or-yield fallback.
+card naming the kind and the file.** Never a blank pane, and never the body
+scan's answer.
 
 That covers what the host is on the stack for: the import, the module shape,
 and the synchronous body of `mount`. A throw from code the kind scheduled and

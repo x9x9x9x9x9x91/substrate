@@ -13,6 +13,7 @@ import {
 import type { NoteMeta } from "./lib/types";
 import { looksLikeUrl } from "./lib/url";
 import { escapeHint, voiceEscape } from "./lib/voice";
+import { errText } from "./lib/errtext";
 
 // Floating quick-capture window: global hotkey shows it, Enter files the note
 // into Inbox, Escape (or clicking away — the window hides on blur) dismisses.
@@ -254,7 +255,7 @@ function CaptureApp() {
     } catch (e) {
       // a refused or missing microphone is the common case here, and it reads
       // as a sentence in the same slot a failed save uses
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errText(e));
     }
   };
 
@@ -265,7 +266,7 @@ function CaptureApp() {
     try {
       await invoke<NoteMeta>("voice_stop");
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errText(e));
       return;
     } finally {
       setVoice(null);
@@ -301,7 +302,7 @@ function CaptureApp() {
     } catch (e) {
       // never discard the text on failure: keep it in the input so the user
       // can retry (Enter) or copy it out — the window stays open
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errText(e));
       return;
     }
     setQ("");

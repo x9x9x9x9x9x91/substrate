@@ -48,3 +48,15 @@ test("a throw that did carry a message is left to say it", () => {
   assert.equal(thrownText(new Error("vault is locked")), "vault is locked");
   assert.equal(thrownText("vault is locked"), "vault is locked");
 });
+
+test("an object that carries a message says it, rather than being named a shape", () => {
+  // `throw { message: "disk full" }` used to read as "it threw an object
+  // carrying no message" — the object did carry one
+  assert.equal(thrownText({ message: "disk full" }), "disk full");
+  assert.equal(thrownText({ message: "  disk full  " }), "disk full");
+  assert.equal(thrownText({ message: "disk full", code: 28 }), "disk full");
+  // and a message that isn't a sentence is still no message
+  assert.equal(thrownText({ message: "" }), "it threw an object carrying no message, not an error");
+  assert.equal(thrownText({ message: "   " }), "it threw an object carrying no message, not an error");
+  assert.equal(thrownText({ message: 500 }), "it threw an object carrying no message, not an error");
+});

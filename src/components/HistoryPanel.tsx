@@ -14,6 +14,7 @@ import DateMenu from "./DateMenu";
 import { anchorFrom, type AnchorRect } from "./SelectMenu";
 import { daysAgoIso, formatDateHuman, todayIso } from "../lib/dates";
 import { dateLocale } from "../lib/dateLocale";
+import { errText } from "../lib/errtext";
 
 const CONFIRM_WORD = "purge";
 
@@ -71,7 +72,7 @@ export default function HistoryPanel({
         // list that just loaded (a restore and a purge both reload)
         setError(null);
       })
-      .catch((e) => setError(String(e)));
+      .catch((e) => setError(errText(e)));
   };
 
   // availability first: a vault that is the user's own git repo gets a quiet
@@ -107,7 +108,7 @@ export default function HistoryPanel({
       .then((ls) => {
         if (!gone) setLines(ls);
       })
-      .catch((e) => setError(String(e)));
+      .catch((e) => setError(errText(e)));
     return () => {
       gone = true;
     };
@@ -147,7 +148,7 @@ export default function HistoryPanel({
       })
       .catch((e) => {
         setBusy(false);
-        setError(String(e));
+        setError(errText(e));
       });
   };
 
@@ -185,7 +186,7 @@ export default function HistoryPanel({
       onHistoryRewritten();
     }).catch((e) => {
       setBusy(false);
-      setError(String(e));
+      setError(errText(e));
     });
   };
 

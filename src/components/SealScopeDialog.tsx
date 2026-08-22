@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { vaultConfirmSealScope, vaultSealScope, vaultSealedConfigured } from "../lib/ipc";
 import type { SealScopeResult } from "../lib/types";
+import { errText } from "../lib/errtext";
 
 export default function SealScopeDialog({
   path,
@@ -27,7 +28,7 @@ export default function SealScopeDialog({
   const title = confirming ? `Confirm seal on ${subject}` : `Seal ${subject}`;
 
   useEffect(() => {
-    vaultSealedConfigured().then(setConfigured).catch((e) => setErr(String(e)));
+    vaultSealedConfigured().then(setConfigured).catch((e) => setErr(errText(e)));
   }, []);
 
   useEffect(() => {

@@ -38,7 +38,7 @@ import { thrownText } from "../lib/errtext";
    that still has a head. The kind gets an empty element and owns what is
    inside it — no React, no framework, no styling contract beyond `ctx.css`.
 
-   The pane never blanks and never falls through to charts-or-yield. A kind
+   The pane never blanks and never falls through to the body scan. A kind
    that can't run says why, naming itself and the file.
 
    The one failure this pane cannot turn into a card: a throw from code the

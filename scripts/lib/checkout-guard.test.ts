@@ -150,6 +150,7 @@ test("no origin/main ref (a fresh clone-less repo) is not an error", () => {
 test("every executable entry point in scripts/ is guarded", () => {
   // A new script that forgets the guard is exactly how this defect returns.
   const entries = [
+    "autosync-verify.sh",
     "with-merge-lock.sh",
     "push-gated-main.sh",
     "branch-gates.sh",

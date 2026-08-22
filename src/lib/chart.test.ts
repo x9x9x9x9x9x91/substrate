@@ -1530,14 +1530,15 @@ test("parseChartBlocks: no banner over a chart the board just drew", () => {
 });
 
 test("parseChartBlocks: an unclosed fence claims the body scan on purpose", () => {
-  // `ChartOrYield` in DashboardPane.tsx asks exactly this question of a note
-  // with no `dashboard:` prop. A note whose only fence is an unclosed ```chart
-  // opener therefore lands on the charts dashboard — showing the banner — and
-  // NOT on the yield tracker, which would answer a chart note with a financial
-  // instrument nobody asked for. Deliberate: the banner is the note's own text.
+  // `BodyScanDashboard` in DashboardPane.tsx asks exactly this question of a
+  // note with no `dashboard:` prop. A note whose only fence is an unclosed
+  // ```chart opener therefore lands on the charts dashboard — showing the
+  // banner — and NOT on the help card, which would tell an author who did
+  // write a fence that they wrote none. Deliberate: the banner is the note's
+  // own text.
   const body = "```chart\nsource: release\nx: released:month\ny: count\n";
   assert.ok(parseChartBlocks(body).length > 0);
-  // …and a note that only QUOTES the opener keeps the fallback: no fence, no
+  // …and a note that only QUOTES the opener claims nothing: no fence, no
   // claim on the dispatch
   assert.equal(parseChartBlocks("~~~\n```chart\nsource: release\n~~~\n").length, 0);
 });

@@ -3,6 +3,7 @@ import * as undoStack from "../lib/undo";
 import type { UndoEntry, UndoState } from "../lib/undo";
 import type { UndoApi } from "../lib/undoContext";
 import type { ToastAction } from "./useToast";
+import { errText } from "../lib/errtext";
 
 /* The session undo stack lives here, in one reducer, because ⌘Z is
    global: whichever surface made the edit, the keystroke arrives at the
@@ -70,7 +71,7 @@ export function useUndoStack(
         // our own write — refresh directly so the echo window covers it
         refresh();
       } catch (e) {
-        const msg = String(e);
+        const msg = errText(e);
         if (msg.includes("conflict:")) {
           undoDispatch({ t: "invalidateAll" });
           showToast(`Can't undo ${entry.label} — it changed on disk`);
@@ -80,7 +81,7 @@ export function useUndoStack(
           // without this the same dead entry stays at the cursor and every
           // later ⌘Z re-runs it: one failure would jam undo for the session.
           undoDispatch({ t: "markStale", id: entry.id });
-          showToast(`Undo failed: ${msg.replace(/^Error:\s*/, "")}`);
+          showToast(`Undo failed: ${msg}`);
         }
       } finally {
         undoBusy.current = false;

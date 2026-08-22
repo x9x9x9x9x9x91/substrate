@@ -26,6 +26,7 @@ import {
 import { listen } from "../lib/tauri";
 import { ruleSummary, sectionState } from "../lib/reflexes";
 import type { ReflexReceipt, ReflexStatus } from "../lib/reflexes";
+import { errText } from "../lib/errtext";
 
 /** How many receipts the "recent" list shows. The log itself keeps 500; a
     settings pane is not a log viewer, and the newest handful is what answers
@@ -80,7 +81,7 @@ export default function ReflexesSettings({
         await fn();
         await load();
       } catch (e) {
-        onToast(`${failed} (${e})`);
+        onToast(`${failed} (${errText(e)})`);
       } finally {
         setBusy(false);
       }

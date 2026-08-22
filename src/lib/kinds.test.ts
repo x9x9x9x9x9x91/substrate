@@ -13,6 +13,7 @@ import {
   resolveDashboardKind,
   resolveDispatchTail,
   resolveKindState,
+  unconfiguredDashboardMessage,
   RESERVED_KINDS,
   type KindBundle,
   type KindEnableRecord,
@@ -395,7 +396,7 @@ test("dispatch: no dashboard prop at all keeps the body scan", () => {
 
 test("dispatch: a blank dashboard value names the miss instead of picking for you", () => {
   // The audit's F3: `dashboard: "   "` used to reach the body scan, which on a
-  // note with no chart fences is the yield tracker — a dashboard nobody asked
+  // note with no chart fences was the yield tracker — a dashboard nobody asked
   // for, chosen silently, from a property that plainly meant to name one.
   for (const v of ["", "   ", "\t", "\n "]) {
     const d = resolveDashboardKind(v);
@@ -470,6 +471,22 @@ test("dispatch: a near-miss typo of a real kind still resolves to unknown", () =
 test("dispatch: the known-kinds list is derived from the built-in set", () => {
   const listed = knownKindList().split(", ");
   assert.deepEqual(listed, [...BUILT_IN_KINDS].sort());
+});
+
+test("dispatch: a note with no instruction gets help text, not a yield tracker", () => {
+  // a bare `type: dashboard` note reaches the body scan and, with no fence in
+  // the body, used to end at the yield tracker — an APR instrument with a
+  // live currency fetch and a claim button that wrote back into the note
+  const m = unconfiguredDashboardMessage();
+  // it says what is missing…
+  assert.match(m, /names no kind/);
+  assert.match(m, /chart, heatmap or calendar fence/);
+  // …and what to write instead, the same way the unknown-kind card does
+  assert.match(m, /Known kinds:/);
+  assert.match(m, /tasks/);
+  assert.match(m, /yield-apr/);
+  // it offers the tracker as a name to type, never as a board already drawn
+  assert.doesNotMatch(m, /snapshot|claim/i);
 });
 
 test("tail: a reserved name belongs at the fallback, and is a built-in (SUB-1021)", () => {

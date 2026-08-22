@@ -18,6 +18,7 @@ import {
 import { numberLocale, numberLocaleSample } from "../lib/numberLocale";
 import { PlusIcon, XIcon } from "./Icons";
 import SelectMenu, { anchorFrom, type AnchorRect } from "./SelectMenu";
+import { errText } from "../lib/errtext";
 
 /* Database-management dialogs: small centered cards riding the
    palette's overlay idiom — Esc or a backdrop click closes, the first input
@@ -152,7 +153,7 @@ export function NewDatabaseDialog({
       name.trim(),
       props.map((p) => ({ ...p, name: p.name.trim() }))
     ).catch((e) => {
-      setErr(String(e));
+      setErr(errText(e));
       setBusy(false);
     });
   };
@@ -372,7 +373,7 @@ export function CsvImportDialog({
             : null,
       }));
     onImport(name.trim(), props, entries).catch((e) => {
-      setErr(String(e));
+      setErr(errText(e));
       setBusy(false);
     });
   };
@@ -508,7 +509,7 @@ export function RenameDialog({
     setBusy(true);
     setErr(null);
     onSubmit(name.trim()).catch((e) => {
-      setErr(String(e));
+      setErr(errText(e));
       setBusy(false);
     });
   };
@@ -561,7 +562,7 @@ export function DeleteDatabaseDialog({
     setBusy(true);
     setErr(null);
     onChoice(trash).catch((e) => {
-      setErr(String(e));
+      setErr(errText(e));
       setBusy(false);
     });
   };
@@ -628,7 +629,7 @@ export function StripPropDialog({
     setBusy(true);
     setErr(null);
     onStrip().catch((e) => {
-      setErr(String(e));
+      setErr(errText(e));
       setBusy(false);
     });
   };
@@ -671,7 +672,7 @@ export function UnmountDialog({
     setBusy(true);
     setErr(null);
     onConfirm().catch((e) => {
-      setErr(String(e));
+      setErr(errText(e));
       setBusy(false);
     });
   };
@@ -758,7 +759,7 @@ export function MountFolderDialog({
         setBusy(false);
       },
       (e) => {
-        setErr(String(e));
+        setErr(errText(e));
         setBusy(false);
       }
     );

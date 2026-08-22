@@ -3,6 +3,7 @@ import { cookbookIndex, cookbookInstall, cookbookShot } from "../lib/ipc";
 import { expectsLine, parseCookbook, type CookbookRecipe } from "../lib/cookbook";
 import type { CookbookInstall } from "../lib/types";
 import { DashHead } from "./DashHead";
+import { errText } from "../lib/errtext";
 
 /* The in-app dashboard cookbook. The recipes ship inside the app
    bundle — this pane reads them over IPC and copies the chosen one into the
@@ -46,7 +47,7 @@ export default function CookbookPane({ onOpenNote }: CookbookPaneProps) {
         }
       })
       .catch((e) => {
-        if (live) setError(String(e));
+        if (live) setError(errText(e));
       });
     return () => {
       live = false;
@@ -61,7 +62,7 @@ export default function CookbookPane({ onOpenNote }: CookbookPaneProps) {
     });
     cookbookInstall(r.id, r.files)
       .then((res) => setInstalled((m) => ({ ...m, [r.id]: res })))
-      .catch((e) => setInstallErr((m) => ({ ...m, [r.id]: String(e) })))
+      .catch((e) => setInstallErr((m) => ({ ...m, [r.id]: errText(e) })))
       .finally(() => setBusy(null));
   };
 

@@ -16,6 +16,7 @@ import { recallIndex, recallSetEnabled, recallStatus } from "../lib/ipc";
 import { countLabel, sizeLabel } from "../lib/recall";
 import type { RecallStatus } from "../lib/types";
 import { listen } from "../lib/tauri";
+import { errText } from "../lib/errtext";
 
 export default function RecallSettings({ onToast }: { onToast: (msg: string) => void }) {
   const [status, setStatus] = useState<RecallStatus | null>(null);
@@ -74,7 +75,7 @@ export default function RecallSettings({ onToast }: { onToast: (msg: string) => 
     try {
       await recallIndex();
     } catch (e) {
-      setFailed(String(e));
+      setFailed(errText(e));
     } finally {
       setBusy(false);
       setProgress(null);
@@ -93,7 +94,7 @@ export default function RecallSettings({ onToast }: { onToast: (msg: string) => 
       // the click — asking a second time would be a needless step
       if (next.enabled && !next.indexed) void build();
     } catch (e) {
-      onToast(`couldn't change Deep Recall (${e})`);
+      onToast(`couldn't change Deep Recall (${errText(e)})`);
     } finally {
       setBusy(false);
     }

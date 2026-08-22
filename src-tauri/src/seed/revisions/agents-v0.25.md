@@ -65,10 +65,9 @@ renderer, and the public built-ins are: `metrics`, `yield-apr`, `hub`, `food`,
 `feed`, `music-work`, `tasks`, `sync`, `coding`, `jobs`, `tax`, `charts`.
 `dashboard: charts` always selects the chart-fence renderer. With no
 `dashboard:` prop, the app scans the body: one or more ` ```chart ` fences
-select charts, and no fence at all shows a card naming the kinds you could
-write instead — a note that says only `type: dashboard` has asked for no board
-in particular. A present but unknown value shows an “unknown kind” card the
-same way, instead of silently rendering the wrong dashboard.
+select charts, and none falls back to the yield tracker. A present but
+unknown value shows an “unknown kind” card instead of silently rendering the
+wrong dashboard.
 
 A **sheet** is `type: sheet` with a ` ```csv ` fence (first row = headers) and an
 optional ` ```formulas ` fence of `name = expression` lines.

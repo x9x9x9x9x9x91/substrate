@@ -63,3 +63,59 @@ test("no dashboard: prop at all keeps the body scan", async ({ page }) => {
   await expect(page.locator(".dash-state")).toContainText("4 charts");
   await expect(page.locator(".dash-section-label")).toHaveCount(4);
 });
+
+test("a dashboard note with no kind and no fence gets the help card", async ({ page }) => {
+  // The other half of the same posture: a note that says `type: dashboard`
+  // and nothing else has asked for no board in particular. It used to reach
+  // the yield tracker — an APR instrument, its live currency fetch and its
+  // "Log snapshot" form, standing in for "unconfigured".
+  await page.goto("/");
+  await page.evaluate((path) => {
+    window.__mockTraceCommands?.();
+    window.__mockEditProp?.(path, "dashboard", null);
+    window.__mockEditNote?.(path, "Nothing configured here yet.\n");
+  }, DASH);
+  await page.locator(".side-item", { hasText: "Overview" }).click();
+  await expect(page.locator(".dash-title")).toHaveText("Overview");
+
+  const err = page.locator(".dash-alert");
+  await expect(err).toHaveCount(1);
+  await expect(err).toContainText("names no kind");
+  // it names the way out: a kind to write, or a fence
+  await expect(err).toContainText("chart, heatmap or calendar fence");
+  await expect(err).toContainText("Known kinds:");
+  await expect(err).toContainText("yield-apr");
+  await expect(page.locator(".dash-state")).toHaveText("nothing configured");
+
+  // no tracker: no APR hero, and no form to write a snapshot back into a note
+  // whose author asked for none of it
+  await expect(page.locator(".dash-apr")).toHaveCount(0);
+  await expect(page.locator(".dash-form")).toHaveCount(0);
+  // and no rates request went out on its behalf
+  await page.waitForTimeout(150);
+  const traced = (cmd: string) =>
+    page.evaluate(
+      (name) =>
+        (window.__mockReadCommandTrace?.() as { cmd?: string }[]).filter((e) => e.cmd === name)
+          .length,
+      cmd
+    );
+  await expect.poll(() => traced("fx_rates")).toBe(0);
+  // nor did anything write back into the note
+  await expect.poll(() => traced("vault_write_body")).toBe(0);
+
+  // the head still opens the source note — configuring it is the next move
+  await page.locator(".dash-source").click();
+  await expect(page.locator(".note-title")).toHaveValue("Overview");
+});
+
+test("dashboard: yield-apr still renders the tracker outright", async ({ page }) => {
+  // the explicit key is untouched by the fallback change: the seeded board
+  // draws its hero and keeps its snapshot form
+  await page.goto("/");
+  await page.locator(".side-item", { hasText: "Yield APR" }).click();
+  await expect(page.locator(".dash-title")).toHaveText("Yield APR");
+  await expect(page.locator(".dash-alert")).toHaveCount(0);
+  await expect(page.locator(".dash-apr")).toHaveCount(1);
+  await expect(page.locator(".dash-form")).toHaveCount(1);
+});

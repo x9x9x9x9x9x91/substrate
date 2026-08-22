@@ -12,6 +12,7 @@ import { useEdgeFade } from "../hooks/useEdgeFade";
 import TypeIcon from "./TypeIcon";
 import { NoteIcon, SunIcon } from "./Icons";
 import EmptyState from "./EmptyState";
+import { errText } from "../lib/errtext";
 
 /* The Today surface: a day-agenda decision surface, not a dashboard.
    Sixty seconds every morning and the day is decided — three quiet lanes fed
@@ -246,7 +247,7 @@ export default function TodayPane({
     setPropUndoable({ path, key: TODAY_PROP, value: day, record: undo.record })
       .then(onMutated)
       .catch((err) => {
-        onToast?.(`couldn’t save — ${err instanceof Error ? err.message : String(err)}`);
+        onToast?.(`couldn’t save — ${errText(err)}`);
         onMutated();
       });
   };

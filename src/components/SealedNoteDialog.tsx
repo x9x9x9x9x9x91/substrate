@@ -7,6 +7,7 @@ import {
   vaultUnlockSealedNote,
   vaultUnsealNote,
 } from "../lib/ipc";
+import { errText } from "../lib/errtext";
 
 export type SealedNoteMode = "seal" | "unlock" | "unseal";
 
@@ -55,7 +56,7 @@ export default function SealedNoteDialog({
 
   useEffect(() => {
     if (mode === "unseal") return;
-    vaultSealedConfigured().then(setConfigured).catch((e) => setErr(String(e)));
+    vaultSealedConfigured().then(setConfigured).catch((e) => setErr(errText(e)));
   }, [mode]);
 
   const run = (withPassword: boolean) => {

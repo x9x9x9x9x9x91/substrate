@@ -580,14 +580,17 @@ pub(crate) fn record_outcome(
 /// entirely: it records on its first occurrence, on either lane.
 ///
 /// It also leaves the failure run alone, which is conservative rather than
-/// exact. The run tracks whether the remote is reachable, and the one Local
-/// failure that exists today — sealing after a pull that already fetched and
-/// checked out — proves it IS reachable, so ending the run would be the
-/// accurate call. Leaving it standing costs at most one more quiet tick: the
-/// next successful sync ends the run anyway, and a genuine transport miss
-/// would have restarted it. The class stays the general "the remote leg is not
-/// what failed", so it is not the place to encode one instance's extra
-/// knowledge.
+/// exact. The run tracks whether the remote is reachable, and neither Local
+/// failure that exists today settles that question the same way. Sealing after
+/// a pull that already fetched and checked out proves the remote IS reachable,
+/// so ending the run there would be the accurate call. The post-rewrite
+/// refusal below never reaches the remote at all — it is decided on this disk,
+/// before any network work — so it says nothing either way, and ending the run
+/// on it would be a guess. Leaving the run standing costs at most one more
+/// quiet tick in both cases: the next successful sync ends it anyway, and a
+/// genuine transport miss would have restarted it. The class stays the general
+/// "the remote leg is not what failed", so it is not the place to encode one
+/// instance's extra knowledge.
 pub(crate) fn record_outcome_into(
     last: &mut VaultSyncLast,
     fail: &mut AutoFail,
@@ -644,7 +647,8 @@ pub(crate) fn vault_sync_status(
 /// problem. Recorded as Transport, those failures sat inside the auto lane's
 /// quiet window for hours while the pane still read "Ready", so a vault that
 /// had stopped syncing looked healthy. Only the leg's own failures are
-/// transport failures.
+/// transport failures — and not even all of those: see [`class_for_failure`]
+/// for the one permanent refusal that reaches the leg.
 fn classified_leg(
     root: &Path,
     credentials_path: &Path,
@@ -652,7 +656,38 @@ fn classified_leg(
 ) -> (Result<SyncReport, String>, FailureClass) {
     match gitsync::hosted_preflight(root, credentials_path) {
         Err(error) => (Err(error), FailureClass::Local),
-        Ok(()) => (leg(), FailureClass::Transport),
+        Ok(()) => {
+            let result = leg();
+            let class = match result {
+                Ok(_) => FailureClass::Transport,
+                Err(_) => class_for_failure(root),
+            };
+            (result, class)
+        }
+    }
+}
+
+/// The class a failed leg records under, once the leg itself has run.
+///
+/// The preflight above covers what a hosted vault loads before it starts. One
+/// standing failure survives it and only shows up in the leg: a hosted vault
+/// whose history was rewritten here is refused by its own transport, pull
+/// unconditionally and push as soon as the remote holds the old history, and
+/// stays refused until something changes on this disk or at the remote — no
+/// amount of retrying is that something. Nothing about it is transport.
+/// Recorded as Transport it sat in the auto lane's quiet window while the pane
+/// read "Ready" — a vault whose sync had stopped for good as far as the
+/// scheduler was concerned, looking healthy, which is the exact failure the
+/// preflight split exists to prevent.
+///
+/// Only hosted vaults: a plain Git remote refuses the push after a rewrite but
+/// still serves pulls, so a failing pull there is an ordinary transport miss
+/// and keeps the quiet window it is owed.
+fn class_for_failure(root: &Path) -> FailureClass {
+    if gitsync::hosted_sync_blocked_by_rewrite(root) {
+        FailureClass::Local
+    } else {
+        FailureClass::Transport
     }
 }
 
@@ -938,7 +973,7 @@ pub(crate) fn vault_sync_resolve_finish(
 #[cfg(test)]
 mod tests {
     use super::{
-        classified_leg, clear_privacy_into, fold_health, load_health, load_privacy,
+        class_for_failure, classified_leg, clear_privacy_into, fold_health, load_health, load_privacy,
         note_privacy_into, record_outcome_into, record_store_notice, run_privacy_cleanup,
         store_health, store_privacy, FailureClass, SyncHealth, SyncLeg, SYNC_HEALTH_VERSION,
     };
@@ -1275,6 +1310,53 @@ mod tests {
         let mut fail = AutoFail::default();
         record_outcome_into(&mut last, &mut fail, &result, true, class, Instant::now());
         assert!(last.error.is_some(), "a broken hosted credential waited out the quiet window");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// A hosted vault refuses every sync of its own accord once its history
+    /// has been rewritten here, so those failures are local and permanent, not
+    /// a remote that went missing for a minute.
+    #[test]
+    fn a_hosted_leg_refused_after_a_history_rewrite_records_local() {
+        let root = std::env::temp_dir().join(format!(
+            "substrate-rewrite-class-{}-{}",
+            std::process::id(),
+            line!()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let _history = History::new(root.clone()).unwrap();
+        let repo = git2::Repository::open(&root).unwrap();
+
+        // No rewrite yet: an ordinary miss against a hosted remote is still a
+        // transport miss and still gets the quiet window.
+        repo.remote(crate::gitsync::REMOTE, "blob+https://hosted.example/blob").unwrap();
+        assert_eq!(class_for_failure(&root), FailureClass::Transport);
+
+        crate::gitsync::mark_history_rewritten(repo.path()).unwrap();
+        assert_eq!(class_for_failure(&root), FailureClass::Local);
+
+        // Local surfaces on the first tick instead of waiting out hours of a
+        // window meant for a device that is merely offline.
+        let mut last = VaultSyncLast::default();
+        let mut fail = AutoFail::default();
+        let refused: Result<SyncReport, String> =
+            Err("hosted sync pull refused: this vault's history was rewritten".into());
+        record_outcome_into(
+            &mut last,
+            &mut fail,
+            &refused,
+            true,
+            class_for_failure(&root),
+            Instant::now(),
+        );
+        assert!(last.error.is_some(), "a permanently refused vault still read healthy");
+
+        // A plain Git remote keeps serving pulls after a rewrite, so its
+        // failures stay transport failures and keep the window.
+        repo.remote_set_url(crate::gitsync::REMOTE, "https://git.example/vault.git").unwrap();
+        assert_eq!(class_for_failure(&root), FailureClass::Transport);
 
         let _ = fs::remove_dir_all(&root);
     }

@@ -9,6 +9,7 @@ import { dateLocale } from "../lib/dateLocale";
 import { ImageIcon, NoteIcon } from "./Icons";
 import { BackButton } from "./BackButton";
 import EmptyState from "./EmptyState";
+import { errText } from "../lib/errtext";
 
 /** "Jun 12" — same locale shape the trash rows use for older dates. */
 function fmtDate(ms: number): string {
@@ -77,7 +78,7 @@ export default function AssetsPane({ vaultEpoch }: AssetsPaneProps) {
         // a successful scan retires the last error — no stale strip under new results
         setError(null);
       })
-      .catch((e) => setError(String(e)));
+      .catch((e) => setError(errText(e)));
   }, []);
 
   useEffect(load, [load, vaultEpoch]);
@@ -107,7 +108,7 @@ export default function AssetsPane({ vaultEpoch }: AssetsPaneProps) {
         load();
       })
       .catch((e) => {
-        setError(String(e));
+        setError(errText(e));
         load();
       });
   };

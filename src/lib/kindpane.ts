@@ -7,9 +7,9 @@
    (the repo has no React component runner — the rendering half is e2e).
 
    The one invariant worth stating twice: a `dashboard:` value that names a
-   bundle NEVER reaches the charts-or-yield fallback. That fallback belongs
+   bundle NEVER reaches the body-scan fallback. That fallback belongs
    to notes naming no kind at all; using it for a kind the user disabled
-   would answer "show me gear-log" with a yield tracker. */
+   would answer "show me gear-log" with whatever the body happens to hold. */
 
 import {
   BUILT_IN_KINDS,

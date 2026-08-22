@@ -19,3 +19,11 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
 if (import.meta.env.VITE_SUBSTRATE_SMOKE === "1" && isTauri) {
   import("./lib/smoke").then((m) => m.runSmoke());
 }
+
+/* Same shape, same reasoning, for the auto-sync verification driver
+   (scripts/autosync-verify.sh): a real app arming its own sync lane against a
+   real hosted store. Its run is minutes long rather than seconds, so it is its
+   own flag rather than another leg of the smoke flow. */
+if (import.meta.env.VITE_SUBSTRATE_AUTOSYNC_VERIFY === "1" && isTauri) {
+  import("./lib/autosyncverify").then((m) => m.runAutoSyncVerify());
+}

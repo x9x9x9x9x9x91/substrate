@@ -3,6 +3,7 @@ import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { kindsEnable, kindsSetTrust, vaultRoot } from "../lib/ipc";
 import { invalidateKindBundles } from "../hooks/useKindBundles";
 import type { KindReview } from "../lib/kindpane";
+import { errText } from "../lib/errtext";
 
 /* The review a person reads before code from their vault runs.
 
@@ -41,7 +42,7 @@ export default function KindReviewCard(props: {
         trust !== review.trustUpdates
           ? kindsSetTrust(review.id, trust).catch((e) =>
               setError(
-                `Enabled — but the standing permission could not be saved: ${String(e)}. Set it in Settings → Kinds.`,
+                `Enabled — but the standing permission could not be saved: ${errText(e)}. Set it in Settings → Kinds.`,
               ),
             )
           : undefined,
@@ -53,7 +54,7 @@ export default function KindReviewCard(props: {
         invalidateKindBundles();
         props.onChanged?.();
       })
-      .catch((e) => setError(String(e)))
+      .catch((e) => setError(errText(e)))
       .finally(() => setBusy(false));
   };
 
@@ -63,7 +64,7 @@ export default function KindReviewCard(props: {
   const openCode = () => {
     vaultRoot()
       .then((root) => revealItemInDir(`${root}/.vault/kinds/${review.id}/${review.entry}`))
-      .catch((e) => setError(`could not show the folder: ${String(e)}`));
+      .catch((e) => setError(`could not show the folder: ${errText(e)}`));
   };
 
   return (

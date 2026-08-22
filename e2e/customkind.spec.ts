@@ -6,9 +6,9 @@ import { settingsTab } from "./settings";
 // head. Every state that can't run — review pending, api out of range, an
 // invalid bundle, a module that throws — renders a card naming the kind and
 // the file, and the head survives all of them. The one thing a named kind
-// must NEVER do is fall through to charts-or-yield: that fallback belongs to
+// must NEVER do is fall through to the body scan: that path belongs to
 // notes naming no kind at all, and using it here would answer "show me
-// gear-log" with a yield tracker (the regression, one layer down).
+// gear-log" with whatever the body holds (the regression, one layer down).
 //
 // The mock lane has no `substrate-kind:` scheme, so the pane imports the same
 // source through a blob URL (gated on !isTauri; the shipped CSP allows the

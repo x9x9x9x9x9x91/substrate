@@ -12,6 +12,7 @@ import {
   type McpSetup,
 } from "../lib/ipc";
 import { dateLocale } from "../lib/dateLocale.ts";
+import { errText } from "../lib/errtext";
 
 /** The stamp is context, not the point: shown when it parses, dropped when it
     doesn't, so a hand-edited breadcrumb can't put "Invalid Date" in the pane. */
@@ -67,13 +68,13 @@ export default function McpSettings({ onToast }: McpSettingsProps) {
       .catch((e) => {
         setGrants([]);
         setGrantApiAvailable(false);
-        setError(String(e));
+        setError(errText(e));
       });
     mcpSetup()
       .then(setSetup)
       .catch((e) => {
         setSetup(null);
-        setSetupError(String(e));
+        setSetupError(errText(e));
       })
       .finally(() => setSetupLoaded(true));
     // Purely diagnostic: an older backend without the command, or a door no
@@ -94,7 +95,7 @@ export default function McpSettings({ onToast }: McpSettingsProps) {
     try {
       setGrants(await mcpGrantPick(exactClient, access));
     } catch (e) {
-      const message = String(e);
+      const message = errText(e);
       setError(message);
       onToast(`couldn't grant the folder (${message})`);
     } finally {
@@ -110,7 +111,7 @@ export default function McpSettings({ onToast }: McpSettingsProps) {
       try {
         setGrants(await revokeGrant(grant));
       } catch (e) {
-        const message = String(e);
+        const message = errText(e);
         setError(message);
         onToast(`couldn't revoke the grant (${message})`);
       } finally {
@@ -126,7 +127,7 @@ export default function McpSettings({ onToast }: McpSettingsProps) {
     try {
       setGrants(await mcpGrantsRevokeAll());
     } catch (e) {
-      const message = String(e);
+      const message = errText(e);
       setError(message);
       onToast(`couldn't revoke MCP access (${message})`);
     } finally {
@@ -139,7 +140,7 @@ export default function McpSettings({ onToast }: McpSettingsProps) {
     navigator.clipboard
       .writeText(setup.claude_desktop_snippet)
       .then(() => onToast("Claude Desktop MCP config copied"))
-      .catch((e) => onToast(`couldn't copy MCP config (${e})`));
+      .catch((e) => onToast(`couldn't copy MCP config (${errText(e)})`));
   }, [onToast, setup]);
 
   // Mobile (and an older backend during a rolling dev rebuild) has neither
