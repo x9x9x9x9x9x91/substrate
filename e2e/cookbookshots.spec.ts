@@ -145,6 +145,9 @@ interface Install {
 interface Shot {
   id: string;
   nav: string; // exact sidebar label of the dashboard note
+  /** runs before the notes install — for a recipe that ships more than notes
+      (the vault-resident kind bundle its board names) */
+  pre?: (page: Page) => Promise<void>;
   installs: Install[];
   ready: (page: Page) => Promise<void>; // proof the pane rendered numbers
   post?: (page: Page) => Promise<void>;
@@ -499,6 +502,110 @@ const SHOTS: Shot[] = [
       await expect(page.locator(".tasks-row")).toHaveCount(4);
     },
   },
+  {
+    id: "grid-board",
+    nav: "Label Board",
+    installs: [
+      { file: "Dashboards/Label Board.md", target: "Dashboards/Label Board.md", cloneFrom: "Dashboards/Overview.md" },
+      { file: "Holdings.md", target: "Holdings.md" },
+      { file: "Releases/Night Circuit.md", target: "Releases/Night Circuit.md", cloneFrom: "Slow Bloom EP.md" },
+      { file: "Releases/Fern Static.md", target: "Releases/Fern Static.md", cloneFrom: "Slow Bloom EP.md" },
+      { file: "Releases/Slow Bloom EP.md", target: "Releases/Slow Bloom EP.md", cloneFrom: "Slow Bloom EP.md" },
+      { file: "Releases/Halide.md", target: "Releases/Halide.md", cloneFrom: "Slow Bloom EP.md" },
+      { file: "Releases/Paper Kite.md", target: "Releases/Paper Kite.md", cloneFrom: "Slow Bloom EP.md" },
+    ],
+    ready: async (page) => {
+      // three fences, three tiles, and each one drawing its own thing — a
+      // board whose chart tile failed would still count three sections
+      await expect(page.locator(".grid-tile")).toHaveCount(3);
+      await expect(page.locator(".grid-tile .dash-card")).toHaveCount(3);
+      await expect(page.locator(".grid-tile .dash-card-usd", { hasText: "—" })).toHaveCount(0);
+      await expect(page.locator(".grid-tile .dash-chart")).toHaveCount(1);
+      await expect(page.locator(".grid-tile .embed-view-table")).toHaveCount(1);
+      await expect(page.locator(".dash-alert")).toHaveCount(0);
+      await expect(page.locator(".dash-card-miss")).toHaveCount(0);
+    },
+    post: async (page) => {
+      // the mock roster ships releases of its own — they would fill the chart
+      // and the view tile with rows the recipe's files don't explain, so they
+      // go (the release-arc shot drops the same five for the same reason).
+      await page.evaluate(() => {
+        const w = window as unknown as {
+          __mockDeleteNote: (p: string) => void;
+          __mockEmit: (e: string) => void;
+        };
+        for (const p of ["Slow Bloom EP.md", "Static Bouquet.md", "Vessel Songs.md", "Fern Palace.md", "Glass Havens.md"]) {
+          w.__mockDeleteNote(p);
+        }
+        w.__mockEmit("vault:changed");
+      });
+      // what is left is the recipe's own five: four statuses in the chart, and
+      // the one release actually in mastering under the view tile
+      await expect(page.locator(".grid-tile .embed-view-table tbody tr")).toHaveCount(1);
+    },
+  },
+  {
+    id: "week-numbers",
+    nav: "Release Weeks",
+    // the renderer is part of the recipe, so the shot installs the bundle's
+    // real bytes too — not a stand-in module written in this file
+    pre: async (page) => {
+      const files = {
+        "kind.json": recipeFile("week-numbers", ".vault/kinds/week-numbers/kind.json"),
+        "index.js": recipeFile("week-numbers", ".vault/kinds/week-numbers/index.js"),
+        "style.css": recipeFile("week-numbers", ".vault/kinds/week-numbers/style.css"),
+      };
+      await page.evaluate(async (bundle) => {
+        await (
+          window as unknown as {
+            __mockWriteKind: (b: {
+              id: string;
+              manifest: string;
+              files: Record<string, string>;
+              enabled: boolean;
+            }) => Promise<void>;
+          }
+        ).__mockWriteKind({
+          id: "week-numbers",
+          manifest: bundle["kind.json"],
+          files: { "index.js": bundle["index.js"], "style.css": bundle["style.css"] },
+          enabled: true,
+        });
+      }, files);
+    },
+    installs: [
+      { file: "Dashboards/Release Weeks.md", target: "Dashboards/Release Weeks.md", cloneFrom: "Dashboards/Overview.md" },
+      { file: "Releases/Night Circuit.md", target: "Releases/Night Circuit.md", cloneFrom: "Slow Bloom EP.md" },
+      { file: "Releases/Fern Static.md", target: "Releases/Fern Static.md", cloneFrom: "Slow Bloom EP.md" },
+      { file: "Releases/Slow Bloom EP.md", target: "Releases/Slow Bloom EP.md", cloneFrom: "Slow Bloom EP.md" },
+      { file: "Releases/Halide.md", target: "Releases/Halide.md", cloneFrom: "Slow Bloom EP.md" },
+      { file: "Releases/Paper Kite.md", target: "Releases/Paper Kite.md", cloneFrom: "Slow Bloom EP.md" },
+    ],
+    ready: async (page) => {
+      // the module mounted (its own grid is on screen), and it resolved rows:
+      // a year that tallied nothing still draws 52 squares, so the proof is
+      // shaded ones plus the head cards the module writes
+      await expect(page.locator(".wk-grid .wk-cell").first()).toBeVisible();
+      expect(await page.locator('.wk-cell[data-level="1"], .wk-cell[data-level="2"], .wk-cell[data-level="3"]').count()).toBeGreaterThan(0);
+      await expect(page.locator(".dash-metrics .dash-metric")).toHaveCount(3);
+      await expect(page.locator(".dash-alert")).toHaveCount(0);
+    },
+    post: async (page) => {
+      // the mock roster's own releases are not the recipe's — they would shade
+      // weeks the shipped files don't explain, so they go (the release-arc
+      // shot drops the same five for the same reason).
+      await page.evaluate(() => {
+        const w = window as unknown as {
+          __mockDeleteNote: (p: string) => void;
+          __mockEmit: (e: string) => void;
+        };
+        for (const p of ["Slow Bloom EP.md", "Static Bouquet.md", "Vessel Songs.md", "Fern Palace.md", "Glass Havens.md"]) {
+          w.__mockDeleteNote(p);
+        }
+        w.__mockEmit("vault:changed");
+      });
+    },
+  },
 ];
 
 mkdirSync(OUT, { recursive: true });
@@ -506,6 +613,7 @@ mkdirSync(OUT, { recursive: true });
 for (const s of SHOTS) {
   test(`cookbook shot: ${s.id}`, async ({ page }) => {
     await page.goto("/");
+    if (s.pre) await s.pre(page);
     for (const inst of s.installs) {
       const raw = recipeFile(s.id, inst.file);
       const { fm, body } = split(raw);

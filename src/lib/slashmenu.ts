@@ -148,6 +148,8 @@ export function slashCommands(): SlashCommand[] {
     fenceCommand("calendar", "month grid", ["source: ", "date: "]),
     fenceCommand("progress", "goal thermometer", ["label: ", "value: ", "target: "]),
     fenceCommand("timeline", "date-axis lanes", ["source: ", "start: ", "label: "]),
+    // a grid dashboard's body fence — its host key is `tile:` (cards|chart|view)
+    fenceCommand("tile", "grid dashboard tile", ["tile: ", "source: "]),
   ];
 }
 

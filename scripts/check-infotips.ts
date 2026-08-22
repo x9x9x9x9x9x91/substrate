@@ -61,6 +61,7 @@ const SELF = "scripts/check-infotips.ts";
  */
 export const PANE_CONTROLS: ReadonlyMap<string, readonly string[]> = new Map([
   ["metrics", ["metrics-strip"]],
+  ["grid", ["grid-tile"]],
   // the hero is shared chrome three surfaces render, so it is not this
   // board's own control; the armed claim is
   ["yield-apr", ["dash-claim"]],

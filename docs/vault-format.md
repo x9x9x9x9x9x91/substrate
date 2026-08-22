@@ -958,7 +958,7 @@ those always stay section rows.
 
 Sidebar icon: each dashboard row renders a curated per-kind glyph
 (`src/lib/dbicons.ts` DASHBOARD_ICONS — `food`, `metrics`, `yield-apr`, `hub`,
-`feed`, `music-work`, `tasks`, `sync`, `coding`, `jobs`, `tax`,
+`feed`, `music-work`, `tasks`, `sync`, `coding`, `jobs`, `tax`, `grid`,
 plus any machine-specific kinds this build carries); an `icon:` prop overrides
 it (a curated glyph id, anything else treated as an emoji), and kinds without a
 mark keep the generic chart glyph. The curated glyph ids (`src/lib/dbicons.ts`
@@ -979,7 +979,7 @@ board (below); `coding` → the repo-health table over the scan root its `root:`
 prop names (default `~/Coding`); `tax` → the tax-year readiness board (below);
 `charts` → the chart-fence dashboard (§5.5), whether or not the body actually
 holds a fence; `sync` → the sync control surface (below); `jobs` → the launchd
-jobs pane (below).
+jobs pane (below); `grid` → the composable tile board (§5.6b).
 **A missing `dashboard` prop looks at the body** — one or more ` ```chart `
 fences makes it a charts dashboard (§5.5). So a charts dashboard needs no
 specific key, just the fences; `dashboard: charts` says the same thing by name.
@@ -2159,6 +2159,70 @@ pages:
   about it is written to disk. External writers add/remove/reorder pages by
   editing the frontmatter list.
 
+### 5.6b Grid dashboards — ` ```tile ` fences
+
+`dashboard: grid` composes cards, charts, and live database cuts on one board.
+Each body fence is one tile; fence order is visual order and `span: 2` makes a
+tile use both grid tracks (the default span is 1). A narrow pane collapses to
+one track. The host key is `tile`, not `kind`, because chart configuration
+already uses `kind: bar|line`.
+
+````markdown
+---
+type: dashboard
+dashboard: grid
+---
+
+```tile
+tile: cards
+source: {{Holdings}}
+cards: Total value = total | usd | emph, Crypto = crypto | usd
+```
+
+```tile
+tile: chart
+source: release
+x: released:month
+y: count
+kind: bar
+```
+
+```tile
+tile: view
+type: release
+query: status:mastering
+span: 2
+```
+````
+
+Host keys (`src/lib/grid.ts`):
+
+- `tile` — required: `cards` | `chart` | `view`.
+- `span` — optional: `1` | `2`.
+- A `chart` tile delegates every remaining line to §5.5 unchanged.
+- A `view` tile delegates every remaining line to §5.6 unchanged.
+- A `cards` tile requires `source: {{Sheet Name}}` and one `cards:` line. That
+  line is a comma-separated list of `Label = summary | option`. The summary
+  name becomes the §5.4 `{{Sheet.summary}}` binding. Options are `eur`, `usd`,
+  `number`, `pct`, `digits=N` (0–8 — a tile naming more is refused with the
+  same named error the ` ```cards ` fence gives, both being hand-written text;
+  §5.4's frontmatter list clamps instead), `emph`, and `accent:<name>`
+  (SUB-969 — a roster name from §5.4, prefixed so an off-roster colour can't
+  read as a typo'd format). The prefix is required and the option list stays
+  strict — a bare `| teal` is still an unknown option — but the accent's own
+  VALUE degrades silently: `accent:#14b8a6` or `accent:tealish` leaves the
+  card unaccented rather than failing the tile.
+  Labels and sheet titles may contain spaces; summary identifiers use
+  letters/digits/underscore and do not contain commas or pipes.
+
+Every tile resolves independently. A malformed host line, invalid delegated
+chart, unknown tile kind, bad span, or bad cards binding renders an error in
+that tile and never drops its siblings. Runtime source errors (missing sheet,
+summary, database, or saved view) use the delegated surface's own error. Card
+emphasis is selected after flattening all cards tiles: at most two values per
+board stay sharp, and with no `emph` option the first card anchors the board.
+The grid is read-only, participates in dashboard printing, and is a normal
+flat dashboard target inside §5.6a workbook pages.
 
 ### 5.7 Recurring calendar entries — `repeat` / `repeat_until` / `repeat_skip`
 

@@ -44,6 +44,12 @@ export const NEW_DASHBOARD_KINDS: readonly DashboardKindOption[] = [
     body: "A home page laid out from ordinary markdown: `## ` headings become sections, a run of callouts becomes a card row, and ` ```view `, ` ```chart `, ` ```cards `, ` ```progress ` and ` ```calendar ` fences render live between them.\n",
   },
   {
+    kind: "grid",
+    blurb: "cards, charts and database cuts as tiles",
+    title: "Board",
+    body: "A board of tiles. Each ` ```tile ` fence in this body is one tile, in document order; `span: 2` makes a tile wide.\n",
+  },
+  {
     kind: "metrics",
     blurb: "stat cards over a sheet's summaries",
     title: "Metrics",
