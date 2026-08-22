@@ -23,6 +23,7 @@ import {
   viewTypeQuery,
   viewValueQuery,
 } from "./slashmenu.ts";
+import { parseHeatmapBlocks } from "./heatmap.ts";
 import { KNOWN_KEYS } from "./embeds.ts";
 import { todayIso } from "./dates.ts";
 
@@ -201,10 +202,21 @@ test("fence scaffolds: well-formed fences, cursor on the first value, fenceExit 
   assert.equal(chart.insert, "```chart\nsource: \nx: \ny: count\n```");
   assert.equal(chart.insert.slice(0, chart.cursor), "```chart\nsource: ");
 
-  // and one bare-form fence: heatmap requires source, date, value
+  // and one bare-form fence: heatmap requires source, date, value, and is the
+  // one scaffold that also says what each key takes — `#` lines the parser
+  // skips, under the keys so the cursor still lands on the first value
   const heatmap = slashCommands().find((c) => c.name === "heatmap")!;
-  assert.equal(heatmap.insert, "```heatmap\nsource: \ndate: \nvalue: count\n```");
+  assert.equal(
+    heatmap.insert,
+    "```heatmap\nsource: \ndate: \nvalue: count\n" +
+      "# source: a database type, or {{Sheet Name}} for a sheet\n" +
+      "# date: the date property the squares sit on\n" +
+      "# value: count, or sum:<number prop>\n```",
+  );
   assert.equal(heatmap.insert.slice(0, heatmap.cursor), "```heatmap\nsource: ");
+  // the hints are readable by the parser as comments, so the inserted fence
+  // renders its own unfinished state rather than an error
+  assert.deepEqual(parseHeatmapBlocks(heatmap.insert)[0].needs, ["source", "date"]);
 });
 
 test("viewTypeQuery: only the type: line, and only in a view fence", () => {

@@ -1724,6 +1724,16 @@ both chart and heatmap fences renders its charts first and its heatmaps under
 them. Hub bodies host the fence too (§5.2). A malformed fence renders its parse
 error in place and leaves its siblings alone.
 
+A fence that is merely **unfinished** is not malformed: a required key left
+blank (`source:` with nothing after it) or not written at all renders a calm
+line naming what the fence is still waiting for and what each blank key takes,
+in place of the year grid. That is what the `/heatmap` scaffold inserts, and
+the scaffold repeats the same words as `#` comment lines under its keys, so the
+inserted text teaches as well as the rendered fence does. The error banner stays
+for config that is wrong rather than absent — an unknown key, a repeated key, a
+line that is not `key: value`, a `value:` no reading fits, a `query:` on a sheet.
+A blank optional key (`query:`) reads as absent.
+
 ### 5.5b Progress fences — ` ```progress `
 
 A ` ```progress ` fence declares one goal: a number, the number it should reach,

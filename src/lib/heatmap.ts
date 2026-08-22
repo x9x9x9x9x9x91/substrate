@@ -53,12 +53,50 @@ export interface HeatmapConfig {
   query: string | null;
 }
 
-/** One parsed ```heatmap fence: a config or a human-readable error — the
-    chart-block shape, so a broken fence renders in place and never takes its
-    siblings down. */
+/** One parsed ```heatmap fence: a config, a human-readable error, or a fence
+    that is not filled in yet — the chart-block shape, so a broken fence renders
+    in place and never takes its siblings down.
+
+    `needs` is the third state, and it is not an error: the required keys this
+    fence has left blank or has not written at all. The slash scaffold inserts
+    exactly that fence — `source:` and `date:` with nothing after them — so the
+    first thing anyone saw after typing /heatmap was a parse error over their
+    own untouched scaffold. A fence still being written gets told what it
+    wants; a fence written WRONG (unknown key, duplicate, unreadable line, a
+    value no reading fits) still gets the error box. */
 export interface HeatmapBlock {
   config: HeatmapConfig | null;
   error: string | null;
+  /** required keys still blank, in fence order; null once there are none */
+  needs: string[] | null;
+}
+
+/** Thrown by `parseHeatmapConfig` for a fence that is merely unfinished, so
+    the block scanner can tell it apart from a malformed one without parsing
+    an error sentence back. */
+export class HeatmapUnfinished extends Error {
+  /** the required keys still blank, in fence order */
+  readonly needs: string[];
+
+  constructor(needs: string[]) {
+    super(heatmapNeedsMessage(needs));
+    this.name = "HeatmapUnfinished";
+    this.needs = needs;
+  }
+}
+
+/** What each required key takes, in the fence's own words — the sentence the
+    unfinished fence shows in place of a grid. Same voice as the rest of the
+    empty states: what is missing, then what would fill it. */
+const KEY_WANTS: Record<string, string> = {
+  source: "source: a database type, or {{Sheet Name}} for a sheet",
+  date: "date: the date property the squares sit on",
+  value: "value: count, or sum:<number prop>",
+};
+
+export function heatmapNeedsMessage(needs: string[]): string {
+  const wants = needs.map((k) => KEY_WANTS[k] ?? `${k}: a value`);
+  return `This heatmap is not filled in yet — ${wants.join("; ")}. Fill those in and the year of squares draws itself.`;
 }
 
 // ---------- config parsing ----------
@@ -74,25 +112,34 @@ function parseValue(v: string): HeatmapValue {
   throw new Error(`value must be count or sum:<prop> — got "${v}"`);
 }
 
-/** Parse one fence body; throws on any malformed line, unknown key or missing
-    key. The fence is hand-written text, so every mistake gets named. */
+/** Parse one fence body; throws on any malformed line or unknown key, and
+    throws `HeatmapUnfinished` when the fence is merely still blank. The fence
+    is hand-written text, so every mistake gets named.
+
+    A key written with no value (`source:`) is the unfinished case, not a
+    broken line: it is what the slash scaffold inserts and what half-typed
+    config looks like between two keystrokes. The key still has to be one a
+    heatmap takes and still may not repeat — a blank `kind:` is as wrong as a
+    filled one. */
 export function parseHeatmapConfig(inner: string): HeatmapConfig {
   const kv = new Map<string, string>();
+  const seen = new Set<string>();
   for (const rawLine of inner.split("\n")) {
     const line = rawLine.trim();
     if (!line || line.startsWith("#")) continue;
-    const m = /^([A-Za-z][\w-]*)\s*:\s*([\s\S]+)$/.exec(line);
+    const m = /^([A-Za-z][\w-]*)\s*:\s*([\s\S]*)$/.exec(line);
     if (!m) throw new Error(`can't parse line: ${line}`);
     const key = m[1].toLowerCase();
     if (!KNOWN_KEYS.has(key)) {
       throw new Error(`unknown key "${m[1]}" — heatmaps take source, date, value, query`);
     }
-    if (kv.has(key)) throw new Error(`duplicate key "${m[1]}"`);
-    kv.set(key, m[2].trim());
+    if (seen.has(key)) throw new Error(`duplicate key "${m[1]}"`);
+    seen.add(key);
+    const value = m[2].trim();
+    if (value !== "") kv.set(key, value);
   }
-  for (const req of ["source", "date", "value"]) {
-    if (!kv.has(req)) throw new Error(`missing required key "${req}"`);
-  }
+  const needs = ["source", "date", "value"].filter((req) => !kv.has(req));
+  if (needs.length > 0) throw new HeatmapUnfinished(needs);
   const source = parseSource(kv.get("source")!);
   const query = kv.get("query") ?? null;
   // `query` is the database filter bar; a sheet has no notes to filter, so a
@@ -123,15 +170,16 @@ export function parseHeatmapBlocks(body: string): HeatmapBlock[] {
   let m;
   while ((m = re.exec(body)) !== null) {
     try {
-      out.push({ config: parseHeatmapConfig(m[1]), error: null });
+      out.push({ config: parseHeatmapConfig(m[1]), error: null, needs: null });
     } catch (e) {
-      out.push({ config: null, error: e instanceof Error ? e.message : String(e) });
+      if (e instanceof HeatmapUnfinished) out.push({ config: null, error: null, needs: e.needs });
+      else out.push({ config: null, error: e instanceof Error ? e.message : String(e), needs: null });
     }
   }
   // an opener with no closing line matched nothing above, so the board would
   // have counted zero and said nothing; the fence gets a banner instead
   if (hasUnclosedFence(body, "heatmap", true))
-    out.push({ config: null, error: "This ```heatmap fence is never closed — add a closing ``` line so the heatmap can be read." });
+    out.push({ config: null, needs: null, error: "This ```heatmap fence is never closed — add a closing ``` line so the heatmap can be read." });
 
   return out;
 }

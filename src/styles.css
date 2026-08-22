@@ -11243,6 +11243,25 @@ th.sheet-computed:hover {
   line-height: 1.5;
 }
 
+/* The sync manager's failures speak the shared banner (`.dash-alert`, marked
+   with the rule) — these two keep the affordances the messages need: a git
+   error is a long machine sentence with a URL or a path in it, and a reader
+   copies it into a bug report. `.vault-sync-error` is now the privacy box's
+   own line, which sits inside a box that already carries the mark; the
+   inline `.vault-sync-form-error` stays a field's red note beside its
+   control, not a banner. */
+.vault-sync-card .dash-alert {
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+/* the status slot holds one thing at a time, and a failure is one of them:
+   the banner starts where the status sentence starts rather than a gap below
+   the padding it is the only content of */
+.vault-sync-status > .dash-alert {
+  margin-top: 0;
+}
+
 .vault-sync-error,
 .vault-sync-form-error {
   color: var(--danger);
@@ -11633,7 +11652,7 @@ th.sheet-computed:hover {
   white-space: nowrap;
 }
 
-.sync-conflict .vault-sync-error {
+.sync-conflict .dash-alert {
   margin: 0 16px 12px;
 }
 

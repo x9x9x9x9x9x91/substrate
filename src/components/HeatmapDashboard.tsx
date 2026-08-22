@@ -16,6 +16,7 @@ import { formatDateHuman, shiftDate, toIso } from "../lib/dates";
 import {
   heatmapDbRows,
   heatmapGrid,
+  heatmapNeedsMessage,
   heatmapSourceDesc,
   heatmapTitle,
   heatmapYears,
@@ -255,6 +256,17 @@ function HeatmapSection({
   tally: HeatmapTally | null;
   loadError: string | null;
 }) {
+  // a fence still being written is not a broken one: it gets the calm state
+  // that names what it is waiting for, in the same words the fence's own keys
+  // are documented in. The error banner stays for config that IS wrong.
+  if (block.needs) {
+    return (
+      <div>
+        <div className="dash-section-label">Heatmap block</div>
+        <DashEmpty>{heatmapNeedsMessage(block.needs)}</DashEmpty>
+      </div>
+    );
+  }
   if (block.error || !block.config) {
     return (
       <div>

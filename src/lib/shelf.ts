@@ -6,6 +6,7 @@
    a year-old file list without saying it is a year old is worse than no
    shelf. */
 
+import { dateLocale } from "./dateLocale.ts";
 import { ago, ageMs } from "./syncstory.ts";
 import type { DriveEntry, DriveHit, DriveInfo } from "./types.ts";
 
@@ -40,7 +41,9 @@ export function seenLabel(iso: string | undefined, now = Date.now()): string {
   if (ms === null) return "never";
   if (ms < 60_000) return "just now";
   if (ms < AGE_AS_DATE_MS) return ago(iso, now);
-  return new Date(iso as string).toLocaleDateString(undefined, {
+  // the vault's date dialect, not the machine's: a shelf row sits beside
+  // dates the rest of the app writes from the dial
+  return new Date(iso as string).toLocaleDateString(dateLocale(), {
     day: "numeric",
     month: "short",
     year: "numeric",

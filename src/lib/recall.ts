@@ -6,6 +6,7 @@
    77c0de1"), and a claim that specific deserves a test rather than a render. */
 
 import { dateLocale } from "./dateLocale.ts";
+import { numberLocale } from "./numberLocale.ts";
 import type { RecallGroup } from "./types";
 
 /** "4 Mar 2026" — a past version is a moment, so it is named by its day
@@ -52,6 +53,9 @@ export function sizeLabel(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/** The counts on the Recall settings row — grouped in the vault's number
+    dialect, like every other figure the app writes, rather than in whatever
+    country the machine happens to be set to. */
 export function countLabel(n: number, one: string, many: string): string {
-  return `${n.toLocaleString()} ${n === 1 ? one : many}`;
+  return `${n.toLocaleString(numberLocale())} ${n === 1 ? one : many}`;
 }

@@ -58,6 +58,11 @@ interface ChartsDashboardProps {
   /** rendered under the chart sections, above the foot — how a note that also
       carries ```heatmap fences shows them without a second pane head */
   after?: ReactNode;
+  /** how many heatmap fences ride in `after`. The head counts what the board
+      actually draws: a `dashboard: charts` note whose body holds only
+      ```heatmap fences used to head itself "0 charts" and then advise adding
+      a chart fence, over a page of rendered heatmaps. */
+  afterHeatmaps?: number;
 }
 
 /** full-precision value — tooltips keep every digit */
@@ -821,6 +826,7 @@ export default function ChartsDashboard({
   embed,
   configOverride,
   after,
+  afterHeatmaps = 0,
 }: ChartsDashboardProps) {
   // one table, one resolver; the footer's single pair is derived
   const { fx: rates } = useFxRates();
@@ -1055,18 +1061,28 @@ export default function ChartsDashboard({
     );
   }
 
+  /** what the board actually draws, in the order it draws it. "0 charts" is
+      only worth saying when there is nothing else to count: on a board whose
+      body is heatmaps, a head that leads with the charts it does not have is
+      a head that disagrees with the page under it. */
+  const headCount = [
+    blocks.length > 0 || afterHeatmaps === 0
+      ? `${blocks.length} ${blocks.length === 1 ? "chart" : "charts"}`
+      : null,
+    afterHeatmaps > 0 ? `${afterHeatmaps} ${afterHeatmaps === 1 ? "heatmap" : "heatmaps"}` : null,
+    sheetNames.length > 0
+      ? `${sheetNames.length} ${sheetNames.length === 1 ? "sheet" : "sheets"}`
+      : null,
+  ]
+    .filter((part): part is string => part !== null)
+    .join(" · ");
+
   return (
     <div className={`note${fade.className}`} {...fade.props}>
       <div className="dash-inner">
         <DashHead
           title={meta.title}
-          state={{
-            label:
-              `${blocks.length} ${blocks.length === 1 ? "chart" : "charts"}` +
-              (sheetNames.length > 0
-                ? ` · ${sheetNames.length} ${sheetNames.length === 1 ? "sheet" : "sheets"}`
-                : ""),
-          }}
+          state={{ label: headCount }}
           actions={<DashPrintButton />}
           sourcePath={meta.path}
           onOpenSource={onOpenSource}
@@ -1088,14 +1104,19 @@ export default function ChartsDashboard({
           );
         })}
 
-        {blocks.length === 0 && (
+        {/* a board with heatmaps under it is not empty, and telling its
+            reader to add a chart fence names the wrong thing twice: the
+            fences they wrote, and the one they are missing */}
+        {blocks.length === 0 && afterHeatmaps === 0 && (
           <DashEmpty>No charts yet — add a ```chart fence to this note.</DashEmpty>
         )}
 
         {after}
 
         <div className="dash-foot">
-          Charts are chart fences in this note — edit the text to reconfigure them.
+          {blocks.length === 0 && afterHeatmaps > 0
+            ? "Heatmaps are heatmap fences in this note — edit the text to reconfigure them."
+            : "Charts are chart fences in this note — edit the text to reconfigure them."}
           {fx ? ` USD→EUR ${fmtFx(fx.usdEur)}${fx.live ? "" : " (cached)"} for FX columns.` : ""}
         </div>
       </div>
