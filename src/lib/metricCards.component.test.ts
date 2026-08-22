@@ -81,10 +81,10 @@ test("frontmatter names an unknown format instead of formatting silently", () =>
       { label: "Units", bind: "{{Holdings.positions}}", format: "EUR" },
     ],
   });
-  assert.match(bad.formatErr ?? "", /unknown format "furlongs" — want eur, usd, number, pct/);
+  assert.match(bad.optionErr ?? "", /unknown format "furlongs" — want eur, usd, number, pct/);
   // a known format still parses, case-folded, with nothing to report
   assert.equal(good.format, "eur");
-  assert.equal(good.formatErr, undefined);
+  assert.equal(good.optionErr, undefined);
 });
 
 test("an unknown format reads as a miss on the rendered card", async (t) => {
@@ -125,4 +125,28 @@ test("a sheet the vault refuses to read names the failure, not the Error class",
   assert.ok(state && "error" in state, "the unreadable sheet is an error state");
   assert.equal(state.error, "mock failure: vault_read");
   assert.doesNotMatch(state.error, /Error:/);
+});
+
+test("frontmatter names a dropped digits and a dropped emph, and still renders the card", () => {
+  const [wide, bogus, notBool] = parseCards({
+    cards: [
+      { label: "A", bind: "{{H.total}}", digits: 40 },
+      { label: "B", bind: "{{H.total}}", digits: "two" },
+      { label: "C", bind: "{{H.total}}", emph: "yes" },
+    ],
+  });
+  // clamped, not refused — but no longer clamped in silence
+  assert.equal(wide.digits, 8);
+  assert.match(wide.optionErr ?? "", /digits must be between 0 and 8 — using 8/);
+  assert.equal(bogus.digits, undefined);
+  assert.match(bogus.optionErr ?? "", /digits must be a whole number — ignoring "two"/);
+  assert.equal(notBool.emph, false);
+  assert.match(notBool.optionErr ?? "", /emph must be true or false — ignoring "yes"/);
+});
+
+test("a card whose options the app can honor says nothing about them", () => {
+  const [c] = parseCards({ cards: [{ label: "A", bind: "{{H.total}}", digits: 2, emph: true, format: "eur" }] });
+  assert.equal(c.optionErr, undefined);
+  assert.equal(c.digits, 2);
+  assert.equal(c.emph, true);
 });

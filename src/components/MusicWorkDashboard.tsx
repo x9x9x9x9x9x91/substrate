@@ -7,6 +7,7 @@ import type { WorkView } from "../lib/musicwork";
 import { DashHead } from "./DashHead";
 import SwitchGroup from "./SwitchGroup";
 import { DashAlert, DashEmpty } from "./DashNotice";
+import { errText } from "../lib/errtext";
 
 interface MusicWorkDashboardProps {
   meta: NoteMeta;
@@ -80,7 +81,7 @@ export default function MusicWorkDashboard({
             setReadErr(null);
           })
           .catch((e) => {
-            if (!gone) setReadErr(String(e));
+            if (!gone) setReadErr(errText(e));
           });
       })
       .catch(() => {

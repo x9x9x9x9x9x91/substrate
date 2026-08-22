@@ -4,12 +4,12 @@ import { vaultRead } from "../lib/ipc";
 import { parseChartBlocks } from "../lib/chart";
 import ChartsDashboard from "./ChartsDashboard";
 import { fmtFx, sharpCardIndices } from "../lib/dashboard";
-import { parseCards, type MetricCard } from "../lib/metriccards";
+import { cardsProblem, parseCards, type MetricCard } from "../lib/metriccards";
 import { MetricCardStrip, useCardValues } from "./MetricCards";
 import { usdEurFrom } from "../lib/fx";
 import { useFxRates } from "./useFx";
 import { DashHead, DashPrintButton } from "./DashHead";
-import { DashEmpty } from "./DashNotice";
+import { DashAlert, DashEmpty } from "./DashNotice";
 
 interface MetricsDashboardProps {
   meta: NoteMeta;
@@ -68,8 +68,20 @@ export default function MetricsDashboard({
   const sharp = useMemo(() => sharpOverride ?? sharpCardIndices(cards), [cards, sharpOverride]);
   const cardValue = useCardValues(cards, vaultEpoch, meta.path, rates);
 
+  // an override is a caller handing us cards directly (the ```cards fence),
+  // so the note's own frontmatter is not what is on screen and not what a
+  // sentence here would be about
+  const problem = cardsOverride ? null : cardsProblem(meta.props);
+
   const cardsSurface =
-    cards.length === 0 ? (
+    problem !== null && cards.length === 0 ? (
+      <DashAlert>{problem}</DashAlert>
+    ) : problem !== null ? (
+      <>
+        <DashAlert>{problem}</DashAlert>
+        <MetricCardStrip cards={cards} sharp={sharp} cardValue={cardValue} />
+      </>
+    ) : cards.length === 0 ? (
       <DashEmpty>
         {embed ? (
           <>No cards yet — add cards with a label and a {"{{Sheet.summary}}"} binding.</>

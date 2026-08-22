@@ -144,6 +144,39 @@ export function kindStateCard(id: string, state: KindState): KindCard | null {
   }
 }
 
+/** What the app ignored in a manifest it otherwise accepted, or null when it
+    ignored nothing.
+
+    A key this build does not read is not a reason to refuse the bundle — a
+    kind written against a later build may carry keys this one has no use for.
+    But the common case is a typo, and a typo'd `style` mounts the kind with
+    no stylesheet and nothing said: the kind renders, wrongly, and the author
+    has only the look of it to go on. So the keys are named where the kind
+    itself renders. */
+export function kindManifestNotice(id: string, manifest: KindManifest): string | null {
+  const keys = manifest.unknownKeys;
+  if (!keys || keys.length === 0) return null;
+  const list = keys.map((k) => `“${k}”`).join(", ");
+  return `${keys.length === 1 ? "A key" : "Keys"} in “${id}”’s kind.json ${
+    keys.length === 1 ? "is" : "are"
+  } not read by this build: ${list}. A misspelled key is ignored in full — the kind still runs, without whatever it was meant to set.`;
+}
+
+/** A vault bundle whose folder is named after a dashboard kind the app renders
+    itself, or null when there is no collision.
+
+    The built-in wins the dispatch, and it wins it before the bundle list is
+    even consulted — so the note showed the built-in's own empty state ("No
+    cards yet — add a cards: list…") about a note whose author had just written
+    a whole bundle. Nothing on the pane said the bundle existed, had parsed, or
+    had lost. The settings sheet says it; the pane an author is looking at
+    while debugging did not. */
+export function builtInShadowNotice(kind: string, bundles: readonly KindBundleInfo[]): string | null {
+  const hit = bundles.find((b) => b.id.toLowerCase() === kind.toLowerCase());
+  if (!hit) return null;
+  return `“${kind}” is a dashboard kind this app renders itself, so the bundle in the vault’s kinds folder is not being used. Rename that folder to something the app doesn’t already claim.`;
+}
+
 /** The card for a kind that resolved fine and then failed to run. `file` is
     the entry (or the stylesheet) the failure came from, so the message points
     at a file the user can open. */

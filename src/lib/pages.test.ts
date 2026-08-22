@@ -2,10 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parsePages } from "./pages.ts";
 
-test("no pages prop / not a list → no tabs", () => {
+test("no pages prop → no tabs", () => {
   assert.deepEqual(parsePages({}), []);
-  assert.deepEqual(parsePages({ pages: "Statements" }), []);
-  assert.deepEqual(parsePages({ pages: 3 }), []);
 });
 
 test("note, view, saved entries parse with labels", () => {
@@ -103,4 +101,20 @@ test("a cased Pages: key still makes tabs (SUB-921)", () => {
   const pages = parsePages({ Pages: [{ label: "S", note: "Sheet" }] });
   assert.equal(pages.length, 1);
   assert.deepEqual(pages[0], { kind: "note", label: "S", note: "Sheet" });
+});
+
+test("a pages: that isn't a list says so instead of vanishing", () => {
+  const pages = parsePages({ pages: "Statements" });
+  assert.equal(pages.length, 1);
+  assert.equal(pages[0].kind, "error");
+  assert.match((pages[0] as { error: string }).error, /pages: is not a list/);
+
+  // a scalar of any type is the same mistake, said the same way
+  const num = parsePages({ pages: 3 });
+  assert.equal(num.length, 1);
+  assert.equal(num[0].kind, "error");
+
+  // no pages: key at all is not a mistake — it is the ordinary dashboard
+  assert.deepEqual(parsePages({ title: "X" }), []);
+  assert.deepEqual(parsePages({ pages: null }), []);
 });

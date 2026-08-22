@@ -83,7 +83,7 @@ test("parseBuiltInKinds throws rather than skipping what it cannot read", () => 
 /* ── the dispatch chain ─────────────────────────────────────────────────── */
 
 const PANE_SRC = `
-function DashboardBody(props: DashboardPaneProps) {
+function builtInDashboard(props: DashboardPaneProps) {
   const kind = propStr(props.meta.props, "dashboard");
   if (kind === "metrics") return <MetricsDashboard {...props} />;
   // ${STRIP_START}

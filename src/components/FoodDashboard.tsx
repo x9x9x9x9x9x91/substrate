@@ -28,6 +28,7 @@ import { DashHead } from "./DashHead";
 import SwitchGroup from "./SwitchGroup";
 import { useDashUndo, type DashUndoStore } from "./useDashUndo";
 import { DashAlert, DashEmpty } from "./DashNotice";
+import { errText } from "../lib/errtext";
 
 interface FoodDashboardProps {
   meta: NoteMeta;
@@ -173,7 +174,7 @@ export default function FoodDashboard({
             setWriteErr(null);
           })
           .catch((e) => {
-            if (!gone) setWriteErr(String(e));
+            if (!gone) setWriteErr(errText(e));
           });
       })
       .catch(() => {
@@ -205,7 +206,7 @@ export default function FoodDashboard({
             setDbBody(c.body);
           })
           .catch((e) => {
-            if (!gone) setWriteErr(String(e));
+            if (!gone) setWriteErr(errText(e));
           });
       })
       .catch(() => {
@@ -268,7 +269,7 @@ export default function FoodDashboard({
     vaultWriteBody(logPath, next, expected)
       .then(() => onMutated())
       .catch((e) => {
-        setWriteErr(String(e));
+        setWriteErr(errText(e));
         onMutated(); // reload disk truth, dropping the optimistic body
       });
   };
@@ -281,7 +282,7 @@ export default function FoodDashboard({
     vaultWriteBody(dbPath, next, expected)
       .then(() => onMutated())
       .catch((e) => {
-        setWriteErr(String(e));
+        setWriteErr(errText(e));
         onMutated();
       });
   };

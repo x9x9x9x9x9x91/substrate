@@ -30,6 +30,7 @@ import { ChevronLeftIcon, ChevronRightIcon, RepeatIcon } from "./Icons";
 import { DashHead, DashPrintButton } from "./DashHead";
 import { useTodayIso } from "./useTodayIso";
 import { DashAlert, DashEmpty } from "./DashNotice";
+import { errText } from "../lib/errtext";
 
 interface CalendarFenceDashboardProps {
   meta: NoteMeta;
@@ -286,7 +287,7 @@ export default function CalendarFenceDashboard({
             }
           }
         } catch (e) {
-          models.set(name.toLowerCase(), ferr(String(e)));
+          models.set(name.toLowerCase(), ferr(errText(e)));
         }
       }
       if (gone) return;

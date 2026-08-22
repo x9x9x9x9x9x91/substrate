@@ -4,9 +4,9 @@ import { parseChartBlocks } from "../lib/chart";
 import { dashboardProp, resolveDashboardKind, resolveDispatchTail } from "../lib/kinds";
 import { parseHeatmapBlocks } from "../lib/heatmap";
 import { parseCalendarBlocks } from "../lib/calendarfence";
-import { resolveKindPane } from "../lib/kindpane";
+import { builtInShadowNotice, resolveKindPane } from "../lib/kindpane";
 import { useKindBundles } from "../hooks/useKindBundles";
-import { DashHead } from "./DashHead";
+import { DashHead, DashNoticeProvider } from "./DashHead";
 import CustomKindPane from "./CustomKindPane";
 import MetricsDashboard from "./MetricsDashboard";
 import ChartsDashboard from "./ChartsDashboard";
@@ -154,7 +154,13 @@ function DashboardBody(props: DashboardPaneProps) {
   const resolved = resolveDashboardKind(named);
   // only a name the app doesn't render itself can be a vault-resident bundle
   const custom = resolved.dispatch === "unknown";
-  const bundles = useKindBundles(custom, props.vaultEpoch);
+  /* Asked for unconditionally, not only for a name the app doesn't render.
+     A built-in shadows a same-named bundle outright, and the pane could not
+     say so while it never learned the bundle was there. The list is one
+     round trip per vault epoch shared by every pane on screen, and a built-in
+     never waits on it: it renders at once and the notice joins it when the
+     answer lands. */
+  const bundles = useKindBundles(true, props.vaultEpoch);
 
   // no `dashboard:` prop at all — the legacy body scan
   if (resolved.dispatch === "body-scan") return <ChartOrYield {...props} />;
@@ -201,6 +207,17 @@ function DashboardBody(props: DashboardPaneProps) {
     );
   }
   const kind = resolved.kind;
+  return (
+    <DashNoticeProvider notice={bundles ? builtInShadowNotice(kind, bundles) : null}>
+      {builtInDashboard(kind, props)}
+    </DashNoticeProvider>
+  );
+}
+
+/** The built-in dispatch chain. A plain function, not a component: the fifteen
+    panes below keep the identity they had when this chain was inline, so
+    wrapping them in the notice provider costs no remount. */
+function builtInDashboard(kind: string, props: DashboardPaneProps) {
   if (kind === "metrics") return <MetricsDashboard {...props} />;
   if (kind === "yield-apr") return <YieldDashboard {...props} />;
   if (kind === "sync") return <SyncDashboard {...props} />;

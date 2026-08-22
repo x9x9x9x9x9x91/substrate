@@ -31,6 +31,8 @@ import {
   moveSheetColumn,
   moveSheetRow,
   parseSheet,
+  raggedNote,
+  raggedShort,
   selectionStats,
   setSheetCell,
   sheetColumnFormats,
@@ -185,6 +187,7 @@ export default function SheetGrid({
   const fx = useMemo(() => usdEurFrom(rates), [rates]);
 
   const model = useMemo(() => parseSheet(body), [body]);
+  const raggedText = useMemo(() => raggedNote(model), [model]);
 
   // Sheets referenced by this sheet's formulas (lowercased names, sorted for
   // a stable key) — loaded by title/stem, then handed to the evaluator.
@@ -1086,6 +1089,15 @@ export default function SheetGrid({
       {model.errors.length > 0 && (
         <span className="sheet-parse-err" title={model.errors.join("\n")}>
           {model.errors.length} formula {model.errors.length === 1 ? "error" : "errors"}
+        </span>
+      )}
+      {/* its own chip rather than a count folded into the one above: a row
+          that disagrees with the header is not a formula error, and the
+          sentence a reader needs ("row 2 has 3 cells") is not one the
+          formula chip could carry without lying about what it counts */}
+      {raggedText && (
+        <span className="sheet-parse-err" title={raggedText}>
+          {raggedShort(model.ragged.length)}
         </span>
       )}
       <span className="sheet-flex" />

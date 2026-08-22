@@ -7,7 +7,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { errText, midSentence } from "./errtext.ts";
+import { errText, midSentence, thrownText } from "./errtext.ts";
 
 test("an Error is its message, without the class name", () => {
   assert.equal(errText(new Error("no note named “Nowhere”")), "no note named “Nowhere”");
@@ -33,4 +33,18 @@ test("a message keeps room for the sentence's own full stop", () => {
   assert.equal(midSentence("it broke"), "it broke");
   // only the end of the text is touched — mid-sentence stops stay
   assert.equal(midSentence("read e.g. this one."), "read e.g. this one");
+});
+
+test("a throw that carried no message says what it was instead", () => {
+  // `throw null` in a dashboard kind printed a card whose body was "null"
+  assert.equal(thrownText(null), "it threw null, not an error");
+  assert.equal(thrownText(undefined), "it threw undefined, not an error");
+  assert.equal(thrownText({}), "it threw an object carrying no message, not an error");
+  assert.equal(thrownText(42), "it threw the number 42, not an error");
+  assert.equal(thrownText("  "), "it threw an empty string, not an error");
+});
+
+test("a throw that did carry a message is left to say it", () => {
+  assert.equal(thrownText(new Error("vault is locked")), "vault is locked");
+  assert.equal(thrownText("vault is locked"), "vault is locked");
 });

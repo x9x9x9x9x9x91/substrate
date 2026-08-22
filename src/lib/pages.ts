@@ -74,12 +74,26 @@ function pageViewSpec(
   return parseViewSpec(lines.join("\n"));
 }
 
-/** Parse the `pages:` prop into page entries. Not-a-list (or an empty list)
-    means no tabs — the dashboard renders exactly as before. */
+/** Parse the `pages:` prop into page entries. An absent `pages:` means no
+    tabs — the dashboard renders exactly as before. A `pages:` that is PRESENT
+    but is not a list used to mean the same thing, so a note carrying
+    `pages: Statements` rendered as though it had never asked for pages at all,
+    with nothing anywhere to say the line had been read and discarded. That
+    one becomes an error page, which is what a malformed entry inside the list
+    already becomes. */
 export function parsePages(props: Record<string, unknown>): PageEntry[] {
   // config keys fold like every prop read — cased YAML still counts
   const raw = byFoldedKey(props, "pages");
-  if (!Array.isArray(raw)) return [];
+  if (!Array.isArray(raw)) {
+    if (raw === undefined || raw === null) return [];
+    return [
+      {
+        kind: "error",
+        label: "Pages",
+        error: `pages: is not a list — write each page as a "- label:" entry`,
+      },
+    ];
+  }
   const out: PageEntry[] = [];
   for (const [i, p] of raw.entries()) {
     if (typeof p !== "object" || p === null) {

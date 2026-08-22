@@ -14,6 +14,7 @@ import {
 } from "../lib/codingScan";
 import { useNumberLocale } from "../hooks/useNumberLocale";
 import { DashHead } from "./DashHead";
+import { errText } from "../lib/errtext";
 
 interface CodingDashboardProps {
   meta: NoteMeta;
@@ -114,7 +115,7 @@ export default function CodingDashboard({ meta, vaultEpoch, onOpenSource }: Codi
           setErr(null);
         }
       })
-      .catch((e) => !gone && setErr(String(e)));
+      .catch((e) => !gone && setErr(errText(e)));
     const timer = window.setInterval(() => setTick((t) => t + 1), 60_000);
     return () => {
       gone = true;
@@ -129,7 +130,7 @@ export default function CodingDashboard({ meta, vaultEpoch, onOpenSource }: Codi
         setScan(s);
         setErr(null);
       })
-      .catch((e) => setErr(String(e)))
+      .catch((e) => setErr(errText(e)))
       .finally(() => setBusy(false));
   };
 

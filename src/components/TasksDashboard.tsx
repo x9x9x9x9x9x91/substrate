@@ -27,6 +27,7 @@ import { ChevronRightIcon, PinIcon } from "./Icons";
 import { DashHead } from "./DashHead";
 import SwitchGroup from "./SwitchGroup";
 import { DashEmpty } from "./DashNotice";
+import { errText } from "../lib/errtext";
 
 interface TasksDashboardProps {
   meta: NoteMeta;
@@ -294,7 +295,7 @@ export default function TasksDashboard({
   const reportFailure = (err: unknown) => {
     // the write may have landed before the failure; reload disk truth
     onMutated();
-    onToast?.(`couldn’t save — ${err instanceof Error ? err.message : String(err)}`);
+    onToast?.(`couldn’t save — ${errText(err)}`);
   };
 
   /** One prop write, undoable, with the toast's Undo pointing at the very
@@ -448,7 +449,7 @@ export default function TasksDashboard({
         onMutated();
       })
       .catch((err) =>
-        onToast?.(`couldn’t add — ${err instanceof Error ? err.message : String(err)}`)
+        onToast?.(`couldn’t add — ${errText(err)}`)
       )
       .finally(() => setAdding(false));
   };

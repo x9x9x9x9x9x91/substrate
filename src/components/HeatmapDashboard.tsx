@@ -33,6 +33,7 @@ import { DashHead, DashPrintButton } from "./DashHead";
 import { dashboardSheets, type DashboardSheetState } from "../lib/dashboardSheets";
 import { useFxRates } from "./useFx";
 import { DashAlert, DashEmpty } from "./DashNotice";
+import { errText } from "../lib/errtext";
 
 interface HeatmapDashboardProps {
   meta: NoteMeta;
@@ -321,7 +322,7 @@ export default function HeatmapDashboard({
       // error instead of leaving every grid loading forever
       .catch((error) => {
         if (gone) return;
-        const msg = error instanceof Error ? error.message : String(error);
+        const msg = errText(error);
         setSheets(
           new Map(sheetNames.map((n) => [n.toLowerCase(), { error: `sheet load failed: ${msg}` }])),
         );

@@ -14,6 +14,7 @@ import { ageMs, ago, findingSentence, fmtAge } from "../lib/syncstory";
 import { DANGER, OK, RUNNING, WARN } from "../lib/tokens";
 import { DashHead } from "./DashHead";
 import { dateLocale } from "../lib/dateLocale";
+import { errText } from "../lib/errtext";
 
 interface SyncDashboardProps {
   meta: NoteMeta;
@@ -361,7 +362,7 @@ export default function SyncDashboard({ meta, vaultEpoch, onOpenSource }: SyncDa
       setRuns((rs) => [entry, ...rs.filter((x) => x.id !== entry.id)]);
       kickRef.current();
     })
-      .catch((e) => setActionErr(String(e)))
+      .catch((e) => setActionErr(errText(e)))
       .finally(() => {
         if (busyKey)
           setJobBusy((s) => {
@@ -387,7 +388,7 @@ export default function SyncDashboard({ meta, vaultEpoch, onOpenSource }: SyncDa
         setSleep(state);
         setActionErr(null);
       })
-      .catch((e) => setActionErr(String(e)))
+      .catch((e) => setActionErr(errText(e)))
       .finally(() => setSleepBusy(false));
   };
 

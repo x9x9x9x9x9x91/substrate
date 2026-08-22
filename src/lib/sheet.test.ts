@@ -24,6 +24,8 @@ import {
   formatValue,
   parseCsv,
   parseSheet,
+  raggedNote,
+  raggedShort,
   serializeCsv,
   setSheetCell,
   sheetColumnFormats,
@@ -2073,5 +2075,51 @@ describe("SUB-832 — AT(date, Sheet.member) re-evaluates the historical sheet",
     assert.deepEqual(sheetHistorySheetDates(m, today), []);
     const v = findSummary(run(m, []), "x");
     assert.ok(isErr(v));
+  });
+});
+
+describe("ragged rows", () => {
+  const fence = (csv: string) => "```csv\n" + csv + "\n```\n\n```formulas\ncash_total = SUM(balance_eur)\n```\n";
+
+  test("a row wider or narrower than the header is recorded, not absorbed", () => {
+    const m = parseSheet(
+      fence("account,balance_eur\nNordkasse,14200,extra\nShort\nBrokerhaus,3800")
+    );
+    // every row is still there, still the header's width
+    assert.equal(m.rows.length, 3);
+    assert.deepEqual(m.rows[1], ["Short", ""]);
+    assert.deepEqual(m.ragged, [
+      { row: 1, cells: 3 },
+      { row: 2, cells: 1 },
+    ]);
+  });
+
+  test("the note names the rows and the width they disagree with", () => {
+    const m = parseSheet(fence("account,balance_eur\nNordkasse,14200,extra\nShort"));
+    const note = raggedNote(m);
+    assert.match(note ?? "", /2 rows disagree with the header/);
+    assert.match(note ?? "", /row 1 has 3, row 2 has 1/);
+    assert.match(note ?? "", /the header has 2 cells/);
+    assert.equal(raggedShort(2), "2 ragged rows");
+    assert.equal(raggedShort(1), "1 ragged row");
+  });
+
+  test("a well-formed sheet has nothing to say", () => {
+    const m = parseSheet(fence("account,balance_eur\nNordkasse,14200\nBrokerhaus,3800"));
+    assert.deepEqual(m.ragged, []);
+    assert.equal(raggedNote(m), null);
+  });
+
+  test("a trailing blank line is not a ragged row", () => {
+    const m = parseSheet(fence("account,balance_eur\nNordkasse,14200\n"));
+    assert.deepEqual(m.ragged, []);
+  });
+
+  test("past four rows the list stops and the count carries the rest", () => {
+    const rows = ["a,b"].concat(Array.from({ length: 6 }, (_, i) => `r${i}`));
+    const m = parseSheet(fence(rows.join("\n")));
+    const note = raggedNote(m) ?? "";
+    assert.match(note, /6 rows disagree/);
+    assert.match(note, /and 2 more/);
   });
 });

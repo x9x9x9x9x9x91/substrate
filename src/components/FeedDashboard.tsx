@@ -27,6 +27,7 @@ import type { FeedItem } from "../lib/feed";
 import { dayLabel } from "../lib/food";
 import { DashHead } from "./DashHead";
 import { DashAlert, DashEmpty } from "./DashNotice";
+import { errText } from "../lib/errtext";
 
 interface FeedDashboardProps {
   meta: NoteMeta;
@@ -123,7 +124,7 @@ export default function FeedDashboard({
             setWriteErr(null);
           })
           .catch((e) => {
-            if (!gone) setWriteErr(String(e));
+            if (!gone) setWriteErr(errText(e));
           });
       })
       .catch(() => {
@@ -244,7 +245,7 @@ export default function FeedDashboard({
         setCurator(r);
         kickPoll.current();
       })
-      .catch((e) => setDispatchErr(String(e)))
+      .catch((e) => setDispatchErr(errText(e)))
       .finally(() => {
         dispatching.current = false;
       });
@@ -256,7 +257,7 @@ export default function FeedDashboard({
   const [approving, setApproving] = useState(false);
   const refreshFeed = () => {
     if (curating && curator !== null) {
-      curatorCancel(curator.id).catch((e) => setDispatchErr(String(e)));
+      curatorCancel(curator.id).catch((e) => setDispatchErr(errText(e)));
       return;
     }
     const cmd = curatorCmd ?? "";
@@ -313,7 +314,7 @@ export default function FeedDashboard({
         setCuratorCmd(cmd);
         onMutated();
       })
-      .catch((e) => setSaveErr(String(e)));
+      .catch((e) => setSaveErr(errText(e)));
   };
 
   // optimistic write, guarded: the items sheet isn't the note on
@@ -329,7 +330,7 @@ export default function FeedDashboard({
     vaultWriteBody(itemsPath, next, expected)
       .then(() => onMutated())
       .catch((e) => {
-        setWriteErr(String(e));
+        setWriteErr(errText(e));
         onMutated(); // reload disk truth, dropping the optimistic body
       });
   };
