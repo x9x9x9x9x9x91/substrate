@@ -3,6 +3,51 @@
 <!-- Generated from src/lib/changelog.ts by scripts/gen-changelog.ts.
      Edit that file, then run `node scripts/gen-changelog.ts`. -->
 
+## 0.26.0 — 2026-08-22 — Dashboards find one voice, and the app explains itself
+
+### Highlights
+
+- Every dashboard speaks one voice: the whole board family got a design pass — one error
+  banner, one empty-state dialect, one rhythm on screen and on paper, with page breaks
+  that respect charts and hubs that reflow for print. Custom kinds run contained, and
+  kind authors get a real contract: drop the shipped kind-api.d.ts next to your bundle
+  and your editor knows every ctx member. And the docs finally say it plainly: the app
+  is dark-only.
+- The app teaches what it needs, where you are: the sub-item switch stays visible
+  wherever it could apply and says why it's off, naming the relation it needs; /heatmap
+  scaffolds explain their own keys and an unfinished fence gets a calm what-goes-here
+  card instead of a parse error; a bare dashboard note asks what kind it should be
+  instead of silently becoming the yield tracker.
+
+### Improved
+
+- A calendar week's worth of feel: multi-day drags can't strand an event anymore,
+  drag-over paints a quiet outline instead of a blue slab, ranges take an end hour in
+  the peek, ⌘⌫ deletes the selected event, the Upcoming panel resizes and can live in
+  the right rail, and the shortcut HUD folds its runs of digit keys into one tidy cap.
+- Settings grew tabs — the one long page is now organized into surfaces you can actually
+  find things on.
+- Table Name cells behave like cells: one click renames in place, double-click or Enter
+  opens the note — and errors across the app dropped their "Error:" stutter and speak
+  the shared banner, with sync failures announced to screen readers the moment they
+  arrive.
+- A history rewrite (sealing a note) that pauses hosted sync now says so immediately
+  instead of surfacing minutes later — and the pause reads as something to act on, not a
+  permanent red.
+
+### Fixed
+
+- Sheets keep their shape: a totals row caps at three summaries per column (the rest
+  fold into the footer chips), an oversized row lets go of its pin instead of covering
+  the data, and the column names stay legible above it all. Ragged CSV rows are named
+  instead of silently absorbed.
+- A fence the parser rejects but that is properly closed draws its error in place
+  instead of a silent blank board.
+- A busy vault no longer saturates the file watcher — settle pushes fire when your edits
+  settle again, not at the ten-minute fallback.
+- The shelf's dates and Recall's counts read the vault's own dials: both now follow your
+  date and number settings, not the machine's locale.
+
 ## 0.25.0 — 2026-08-21 — Search includes the past, and the vault syncs itself
 
 ### Highlights

@@ -5,7 +5,7 @@ it: nothing in `src/` or `src-tauri/` generates or resolves the `id:` line
 this spec describes. The design still stands; its evidence has aged.
 
 Every current-behavior claim below was cited to `file:line` against `main`
-at **0.15.0**. The tree is now at **0.25.0**, ten releases on, and those line
+at **0.15.0**. The tree is now at **0.26.0**, eleven releases on, and those line
 numbers are dead — `src-tauri/src/vault/mod.rs` alone has grown past 7000
 lines since, so an anchor like `vault/mod.rs:2083` now lands on an unrelated
 closing brace. **Read every `file:line` below as a symbol hint, not a
