@@ -14,6 +14,7 @@ import { setPropUndoable } from "../lib/undoprops";
 import { useUndo } from "../lib/undoContext";
 import { SETTINGS_PATH } from "../lib/settings";
 import { BackButton } from "./BackButton";
+import { DashAlert } from "./DashNotice";
 import { errText } from "../lib/errtext";
 
 type SyncAction = "push" | "pull";
@@ -380,9 +381,9 @@ export default function VaultSyncPane({
               {checking ? (
                 <span className="vault-sync-muted">Checking sync configuration…</span>
               ) : visibleStatusError ? (
-                <div className="vault-sync-error" role="alert">
-                  {visibleStatusError}
-                </div>
+                // the estate's one error banner, not a red line of its own:
+                // a sync that failed says it the way a board that failed does
+                <DashAlert live>{visibleStatusError}</DashAlert>
               ) : !configured ? (
                 <div>
                   <div className="vault-sync-status-title">No remote configured</div>

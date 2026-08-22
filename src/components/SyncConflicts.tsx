@@ -6,6 +6,7 @@ import {
   vaultSyncResolveFinish,
   vaultSyncResolveSet,
 } from "../lib/ipc";
+import { DashAlert } from "./DashNotice";
 import { errText } from "../lib/errtext";
 
 const CHOICES: { id: ConflictChoice; label: string }[] = [
@@ -153,9 +154,7 @@ export default function SyncConflicts({ onResolved }: { onResolved: (report: Syn
   if (!state?.active) {
     return error ? (
       <section className="vault-sync-card sync-conflict">
-        <div className="vault-sync-error" role="alert">
-          {error}
-        </div>
+        <DashAlert live>{error}</DashAlert>
       </section>
     ) : null;
   }
@@ -177,11 +176,7 @@ export default function SyncConflicts({ onResolved }: { onResolved: (report: Syn
         </span>
       </div>
 
-      {error && (
-        <div className="vault-sync-error" role="alert">
-          {error}
-        </div>
-      )}
+      {error && <DashAlert live>{error}</DashAlert>}
 
       <ul className="sync-conflict-list">
         {state.files.map((file) => (

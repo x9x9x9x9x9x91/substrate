@@ -175,7 +175,7 @@ test("a refused choice keeps the backend's message on screen", async ({ page }) 
     window.__mockFail = new Set(["vault_sync_resolve_set"]);
   });
   await journal.getByRole("button", { name: "Keep mine" }).click();
-  const alert = page.locator(".sync-conflict .vault-sync-error");
+  const alert = page.locator(".sync-conflict .dash-alert");
   await expect(alert).toContainText("mock failure: vault_sync_resolve_set");
   await expect(page.locator(".sync-conflict-progress")).toHaveText("0 of 2 resolved");
 
@@ -204,7 +204,7 @@ test("a failed conflict read reports itself instead of rendering nothing", async
   });
   await page.getByRole("button", { name: "Pull", exact: true }).click();
 
-  await expect(page.locator(".sync-conflict .vault-sync-error")).toContainText(
+  await expect(page.locator(".sync-conflict .dash-alert")).toContainText(
     "mock failure: vault_sync_conflicts",
   );
 });

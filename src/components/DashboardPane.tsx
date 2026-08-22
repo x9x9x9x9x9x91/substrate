@@ -77,16 +77,20 @@ function ChartsByKind(props: DashboardPaneProps) {
   const body = useNoteBody(props.meta.path, props.vaultEpoch, props.meta.sealed);
   // only a cold read reaches here now — a remount paints from the seed
   if (body === null) return <div className="note" />;
-  return <ChartsDashboard {...props} body={body} after={heatmapAfter(props, body)} />;
+  return <ChartsDashboard {...props} body={body} {...heatmapAfter(props, body)} />;
 }
 
 /** The heatmap half of a charts-leading dashboard: the same `after` slot both
     the keyed (`dashboard: charts`) and keyless paths hand ChartsDashboard, so
-    one body reads the same either way. */
+    one body reads the same either way. The count rides along so the charts
+    head can name the heatmaps it is hosting rather than the charts it hasn't
+    got. */
 function heatmapAfter(props: DashboardPaneProps, body: string) {
-  return parseHeatmapBlocks(body).length > 0 ? (
-    <HeatmapDashboard {...props} body={body} embed />
-  ) : undefined;
+  const heatmaps = parseHeatmapBlocks(body).length;
+  return {
+    after: heatmaps > 0 ? <HeatmapDashboard {...props} body={body} embed /> : undefined,
+    afterHeatmaps: heatmaps,
+  };
 }
 
 /** The card every board that cannot render itself shows: the head it would
@@ -160,7 +164,7 @@ function BodyScanDashboard(props: DashboardPaneProps) {
   if (body === null) return <div className="note" />;
   const heat = parseHeatmapBlocks(body).length > 0;
   if (parseChartBlocks(body).length > 0)
-    return <ChartsDashboard {...props} body={body} after={heatmapAfter(props, body)} />;
+    return <ChartsDashboard {...props} body={body} {...heatmapAfter(props, body)} />;
   if (heat) return <HeatmapDashboard {...props} body={body} />;
   if (parseCalendarBlocks(body).length > 0)
     return <CalendarFenceDashboard {...props} body={body} />;

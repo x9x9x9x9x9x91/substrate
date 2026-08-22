@@ -133,7 +133,18 @@ export function slashCommands(): SlashCommand[] {
     fenceCommand("csv", "sheet data rows", [""]),
     fenceCommand("formulas", "sheet formulas", [""]),
     fenceCommand("cards", "stat-card row", ["- label: ", "  bind: "]),
-    fenceCommand("heatmap", "year-of-days grid", ["source: ", "date: ", "value: count"]),
+    // the one fence whose scaffold also says what its keys take: `#` comment
+    // lines the parser already skips, under the keys so the cursor still lands
+    // on the first value. An untouched scaffold renders the fence's own
+    // "not filled in yet" state, so the two teach the same thing in two places
+    fenceCommand("heatmap", "year-of-days grid", [
+      "source: ",
+      "date: ",
+      "value: count",
+      "# source: a database type, or {{Sheet Name}} for a sheet",
+      "# date: the date property the squares sit on",
+      "# value: count, or sum:<number prop>",
+    ]),
     fenceCommand("calendar", "month grid", ["source: ", "date: "]),
     fenceCommand("progress", "goal thermometer", ["label: ", "value: ", "target: "]),
     fenceCommand("timeline", "date-axis lanes", ["source: ", "start: ", "label: "]),

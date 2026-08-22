@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { collapsedLabel, countLabel, dayLabel, lifespan, sizeLabel } from "./recall.ts";
 import { setDateLocale } from "./dateLocale.ts";
+import { DEFAULT_NUMBER_LOCALE, setNumberLocale } from "./numberLocale.ts";
 import type { RecallGroup } from "./types.ts";
 
 // the labels read the date dial, so the English assertions below name a
@@ -75,7 +76,12 @@ test("index size reads in the unit that fits it", () => {
 test("counts pluralize on the number they carry", () => {
   assert.equal(countLabel(1, "past version", "past versions"), "1 past version");
   assert.equal(countLabel(0, "past version", "past versions"), "0 past versions");
-  assert.equal(countLabel(4416, "snapshot", "snapshots"), `${(4416).toLocaleString()} snapshots`);
+  // the vault's number dial, not the machine's country
+  setNumberLocale("de-DE");
+  assert.equal(countLabel(4416, "snapshot", "snapshots"), "4.416 snapshots");
+  setNumberLocale("en-US");
+  assert.equal(countLabel(4416, "snapshot", "snapshots"), "4,416 snapshots");
+  setNumberLocale(DEFAULT_NUMBER_LOCALE);
 });
 
 test("the lifespan clause is written in the vault's date dialect", () => {

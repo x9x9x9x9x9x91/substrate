@@ -4,6 +4,7 @@ import {
   heatmapDbRows,
   heatmapGrid,
   heatmapLevel,
+  heatmapNeedsMessage,
   heatmapSourceDesc,
   heatmapTitle,
   heatmapYears,
@@ -11,6 +12,7 @@ import {
   parseHeatmapConfig,
   pickHeatmapYear,
   tallyHeatmap,
+  HeatmapUnfinished,
   type HeatmapConfig,
 } from "./heatmap.ts";
 import { sheetRows, type ChartRow } from "./chart.ts";
@@ -79,10 +81,9 @@ test("blank lines and # comments are skipped", () => {
 
 test("every malformed config is named", () => {
   const cases: [string, RegExp][] = [
-    ["date: logged\nvalue: count", /missing required key "source"/],
-    ["source: session\nvalue: count", /missing required key "date"/],
-    ["source: session\ndate: logged", /missing required key "value"/],
     ["source: session\ndate: logged\nvalue: count\nkind: bar", /unknown key "kind"/],
+    // a blank key still has to be a key a heatmap takes
+    ["source: session\ndate: logged\nvalue: count\nkind:", /unknown key "kind"/],
     ["source: session\ndate: logged\nvalue: count\ndate: other", /duplicate key "date"/],
     ["source: session\ndate: logged\nvalue: count\nnonsense", /can't parse line: nonsense/],
     ["source: session\ndate: logged\nvalue: avg:minutes", /value must be count or sum:<prop>/],
@@ -90,12 +91,52 @@ test("every malformed config is named", () => {
     ["source: session\ndate: logged\nvalue: sum", /value must be count or sum:<prop>/],
     ["source: session\ndate: logged\nvalue: sum:", /value must be count or sum:<prop> — got "sum:"/],
     ["source: session\ndate: logged\nvalue: sum:   ", /value must be count or sum:<prop>/],
-    ["source: session\nvalue: count\ndate:", /can't parse line: date:/],
-    ["source:\ndate: d\nvalue: count", /can't parse line: source:/],
+    ["source: session\ndate: logged\nvalue: count\n: nokey", /can't parse line: : nokey/],
   ];
   for (const [inner, re] of cases) {
     assert.throws(() => parseHeatmapConfig(inner), re, inner);
   }
+});
+
+/** the keys a body is still waiting on, or null when it parsed */
+function needsOf(inner: string): string[] | null {
+  try {
+    parseHeatmapConfig(inner);
+    return null;
+  } catch (e) {
+    if (e instanceof HeatmapUnfinished) return e.needs;
+    throw e;
+  }
+}
+
+test("a fence still being written is unfinished, not malformed", () => {
+  // exactly what /heatmap inserts: the required keys, none of them answered.
+  // This used to read "can't parse line: source:" over the user's own scaffold
+  assert.deepEqual(needsOf("source: \ndate: \nvalue: count"), ["source", "date"]);
+  // …and the same for keys not written at all, and for an empty fence body
+  const cases: [string, string[]][] = [
+    ["date: logged\nvalue: count", ["source"]],
+    ["source: session\nvalue: count", ["date"]],
+    ["source: session\ndate: logged", ["value"]],
+    ["source: session\nvalue: count\ndate:", ["date"]],
+    ["", ["source", "date", "value"]],
+    ["# source: a database type\n# date: the date property", ["source", "date", "value"]],
+  ];
+  for (const [inner, needs] of cases) assert.deepEqual(needsOf(inner), needs, inner);
+});
+
+test("the unfinished sentence says what each blank key takes", () => {
+  const msg = heatmapNeedsMessage(["source", "date"]);
+  assert.match(msg, /not filled in yet/);
+  assert.match(msg, /source: a database type, or \{\{Sheet Name\}\} for a sheet/);
+  assert.match(msg, /the date property the squares sit on/);
+  // only the blank keys are described — a filled `value:` is not re-explained
+  assert.doesNotMatch(msg, /sum:<number prop>/);
+  assert.match(heatmapNeedsMessage(["value"]), /count, or sum:<number prop>/);
+});
+
+test("a blank optional key reads as absent, not as a broken line", () => {
+  assert.equal(cfg("source: session\ndate: logged\nvalue: count\nquery:").query, null);
 });
 
 test("an unknown key names the keys a heatmap does take", () => {
@@ -135,6 +176,21 @@ test("parseHeatmapBlocks returns one block per fence, in order", () => {
   assert.equal(blocks[0].config?.date, "logged");
   assert.equal(blocks[1].config, null);
   assert.match(blocks[1].error ?? "", /value must be count or sum:<prop>/);
+});
+
+test("the scaffold fence renders as unfinished, and its siblings still draw", () => {
+  const body =
+    "```heatmap\nsource: \ndate: \nvalue: count\n```\n" +
+    "```heatmap\nsource: s\ndate: d\nvalue: count\n```";
+  const blocks = parseHeatmapBlocks(body);
+  assert.equal(blocks.length, 2);
+  assert.equal(blocks[0].error, null);
+  assert.equal(blocks[0].config, null);
+  assert.deepEqual(blocks[0].needs, ["source", "date"]);
+  // a fence that IS wrong still gets its error, and carries no `needs`
+  assert.equal(blocks[1].needs, null);
+  assert.equal(blocks[1].error, null);
+  assert.equal(parseHeatmapBlocks("```heatmap\nnope\n```")[0].needs, null);
 });
 
 test("a broken fence never throws and never hides its siblings", () => {

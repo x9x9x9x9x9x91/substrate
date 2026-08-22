@@ -65,6 +65,23 @@ test("a failure is the banner, and carries no dot to be mistaken for a state", a
   assert.equal(rendered.all(".dash-empty").length, 0);
 });
 
+test("a failure that arrives announces itself; one painted with the board does not", async (t) => {
+  const { DashAlert } = await notice();
+
+  // a board's banner is met by reading — announcing it would talk over the
+  // reader arriving at the board
+  const painted = await renderComponent(t, createElement(DashAlert, null, "broken fence"));
+  assert.equal(must(painted.one(".dash-alert"), "the banner").getAttribute("role"), null);
+
+  // a sync that failed answers a button pressed a second ago, and the reader
+  // may be nowhere near it
+  const arrived = await renderComponent(
+    t,
+    createElement(DashAlert, { live: true, children: "push rejected" })
+  );
+  assert.equal(must(arrived.one(".dash-alert"), "the live banner").getAttribute("role"), "alert");
+});
+
 test("a tile's failure asks to hold its cell open", async (t) => {
   const { DashAlert } = await notice();
 

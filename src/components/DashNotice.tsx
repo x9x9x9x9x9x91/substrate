@@ -37,16 +37,29 @@ export function DashEmpty({
 
 /** Something failed — a fence that would not parse, a source that is not
     there, a write that did not land. One banner, one colour, wherever it
-    happens: in a page's flow, inside a grid tile, under a chart's own label.
+    happens: in a page's flow, inside a grid tile, under a chart's own label,
+    and on the panes outside the board kinds that speak the same failure.
 
     `fill` is the tile variant: a broken tile has to hold its cell open or the
-    grid row collapses around it and the neighbours reflow. */
+    grid row collapses around it and the neighbours reflow.
+
+    `live` marks the banner as a live region. A board's banner is painted with
+    the board, so a reader meets it by reading; a sync failure ARRIVES in
+    answer to a button that was just pressed, and a screen reader has to be
+    told without being moved. That is the only difference between the two, so
+    it is a flag rather than a second component. */
 export function DashAlert({
   fill = false,
+  live = false,
   children,
 }: {
   fill?: boolean;
+  live?: boolean;
   children: ReactNode;
 }) {
-  return <div className={fill ? "dash-alert is-fill" : "dash-alert"}>{children}</div>;
+  return (
+    <div className={fill ? "dash-alert is-fill" : "dash-alert"} role={live ? "alert" : undefined}>
+      {children}
+    </div>
+  );
 }

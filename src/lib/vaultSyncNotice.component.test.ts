@@ -58,7 +58,7 @@ test("a push that warns about the store filling up shows it without reading as a
   assert.match(r.text(), /Pushed 2/);
   assert.match(r.text(), /Ready/);
   assert.doesNotMatch(r.text(), /Needs attention/);
-  assert.equal(r.one(".vault-sync-error"), null, "the warning was rendered as an error");
+  assert.equal(r.one(".dash-alert"), null, "the warning was rendered as an error");
 });
 
 test("a pull after the warning does not paint it away", async (t) => {

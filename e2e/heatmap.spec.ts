@@ -164,8 +164,9 @@ test("a note carrying charts and heatmaps renders both (SUB-966)", async ({ page
   await openDash(page, CHART_AND_HEATMAP);
 
   // the charts lead and keep the pane head; the heatmaps hang under them, so
-  // neither kind goes unrendered for having been written second
-  await expect(page.locator(".dash-state")).toHaveText("1 chart · 1 sheet");
+  // neither kind goes unrendered for having been written second — and the
+  // head counts both, because the page draws both
+  await expect(page.locator(".dash-state")).toHaveText("1 chart · 1 heatmap · 1 sheet");
   await expect(page.locator(".dash-chart .dash-bar-col")).toHaveCount(3);
   await expect(page.locator(".heatmap-grid")).toHaveCount(1);
   await expect(
