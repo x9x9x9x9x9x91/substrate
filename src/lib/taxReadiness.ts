@@ -11,7 +11,7 @@
 // totals a year is judged on — and what they are called — is the vault's
 // decision, not this module's.
 
-import { isIsoDate } from "./dates.ts";
+import { daysInMonth, isIsoDate } from "./dates.ts";
 import { parseSheet } from "./sheet.ts";
 import { headerIndex, readNoteTable } from "./notetable.ts";
 
@@ -49,13 +49,12 @@ export function snapshotFreshness(
   const second = Number(secondRaw);
   const offsetHour = offsetHourRaw === undefined ? 0 : Number(offsetHourRaw);
   const offsetMinute = offsetMinuteRaw === undefined ? 0 : Number(offsetMinuteRaw);
-  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
-  const daysInMonth = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
   if (
     month < 1 ||
     month > 12 ||
     day < 1 ||
-    day > daysInMonth[month - 1] ||
+    // the month check runs first, so the length lookup only ever sees 1-12
+    day > daysInMonth(year, month) ||
     hour > 23 ||
     minute > 59 ||
     second > 59 ||

@@ -5478,8 +5478,7 @@ prefer (`src-tauri/src/lib.rs`, grouped):
   `vault_delete_type` `vault_rename_prop` `vault_clear_prop` — bulk sweeps;
   take `history_snapshot` immediately before any of them rewrites notes
 - Vault folders: `vault_folders` `vault_create_folder` `vault_rename_folder`
-- Tags: `vault_tags` (the vault's tag universe with counts)
-  `vault_tag_folders_read` `vault_tag_folders_write` (§8b)
+- Tags: `vault_tag_folders_read` `vault_tag_folders_write` (§8b)
   `vault_note_add_tags` (adds tags to a note's `tags:` prop; never moves it)
 - Mounts (§8): `mounts_list` `mount_add` `mount_bind` `mount_rescan`
   `mount_rows` `mount_annotate` `mount_remove` — `mount_annotate`

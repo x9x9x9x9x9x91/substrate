@@ -36,6 +36,7 @@ export default function ShortcutOverlay({
     dashboards: { path: string; title: string }[];
     savedViews: { id: string; name: string }[];
     pinned: { path: string; title: string }[];
+    tagFolders: { id: string; name: string }[];
   };
 }) {
   const [closing, setClosing] = useState(false);

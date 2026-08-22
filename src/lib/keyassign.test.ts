@@ -205,6 +205,9 @@ test("targetView inverts viewKey for every navigable token", () => {
     kind: "folder",
     path: "Projects/Active",
   });
+  // a tag folder row wears a key chip like every other destination row, so
+  // the token it hands back has to resolve to the view that row opens
+  assert.deepEqual(targetView("tagfolder:tf1"), { kind: "tagfolder", id: "tf1" });
 });
 
 test("targetView returns null for App-handled and stale tokens", () => {
@@ -224,6 +227,7 @@ test("targetLabel names rows from live context", () => {
     dashboards: [{ path: "Dashboards/Week.md", title: "Week ahead" }],
     savedViews: [{ id: "sv1", name: "Overdue" }],
     pinned: [{ path: "Inbox/Idea.md", title: "Big idea" }],
+    tagFolders: [{ id: "tf1", name: "Reading" }],
   };
   assert.equal(targetLabel("dash:Dashboards/Week.md", ctx), "Week ahead");
   assert.equal(targetLabel("sv:sv1", ctx), "Overdue");
@@ -233,6 +237,7 @@ test("targetLabel names rows from live context", () => {
   assert.equal(targetLabel("dbmanager", ctx), "All databases");
   assert.equal(targetLabel("folder:Projects/Active", ctx), "Active");
   assert.equal(targetLabel("db:task", ctx), "Task");
+  assert.equal(targetLabel("tagfolder:tf1", ctx), "Reading");
 });
 
 test("targetLabel falls back to the token tail when context misses", () => {
@@ -240,6 +245,7 @@ test("targetLabel falls back to the token tail when context misses", () => {
   assert.equal(targetLabel("note:Inbox/Idea.md"), "Idea");
   assert.equal(targetLabel("sv:sv1"), "sv1");
   assert.equal(targetLabel("folder:Gone"), "Gone");
+  assert.equal(targetLabel("tagfolder:tf-gone"), "tf-gone");
   assert.equal(targetLabel("nonsense"), "nonsense");
 });
 

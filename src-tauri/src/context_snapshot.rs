@@ -287,7 +287,10 @@ mod sys {
 
     #[link(name = "CoreFoundation", kind = "framework")]
     extern "C" {
-        fn CFRelease(cf: *mut c_void);
+        // `CFTypeRef` is `const void *`, and the OCR module declares this same
+        // symbol the same way. Two declarations of one extern function that
+        // disagree about their argument warn on every build, so they match.
+        fn CFRelease(cf: *const c_void);
     }
 
     /// `kAXFocusedWindowAttribute` / `kAXDocumentAttribute` /

@@ -11,12 +11,13 @@ import {
   type McpLastSeen,
   type McpSetup,
 } from "../lib/ipc";
+import { dateLocale } from "../lib/dateLocale.ts";
 
 /** The stamp is context, not the point: shown when it parses, dropped when it
     doesn't, so a hand-edited breadcrumb can't put "Invalid Date" in the pane. */
 function formatSeenAt(at: string): string {
   const when = new Date(at);
-  return Number.isNaN(when.getTime()) ? "" : ` (${when.toLocaleString()})`;
+  return Number.isNaN(when.getTime()) ? "" : ` (${when.toLocaleString(dateLocale())})`;
 }
 
 /** How a row names the folder it opens, without showing an empty path as if

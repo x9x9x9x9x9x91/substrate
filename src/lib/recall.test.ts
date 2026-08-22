@@ -1,7 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { collapsedLabel, countLabel, dayLabel, lifespan, sizeLabel } from "./recall.ts";
+import { setDateLocale } from "./dateLocale.ts";
 import type { RecallGroup } from "./types.ts";
+
+// the labels read the date dial, so the English assertions below name a
+// locale instead of inheriting whatever country the machine is in
+setDateLocale("en-GB");
 
 const MARCH = Date.parse("2026-03-04T10:12:00Z");
 const JUNE = Date.parse("2026-06-18T09:03:00Z");
@@ -71,4 +76,16 @@ test("counts pluralize on the number they carry", () => {
   assert.equal(countLabel(1, "past version", "past versions"), "1 past version");
   assert.equal(countLabel(0, "past version", "past versions"), "0 past versions");
   assert.equal(countLabel(4416, "snapshot", "snapshots"), `${(4416).toLocaleString()} snapshots`);
+});
+
+test("the lifespan clause is written in the vault's date dialect", () => {
+  setDateLocale("de-DE");
+  try {
+    assert.match(lifespan(group()), /März 2026 – Juni 2026/);
+    // German writes the day first and puts a dot after it; the abbreviated
+    // month spelling is the platform's business, so it is not asserted
+    assert.match(dayLabel(MARCH), /^4\. /);
+  } finally {
+    setDateLocale("en-GB");
+  }
 });

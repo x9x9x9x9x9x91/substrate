@@ -28,7 +28,6 @@ import type {
   SelectOption,
   SidebarOrder,
   SyncReport,
-  TagCount,
   TagFolder,
   TrashEntry,
   RemoteKind,
@@ -38,7 +37,7 @@ import type {
 import { foldedPropKey } from "./types.ts";
 import { stripMachineFences } from "./fences.ts";
 import { foldDiacritics, foldWithMap } from "./fold.ts";
-import { noteTags, propTags, tagUniverse } from "./tags.ts";
+import { noteTags, propTags } from "./tags.ts";
 import { MOCK_FX, MOCK_FX_RATES } from "./fx.ts";
 import { MOUNT_EXTRACTED, MOUNT_SCHEME } from "./mounts.ts";
 import { IMAGE_SCHEME } from "./images.ts";
@@ -131,7 +130,6 @@ const HISTORY_MODE_COMMANDS = new Set([
   "view_export_target",
   "vault_sidebar_order",
   "vault_folder_meta_read",
-  "vault_tags",
   "vault_tag_folders_read",
   "vault_sync_status",
   "vault_sync_conflicts",
@@ -5970,10 +5968,6 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
     }
     case "vault_folder_meta_read":
       return JSON.parse(JSON.stringify(mockFolderMeta));
-    case "vault_tags":
-      // mirrors Engine::tag_universe: count per folded tag over every indexed
-      // note, most-used first
-      return tagUniverse(mockNotes.map(meta)) as TagCount[];
     case "vault_tag_folders_read":
       return JSON.parse(JSON.stringify(mockTagFolders));
     case "vault_tag_folders_write": {

@@ -72,7 +72,6 @@ import type {
   SyncReport,
   SyncRun,
   SyncStateFile,
-  TagCount,
   TagFolder,
   TrashEntry,
   VaultSyncStatus,
@@ -547,17 +546,10 @@ export const vaultLinkAsset = (path: string) =>
 /** Whether this build can record at all — false off macOS, where the UI hides
     the affordance instead of offering a button that always fails. */
 export const voiceSupported = () => invoke<boolean>("voice_supported");
-/** Start recording; resolves with the stem the capture will be filed under
-    (`Voice 2026-08-04 14.32`). Rejects with a human-readable reason when the
-    microphone is missing, refused or busy. */
-export const voiceStart = () => invoke<string>("voice_start");
-/** Stop recording and file it as a `type: voice` note in Inbox. */
-export const voiceStop = () => invoke<NoteMeta>("voice_stop");
-/** Stop and discard. Never rejects for "wasn't recording". */
-export const voiceCancel = () => invoke<void>("voice_cancel");
-/** Whether a recording is in flight — asked on mount so a reopened capture
-    window rejoins an in-progress recording instead of showing idle. */
-export const voiceIsRecording = () => invoke<boolean>("voice_is_recording");
+/* The recording itself — `voice_start`, `voice_stop`, `voice_cancel`,
+   `voice_is_recording` — has no wrapper here on purpose: only the capture
+   window drives it, and `capture.tsx` invokes those four by name in its own
+   direct-invoke style. Each is documented at its call site there. */
 /** Speech model: whether it's installed, and how far a download has got.
     `bytes` is the part-file's size while one is running. */
 export type VoiceModelState = {
@@ -904,9 +896,6 @@ export const vaultFolderIconSet = (path: string, icon: DbIcon | null) =>
     emoji: icon?.emoji ?? null,
     tint: icon?.tint ?? null,
   });
-/** Every tag in the vault with its note count, most-used first —
-    the source for `#` autocomplete and the tag folder builder's chip picker. */
-export const vaultTags = () => invoke<TagCount[]>("vault_tags");
 /** Tag folder definitions from `.vault/tagfolders.json`. */
 export const vaultTagFoldersRead = () => invoke<TagFolder[]>("vault_tag_folders_read");
 /** Replace the whole tag folder list — ordering is the frontend's, as with

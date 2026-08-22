@@ -9,7 +9,7 @@ import {
   noteHandles,
   normalizeHandle,
   rowAppearances,
-} from "./appearances.ts";
+} from "./personAppearances.ts";
 
 function note(
   path: string,

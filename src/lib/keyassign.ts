@@ -126,6 +126,7 @@ export function targetView(target: string): View | null {
   // a bound drive key opens the disk at its root, which is where `viewKey`
   // left the token — the browse prefix was never in it
   if (target.startsWith("drive:")) return { kind: "drive", id: target.slice(6), prefix: "" };
+  if (target.startsWith("tagfolder:")) return { kind: "tagfolder", id: target.slice(10) };
   switch (target) {
     case "today":
       return { kind: "today" };
@@ -179,6 +180,7 @@ export function targetLabel(
     dashboards?: { path: string; title: string }[];
     savedViews?: { id: string; name: string }[];
     pinned?: { path: string; title: string }[];
+    tagFolders?: { id: string; name: string }[];
   } = {}
 ): string {
   const basename = (p: string) => p.split("/").pop()?.replace(/\.md$/, "") ?? p;
@@ -196,6 +198,10 @@ export function targetLabel(
     return ctx.savedViews?.find((v) => v.id === id)?.name ?? id;
   }
   if (target.startsWith("folder:")) return basename(target.slice(7));
+  if (target.startsWith("tagfolder:")) {
+    const id = target.slice(10);
+    return ctx.tagFolders?.find((f) => f.id === id)?.name ?? id;
+  }
   if (target.startsWith("db:")) {
     const type = target.slice(3);
     return type.charAt(0).toUpperCase() + type.slice(1);

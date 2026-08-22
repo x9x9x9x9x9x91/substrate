@@ -3219,8 +3219,9 @@ export default function App() {
       dashboards: orderedDashboards.map((d) => ({ path: d.path, title: d.title })),
       savedViews: savedViews.map((v) => ({ id: v.id, name: v.name })),
       pinned: pinnedNotes.map((n) => ({ path: n.path, title: n.title })),
+      tagFolders: tagFolders.map((f) => ({ id: f.id, name: f.name })),
     }),
-    [orderedDashboards, savedViews, pinnedNotes]
+    [orderedDashboards, savedViews, pinnedNotes, tagFolders]
   );
 
   // the dashboards the sidebar and palette actually list: mobile drops the
@@ -3823,8 +3824,7 @@ export default function App() {
 
   // every tag in the vault with its note count — the completion source for
   // both the builder's chip fields and the editor's `#`. Derived from the
-  // index rather than fetched: the notes are already here and already fresh,
-  // and vault_tags exists for callers that aren't holding the index.
+  // index rather than fetched: the notes are already here and already fresh.
   const tagCounts = useMemo(() => tagUniverse(notes), [notes]);
 
   // the sidebar asks for the sheet with the folder itself (or null for new);

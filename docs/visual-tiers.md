@@ -155,6 +155,24 @@ Two jobs:
 Tier 2 never gates. It has no baselines, no comparison and no pass/fail — it
 produces images someone reads.
 
+### How long an evidence spec lives
+
+Two kinds live under `SHOTS=1`, and they are told apart by the first line of
+the file rather than by the name:
+
+- A spec whose header says **"Throwaway evidence run"** is for one review. Once
+  the images have been read the spec is spent, and the next person to touch
+  that area deletes it rather than maintaining a run nobody will look at
+  again. Eighteen of them were carried this way before the first sweep; some
+  photographed surfaces that no longer existed.
+- Every other `SHOTS=1` spec is a **standing corpus** — a surface worth
+  re-shooting whenever it changes, which is why it is kept even though it
+  never gates. Keep those; a re-shootable surface is cheaper to keep than to
+  reconstruct.
+
+Writing a one-review spec, say so in the header, so the sweep after yours can
+tell which kind it found.
+
 ## Which one do I need?
 
 - *"Did I break the rendering somewhere I wasn't looking?"* → tier 1. It is
