@@ -101,6 +101,31 @@ where
     )
 }
 
+/// Did this event change anything, or is it someone reading?
+///
+/// `notify`'s inotify backend subscribes to `IN_OPEN` (and `IN_CLOSE_NOWRITE`),
+/// so on Linux every file the app itself opens to read comes back as an event
+/// on the very path it just read. The vault watcher's own handler re-reads the
+/// notes each batch names, and a rescan reads the whole vault — so a single
+/// read seeds a loop that feeds itself forever at the debounce ceiling, with
+/// no file ever written and every mtime untouched. Two shipped timings die
+/// there: the settle push and the auto-snapshot's quiet window both re-arm on
+/// each batch, so both fall back to their ten-minute bound.
+///
+/// A read is not a change, so reads are dropped here, before path relevance is
+/// even asked. `Close(Write)` is the one access kind kept: it reports a
+/// finished write, not a read. No other backend produces `Access` at all —
+/// macOS's FSEvents and the poll fallback report only creates, modifies and
+/// removals — so this costs nothing off Linux.
+fn event_is_a_change(kind: &notify::EventKind) -> bool {
+    use notify::event::{AccessKind, AccessMode};
+    match kind {
+        notify::EventKind::Access(AccessKind::Close(AccessMode::Write)) => true,
+        notify::EventKind::Access(_) => false,
+        _ => true,
+    }
+}
+
 /// `watch` with the degraded-mode cadence as a parameter — tests inject
 /// milliseconds so the retry/promote path is exercisable.
 fn watch_with_interval<F, E>(
@@ -133,7 +158,7 @@ fn watch_with_interval<F, E>(
         Rescan,
     }
 
-    /// Watcher construction plus the root watch as one retryable unit —
+/// Watcher construction plus the root watch as one retryable unit —
     /// degraded mode retries both.
     fn arm(
         root: &Path,
@@ -147,6 +172,9 @@ fn watch_with_interval<F, E>(
                 Ok(ev) => {
                     if ev.need_rescan() {
                         tx.send(Msg::Rescan).ok();
+                        return;
+                    }
+                    if !event_is_a_change(&ev.kind) {
                         return;
                     }
                     let paths: Vec<PathBuf> = ev
@@ -470,7 +498,7 @@ fn watch_folders_with_interval<F, E, B>(
             Ok(ev) => {
                 if ev.need_rescan() {
                     tx.send(Msg::Changed).ok();
-                } else if !ev.paths.is_empty() {
+                } else if event_is_a_change(&ev.kind) && !ev.paths.is_empty() {
                     tx.send(Msg::Paths(ev.paths)).ok();
                 }
             }
@@ -639,6 +667,133 @@ mod tests {
             }
         }
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_read_is_not_a_change() {
+        use notify::event::{AccessKind, AccessMode, CreateKind, DataChange, ModifyKind, RemoveKind};
+        use notify::EventKind;
+        // The kinds Linux hands back for a plain `open()`/read of a file the
+        // app itself is indexing — none of them changed anything.
+        assert!(!event_is_a_change(&EventKind::Access(AccessKind::Open(AccessMode::Any))));
+        assert!(!event_is_a_change(&EventKind::Access(AccessKind::Open(AccessMode::Read))));
+        assert!(!event_is_a_change(&EventKind::Access(AccessKind::Close(AccessMode::Read))));
+        assert!(!event_is_a_change(&EventKind::Access(AccessKind::Read)));
+        assert!(!event_is_a_change(&EventKind::Access(AccessKind::Any)));
+        // a finished write, a new file, an edit, a deletion and an unknown
+        // event all still wake the watcher
+        assert!(event_is_a_change(&EventKind::Access(AccessKind::Close(AccessMode::Write))));
+        assert!(event_is_a_change(&EventKind::Create(CreateKind::File)));
+        assert!(event_is_a_change(&EventKind::Modify(ModifyKind::Data(DataChange::Any))));
+        assert!(event_is_a_change(&EventKind::Remove(RemoveKind::File)));
+        assert!(event_is_a_change(&EventKind::Other));
+    }
+
+    /// Drain whatever the watcher still has to say, then require it to stay
+    /// quiet for `quiet` — returns the batches seen while settling.
+    fn settle(rx: &std::sync::mpsc::Receiver<WatchBatch>, quiet: Duration) -> usize {
+        let mut seen = 0;
+        while rx.recv_timeout(quiet).is_ok() {
+            seen += 1;
+        }
+        seen
+    }
+
+    #[test]
+    fn reading_notes_never_wakes_the_watcher() {
+        // The storm this guards: on Linux the watcher hears `open()`, and the
+        // handler answers a batch by reading the notes it named — so one read
+        // used to feed itself forever, pinned at the debounce ceiling, while
+        // no file was ever written. Reading here must produce nothing.
+        let dir = std::env::temp_dir().join(format!("vault-watch-read-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        let note = dir.join("Read Me.md");
+        let (tx, rx) = std::sync::mpsc::channel();
+        let root = dir.clone();
+        std::thread::spawn(move || {
+            watch(
+                root,
+                move |b| {
+                    tx.send(b).ok();
+                },
+                |_| {},
+            )
+        });
+        // the watcher is armed once a write of ours comes back
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
+        loop {
+            fs::write(&note, "---\ntype: note\n---\nbody\n").unwrap();
+            if rx.recv_timeout(Duration::from_millis(500)).is_ok() {
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline, "watcher never armed within 30s");
+        }
+        settle(&rx, Duration::from_secs(1));
+        // now nothing but reads, the way an index refresh reads
+        for _ in 0..20 {
+            let _ = fs::read_to_string(&note).unwrap();
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let woke = settle(&rx, Duration::from_millis(900));
+        let _ = fs::remove_dir_all(&dir);
+        assert_eq!(woke, 0, "reading a note woke the watcher {woke} times");
+    }
+
+    /// The storm reproduction, as a measurement rather than an assertion of
+    /// shape: it re-reads every path a batch names, which is what the app's
+    /// handler does, and reports the rate. Before reads were filtered out this
+    /// settled at the debounce ceiling (~3 batches/sec) on Linux and never
+    /// stopped; now it stays silent. Ignored because it costs ten seconds of
+    /// wall clock and says nothing on a backend that has no open events.
+    ///
+    ///     cargo test --lib read_back_loop_stays_quiet -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn read_back_loop_stays_quiet() {
+        let dir = std::env::temp_dir().join(format!("vault-watch-storm-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        for i in 0..20 {
+            fs::write(dir.join(format!("Note {i}.md")), "---\ntype: note\n---\nbody\n").unwrap();
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        let root = dir.clone();
+        std::thread::spawn(move || {
+            watch(
+                root,
+                move |b| {
+                    tx.send(b).ok();
+                },
+                |_| {},
+            )
+        });
+        std::thread::sleep(Duration::from_secs(2));
+        settle(&rx, Duration::from_millis(500));
+        // one read of the whole vault is the seed — a scan, a snapshot, a
+        // search. Everything after it is the loop feeding itself.
+        for entry in fs::read_dir(&dir).unwrap().flatten() {
+            let _ = fs::read(entry.path());
+        }
+        let window = Duration::from_secs(10);
+        let started = std::time::Instant::now();
+        let mut batches = 0;
+        while started.elapsed() < window {
+            if let Ok(batch) = rx.recv_timeout(Duration::from_millis(200)) {
+                batches += 1;
+                if let WatchBatch::Paths(paths) = batch {
+                    for p in paths {
+                        let _ = fs::read(p);
+                    }
+                }
+            }
+        }
+        let rate = batches as f64 / window.as_secs_f64();
+        let _ = fs::remove_dir_all(&dir);
+        println!("watcher batches on a read-only vault: {batches} in 10s ({rate:.2}/sec)");
+        assert!(rate < 0.1, "watcher woke {rate:.2} times/sec with nothing written");
     }
 
     #[test]
