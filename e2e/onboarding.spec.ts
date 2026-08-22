@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { settingsTab } from "./settings";
 
 /* First-run onboarding. The mock vault always exists, so the
    no-vault state is staged through __mockFirstRun before the module loads —
@@ -87,6 +88,7 @@ test("switching vaults never shows the agent step", async ({ page }) => {
   await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
   await page.keyboard.press("Meta+Comma");
+  await settingsTab(page, "vault");
   await page.getByTestId("switch-vault").click();
   const sheet = page.getByTestId("vault-switch");
   await sheet.getByLabel("Existing folder").fill("/home/me/Vault");
@@ -241,6 +243,7 @@ test("switch vault reopens the picker from Settings", async ({ page }) => {
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
 
   await page.keyboard.press("Meta+Comma");
+  await settingsTab(page, "vault");
   const settings = page.locator(".settings-sheet");
   await expect(settings).toBeVisible();
   await expect(settings.locator(".settings-vault-path")).toContainText("Vault (mock)");

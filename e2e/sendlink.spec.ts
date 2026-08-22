@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { openSettings } from "./settings";
 
 // "Send as link" — a note rendered to a self-contained HTML
 // document, sealed client-side (AES-GCM), ciphertext parked on a relay; the
@@ -18,7 +19,7 @@ async function boot(page: Page) {
 }
 
 async function setRelayUrl(page: Page, url: string) {
-  await page.locator(".side-tools").getByRole("button", { name: "Settings" }).click();
+  await openSettings(page, "sharing");
   const field = page.locator("#set-share-relay-url");
   await field.fill(url);
   await field.blur();

@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { openSettingsByKey } from "./settings";
 
 // The window-opacity dial rides an AppKit material only the macOS
 // desktop build has. Everywhere else — this Chromium run against the mock
@@ -14,12 +15,12 @@ test("the opacity dial is absent outside the macOS desktop build, and the ground
   await page.goto("/");
   await expect(page.locator(".list-title")).toHaveText("Notes");
 
-  await page.keyboard.press("Meta+,");
-  await expect(page.locator(".settings-sheet")).toBeVisible();
+  await openSettingsByKey(page, "appearance");
 
-  // a neighbouring row proves the sheet rendered its fields at all, so the
-  // assertion below is "hidden", not "nothing painted yet"
-  await expect(page.locator(".settings-row", { hasText: "Show app files" })).toBeVisible();
+  // the dial's own tab, and a neighbouring row on it proves that tab rendered
+  // its fields at all — so the assertion below is "hidden", not "nothing
+  // painted yet"
+  await expect(page.locator(".settings-row", { hasText: "Glow" })).toBeVisible();
   await expect(page.locator(".settings-row", { hasText: "Window opacity" })).toHaveCount(0);
   // The appearance dials ride the same slider chrome, so "no opacity
   // dial" is an assertion about WHICH sliders the sheet has, not that it has

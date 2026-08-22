@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { settingsTab } from "./settings";
 
 // the Reflexes settings section — the one thing about this feature a
 // user actually operates. Rules are authored in `.vault/reflexes.json` and the
@@ -12,6 +13,7 @@ import { expect, test, type Page } from "@playwright/test";
 async function openSettings(page: Page) {
   await page.locator(".side-tools").getByRole("button", { name: "Settings" }).click();
   await expect(page.locator(".settings-sheet")).toBeVisible();
+  await settingsTab(page, "vault");
 }
 
 async function closeSettings(page: Page) {

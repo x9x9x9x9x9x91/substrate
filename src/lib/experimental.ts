@@ -31,3 +31,17 @@ export const EXPERIMENTAL_TOGGLES: ExperimentalToggle[] = [
     needsAccessibility: true,
   },
 ];
+
+/** The toggles a build actually renders: macOS-only rows are absent off macOS
+    rather than shown inert, the same bargain the rest of the sheet strikes.
+
+    Taking the list as an argument rather than reading it straight is what lets
+    a test ask the question about a build other than its own — the shared build
+    ships without the unreleased entries above, and it is that shape, on a
+    machine that is not a Mac, where the section has nothing left to render. */
+export function visibleExperimentalToggles(
+  capable: boolean,
+  toggles: ExperimentalToggle[] = EXPERIMENTAL_TOGGLES
+): ExperimentalToggle[] {
+  return toggles.filter((t) => t.only !== "macos" || capable);
+}

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { settingsTab } from "./settings";
 
 /* The window-opacity dial previews on the drag and writes on the
    release, so for the length of that drag the note honestly still holds the
@@ -59,6 +60,7 @@ test("a settings read landing mid-drag leaves the previewed window ground alone"
   await page.evaluate(() => window.__mockTraceCommands?.());
   await page.keyboard.press("Meta+,");
   await expect(page.locator(".settings-sheet")).toBeVisible();
+  await settingsTab(page, "appearance");
 
   // Control first, with no dial held: a read DOES repaint the ground from the
   // note, which here means clearing it (the browser is not the macOS build).

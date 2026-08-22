@@ -35,7 +35,12 @@ import {
   WINDOW_OPACITY_MIN,
 } from "../lib/settings";
 import { previewWindowOpacity, vibrancyCapable } from "../lib/vibrancy";
-import { EXPERIMENTAL_NOTE, EXPERIMENTAL_TOGGLES } from "../lib/experimental";
+import {
+  EXPERIMENTAL_NOTE,
+  EXPERIMENTAL_TOGGLES,
+  visibleExperimentalToggles,
+  type ExperimentalToggle,
+} from "../lib/experimental";
 import type { TerminalFontProblems } from "../lib/settings";
 import { foldedPropKey } from "../lib/types";
 import { isTauri, listen } from "../lib/tauri";
@@ -62,6 +67,7 @@ import type { OnboardingStatus } from "../lib/onboarding";
 import { HOSTED_HANDOFF_RELAY_URL } from "../lib/handoff";
 import McpSettings from "./McpSettings";
 import CalendarSettings from "./CalendarSettings";
+import { visibleSettingsTabs, type SettingsTabId } from "../lib/settingsTabs";
 
 const Onboarding = lazy(() => import("./Onboarding"));
 
@@ -187,6 +193,9 @@ interface SettingsPaneProps {
 
 interface Field {
   key: string;
+  /** which tab of the sheet this row lives on — every field names one, so a
+      new setting can't quietly land nowhere */
+  tab: SettingsTabId;
   label: string;
   hint: string;
   placeholder?: string;
@@ -286,12 +295,7 @@ function ExperimentalSection({
   onToast: (msg: string) => void;
 }) {
   const [trusted, setTrusted] = useState<boolean | null>(null);
-  /* The sheet hides macOS-only rows off macOS. In the browser harness that
-     would hide the section outright, and the mock backend models a Mac in
-     every other respect — same posture the voice rows take, which the mock's
-     `voice_supported` answers. */
-  const capable = vibrancyCapable || !isTauri;
-  const fields = EXPERIMENTAL_FIELDS.filter((f) => f.only !== "macos" || capable);
+  const fields = EXPERIMENTAL_SHOWN;
   const needsAccess = EXPERIMENTAL_TOGGLES.some(
     (t) => t.needsAccessibility && boolOn(field(t.key), values[t.key] ?? "")
   );
@@ -312,7 +316,9 @@ function ExperimentalSection({
   if (fields.length === 0) return null;
   return (
     <>
-      <div className="palette-section">Experimental</div>
+      {/* no heading: the tab is already called Experimental, and a section
+          head repeating its tab's name reads as a group that has a sibling
+          somewhere below it. The caveat still gets said once, up top. */}
       <div className="settings-hint settings-experimental-note">{EXPERIMENTAL_NOTE}</div>
       {fields.map((f) => (
         <div className="settings-row" key={f.key} data-testid={`experimental-${f.key}`}>
@@ -425,24 +431,48 @@ function choiceValue(f: Field, raw: string): string {
    here, so the sheet loads and writes them exactly like every other key while
    the section itself renders apart — last, under its own heading and its own
    warning. */
-const EXPERIMENTAL_FIELDS: Field[] = EXPERIMENTAL_TOGGLES.map((t) => ({
+const experimentalField = (t: ExperimentalToggle): Field => ({
   key: t.key,
+  tab: "experimental" as const,
   label: t.label,
   hint: t.hint,
   kind: "bool",
   only: t.only,
-}));
+});
+
+/** every experimental key, whether or not this build shows it: the form loads
+    and writes them all, and the docs and seed checks read this list. */
+const EXPERIMENTAL_FIELDS: Field[] = EXPERIMENTAL_TOGGLES.map(experimentalField);
+
+/* The sheet hides macOS-only rows off macOS. In the browser harness that would
+   hide the section outright, and the mock backend models a Mac in every other
+   respect — same posture the voice rows take, which the mock's
+   `voice_supported` answers. */
+const EXPERIMENTAL_CAPABLE = vibrancyCapable || !isTauri;
+
+/** what the Experimental section will actually put on screen. Empty is a real
+    answer — off macOS, in a build without the unreleased toggles, nothing here
+    survives — and the tab strip reads this rather than promising a tab the
+    section then renders as nothing. */
+const EXPERIMENTAL_SHOWN: Field[] =
+  visibleExperimentalToggles(EXPERIMENTAL_CAPABLE).map(experimentalField);
+
+/** the strip this build renders. Every tab in it has something on it. */
+const TABS = visibleSettingsTabs(EXPERIMENTAL_SHOWN.length > 0);
 
 const FIELDS: Field[] = [
   {
     key: "capture-hotkey",
+    tab: "general",
     label: "Quick-capture hotkey",
     hint: "global shortcut for the floating capture window, works from any app",
     placeholder: "alt+space",
     kind: "text",
+    section: "Hotkeys",
   },
   {
     key: "voice-hotkey",
+    tab: "general",
     label: "Voice-note hotkey",
     hint: "global shortcut that starts recording straight away, and stops and files on the second press — no window, no click",
     // the built-in default, so an empty field shows the chord that is
@@ -453,12 +483,15 @@ const FIELDS: Field[] = [
   },
   {
     key: "close-to-tray",
+    tab: "general",
     label: "Close to menu bar",
     hint: "closing the window keeps Substrate running in the tray",
     kind: "bool",
+    section: "In the app",
   },
   {
     key: "drop-hint",
+    tab: "general",
     label: "Drag-and-drop hint",
     hint: "while dragging a file over a note, show the copy-vs-⇧-link hint",
     kind: "bool",
@@ -466,6 +499,7 @@ const FIELDS: Field[] = [
   },
   {
     key: "mod-hud",
+    tab: "general",
     label: "Hold-⌘ shortcut HUD",
     hint: "holding ⌘ (alone or with ⇧) folds out the shortcuts it can fire right now",
     kind: "bool",
@@ -473,13 +507,16 @@ const FIELDS: Field[] = [
   },
   {
     key: "task-stale-chips",
+    tab: "appearance",
     label: "Task age chips",
     hint: "the stale / undated chips on the Tasks board; a board with its own stale_days keeps them, and a task with stale: never never wears one",
     kind: "bool",
     defaultOn: true,
+    section: "Notes and tables",
   },
   {
     key: "db-grid",
+    tab: "appearance",
     label: "Table grid lines",
     hint: "vertical lines between database table columns; each database can override this in its ⋯ menu",
     kind: "bool",
@@ -489,14 +526,17 @@ const FIELDS: Field[] = [
      the layout. Both default to the shipped picture: glow 0, tone sky. */
   {
     key: "glow",
+    tab: "appearance",
     label: "Glow",
     hint: "bloom on dashboard chart strokes, dots and emphasised values; bars join above 70. 0 is the shipped look",
     kind: "slider",
     slider: { min: GLOW_MIN, max: GLOW_MAX, step: 1, default: DEFAULT_GLOW },
     format: (n) => (n === 0 ? "off" : String(n)),
+    section: "Colour and light",
   },
   {
     key: "accent-tone",
+    tab: "appearance",
     label: "Accent tone",
     hint: "the hue every dashboard mark wears; state colours never move with it",
     kind: "chips",
@@ -505,6 +545,7 @@ const FIELDS: Field[] = [
   },
   {
     key: "accent-tone-nudge",
+    tab: "appearance",
     label: "Tone fine-tune",
     hint: "shifts the chosen tone a few degrees; bounded so every mark stays legible on screen and on paper",
     kind: "slider",
@@ -516,6 +557,7 @@ const FIELDS: Field[] = [
      can't do it, rather than shown inert. */
   {
     key: "window-opacity",
+    tab: "appearance",
     label: "Window opacity",
     hint: "how solid the window is over your desktop — the wallpaper shows through, blurred by macOS; 100% is fully solid",
     kind: "slider",
@@ -530,19 +572,23 @@ const FIELDS: Field[] = [
   },
   {
     key: "show-agent-files",
+    tab: "general",
     label: "Show app files",
     hint: "list AGENTS.md, CLAUDE.md and Settings.md — the notes the app itself seeds and reads — in notes and search; they stay on disk either way, and “edit raw” below always opens Settings.md",
     kind: "bool",
   },
   {
     key: "terminal-command",
+    tab: "terminal",
     label: "Terminal command",
     hint: "what the ⌘⇧T terminal runs on start — your agent CLI (claude, codex, pi…); empty = plain shell",
     placeholder: "claude",
     kind: "text",
+    section: "The terminal",
   },
   {
     key: "terminal-cwd",
+    tab: "terminal",
     label: "Terminal folder",
     hint: "working directory the terminal starts in; empty = the vault folder",
     placeholder: "~/Notes/side-vault",
@@ -550,16 +596,30 @@ const FIELDS: Field[] = [
   },
   {
     key: "terminal-font",
+    tab: "terminal",
     label: "Terminal font",
     hint: "font family for the ⌘⇧T terminal — set your nerd font here so powerline and prompt glyphs render; empty = the app's mono",
     placeholder: "JetBrainsMono Nerd Font",
     kind: "text",
   },
+  /* with the other rows about what the terminal IS rather than down past the
+     three geometry rows: a quick action is a command, and it reads next to the
+     command the terminal starts with */
+  {
+    key: "terminal-actions",
+    tab: "terminal",
+    label: "Terminal quick actions",
+    hint: "one `Label: command` per line — each becomes a ⌘K palette action that types its command into the terminal",
+    placeholder: "Sweep inbox: /inbox-sweep",
+    kind: "multiline",
+  },
   {
     key: "terminal-dock",
+    tab: "terminal",
     label: "Terminal position",
     hint: "which edge the ⌘⇧T terminal slides in from; drag its inner edge to resize either way",
     kind: "select",
+    section: "Size and place",
     options: [
       { value: "bottom", label: "Bottom" },
       { value: "right", label: "Right" },
@@ -567,6 +627,7 @@ const FIELDS: Field[] = [
   },
   {
     key: "terminal-height",
+    tab: "terminal",
     label: "Terminal height",
     hint: "fraction of the window the terminal covers when docked to the bottom (0.2–0.9)",
     placeholder: "0.45",
@@ -575,6 +636,7 @@ const FIELDS: Field[] = [
   },
   {
     key: "terminal-width",
+    tab: "terminal",
     label: "Terminal width",
     hint: "fraction of the window the terminal covers when docked to the right (0.2–0.7)",
     placeholder: "0.38",
@@ -582,18 +644,13 @@ const FIELDS: Field[] = [
     range: { min: TERMINAL_WIDTH_MIN, max: TERMINAL_WIDTH_MAX },
   },
   {
-    key: "terminal-actions",
-    label: "Terminal quick actions",
-    hint: "one `Label: command` per line — each becomes a ⌘K palette action that types its command into the terminal",
-    placeholder: "Sweep inbox: /inbox-sweep",
-    kind: "multiline",
-  },
-  {
     key: "feed-curator",
+    tab: "terminal",
     label: "Feed curator",
     hint: "command the feed dashboard's ↻ refresh runs to re-curate the items sheet (login shell, vault as cwd); the dashboard's own setup card edits the same key. Empty = no refresh button",
     placeholder: "~/scripts/curate-news.sh",
     kind: "text",
+    section: "Feed",
   },
   /* ONE dial for the number dialect. Its predecessor `number-format`
      offered two values and reached only calc lines and unit cells while every
@@ -602,13 +659,16 @@ const FIELDS: Field[] = [
      output (numberLocaleSample) so the row reads as the thing it changes. */
   {
     key: "number-locale",
+    tab: "general",
     label: "Number format",
     hint: "how every number is written — table cells, calc lines, totals, dashboards, file sizes",
     kind: "choice",
     choices: NUMBER_LOCALES.map((l) => ({ value: l, label: `${numberLocaleSample(l)}  ·  ${l}` })),
+    section: "Formats",
   },
   {
     key: "date-locale",
+    tab: "general",
     label: "Date format",
     hint: "how every date and clock time is written — trash and asset rows, history stamps, list dates, time travel, dashboard poll lines, printed exports",
     kind: "choice",
@@ -619,6 +679,7 @@ const FIELDS: Field[] = [
      single place in the UI, not four settings apart. */
   {
     key: "net-link-titles",
+    tab: "sharing",
     label: "Fetch link titles",
     hint: "pasting a URL asks that site for its page title",
     kind: "bool",
@@ -627,6 +688,7 @@ const FIELDS: Field[] = [
   },
   {
     key: "net-fx-rates",
+    tab: "sharing",
     label: "Currency rates",
     hint: "fetches exchange rates from frankfurter.dev; off = conversions use the last saved rates and show their date",
     kind: "bool",
@@ -634,6 +696,7 @@ const FIELDS: Field[] = [
   },
   {
     key: "net-share-relay",
+    tab: "sharing",
     label: "Send as link",
     hint: "uploads the encrypted note to your share relay; off hides the Send-as-link action",
     kind: "bool",
@@ -641,6 +704,7 @@ const FIELDS: Field[] = [
   },
   {
     key: "net-letterbox",
+    tab: "sharing",
     label: "Letterbox",
     hint: "polls your drop-box relay for sealed drops and lets you make new links; off parks both — boxes already handed out stay live on the relay until you revoke them",
     kind: "bool",
@@ -648,13 +712,16 @@ const FIELDS: Field[] = [
   },
   {
     key: "share-relay-url",
+    tab: "sharing",
     label: "Share relay URL",
     hint: "where “Send as link” parks the encrypted copy — the relay only ever sees ciphertext; self-host one with scripts/handoff-relay",
     placeholder: "https://drop.example.org",
     kind: "text",
+    section: "Share relay",
   },
   {
     key: "share-relay-token",
+    tab: "sharing",
     label: "Share relay token",
     hint: "only if your relay requires a token for uploads (HANDOFF_TOKEN); recipients never need it — stored as plain text in Settings.md",
     kind: "text",
@@ -662,6 +729,16 @@ const FIELDS: Field[] = [
   },
   ...EXPERIMENTAL_FIELDS,
 ];
+
+/** Every key this sheet owns and the tab it lives on. Exported for the test
+    that walks the tabs and holds the sheet to reaching all of them — grouping
+    settings is only an improvement if nothing fell out of the sheet on the
+    way, and a form nobody can find a key in sends people to the raw note. */
+export const SETTINGS_FIELD_TABS: ReadonlyArray<{
+  key: string;
+  tab: SettingsTabId;
+  only?: "macos";
+}> = FIELDS.map((f) => ({ key: f.key, tab: f.tab, only: f.only }));
 
 const field = (key: string): Field => FIELDS.find((f) => f.key === key)!;
 const GLOW_FIELD = field("glow");
@@ -710,6 +787,10 @@ export default function SettingsPane({
       a backend too old to answer, in which case the row simply stays hidden */
   const [vault, setVault] = useState<OnboardingStatus | null>(null);
   const [switching, setSwitching] = useState(false);
+  /** which tab is showing. Resets with the sheet: reopening lands on General
+      rather than wherever the last visit ended, so ⌘, always opens the same
+      thing. */
+  const [tab, setTab] = useState<SettingsTabId>("general");
   /** families in the current `terminal-font` that won't take effect,
       settled a beat after the last keystroke so half-typed names don't flash a
       warning at someone who is still spelling one correctly */
@@ -1090,8 +1171,64 @@ export default function SettingsPane({
             edit raw
           </button>
         </div>
-        <div className={`shortcut-sheet-body${fade.className}`} {...fade.props}>
-          {vault && (
+        {/* the agent ledger's tab idiom — latched buttons in the pane's own
+            head, not a second window chrome. Arrow keys move between them and
+            only the current tab is a tab stop, the same bargain the segmented
+            rows in the body strike. */}
+        <div className="settings-tabs" role="tablist" aria-label="Settings sections">
+          {TABS.map((t, index) => (
+            <button
+              key={t.id}
+              id={`settings-tab-${t.id}`}
+              type="button"
+              role="tab"
+              aria-selected={t.id === tab}
+              aria-controls="settings-tabpanel"
+              tabIndex={t.id === tab ? 0 : -1}
+              className={`settings-tab${t.id === tab ? " on" : ""}`}
+              onClick={() => setTab(t.id)}
+              onKeyDown={(e) => {
+                let next = index;
+                if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+                  next = (index + 1) % TABS.length;
+                } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+                  next = (index - 1 + TABS.length) % TABS.length;
+                } else if (e.key === "Home") {
+                  next = 0;
+                } else if (e.key === "End") {
+                  next = TABS.length - 1;
+                } else {
+                  return;
+                }
+                e.preventDefault();
+                e.stopPropagation();
+                setTab(TABS[next].id);
+                const buttons = e.currentTarget.parentElement?.querySelectorAll("button");
+                (buttons?.[next] as HTMLButtonElement | undefined)?.focus();
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+        {/* keyed by tab: one shared node would carry the scroll position from
+            the tab just left, so a reader who scrolled Terminal and then picked
+            Sharing would land part-way down Sharing, below the heading it is
+            supposed to open under. A new node opens at its top, and the edge
+            fade re-gates on the re-attach. */}
+        <div
+          key={tab}
+          className={`shortcut-sheet-body${fade.className}`}
+          id="settings-tabpanel"
+          role="tabpanel"
+          aria-labelledby={`settings-tab-${tab}`}
+          {...fade.props}
+        >
+          {/* every other tab opens under a heading; these two rows are
+              rendered here rather than declared as fields, and without one
+              they read as strays above the tab's first group */}
+          {tab === "vault" && <div className="palette-section">This vault</div>}
+          {tab === "vault" && vault && (
             <div className="settings-row">
               <div className="settings-row-text">
                 {/* not a <label>: the row's control is the switch button, and a
@@ -1108,6 +1245,7 @@ export default function SettingsPane({
               </button>
             </div>
           )}
+          {tab === "vault" && (
           <div className="settings-row">
             <div className="settings-row-text">
               <div className="settings-label">Persistent vault seal</div>
@@ -1140,7 +1278,7 @@ export default function SettingsPane({
               </button>
             )}
           </div>
-          <McpSettings onToast={onToast} />
+          )}
           {missing && (
             <div className="settings-missing">
               No Settings.md in the vault — create it via “edit raw”.
@@ -1149,11 +1287,21 @@ export default function SettingsPane({
           {values &&
             FIELDS.filter(
               (f) =>
-                !f.key.startsWith("experimental-") && (f.only !== "macos" || vibrancyCapable)
+                f.tab === tab &&
+                !f.key.startsWith("experimental-") &&
+                (f.only !== "macos" || vibrancyCapable)
             ).map((f) => (
               <Fragment key={f.key}>
                 {f.section && <div className="palette-section">{f.section}</div>}
-                <div className="settings-row">
+                {/* a picker with more options than fit beside a label drops
+                    under it: the locale rows carry five samples apiece, and
+                    forcing them into the control column made the whole sheet
+                    scroll sideways into empty space */}
+                <div
+                  className={`settings-row${
+                    f.kind === "choice" && (f.choices?.length ?? 0) > 2 ? " settings-row-stack" : ""
+                  }`}
+                >
                   <div className="settings-row-text">
                     {/* radiogroups are not labelable elements, so those rows
                         use a plain heading and name the group with aria-label */}
@@ -1184,7 +1332,12 @@ export default function SettingsPane({
                     /* the expiry picker's idiom (SendLinkDialog): a radiogroup
                        of latched buttons, not a <select> — two options fit
                        inline and both stay readable without opening anything */
-                    <div className="settings-choice" role="radiogroup" aria-label={f.label}>
+                    <div
+                      className="settings-choice"
+                      id={`set-${f.key}`}
+                      role="radiogroup"
+                      aria-label={f.label}
+                    >
                       {(f.choices ?? []).map((c) => (
                         <button
                           key={c.value}
@@ -1368,26 +1521,40 @@ export default function SettingsPane({
                 </div>
               </Fragment>
             ))}
-          {values && <VoiceModelRow onToast={onToast} />}
+          {/* the speech model pairs with the voice hotkey above it: one row
+              says which chord records, the next whether anything can
+              transcribe what it records */}
+          {tab === "general" && values && <VoiceModelRow onToast={onToast} />}
           {/* a plain layout preference, so it sits with the other
               preferences rather than below the consequential switches */}
-          <CalendarSettings />
-          {/* last, and only when this vault has rules: the enable switch is a
-              consequential one, and it should not be the first thing someone
-              scrolling for a font size trips over */}
-          <ReflexesSettings onToast={onToast} />
-          {/* below the reflex switch for the same reason it is below the
-              fields: an index over everything ever deleted is a decision, not
-              a preference */}
-          <RecallSettings onToast={onToast} />
-          {/* last, and only when the vault has any: consent is a per-vault
-              answer, not a preference, and it renders itself away in the
-              overwhelming majority of vaults that install no kinds */}
-          <KindsSettings />
-          {/* dead last: an experimental switch is the one thing in here that
-              can change under someone, so it sits below everything they came
-              for rather than above it */}
-          {values && (
+          {tab === "appearance" && <CalendarSettings />}
+          {tab === "sharing" && (
+            <>
+              {/* the standing grants below the switches that govern them: a
+                  toggle is a preference, a grant is something handed out */}
+              <McpSettings onToast={onToast} />
+            </>
+          )}
+          {tab === "vault" && (
+            <>
+              {/* only when this vault has rules: the enable switch is a
+                  consequential one, and it should not be the first thing
+                  someone opening this tab trips over */}
+              <ReflexesSettings onToast={onToast} />
+              {/* below the reflex switch for the same reason it is below the
+                  fields: an index over everything ever deleted is a decision,
+                  not a preference */}
+              <RecallSettings onToast={onToast} />
+              {/* last, and only when the vault has any: consent is a per-vault
+                  answer, not a preference, and it renders itself away in the
+                  overwhelming majority of vaults that install no kinds */}
+              <KindsSettings />
+            </>
+          )}
+          {/* its own tab: an experimental switch is the one thing in here that
+              can change under someone, so it is never something they scroll
+              past on the way to a font size */}
+          {tab === "experimental" && values && (
             <ExperimentalSection
               values={values}
               onToggle={toggle}

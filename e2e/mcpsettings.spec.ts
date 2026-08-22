@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { openSettings } from "./settings";
 
 // The Settings-only grant door. The browser backend models the
 // native folder picker as Projects; these assertions pin the user-visible
@@ -7,7 +8,7 @@ import { expect, test } from "@playwright/test";
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".list-title")).toHaveText("Notes");
-  await page.locator(".side-tools").getByRole("button", { name: "Settings" }).click();
+  await openSettings(page, "sharing");
   await expect(page.locator(".mcp-settings")).toBeVisible();
 });
 
@@ -78,7 +79,7 @@ test("setup discovery failure never hides grants or revoke controls", async ({ p
   });
   await page.reload();
   await expect(page.locator(".list-title")).toHaveText("Notes");
-  await page.locator(".side-tools").getByRole("button", { name: "Settings" }).click();
+  await openSettings(page, "sharing");
 
   const pane = page.locator(".mcp-settings");
   await expect(pane).toBeVisible();

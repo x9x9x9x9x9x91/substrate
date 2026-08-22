@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { settingsTab } from "./settings";
 import { openDb } from "./nav";
 
 // Vertical grid lines in database tables. Default ON via the global
@@ -49,6 +50,7 @@ test("the global setting turns grids off everywhere, but a database override win
   await page.evaluate(() => window.__mockSetEchoOnWrites?.(true));
 
   await page.keyboard.press("Meta+,");
+  await settingsTab(page, "appearance");
   const row = page.locator(".settings-row", { hasText: "Table grid lines" });
   await expect(row).toBeVisible();
   const sw = row.locator(".settings-switch");

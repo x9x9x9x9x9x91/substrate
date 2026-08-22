@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { settingsTab } from "./settings";
 
 // Evidence run only: the Settings pane carrying the two dials, and
 // the Overview + Portfolio panes at each end of the glow range and on a
@@ -16,6 +17,7 @@ async function boot(page: Page) {
 async function setDials(page: Page, glow: number, tone: string) {
   await page.keyboard.press("Meta+,");
   await expect(page.locator(".settings-sheet")).toBeVisible();
+  await settingsTab(page, "appearance");
   await page
     .locator(".settings-row", { hasText: "Glow" })
     .locator(".settings-range")
@@ -41,6 +43,7 @@ test("settings pane with the appearance dials", async ({ page }) => {
   await boot(page);
   await page.keyboard.press("Meta+,");
   await expect(page.locator(".settings-sheet")).toBeVisible();
+  await settingsTab(page, "appearance");
   // scroll the appearance rows into view — they sit below the toggles
   await page.locator(".settings-row", { hasText: "Accent tone" }).scrollIntoViewIfNeeded();
   await page.waitForTimeout(400);
