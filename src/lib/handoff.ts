@@ -152,7 +152,7 @@ li.print-task { list-style: none; margin-left: -1.4em; }
   text-align: center; vertical-align: -.1em; }
 .print-task.done .print-box { background: #3d4bb5; border-color: #3d4bb5; color: #fff; }
 .print-link { color: #3d4bb5; }
-.print-embed, .print-missing { color: #9198a1; font-style: italic; }
+.print-embed, .print-missing { color: #71767e; font-style: italic; }
 `;
 
 /** One note → one standalone HTML document: title, props line, rendered
