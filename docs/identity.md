@@ -1,8 +1,17 @@
 # Stable identity — relations and sync
 
-**Status: spec, not built.** No engine code exists for it yet. Every
-current-behavior claim below is cited to `file:line` as it stands on
-`main` at 0.15.0.
+**Status: spec, not built — and stale-anchored.** No engine code exists for
+it: nothing in `src/` or `src-tauri/` generates or resolves the `id:` line
+this spec describes. The design still stands; its evidence has aged.
+
+Every current-behavior claim below was cited to `file:line` against `main`
+at **0.15.0**. The tree is now at **0.25.0**, ten releases on, and those line
+numbers are dead — `src-tauri/src/vault/mod.rs` alone has grown past 7000
+lines since, so an anchor like `vault/mod.rs:2083` now lands on an unrelated
+closing brace. **Read every `file:line` below as a symbol hint, not a
+location, and re-verify against the current tree before acting on it.** The
+prose was not re-verified either: a sentence here about "current behaviour"
+describes 0.15.0's behaviour, not today's.
 
 ## 0. The decision, in one paragraph
 

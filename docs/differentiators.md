@@ -79,8 +79,7 @@ Capacities, Affine).*
 - **Values with a shelf life** — a property can declare a review window in its
   database's schema (`review: 90d`, `yearly`), and Substrate reads the vault's
   own version history to say when each value was last set by a person: an
-  `age(phone)` column beside the value in any view, and a shelf-life report
-  listing what is past its window, worst first. It never notifies, never
+  `age(phone)` column beside the value in any view. It never notifies, never
   writes, and has no fix buttons — re-checking a phone number is work only a
   person can do. And it says what it cannot know: a value only ever touched by
   an import or a rule is counted as undatable rather than dated from the sweep
@@ -113,8 +112,8 @@ Capacities, Affine).*
   automatic push/pull against your own server (push once edits settle, pull
   on open/focus/interval; conflicts always park for you), HTTPS + keychain
   token, self-hosted;
-  the E2E-encrypted design is committed (see In flight). **Open source,
-  AGPL** (0.19) — the trust argument Notion structurally can't make.
+  the E2E-encrypted transport is built but unreleased (see In flight).
+  **Open source, AGPL** (0.19) — the trust argument Notion structurally can't make.
 - **Sealed notes and inherited private zones, unreadable even to local agents** —
   any individual note, folder subtree, or the user-note portion of a whole vault
   can become whole-file age ciphertext while neighbouring public folders stay
@@ -387,36 +386,6 @@ Capacities, Affine).*
   Sync pane — but not yet in a shipped release or verified against a real
   vault. Until a release carries it, keep saying "self-hosted sync today,
   E2E encryption landing"; never market encryption as shipped before then.
-- **Letterbox (drop boxes)**: hand out a link and anyone — no account, no
-  app — seals a note or files straight into your `Inbox/`, age-encrypted in
-  their browser, relayed as ciphertext only. Built and fenced private in the
-  app; don't advertise until it is promoted. The honest framing when it does
-  ship: the key protects the drop in transit and on the relay, not after it
-  lands, and attachments don't sync between devices yet.
-- **Lens (living shared page)**: right-click → Share as lens, and one URL
-  shows the *current* note rather than a dead export — every save re-seals and
-  republishes under the same slug, the key stays in the URL fragment, and a
-  quiet "as of 14:02" stamp keeps staleness honest. Revoking takes the page
-  off the relay. Nothing comparable exists at the same trust level: a Notion
-  share means Notion processes the content, and Obsidian Publish is a public
-  website rather than an end-to-end-encrypted window. Built and fenced private
-  in the app; don't advertise until it is promoted. The honest framing when it
-  does ship: it republishes while the app is open (not realtime, and not at
-  all while the app is shut), v1 carries text only — no images or audio — and
-  revoking ends access from now on rather than un-reading what was read.
-- **Return Slip (a shared page that asks)**: a lens can carry one question,
-  the reader taps a chip in their browser, and the answer comes back *typed* —
-  the note's own property, validated against the choices its database already
-  declares. There is no form builder, no service and no accounts, because the
-  question is a projection of the schema rather than a thing anyone designed;
-  and the answer is sealed to the vault's key, not the page's, so readers of
-  one link cannot read each other's. Nothing comparable exists at this trust
-  level: Notion Forms answers transit and live in Notion's cloud, and CryptPad
-  Forms — honest end-to-end and open source — lands answers in a pad rather
-  than as typed values in local plain files. Built and fenced private in the
-  app; don't advertise until it is promoted. The honest framing when it does
-  ship: the smallest slice writes ONE property, so the last answer in wins,
-  and answers only arrive while the app is open to poll for them.
 - **Hosted handoff relay**: the handoff feature is shipped; a public hosted
   relay is not. Until one exists, the self-host story leads.
 - **Same eyes — the evaluated view, headless**: `view-read` prints a saved
@@ -437,9 +406,11 @@ Capacities, Affine).*
 
 ## Planned (roadmap material — clearly marked, never advertised as shipped)
 
-Tracked in the issue tracker; headline shapes: time-travel queries over
-git history, per-fact provenance
-receipts, cross-type joins.
+Tracked in the issue tracker. Two of the shapes that used to sit here have
+since shipped and moved up: per-fact provenance receipts (0.23) and
+time-travel queries over git history — `AT()`, `PROP()` and the chart
+`history:` source (0.23), with search over the past following in 0.25. What
+remains planned here: cross-type joins.
 
 ## Maintenance
 

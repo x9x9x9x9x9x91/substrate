@@ -100,7 +100,7 @@ frame-src 'none'; frame-ancestors 'none'; form-action 'none'
   `net-link-titles`, `net-fx-rates`, `net-share-relay` — joined by
   `net-letterbox` for the drop-box lane and `net-lens` for the shared-page
   lane (both below). All five are rows under
-  "Outbound requests" in the ⌘, sheet, so the answer to "what does this app
+  "Outbound requests" on the ⌘, sheet's **Sharing** tab, so the answer to "what does this app
   talk to?" is one place in the UI. **Enforcement is at the
   app's request-initiating call sites**, not in `net.rs` — the engine makes a
   request only because something in the frontend asked it to, so a closed

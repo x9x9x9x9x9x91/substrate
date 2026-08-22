@@ -25,7 +25,7 @@ them out. Wikilinks pointing at them still resolve and open.
 
 The consequence to know: **if you create a file at the vault root with one of
 those exact names in another editor, it will not show up in Substrate.** Nothing
-was deleted. Turn on **Settings (⌘,) → Show app files** and it appears again,
+was deleted. Turn on **Settings (⌘,) → General → Show app files** and it appears again,
 alongside the seeded ones.
 
 Only those exact root filenames are affected. A note of your own called
