@@ -101,8 +101,6 @@ const HISTORY_MODE_COMMANDS = new Set([
   "history_facts",
   "history_freshness",
   "history_sheets",
-  /* change-set READS only — review renders the base side while the surface is
-     up; starting, accepting and discarding are writes and stay out */
   /* vault reads — served either from the projection (ipc.ts) or live */
   "vault_root",
   "vault_list",

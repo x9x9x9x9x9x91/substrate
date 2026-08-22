@@ -90,7 +90,6 @@ belongs to which is half this spec's job.
 | **Receipts** | one fact | all its changes, with actors | **shipped** |
 | **Time-travel queries** | one fact + a *date* | one value (or a date-series) | this spec |
 
-
 **The scrubber is done** and is in the tree. Its bar drives an
 `<input type="range">` over the snapshot **index**, not over dates
 (`src/components/TimeTravelBar.tsx:77-86`), and renders a commit-precise instant

@@ -31,6 +31,14 @@ interface InstallStub {
   calls: number;
 }
 
+/** what one on-demand check answers, read structurally so the test does not
+    have to import the hook's types before the loader hooks are in place */
+interface Answer {
+  state: string;
+  version?: string;
+  stage?: string;
+}
+
 interface UpdaterStub {
   version: string;
   install: InstallStub;
@@ -115,6 +123,8 @@ async function mountUpdater(t: Parameters<typeof renderComponent>[0]) {
   const { useToast } = await import("../hooks/useToast.ts");
   const { useUpdater } = await import("../hooks/useUpdater.ts");
   const messages: string[] = [];
+  /* the Settings row's half of the hook, held so a test can press it */
+  const ask: { run?: () => Promise<Answer> } = {};
 
   function Harness() {
     const { toast, showToast } = useToast();
@@ -126,7 +136,7 @@ async function mountUpdater(t: Parameters<typeof renderComponent>[0]) {
       },
       [showToast]
     );
-    useUpdater(record);
+    ask.run = useUpdater(record).checkNow;
     return h(
       "div",
       null,
@@ -138,7 +148,7 @@ async function mountUpdater(t: Parameters<typeof renderComponent>[0]) {
   }
 
   const rendered = await renderComponent(t, h(Harness));
-  return { rendered, messages };
+  return { rendered, messages, ask };
 }
 
 /** Drive something that updates state from outside React — a fired timer, a
@@ -159,6 +169,81 @@ async function runFirstCheck(rendered: { settle(): Promise<void> }, queued: Arra
   await drive(rendered, first);
   await rendered.settle();
 }
+
+/** press the Settings row's button and let the render its answer causes land */
+async function askNow(
+  rendered: { settle(): Promise<void> },
+  ask: { run?: () => Promise<Answer> }
+): Promise<Answer> {
+  assert.ok(ask.run, "the hook handed out no on-demand check");
+  let answer: Answer | undefined;
+  await act(async () => {
+    answer = await ask.run!();
+  });
+  await rendered.settle();
+  assert.ok(answer, "the on-demand check answered nothing");
+  return answer;
+}
+
+test("an on-demand check says up to date, and says nothing in the toast", async (t) => {
+  globalThis.__updaterStub = stubUpdater("9.9.9");
+  globalThis.__updaterStub.check = () => Promise.resolve(null);
+  captureWindowTimers(t);
+  const { rendered, ask, messages } = await mountUpdater(t);
+
+  assert.deepEqual(await askNow(rendered, ask), { state: "current" });
+  // the passive posture is untouched: nothing new means an empty toast slot
+  assert.equal(messages.length, 0);
+  assert.equal(rendered.one(".toast-msg")?.textContent, "");
+});
+
+test("an on-demand check that cannot reach the feed answers instead of throwing", async (t) => {
+  globalThis.__updaterStub = stubUpdater("9.9.9");
+  globalThis.__updaterStub.check = () => Promise.reject(new Error("offline"));
+  captureWindowTimers(t);
+  const { rendered, ask, messages } = await mountUpdater(t);
+
+  assert.deepEqual(await askNow(rendered, ask), { state: "unreachable" });
+  assert.equal(messages.length, 0);
+});
+
+test("an on-demand find rides the standing offer and never doubles the install", async (t) => {
+  globalThis.__updaterStub = stubUpdater("9.9.9");
+  const queued = captureWindowTimers(t);
+  const { rendered, ask } = await mountUpdater(t);
+
+  // the passive cycle already offered this exact version
+  await runFirstCheck(rendered, queued);
+  assert.match(rendered.text(), /Substrate 9\.9\.9 is available/);
+
+  // asking again names the same offer rather than stacking a second one
+  assert.deepEqual(await askNow(rendered, ask), {
+    state: "available",
+    version: "9.9.9",
+    stage: "offered",
+  });
+  await rendered.click(".toast-action");
+  assert.equal(globalThis.__updaterStub.install.calls, 1);
+
+  // pressed mid-download: reports the download, starts nothing
+  assert.deepEqual(await askNow(rendered, ask), {
+    state: "available",
+    version: "9.9.9",
+    stage: "downloading",
+  });
+  assert.equal(globalThis.__updaterStub.install.calls, 1);
+  assert.match(rendered.text(), /Downloading Substrate 9\.9\.9/);
+
+  // and once the bytes are in, it re-offers the restart instead of re-fetching
+  await drive(rendered, () => globalThis.__updaterStub?.install.finish());
+  assert.deepEqual(await askNow(rendered, ask), {
+    state: "available",
+    version: "9.9.9",
+    stage: "ready",
+  });
+  assert.equal(globalThis.__updaterStub.install.calls, 1);
+  assert.equal(rendered.one(".toast-action")?.textContent, "Restart now");
+});
 
 test("install replaces the offer with a download toast that counts percent", async (t) => {
   globalThis.__updaterStub = stubUpdater("9.9.9");

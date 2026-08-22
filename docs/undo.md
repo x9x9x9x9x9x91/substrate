@@ -609,7 +609,6 @@ so it must **invalidate**. Two things:
 2. On `vault:pulled`, entries touching those paths are marked stale by the same
    rule as (c) above.
 
-
 Interim behaviour, before (a) and this land: **any** `vault:changed` outside the
 echo window marks the **whole stack** stale. Conservative, occasionally annoying,
 never wrong. Slice 3 (§6.4) narrows it.

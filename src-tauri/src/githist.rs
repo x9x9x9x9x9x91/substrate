@@ -358,19 +358,6 @@ pub(crate) fn history_points(root: &Path) -> Result<Vec<VaultHistoryPoint>, Stri
     .collect()
 }
 
-/// One commit addressed by any revspec — a sha, a branch name, `HEAD~2`.
-/// `history_points` walks HEAD, so it can only name commits on the current
-/// line; a change set has to project a base that HEAD has since moved off.
-pub(crate) fn history_point_at(root: &Path, spec: &str) -> Result<VaultHistoryPoint, String> {
-    let repo = owned_repo(root)?;
-    let commit = commit_from_spec(&repo, spec)?;
-    Ok(VaultHistoryPoint {
-        id: commit.id().to_string(),
-        ts_ms: u64::try_from(commit.time().seconds().max(0)).unwrap_or(0).saturating_mul(1000),
-        subject: commit.summary().unwrap_or_default().to_string(),
-    })
-}
-
 /// Commit time of the oldest snapshot still in the repository — the boundary
 /// before which this vault can say nothing (docs/time-travel-spec.md §2.3).
 /// Taken as the minimum over every reachable commit rather than the last of a

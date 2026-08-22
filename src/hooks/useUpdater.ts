@@ -1,8 +1,23 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { check, type DownloadEvent, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { isTauri } from "../lib/tauri";
 import type { ToastAction, ToastOpts } from "./useToast";
+
+/**
+ * What one on-demand check found. The background cycle stays silent on two of
+ * these three — nothing new, and a feed it could not reach — so the answer
+ * only has somewhere to go when a person asked the question.
+ *
+ * `available` also covers an update this session already picked up: an offer
+ * standing in the toast, a download running, or bytes installed and waiting
+ * for a restart. Saying which one keeps a second press from starting a second
+ * download.
+ */
+export type UpdateCheck =
+  | { state: "current" }
+  | { state: "available"; version: string; stage: "offered" | "downloading" | "ready" }
+  | { state: "unreachable" };
 
 /** launch check waits this long so it never competes with vault load/index */
 const FIRST_CHECK_MS = 20_000;
@@ -22,6 +37,11 @@ const RECHECK_MS = 12 * 60 * 60 * 1000;
  * displaced toast is silence until the next cycle, never a lost update. A
  * staged install (downloaded, awaiting restart) re-surfaces its "Restart
  * now" toast the same way without re-downloading.
+ *
+ * Returns the same check as one callable thing (`checkNow`), for the Settings
+ * row where a person can ask on demand. It shares this cycle's feed, held
+ * offer and install path — it does not add a second one, and it changes no
+ * cadence.
  */
 export function useUpdater(
   showToast: (msg: string, action?: ToastAction, opts?: ToastOpts) => void
@@ -34,6 +54,15 @@ export function useUpdater(
   /** version downloaded+installed this session, awaiting restart */
   const staged = useRef<string | null>(null);
   const busy = useRef(false);
+  /** version currently downloading, so an on-demand check can name it */
+  const installing = useRef<string | null>(null);
+  /* The on-demand check, reachable from outside the effect that builds it.
+     Outside Tauri the effect returns before assigning, and this stub stands:
+     no plugin is registered there, which is the same answer as a feed that
+     cannot be reached. */
+  const ask = useRef<() => Promise<UpdateCheck>>(() =>
+    Promise.resolve({ state: "unreachable" })
+  );
 
   useEffect(() => {
     if (!isTauri) return;
@@ -86,6 +115,7 @@ export function useUpdater(
     const install = (update: Update) => {
       if (busy.current) return;
       busy.current = true;
+      installing.current = update.version;
       update
         .downloadAndInstall(progressToast(update))
         // no close() after success: install frees both rids rust-side
@@ -100,7 +130,31 @@ export function useUpdater(
         })
         .finally(() => {
           busy.current = false;
+          installing.current = null;
         });
+    };
+
+    /* Put a found update on offer and answer with the version now offered.
+       An update naming the version already held keeps the held resource — the
+       one the standing Install button installs — and the freshly fetched
+       duplicate is dropped. */
+    const offer = (update: Update): string => {
+      let held: Update;
+      if (pending.current && pending.current.version === update.version) {
+        // same offer still held — drop the duplicate resource
+        held = pending.current;
+        update.close().catch(() => {});
+      } else {
+        pending.current?.close().catch(() => {});
+        pending.current = update;
+        held = update;
+      }
+      showToast(
+        `Substrate ${held.version} is available`,
+        { label: "Install", run: () => install(held) },
+        { sticky: true }
+      );
+      return held.version;
     };
 
     const cycle = async () => {
@@ -117,23 +171,36 @@ export function useUpdater(
           update.close().catch(() => {});
           return;
         }
-        let held: Update;
-        if (pending.current && pending.current.version === update.version) {
-          // same offer still held — drop the duplicate resource
-          held = pending.current;
-          update.close().catch(() => {});
-        } else {
-          pending.current?.close().catch(() => {});
-          pending.current = update;
-          held = update;
-        }
-        showToast(
-          `Substrate ${held.version} is available`,
-          { label: "Install", run: () => install(held) },
-          { sticky: true }
-        );
+        offer(update);
       } catch {
         // silent: offline, endpoint unreachable, or mobile (no plugin)
+      }
+    };
+
+    /* The Settings row's button. Same feed, same offer, same install path —
+       all it adds is an answer for the two outcomes the cycle above keeps
+       quiet about. It never starts a second download: an install already
+       running, or already finished and awaiting a restart, reports that
+       instead of checking again. */
+    ask.current = async (): Promise<UpdateCheck> => {
+      if (staged.current) {
+        // the bytes are in; re-surface the restart offer rather than re-fetch
+        offerRestart(staged.current);
+        return { state: "available", version: staged.current, stage: "ready" };
+      }
+      if (busy.current && installing.current) {
+        return { state: "available", version: installing.current, stage: "downloading" };
+      }
+      try {
+        const update = await check();
+        if (!update) return { state: "current" };
+        if (disposed) {
+          update.close().catch(() => {});
+          return { state: "current" };
+        }
+        return { state: "available", version: offer(update), stage: "offered" };
+      } catch {
+        return { state: "unreachable" };
       }
     };
 
@@ -147,6 +214,11 @@ export function useUpdater(
       window.clearTimeout(timer);
       pending.current?.close().catch(() => {});
       pending.current = null;
+      ask.current = () => Promise.resolve({ state: "unreachable" });
     };
   }, [showToast]);
+
+  /* Stable across renders: the row holding it must not re-run its own effects
+     because this hook re-rendered. */
+  return { checkNow: useCallback(() => ask.current(), []) };
 }

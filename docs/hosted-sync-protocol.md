@@ -295,6 +295,26 @@ AAD is `substrate/hosted-sync/ref/v1`. The plaintext is strict UTF-8 JSON:
 The ref deliberately contains only one branch head. The branch name and graph
 remain encrypted. An unsupported version or a branch mismatch is a hard stop.
 
+A store whose history was replaced by a purge or trim carries one more field
+and is stamped version 2:
+
+```json
+{"version":2,"branch":"main","head":"…","superseded":["40-hex-git-oid","…"]}
+```
+
+`superseded` lists, oldest first and at most 32, the heads a replacing push
+published over — the purge boundaries. A device whose own history still reaches
+one of them is holding the pre-purge copy even when its push is an ordinary
+fast-forward (a purge that removes a recently added note collapses the head
+onto a commit other devices already hold), so that push is refused into the
+same pause-and-adopt door a replaced store shows, and the boundary is carried
+forward by every later push. The stamp is version 2 only while the list is
+non-empty, so a store that was never purged stays readable by clients that
+predate the field, and one that was purged refuses them by version rather than
+letting them republish what the purge removed. A version-1 document carrying
+the field is refused as invalid. The cap is what bounds the ref envelope: a
+device stranded from before a vault's 33rd purge is no longer recognised.
+
 ### Passphrase wrap `SBK1`
 
 Bytes are magic `SBK1`; Argon2 memory KiB, iterations, and lanes (4 bytes each);
