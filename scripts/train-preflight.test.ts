@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -106,6 +106,10 @@ function makeRig(dir: string): Rig {
     curl,
     `#!/usr/bin/env bash
 body=$(cat)
+# Kept so a test can ask what was actually SENT — the page size lives in the
+# query text, and a page size the parser believes but the query never carried
+# is exactly the fault this records.
+printf '%s' "$body" > "${dir}/last-request.json"
 id=$(printf '%s' "$body" | grep -oE '[A-Z]+-[0-9]+' | head -1)
 f="${fixtures}/$id.json"
 if [[ -f "$f" ]]; then cat "$f"; else printf '%s' '{"data":{"viewer":{"id":"user-me"},"issue":null}}'; fi
@@ -735,6 +739,153 @@ test("a saturated history page is an unknown age, not an old one", () => {
   });
 });
 
+
+/**
+ * An issue whose history has outgrown one page: the shape a branch that went
+ * through a dual review, a fix round and a re-review comes back as — ten-odd
+ * transitions plus label, attachment and comment events. Newest-first, the
+ * order the tracker actually pages in, unless a test asks for the reverse.
+ */
+function busyIssueJson(opts: {
+  identifier: string;
+  state: string;
+  /** Events in the page. Well past the old twenty-event page either way. */
+  events?: number;
+  /** Age of the newest transition; `null` puts none of them in the page. */
+  newestTransitionSecondsAgo?: number | null;
+  /** Serve the page oldest-first — the order that must NOT be readable. */
+  oldestFirst?: boolean;
+}): string {
+  const total = opts.events ?? 60;
+  const changedAgo =
+    opts.newestTransitionSecondsAgo === undefined ? 86_400 : opts.newestTransitionSecondsAgo;
+  const newest = (changedAgo ?? 60) * 1000;
+  // One event per minute walking backwards, so the page is strictly ordered and
+  // the newest transition sits at the head of it — every event behind the page
+  // boundary is older than every event in it.
+  const nodes = Array.from({ length: total }, (_, i) => ({
+    createdAt: new Date(Date.now() - newest - i * 60_000).toISOString(),
+    toState: i === 0 && changedAgo !== null ? { name: opts.state } : null,
+  }));
+  return JSON.stringify({
+    data: {
+      viewer: { id: "user-me", name: "Coordinator", displayName: "Coordinator" },
+      issue: {
+        identifier: opts.identifier,
+        state: { name: opts.state, type: "started" },
+        assignee: null,
+        labels: { nodes: [], pageInfo: { hasNextPage: false } },
+        history: {
+          nodes: opts.oldestFirst ? [...nodes].reverse() : nodes,
+          // The whole point: there IS more behind this page.
+          pageInfo: { hasNextPage: true },
+        },
+      },
+    },
+  });
+}
+
+test("a busy issue's newest-first page dates the state instead of failing closed", () => {
+  // The trap this closes: a page that came back saturated was unreadable no
+  // matter what was in it, so an issue with more history than one page could
+  // never be adopted — not a settle-window wait, a permanent refusal, and it
+  // fires on exactly the branches a train exists for.
+  withRig((rig) => {
+    fixture(rig, "SUB-50", busyIssueJson({ identifier: "SUB-50", state: "Needs Review" }));
+    const r = run(rig, ["sub/50-busy"]);
+    assert.equal(r.status, 0);
+    assert.match(r.stdout, /^ADOPT\s+sub\/50-busy\s+SUB-50: Needs Review/m);
+  });
+});
+
+test("a busy issue's fresh claim is still caught", () => {
+  // The other half of the same read: reading a saturated page must not turn the
+  // churn guard off. The newest transition is seconds old and inside the window.
+  withRig((rig) => {
+    fixture(
+      rig,
+      "SUB-51",
+      busyIssueJson({ identifier: "SUB-51", state: "Needs Review", newestTransitionSecondsAgo: 5 }),
+    );
+    const r = run(rig, ["sub/51-busy"]);
+    assert.equal(r.status, 1);
+    assert.match(r.stdout, /freshly claimed — state changed \d+s ago/);
+    assert.doesNotMatch(r.stdout, /ADOPT/);
+  });
+});
+
+test("a saturated page served oldest-first is still an unknown age", () => {
+  // The order is read off the response, never off the `orderBy` the query asked
+  // for. Oldest-first with more behind it means the newest transition may be
+  // off the end, and the newest one PRESENT is stale by construction: taking it
+  // would read as "settled long ago" and adopt a branch somebody else just took.
+  withRig((rig) => {
+    fixture(
+      rig,
+      "SUB-52",
+      busyIssueJson({ identifier: "SUB-52", state: "Needs Review", oldestFirst: true }),
+    );
+    const r = run(rig, ["sub/52-busy"]);
+    assert.equal(r.status, 1);
+    assert.match(r.stdout, /state age unknown — left to settle/);
+    assert.doesNotMatch(r.stdout, /ADOPT/);
+  });
+});
+
+test("a newest-first page carrying no transition at all is an unknown age", () => {
+  // Proven order says where the newest transition ISN'T, not when it happened.
+  // A full page of comment events dates nothing, and the way out is a deeper
+  // page — which the verdict line says out loud.
+  withRig((rig) => {
+    fixture(
+      rig,
+      "SUB-53",
+      busyIssueJson({
+        identifier: "SUB-53",
+        state: "Needs Review",
+        newestTransitionSecondsAgo: null,
+      }),
+    );
+    const r = run(rig, ["sub/53-busy"]);
+    assert.equal(r.status, 1);
+    assert.match(r.stdout, /state age unknown — left to settle/);
+    assert.match(r.stdout, /SUBSTRATE_HISTORY_PAGE/);
+    assert.doesNotMatch(r.stdout, /ADOPT/);
+  });
+});
+
+test("the page the parser judges is the page the query asked for", () => {
+  // These were two numbers before: the query's literal and the parser's env
+  // default. A raised override that only reached the parser would make a full
+  // page look unsaturated — the failure mode with a wrong ADOPT at the end of
+  // it — so the request itself is what gets asserted here.
+  withRig((rig) => {
+    fixture(rig, "SUB-54", issueJson({ identifier: "SUB-54", state: "Needs Review" }));
+    const sent = () => readFileSync(join(rig.dir, "last-request.json"), "utf8");
+
+    assert.equal(run(rig, ["sub/54-page"]).status, 0);
+    assert.match(sent(), /history\(first: 100,/);
+
+    assert.equal(run(rig, ["sub/54-page"], { SUBSTRATE_HISTORY_PAGE: "250" }).status, 0);
+    assert.match(sent(), /history\(first: 250,/);
+  });
+});
+
+test("a page size that is not a page size is refused, not interpolated", () => {
+  // The override lands inside the query text, so anything but a plain integer
+  // is a malformed query at best and a rewritten one at worst. It is a hard
+  // error rather than a fallback to the default: a caller who asked for a
+  // deeper page and silently got the shallow one is told nothing.
+  withRig((rig) => {
+    fixture(rig, "SUB-55", issueJson({ identifier: "SUB-55", state: "Needs Review" }));
+    for (const bad of ["0", "251", "twenty", "20) { nodes { createdAt } } x: viewer { id "]) {
+      const r = run(rig, ["sub/55-page"], { SUBSTRATE_HISTORY_PAGE: bad });
+      assert.equal(r.status, 2, `page size ${JSON.stringify(bad)} was not refused`);
+      assert.match(r.stderr, /SUBSTRATE_HISTORY_PAGE must be a whole number/);
+      assert.doesNotMatch(r.stdout, /ADOPT/);
+    }
+  });
+});
 
 test("a configured team prefix is the only prefix accepted", () => {
   // With a non-default team configured, a literal `SUB-` pattern would accept a
