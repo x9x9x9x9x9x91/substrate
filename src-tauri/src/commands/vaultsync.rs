@@ -41,6 +41,23 @@ pub(crate) struct VaultSyncStatus {
     /// embedded in the URL is redacted before it gets here, because this field
     /// is rendered on screen and photographed by the shot runs.
     remote_url: Option<String>,
+    /// Whether this hosted vault is parked by the post-rewrite refusal — a
+    /// purge or trim rewrote its history here and no push has been accepted
+    /// since, so every leg refuses until the server's copy is replaced.
+    ///
+    /// Its own boolean rather than something a pane reads out of the error
+    /// text: the state is what decides whether the way out is offered, the
+    /// wording of an error is not a contract, and the error slot is empty
+    /// entirely until a leg has run and failed — while the state is true from
+    /// the moment the rewrite lands.
+    rewrite_blocked: bool,
+    /// The other end of that state, on a device that asked for none of it: some
+    /// other device published a rewritten history over the store, and this one
+    /// holds work the new history has no line to, so its pulls are paused
+    /// rather than resetting it. Carries the cost of adopting — snapshots and
+    /// unsaved edits — because the pane has to name what the way out spends
+    /// before offering it. `None` is every ordinary vault.
+    replaced_store: Option<gitsync::ReplacedStoreState>,
 }
 
 /// A failure whose consequence outlives the attempt that hit it.
@@ -621,6 +638,8 @@ pub(crate) fn vault_sync_status(
     let configured = gitsync::sync_configured(&root);
     let conflicted = if configured { gitsync::sync_pending_conflicts(&root) } else { Vec::new() };
     let (remote_kind, remote_url) = gitsync::sync_remote(&root);
+    let rewrite_blocked = configured && gitsync::hosted_sync_blocked_by_rewrite(&root);
+    let replaced_store = if configured { gitsync::hosted_sync_replaced_store(&root) } else { None };
     let last = sync.last.lock().unwrap();
     let (privacy_error, privacy_paths) = match &last.privacy {
         Some(notice) => (Some(notice.message.clone()), notice.paths.clone()),
@@ -636,6 +655,8 @@ pub(crate) fn vault_sync_status(
         notice: last.notice.clone(),
         remote_kind,
         remote_url,
+        rewrite_blocked,
+        replaced_store,
     }
 }
 
@@ -684,7 +705,12 @@ fn classified_leg(
 /// still serves pulls, so a failing pull there is an ordinary transport miss
 /// and keeps the quiet window it is owed.
 fn class_for_failure(root: &Path) -> FailureClass {
-    if gitsync::hosted_sync_blocked_by_rewrite(root) {
+    // The replaced-store pause is the same kind of standing refusal, reached
+    // from the other side: it survives every retry until someone adopts or the
+    // store changes again, so the quiet window must not hide it either.
+    if gitsync::hosted_sync_blocked_by_rewrite(root)
+        || gitsync::hosted_sync_replaced_store(root).is_some()
+    {
         FailureClass::Local
     } else {
         FailureClass::Transport
@@ -800,6 +826,154 @@ pub(crate) async fn vault_sync_push(
     .await?
 }
 
+// async for the same reason as push: this IS a push, with the divergence
+// refusal lifted, so it carries the same network leg off the IPC thread.
+/// Publish this vault over the hosted store's current copy, ending the
+/// post-rewrite pause.
+///
+/// No `origin` parameter, unlike push and pull: nothing schedules this. It
+/// discards what the server holds, so it runs only when a user asked for it in
+/// front of a screen that said what it would do — the auto lane must never be
+/// able to reach it.
+#[tauri::command]
+pub(crate) async fn vault_sync_replace_hosted(
+    app: tauri::AppHandle,
+) -> Result<SyncReport, String> {
+    blocking(move || {
+        let state: State<AppState> = app.state();
+        let history: State<HistoryState> = app.state();
+        let sync: State<VaultSyncState> = app.state();
+        // Same one-network-leg gate and lock order as push, poison-tolerant
+        // for the same reason.
+        let _op = sync.op.lock().unwrap_or_else(|e| e.into_inner());
+        // Same reasoning as the pre-push snapshot: what this publishes is the
+        // vault as it stands, so edits that never made it into history would
+        // otherwise be left out of the copy that replaces the server's — and
+        // the failure to capture them is an outcome, not an early exit.
+        if let Err(error) = with_history(&history, |hist| hist.snapshot("snapshot (sync)")) {
+            let result: Result<SyncReport, String> = Err(error);
+            record_outcome(&sync, &result, false, FailureClass::Local);
+            record_health(&sync, &sync_root(&state), SyncLeg::Push, &result, FailureClass::Local);
+            return result;
+        }
+        let (result, class) = classified_leg(&sync_root(&state), &sync.credentials_path, || {
+            gitsync::sync_replace_hosted_gated(
+                &sync_root(&state),
+                &sync.credentials_path,
+                || state.0.lock().unwrap(),
+            )
+        });
+        record_outcome(&sync, &result, false, class);
+        record_store_notice(&mut sync.last.lock().unwrap(), &result);
+        record_health(&sync, &sync_root(&state), SyncLeg::Push, &result, class);
+        result
+    })
+    .await?
+}
+
+// async for the same reason as pull: this IS a pull, with the divergence
+// refusal replaced by a reset, so it carries the same network leg off the IPC
+// thread.
+/// Move this device onto the history another device published over the store,
+/// letting go of the snapshots and edits that history has no line to.
+///
+/// No `origin`, for the same reason [`vault_sync_replace_hosted`] has none and
+/// with the stakes pointed the other way: this one discards work on THIS
+/// device. Nothing schedules it; it runs only when someone in front of the
+/// pane read what it costs and asked.
+///
+/// It also takes no pre-snapshot, unlike every other leg here. Snapshotting
+/// first would commit the very edits the user just agreed to let go of, and
+/// the reset would destroy that commit a moment later — a snapshot whose only
+/// effect is to make the loss look like history.
+#[tauri::command]
+pub(crate) async fn vault_sync_adopt_replaced(app: tauri::AppHandle) -> Result<SyncReport, String> {
+    blocking(move || {
+        let state: State<AppState> = app.state();
+        let history: State<HistoryState> = app.state();
+        let sync: State<VaultSyncState> = app.state();
+        // Same one-network-leg gate and lock order as pull, poison-tolerant
+        // for the same reason.
+        let _op = sync.op.lock().unwrap_or_else(|e| e.into_inner());
+        let (mut result, mut class) =
+            classified_leg(&sync_root(&state), &sync.credentials_path, || {
+                gitsync::sync_adopt_replaced_gated(
+                    &sync_root(&state),
+                    &sync.credentials_path,
+                    || {
+                        let history = history.0.lock().unwrap();
+                        let engine = state.0.lock().unwrap();
+                        (history, engine)
+                    },
+                )
+            });
+        settle_incoming(&app, &history, &state, &sync, &mut result, &mut class);
+        record_outcome(&sync, &result, false, class);
+        // Deliberately no `record_store_notice`: that slot is the hosted
+        // store's size warning, which only a push can measure. What this leg
+        // has to say rides its own report.
+        record_health(&sync, &sync_root(&state), SyncLeg::Pull, &result, class);
+        announce_pull(&app, &result);
+        result
+    })
+    .await?
+}
+
+/// What a leg that lands files from someone else's history owes once the
+/// checkout has happened: seal any plaintext those files carry, and never let
+/// a failure in that sealing be reported as a clean sync.
+///
+/// Shared by the ordinary pull and by adopting a replaced store, because both
+/// write files this device did not author. The adoption is if anything the
+/// stronger case — it lands a whole history at once.
+fn settle_incoming(
+    app: &tauri::AppHandle,
+    history: &State<HistoryState>,
+    state: &State<AppState>,
+    sync: &State<VaultSyncState>,
+    result: &mut Result<SyncReport, String>,
+    class: &mut FailureClass,
+) {
+    if let Ok(report) = &*result {
+        if !report.changed.is_empty() {
+            // The remote commit may come from an old/non-cooperating
+            // writer that ignored a persistent marker. Adopt its working
+            // files with the public recipient, then remove those paths
+            // from THIS app-owned Git graph. The remote is a separate copy
+            // and gets an explicit UI warning below.
+            match seal_incoming(history, state, &report.changed) {
+                Ok(converted) => {
+                    if !converted.is_empty() {
+                        app.emit("vault:seal-remote-plaintext", converted).ok();
+                    }
+                    // This pass got through, so an earlier one's leftovers
+                    // are worth another try — that retry succeeding is
+                    // what finally clears the pane's sticky warning.
+                    retry_privacy_cleanup(history, state, sync);
+                }
+                Err(error) => {
+                    // The checkout already landed. Preserve its path event
+                    // so undo/editor state invalidates correctly, but never
+                    // report the privacy cleanup as a successful pull.
+                    app.emit("vault:pulled", report.changed.clone()).ok();
+                    // …and never let the timer lane's quiet window swallow
+                    // it either: the remote leg worked, and what failed
+                    // left plaintext in this machine's own history.
+                    *class = FailureClass::Local;
+                    let message = format!(
+                        "sync landed, but inherited sealing could not remove its plaintext local history: {error}"
+                    );
+                    // …and never let the NEXT successful tick erase it:
+                    // last_error is cleared by any Ok, and the plaintext
+                    // this warns about is not.
+                    record_privacy_failure(sync, &message, &report.changed);
+                    *result = Err(message);
+                }
+            }
+        }
+    }
+}
+
 // async for the same reason as push (network git off the IPC thread).
 // `origin: Some("auto")` marks a timer-driven attempt, same as push.
 #[tauri::command]
@@ -833,44 +1007,7 @@ pub(crate) async fn vault_sync_pull(
                     },
                 )
             });
-        if let Ok(report) = &result {
-            if !report.changed.is_empty() {
-                // The remote commit may come from an old/non-cooperating
-                // writer that ignored a persistent marker. Adopt its working
-                // files with the public recipient, then remove those paths
-                // from THIS app-owned Git graph. The remote is a separate copy
-                // and gets an explicit UI warning below.
-                match seal_incoming(&history, &state, &report.changed) {
-                    Ok(converted) => {
-                        if !converted.is_empty() {
-                            app.emit("vault:seal-remote-plaintext", converted).ok();
-                        }
-                        // This pass got through, so an earlier one's leftovers
-                        // are worth another try — that retry succeeding is
-                        // what finally clears the pane's sticky warning.
-                        retry_privacy_cleanup(&history, &state, &sync);
-                    }
-                    Err(error) => {
-                        // The checkout already landed. Preserve its path event
-                        // so undo/editor state invalidates correctly, but never
-                        // report the privacy cleanup as a successful pull.
-                        app.emit("vault:pulled", report.changed.clone()).ok();
-                        // …and never let the timer lane's quiet window swallow
-                        // it either: the remote leg worked, and what failed
-                        // left plaintext in this machine's own history.
-                        class = FailureClass::Local;
-                        let message = format!(
-                            "sync landed, but inherited sealing could not remove its plaintext local history: {error}"
-                        );
-                        // …and never let the NEXT successful tick erase it:
-                        // last_error is cleared by any Ok, and the plaintext
-                        // this warns about is not.
-                        record_privacy_failure(&sync, &message, &report.changed);
-                        result = Err(message);
-                    }
-                }
-            }
-        }
+        settle_incoming(&app, &history, &state, &sync, &mut result, &mut class);
         record_outcome(&sync, &result, origin.as_deref() == Some("auto"), class);
         record_health(&sync, &sync_root(&state), SyncLeg::Pull, &result, class);
         announce_pull(&app, &result);
@@ -1083,22 +1220,28 @@ mod tests {
             "only {} vault_sync_* commands found — the scan stopped seeing them: {commands:?}",
             commands.len()
         );
+        // Replacing the server's copy belongs on this list with push: it
+        // uploads the whole store, so it is exactly the leg that learns how
+        // large the store has become, and the user reached it by hand. The
+        // invariant this test defends is narrower than "push only" — it is
+        // that nothing the app runs BY ITSELF writes the warning, because a
+        // pull runs every few minutes and knows nothing about store size.
         assert_eq!(
             wrote,
-            vec!["vault_sync_push".to_string()],
-            "the store warning is push's slot: a pull runs every few minutes and knows \
-             nothing about how large the store is (commands scanned: {commands:?})"
+            vec!["vault_sync_push".to_string(), "vault_sync_replace_hosted".to_string()],
+            "the store warning is the uploading legs' slot: a pull runs every few minutes \
+             and knows nothing about how large the store is (commands scanned: {commands:?})"
         );
 
-        // 2. One non-test call site, so no helper can carry the call into a
-        //    leg the scan above reads as clean.
+        // 2. Two non-test call sites, one per leg above, so no helper can
+        //    carry the call into a leg the scan above reads as clean.
         let calls = code.matches("record_store_notice(").count()
             - code.matches("fn record_store_notice(").count();
         assert_eq!(
             calls,
-            1,
-            "the store-warning recorder gained a call site: it is push's alone, and \
-             indirection through a helper is how a pull gets it back"
+            2,
+            "the store-warning recorder gained a call site: it is the uploading legs' alone, \
+             and indirection through a helper is how a pull gets it back"
         );
 
         // 3. One writer of the slot itself, so nothing routes around the

@@ -75,6 +75,124 @@ test("a blob+ URL asks for the vault passphrase instead of a certificate", async
   await expect(page.getByLabel("Access token")).toHaveValue("");
 });
 
+async function configureHosted(page: Page) {
+  await page.getByLabel("Remote URL").fill("blob+https://drop.example/blob");
+  await page.getByLabel("Access token").fill("test-token-0123456789");
+  await page.locator(".vault-sync-passphrase").fill("correct horse battery staple");
+  await page.locator(".vault-sync-passphrase-again").fill("correct horse battery staple");
+  await page.getByRole("button", { name: "Save remote" }).click();
+  await expect(page.locator(".vault-sync-state")).toContainText("Ready");
+}
+
+/** The state a purge or trim leaves on an encrypted vault: every leg refuses,
+    and the only way out is publishing this device's history over the server's.
+    The pane has to name that state, say what the way out costs before it runs,
+    and go quiet once sync works again. */
+test("a vault paused by a rewrite is walked back to syncing", async ({ page }) => {
+  await openVaultSync(page);
+  await configureHosted(page);
+  await page.evaluate(() => window.__mockSyncRewriteBlocked?.(true));
+
+  // Ordinary sync is refused while it stands, in the words the backend uses —
+  // and the pane says what the state is, not only that the last leg failed.
+  await page.getByRole("button", { name: "Push", exact: true }).click();
+  await expect(page.locator(".vault-sync-error").first()).toContainText("hosted sync is paused");
+  await expect(page.locator(".vault-sync-state")).toContainText("Needs attention");
+  const paused = page.getByRole("heading", { name: /history was rewritten/ });
+  await expect(paused).toBeVisible();
+
+  // The first press says what the second one does; it does not run anything.
+  const replace = page.getByRole("button", { name: /^Replace the server/ });
+  await replace.click();
+  await expect(page.getByRole("heading", { name: "This replaces what the server holds" })).toBeVisible();
+  await expect(paused).toBeVisible();
+  // Arming clears the last leg's error, so the status has to carry the state
+  // by itself rather than falling back to the line that says sync is fine.
+  await expect(page.locator(".vault-sync-status")).toContainText("Sync is paused");
+  await expect(page.locator(".vault-sync-status")).not.toContainText("Ready to sync");
+
+  // Taking it back leaves the vault exactly as paused as it was.
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "This replaces what the server holds" })).toHaveCount(0);
+  await expect(paused).toBeVisible();
+
+  await replace.click();
+  await page.getByRole("button", { name: "Replace the server’s copy", exact: true }).click();
+
+  // Sync is ordinary from here: the pause is gone, the way out with it, and
+  // an ordinary push goes through.
+  await expect(page.locator(".vault-sync-state")).toContainText("Ready");
+  await expect(paused).toHaveCount(0);
+  await expect(page.locator(".vault-sync-summary")).toHaveText("Pushed 4 · Pulled 0");
+  await page.getByRole("button", { name: "Push", exact: true }).click();
+  await expect(page.locator(".vault-sync-summary")).toHaveText("Pushed 2 · Pulled 0");
+});
+
+/** The other side of that replacement, on a device that agreed to nothing: it
+    holds a snapshot and an unsaved edit the new history has no line to, so it
+    is paused rather than reset behind the user's back. The pane has to name
+    the pause, price it in the work it would spend, and only then offer the
+    way through. */
+test("a device holding its own work is asked before a replaced store takes it", async ({ page }) => {
+  await openVaultSync(page);
+  await configureHosted(page);
+  await page.evaluate(() =>
+    window.__mockSyncReplacedStore?.({ discarded_snapshots: 2, unsaved_edits: true }),
+  );
+
+  // Both legs refuse — including Push, which must not send the user to Pull.
+  await page.getByRole("button", { name: "Pull", exact: true }).click();
+  await expect(page.locator(".vault-sync-error").first()).toContainText("hosted sync is paused");
+  await page.getByRole("button", { name: "Push", exact: true }).click();
+  await expect(page.locator(".vault-sync-error").first()).toContainText(
+    "another device rewrote this vault",
+  );
+  await expect(page.locator(".vault-sync-state")).toContainText("Needs attention");
+
+  // The block names the state and what walking through it would spend.
+  const paused = page.getByRole("heading", { name: /another device rewrote/ });
+  await expect(paused).toBeVisible();
+  await expect(page.locator(".vault-sync-privacy")).toContainText(
+    "2 snapshots taken here, and edits no snapshot holds yet",
+  );
+
+  // The first press says what the second one does; it runs nothing, and the
+  // status carries the state once the last leg's error is cleared.
+  const adopt = page.getByRole("button", { name: /^Move onto the server/ });
+  await adopt.click();
+  await expect(
+    page.getByRole("heading", { name: "This discards work on this device" }),
+  ).toBeVisible();
+  await expect(paused).toBeVisible();
+  await expect(page.locator(".vault-sync-status")).toContainText("Sync is paused");
+  await expect(page.locator(".vault-sync-status")).not.toContainText("Ready to sync");
+
+  // Taking it back leaves the device exactly as paused as it was.
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "This discards work on this device" }),
+  ).toHaveCount(0);
+  await expect(paused).toBeVisible();
+
+  // Consenting adopts — and the report says the device moved onto a rewritten
+  // history rather than reading as an ordinary pull of six notes.
+  await adopt.click();
+  await page
+    .getByRole("button", { name: "Discard this device\u2019s work and sync", exact: true })
+    .click();
+  await expect(page.locator(".vault-sync-state")).toContainText("Ready");
+  await expect(paused).toHaveCount(0);
+  await expect(page.locator(".vault-sync-summary")).toHaveText("Pushed 0 · Pulled 6");
+  await expect(page.locator(".vault-sync-notice")).toContainText(
+    "moved onto a history another device rewrote",
+  );
+  await expect(page.locator(".vault-sync-notice")).toContainText("2 snapshots taken here");
+
+  // Sync is ordinary from here.
+  await page.getByRole("button", { name: "Push", exact: true }).click();
+  await expect(page.locator(".vault-sync-summary")).toHaveText("Pushed 2 · Pulled 0");
+});
+
 test("push updates the last outcome summary", async ({ page }) => {
   await openVaultSync(page);
   await configure(page);

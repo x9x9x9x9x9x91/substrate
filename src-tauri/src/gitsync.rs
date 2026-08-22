@@ -722,12 +722,69 @@ const REWRITE_MARKER_NOTE: &str =
     "this vault's history was rewritten on this device (purge or trim)\n\
 the sync remote may still hold the old history; the next successful push deletes this file\n";
 
+/// The line the marker carries the store position on. A rewrite deletes the
+/// tracking refs that hold it (githist `delete_sync_refs`), and the replacing
+/// push that follows needs it: it is the only record of where the store stood
+/// when this device stopped following it, and so the only way that push can
+/// tell its own rewrite apart from one another device published meanwhile.
+const REWRITE_MARKER_SEEN: &str = "last taken from the sync remote: ";
+
 /// Record that this vault's history was rewritten on this device. Written
 /// whether or not a sync remote is configured yet — one may be configured
 /// later, pointing at a repository that still holds the old history.
 pub(crate) fn mark_history_rewritten(git_dir: &Path) -> Result<(), String> {
-    fs::write(git_dir.join(REWRITE_MARKER), REWRITE_MARKER_NOTE)
-        .map_err(|e| format!("could not record the history rewrite: {e}"))
+    let mut note = REWRITE_MARKER_NOTE.to_string();
+    // A rewrite on top of an unanswered rewrite keeps the FIRST recording: the
+    // refs the first marker read are deleted a moment after it is written, and
+    // no sync leg has succeeded since (all of them refuse while the marker
+    // stands), so the position it recorded is still where this device last
+    // stood with the store. Truncating here is how a second seal used to lose
+    // the only evidence the replacing push checks.
+    let marker_path = git_dir.join(REWRITE_MARKER);
+    let mut recorded_names: Vec<String> = Vec::new();
+    if let Ok(existing) = fs::read_to_string(&marker_path) {
+        for line in existing.lines() {
+            if let Some(rest) = line.strip_prefix(REWRITE_MARKER_SEEN) {
+                if let Some((name, _)) = rest.split_once(' ') {
+                    recorded_names.push(name.to_string());
+                    note.push_str(line);
+                    note.push('\n');
+                }
+            }
+        }
+    }
+    // Both engines write this marker while the tracking refs still stand and
+    // delete them a moment later, so this is the last point where the store
+    // position can be read at all. A repository that cannot be opened, or a
+    // device that never took anything from a store, simply records nothing —
+    // the same silence a first join leaves, and read the same way.
+    if let Ok(repo) = Repository::open(git_dir) {
+        let prefix = format!("refs/remotes/{REMOTE}/");
+        if let Ok(references) = repo.references() {
+            for reference in references.flatten() {
+                let (Some(name), Some(oid)) = (reference.name(), reference.target()) else {
+                    continue;
+                };
+                if name.starts_with(&prefix) && !recorded_names.iter().any(|seen| seen == name) {
+                    note.push_str(&format!("{REWRITE_MARKER_SEEN}{name} {oid}\n"));
+                }
+            }
+        }
+    }
+    fs::write(marker_path, note).map_err(|e| format!("could not record the history rewrite: {e}"))
+}
+
+/// Where the store stood for `tracking_ref` when this device's history was
+/// rewritten, if that was recorded. Absent for a device that never took
+/// anything from a store, and for markers written before this was recorded at
+/// all — both read as "no position", which is what they are.
+pub(crate) fn history_rewrite_seen(repo: &Repository, tracking_ref: &str) -> Option<Oid> {
+    let note = fs::read_to_string(repo.path().join(REWRITE_MARKER)).ok()?;
+    note.lines()
+        .filter_map(|line| line.strip_prefix(REWRITE_MARKER_SEEN))
+        .filter_map(|rest| rest.split_once(' '))
+        .find(|(name, _)| *name == tracking_ref)
+        .and_then(|(_, oid)| Oid::from_str(oid.trim()).ok())
 }
 
 fn history_rewritten(repo: &Repository) -> bool {
@@ -746,9 +803,9 @@ fn history_rewritten(repo: &Repository) -> bool {
 /// surface should not read like one. The pull refusal never looks at what the
 /// remote holds, so a vault purged before it had any remote and then enrolled
 /// into a fresh empty store trips this too — and heals itself on its first
-/// accepted push. What is missing is a way for someone to reach that outcome
-/// deliberately from inside the app instead of by accident; that gap is filed
-/// on its own.
+/// accepted push. [`sync_replace_hosted_gated`] is how someone reaches that
+/// outcome deliberately rather than by accident, and a surface that reports
+/// this state owes them that door in the same breath.
 ///
 /// Callers use it to class those failures as local rather than transport: a
 /// quiet window meant for an offline device hides them for hours behind a pane
@@ -770,12 +827,128 @@ fn clear_history_rewritten(repo: &Repository) -> Result<(), String> {
     }
 }
 
+/// The other end of a replacement, on the device that consented to nothing.
+///
+/// A file a hosted pull leaves in the git dir when it meets a store some other
+/// device replaced — a history rewritten by a purge or trim, published over
+/// the one this device was building on — while this device still holds work
+/// that history does not have. The pull refuses rather than resetting onto it,
+/// and this file is what keeps the refusal on screen between pulls: the
+/// question it answers ("was the store replaced?") needs the network, and the
+/// pane asks nothing of the network.
+///
+/// Same convention as [`REWRITE_MARKER`]: app-owned git-dir state that never
+/// syncs with note content. The adoption removes it, and so does any later
+/// pull that finds the store ordinary again.
+const REPLACED_STORE_MARKER: &str = "substrate-sync-store-replaced";
+
+/// What someone finding the marker in the git dir needs to know.
+const REPLACED_STORE_MARKER_NOTE: &str =
+    "another device published a rewritten history (purge or trim) over this vault's sync store\n\
+this device holds snapshots or edits that history does not, so sync is paused rather than \
+reset onto it\n\
+adopting the store's history from the Vault sync pane discards them and deletes this file\n";
+
+/// The line the marker carries the replacement's head on, after the note.
+///
+/// The pane has to price the pause without touching the network, and the only
+/// honest basis for that price is the head this device would be reset onto —
+/// see [`blob::HeldLocally`]. The pull knows it; the pane, minutes later, does
+/// not. So the refusal writes it down here, where the fetch that answered the
+/// question has already put the commit itself in this repository's objects.
+const REPLACED_STORE_HEAD_PREFIX: &str = "replacement head: ";
+
+pub(crate) fn mark_store_replaced(repo: &Repository, replacement: Oid) -> Result<(), String> {
+    fs::write(
+        repo.path().join(REPLACED_STORE_MARKER),
+        format!("{REPLACED_STORE_MARKER_NOTE}{REPLACED_STORE_HEAD_PREFIX}{replacement}\n"),
+    )
+    .map_err(|e| format!("could not record the replaced sync store: {e}"))
+}
+
+/// The head the refusal recorded, when the marker still carries a readable
+/// one. `None` — an older marker, a truncated write, an oid this repository
+/// never fetched — is not "no cost": callers say they could not work the
+/// number out rather than reporting zero.
+fn store_replaced_head(repo: &Repository) -> Option<Oid> {
+    let marker = fs::read_to_string(repo.path().join(REPLACED_STORE_MARKER)).ok()?;
+    let line = marker.lines().find_map(|line| line.strip_prefix(REPLACED_STORE_HEAD_PREFIX))?;
+    let oid = Oid::from_str(line.trim()).ok()?;
+    repo.find_commit(oid).ok().map(|_| oid)
+}
+
+pub(crate) fn store_replaced(repo: &Repository) -> bool {
+    repo.path().join(REPLACED_STORE_MARKER).is_file()
+}
+
+pub(crate) fn clear_store_replaced(repo: &Repository) -> Result<(), String> {
+    match fs::remove_file(repo.path().join(REPLACED_STORE_MARKER)) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!("could not clear the replaced-store marker: {error}")),
+    }
+}
+
+/// What adopting the replaced store would cost this device, measured fresh
+/// every time the pane asks: the user can keep writing while the pause stands,
+/// and a number frozen at refusal time would understate it within minutes.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct ReplacedStoreState {
+    /// Snapshots this device holds that the replacement's history has no line
+    /// to — the ones adopting discards. Not "unsynced": a snapshot that
+    /// reached the store before the replacement overwrote it is discarded just
+    /// the same, and pricing it as safe is the thing that made the old
+    /// measurement dangerous. `None` when the graph cannot answer, which is
+    /// not "zero": the pane says the pause costs snapshots without naming a
+    /// count rather than claiming none.
+    pub discarded_snapshots: Option<u32>,
+    /// Edits sitting in the working tree that no snapshot holds. `None` when
+    /// the tree could not be read — again not "no": this is the screen that
+    /// prices the loss before the button, so an unanswerable question says so
+    /// instead of quietly answering in the reassuring direction.
+    pub unsaved_edits: Option<bool>,
+}
+
+/// The paused-on-a-replaced-store state, for a pane that has to render it
+/// without touching the network. `None` is the ordinary case — no marker, or a
+/// vault that is not hosted at all.
+pub fn hosted_sync_replaced_store(root: &Path) -> Option<ReplacedStoreState> {
+    let repo = owned_repo(root).ok()?;
+    if hosted_remote_base(&repo).is_none() || !store_replaced(&repo) {
+        return None;
+    }
+    Some(ReplacedStoreState {
+        discarded_snapshots: discarded_snapshots(&repo).ok(),
+        unsaved_edits: working_tree_is_dirty(&repo).ok(),
+    })
+}
+
+/// Snapshots this device holds that the replacement's history does not reach —
+/// exactly what adopting it lets go of, measured on the same basis the
+/// refusal used (see `blob::HeldLocally`) so the pane and the error cannot
+/// quote different numbers for the same press.
+///
+/// A marker with no readable head is an error rather than a zero. The count is
+/// what the pane prices the button with, and a confident "nothing" is the one
+/// answer it must never invent.
+fn discarded_snapshots(repo: &Repository) -> Result<u32, String> {
+    let (_, local_oid) = current_branch_state(repo)?;
+    let Some(local) = local_oid else {
+        return Ok(0);
+    };
+    let replacement = store_replaced_head(repo)
+        .ok_or_else(|| "the paused vault records no replacement head".to_string())?;
+    exclusive_commit_count(repo, local, Some(replacement))
+}
+
 /// The classified message both push-failure paths share once they know the
-/// failure is the post-rewrite one: name the cause and the manual
-/// remedy in plain language instead of dropping raw git wording on the user.
-/// Substrate never force-pushes a remote on its own — the designed consent
-/// flow for replacing one is parked, so this ships the honest error only.
-/// The raw rejection rides along at the end for anyone who wants it.
+/// failure is the post-rewrite one: name the cause and the remedy in plain
+/// language instead of dropping raw git wording on the user. Substrate never
+/// force-pushes on its own, and for a plain Git remote it has no way to be
+/// asked to — the in-app replacement flow is hosted-only, because only the
+/// blob transport publishes the branch head itself. So this path keeps
+/// pointing at the server-side steps. The raw rejection rides along at the end
+/// for anyone who wants it.
 fn rewritten_history_push_error(raw: &str) -> String {
     format!(
         "vault sync push rejected: this vault's history was rewritten on this device (a purge \
@@ -1189,6 +1362,100 @@ pub fn sync_push_gated<G>(
     Ok(report(pushed, 0, Vec::new(), local_oid))
 }
 
+/// Publish this device's history over the hosted store's current head, for a
+/// vault the post-rewrite refusal has parked.
+///
+/// Only for the state [`hosted_sync_blocked_by_rewrite`] describes, and it
+/// says so by refusing anything else: a plain Git remote has no such flow
+/// (the app cannot force-push one), and a hosted vault that is merely behind
+/// must pull and merge like any other rather than have its remote overwritten.
+/// The refusal matters — this is the one operation in the app that discards
+/// what a remote holds, so it may only ever run where the user was shown that
+/// and agreed.
+///
+/// On success the server's branch head is this vault's, and the rewrite marker
+/// is cleared by the push itself, so the next ordinary sync is ordinary again.
+/// What it does NOT do is empty the store: the objects the old history reached
+/// stay there as ciphertext no branch points at, and only rebuilding the
+/// hosted store removes those.
+pub fn sync_replace_hosted_gated<G>(
+    root: &Path,
+    credentials_path: &Path,
+    gate: impl FnOnce() -> G,
+) -> Result<SyncReport, String> {
+    let repo = owned_repo(root)?;
+    let Some(base) = hosted_remote_base(&repo) else {
+        return Err(
+            "replacing the server's copy is only possible for an end-to-end-encrypted remote"
+                .into(),
+        );
+    };
+    // Ahead of the rewrite check, because a device can be in both states at
+    // once and this is the one that has to win. A device paused on someone
+    // else's replacement still holds the history that replacement removed —
+    // it never adopted. Sealing a note here would set the rewrite marker too,
+    // and pressing Replace would then publish this device's pre-adoption
+    // history over the store: the other device's purge undone, on the server
+    // and from there on every device, with both panes reading Ready. A purge
+    // is a privacy operation, so reversing one silently is worse than losing a
+    // snapshot. The order out of the two pauses is fixed: adopt first, then
+    // purge again here if that is still wanted.
+    if store_replaced(&repo) {
+        return Err("replacing the server's copy is refused while this vault's sync is paused on \
+             a history another device published: this device still holds what that device \
+             removed, so replacing would put it back on the server and on every device. Move \
+             this device onto the server's history first, from the Vault sync pane — a purge \
+             here can be published as usual once that pause is resolved"
+            .into());
+    }
+    if !history_rewritten(&repo) {
+        return Err("this vault's history has not been rewritten here, so there is nothing for a \
+             replacement to repair; use Push"
+            .into());
+    }
+    let (transport, key) = hosted_transport(root, credentials_path, &base)?;
+    blob::push_replacing_remote(root, &key, &transport, gate)
+}
+
+/// Move this device onto the history another device published over the store,
+/// letting go of what this one holds — the far end of the pause a replacement
+/// leaves on every device that did not ask for it.
+///
+/// The mirror image of [`sync_replace_hosted_gated`]: that one discards what
+/// the server holds, this one discards what the device holds. Both are only
+/// reachable from a person in front of the pane who was shown the cost, and
+/// both refuse everything except the state they exist for — here, a hosted
+/// vault the pull actually paused. Without that second refusal this would be a
+/// general-purpose "throw my vault away" button one mis-wired caller away from
+/// running on an ordinary device.
+///
+/// On success the device is on the store's history, the marker is gone, and
+/// the report says what it moved onto rather than reading like an ordinary
+/// pull.
+pub fn sync_adopt_replaced_gated<G>(
+    root: &Path,
+    credentials_path: &Path,
+    mut gate: impl FnMut() -> G,
+) -> Result<SyncReport, String> {
+    let repo = owned_repo(root)?;
+    let Some(base) = hosted_remote_base(&repo) else {
+        return Err(
+            "adopting the server's history is only possible for an end-to-end-encrypted remote"
+                .into(),
+        );
+    };
+    if !store_replaced(&repo) {
+        return Err(
+            "this vault's sync is not paused on a replaced history, so there is nothing to \
+             adopt; use Pull"
+                .into(),
+        );
+    }
+    drop(repo);
+    let (transport, key) = hosted_transport(root, credentials_path, &base)?;
+    blob::pull_adopting_replaced(root, &key, &transport, gate)
+}
+
 /// Ungated pull with no snapshot in between — the plain form tests use; the
 /// app goes through [`sync_pull_with_snapshot`].
 #[cfg(test)]
@@ -1203,7 +1470,7 @@ pub fn sync_pull(root: &Path, credentials_path: &Path) -> Result<SyncReport, Str
 pub fn sync_pull_gated<G>(
     root: &Path,
     credentials_path: &Path,
-    gate: impl FnOnce() -> G,
+    mut gate: impl FnMut() -> G,
 ) -> Result<SyncReport, String> {
     sync_pull_with_snapshot(root, credentials_path, || Ok(()), gate)
 }
@@ -1232,7 +1499,10 @@ pub fn sync_pull_with_snapshot<G>(
     root: &Path,
     credentials_path: &Path,
     snapshot: impl FnOnce() -> Result<(), String>,
-    gate: impl FnOnce() -> G,
+    // `FnMut` rather than `FnOnce` because the hosted pull now takes the gate
+    // twice: once to decide whether the store was replaced, before the
+    // snapshot, and once around the integration after it.
+    mut gate: impl FnMut() -> G,
 ) -> Result<SyncReport, String> {
     {
         let repo = owned_repo(root)?;
@@ -2978,6 +3248,679 @@ mod tests {
 
     fn configure(root: &Path, credentials: &Path, remote: &Path) {
         sync_set_remote(root, credentials, &remote_url(remote), "local-test-token", None, None).unwrap();
+    }
+
+    /// The hosted way out of the post-rewrite pause, through the app's own
+    /// entry points: purge, watch every leg refuse, then replace the server's
+    /// copy and find sync ordinary again.
+    #[test]
+    fn replacing_the_hosted_copy_reopens_a_vault_a_purge_paused() {
+        use substrate_hosted_sync_server::{Config, Server};
+        let scratch = TempDir::new().unwrap();
+        let server = Server::start(
+            "127.0.0.1:0",
+            Config {
+                storage: scratch.path().join("server-storage"),
+                token: "test-token-0123456789".into(),
+            },
+        )
+        .unwrap();
+        let url = format!("blob+{}", server.base_url());
+        const PHRASE: Option<&str> = Some("correct horse battery");
+
+        let a = scratch.path().join("vault-a");
+        let credentials_a = scratch.path().join("creds-a.json");
+        fs::create_dir_all(&a).unwrap();
+        let history_a = owned(&a);
+        fs::write(a.join("Keep.md"), "keep me\n").unwrap();
+        assert!(history_snapshot(&a, "keep").unwrap());
+        fs::write(a.join("Secret.md"), "erase me everywhere\n").unwrap();
+        assert!(history_snapshot(&a, "secret").unwrap());
+        sync_set_remote(&a, &credentials_a, &url, "test-token-0123456789", None, PHRASE).unwrap();
+        sync_push_gated(&a, &credentials_a, || ()).unwrap();
+
+        // Nothing to replace while the vault and the store agree.
+        let error = sync_replace_hosted_gated(&a, &credentials_a, || ()).unwrap_err();
+        assert!(error.contains("nothing for a replacement to repair"), "{error}");
+
+        fs::remove_file(a.join("Secret.md")).unwrap();
+        history_a.purge_files(&["Secret.md"]).unwrap();
+        assert!(hosted_sync_blocked_by_rewrite(&a), "the purge must pause hosted sync");
+        sync_push_gated(&a, &credentials_a, || ()).unwrap_err();
+
+        sync_replace_hosted_gated(&a, &credentials_a, || ()).unwrap();
+        assert!(
+            !hosted_sync_blocked_by_rewrite(&a),
+            "the replacement left the vault reading as paused, so the pane would keep offering \
+             a door that is no longer needed"
+        );
+        fs::write(a.join("After.md"), "written after the repair\n").unwrap();
+        assert!(history_snapshot(&a, "after").unwrap());
+        assert_eq!(sync_push_gated(&a, &credentials_a, || ()).unwrap().pushed, 1);
+
+        // A second device joining now gets the rewritten history, not the one
+        // the purge removed.
+        let b = scratch.path().join("vault-b");
+        let credentials_b = scratch.path().join("creds-b.json");
+        fs::create_dir_all(&b).unwrap();
+        let _history_b = owned(&b);
+        sync_set_remote(&b, &credentials_b, &url, "test-token-0123456789", None, PHRASE).unwrap();
+        sync_pull_with_snapshot(&b, &credentials_b, || Ok(()), || ()).unwrap();
+        assert!(b.join("After.md").is_file());
+        assert!(!b.join("Secret.md").exists(), "the purged note reached the new device");
+    }
+
+    /// The other side of a replacement: a device that consented to nothing,
+    /// holding a snapshot the rewritten history has no line to and an edit no
+    /// snapshot holds. It must be left alone and asked — and the asking has to
+    /// survive being ignored, because a pull that quietly rearms itself is
+    /// what would put the purged content back.
+    #[test]
+    fn a_device_holding_its_own_work_is_asked_before_a_replaced_store_takes_it() {
+        use std::cell::Cell;
+        use substrate_hosted_sync_server::{Config, Server};
+        let scratch = TempDir::new().unwrap();
+        let server = Server::start(
+            "127.0.0.1:0",
+            Config {
+                storage: scratch.path().join("server-storage"),
+                token: "test-token-0123456789".into(),
+            },
+        )
+        .unwrap();
+        let url = format!("blob+{}", server.base_url());
+        const PHRASE: Option<&str> = Some("correct horse battery");
+
+        let a = scratch.path().join("vault-a");
+        let credentials_a = scratch.path().join("creds-a.json");
+        fs::create_dir_all(&a).unwrap();
+        let history_a = owned(&a);
+        fs::write(a.join("Keep.md"), "keep me\n").unwrap();
+        assert!(history_snapshot(&a, "keep").unwrap());
+        fs::write(a.join("Secret.md"), "erase me everywhere\n").unwrap();
+        assert!(history_snapshot(&a, "secret").unwrap());
+        sync_set_remote(&a, &credentials_a, &url, "test-token-0123456789", None, PHRASE).unwrap();
+        sync_push_gated(&a, &credentials_a, || ()).unwrap();
+
+        // Device B joins, takes that history, and then does its own work: one
+        // snapshot it never pushed, and an edit it never even snapshotted.
+        let b = scratch.path().join("vault-b");
+        let credentials_b = scratch.path().join("creds-b.json");
+        fs::create_dir_all(&b).unwrap();
+        let _history_b = owned(&b);
+        sync_set_remote(&b, &credentials_b, &url, "test-token-0123456789", None, PHRASE).unwrap();
+        sync_pull_with_snapshot(&b, &credentials_b, || Ok(()), || ()).unwrap();
+        assert!(b.join("Secret.md").is_file());
+        // Pushed, so the store holds everything B has so far — which buys B
+        // nothing once the store is replaced: the purge reissues every commit,
+        // so the replacement has no line to any of them either.
+        sync_push_gated(&b, &credentials_b, || ()).unwrap();
+        sync_pull_with_snapshot(&a, &credentials_a, || Ok(()), || ()).unwrap();
+        fs::write(b.join("Mine.md"), "written on device B\n").unwrap();
+        assert!(history_snapshot(&b, "mine").unwrap());
+        fs::write(b.join("Draft.md"), "still being typed\n").unwrap();
+
+        // Device A purges and publishes the rewrite over the store.
+        fs::remove_file(a.join("Secret.md")).unwrap();
+        history_a.purge_files(&["Secret.md"]).unwrap();
+        sync_replace_hosted_gated(&a, &credentials_a, || ()).unwrap();
+
+        // B's ordinary pull refuses, and refuses without snapshotting: a
+        // snapshot here would commit Draft.md purely so the adoption could
+        // destroy it.
+        let snapshotted = Cell::new(false);
+        let error = sync_pull_with_snapshot(
+            &b,
+            &credentials_b,
+            || {
+                snapshotted.set(true);
+                Ok(())
+            },
+            || (),
+        )
+        .unwrap_err();
+        assert!(!snapshotted.get(), "the refusal snapshotted the vault it was about to refuse");
+        // Priced against the replacement head: B's own snapshot plus the
+        // history it took from A before the purge, every one of those commits
+        // outside the history the replacement published.
+        assert!(error.contains("4 snapshots taken here"), "{error}");
+        assert!(error.contains("edits no snapshot holds yet"), "{error}");
+        assert!(error.contains("Vault sync pane"), "the refusal named no way out: {error}");
+        assert_eq!(
+            fs::read_to_string(b.join("Draft.md")).unwrap(),
+            "still being typed\n",
+            "the refusal touched the working tree"
+        );
+        assert!(b.join("Mine.md").is_file(), "the refusal dropped the snapshot it was about");
+
+        // The pane can render the pause without touching the network, and it
+        // gets the cost, not just the fact.
+        let paused = hosted_sync_replaced_store(&b).expect("the pause left no state for the pane");
+        assert_eq!(paused.discarded_snapshots, Some(4));
+        assert_eq!(paused.unsaved_edits, Some(true));
+
+        // And the other door the pane could offer stays shut while the pause
+        // stands: replacing the server's copy from here would publish the
+        // content the other device purged back to every device.
+        let refused = sync_replace_hosted_gated(&b, &credentials_b, || ()).unwrap_err();
+        assert!(refused.contains("paused"), "{refused}");
+        assert!(refused.contains("Vault sync pane"), "the refusal named no way out: {refused}");
+
+        // Ignored, it stays a refusal. If the tracking ref had moved the
+        // second pull would read the store as ordinary and MERGE — putting
+        // Secret.md back on this device and, from its next push, on the store.
+        let again = sync_pull_with_snapshot(&b, &credentials_b, || Ok(()), || ()).unwrap_err();
+        assert!(again.contains("4 snapshots taken here"), "{again}");
+        assert!(b.join("Secret.md").is_file(), "the second refusal already checked something out");
+
+        // Push refuses too: first on the unsaved edit, and once that is set
+        // aside, in the pause's own words rather than in the generic line that
+        // sends the user to Pull — the leg that is refusing.
+        let dirty = sync_push_gated(&b, &credentials_b, || ()).unwrap_err();
+        assert!(dirty.contains("clean working tree"), "{dirty}");
+        let draft = fs::read_to_string(b.join("Draft.md")).unwrap();
+        fs::remove_file(b.join("Draft.md")).unwrap();
+        let pushed = sync_push_gated(&b, &credentials_b, || ()).unwrap_err();
+        assert!(pushed.contains("another device rewrote this vault's history"), "{pushed}");
+        assert!(!pushed.contains("pull and merge first"), "{pushed}");
+        fs::write(b.join("Draft.md"), draft).unwrap();
+
+        // Adopting is only reachable through the consenting command, and it
+        // says what it cost.
+        let adopted = sync_adopt_replaced_gated(&b, &credentials_b, || ()).unwrap();
+        let notice = adopted.notice.as_deref().unwrap_or_default();
+        assert!(notice.contains("rewrote"), "{notice:?}");
+        assert!(notice.contains("4 snapshots taken here"), "{notice:?}");
+        assert!(notice.contains("edits no snapshot holds yet"), "{notice:?}");
+        assert!(!b.join("Secret.md").exists(), "the purged note survived on the second device");
+        assert!(!b.join("Mine.md").exists(), "the reset kept work the store has no line to");
+        assert!(
+            hosted_sync_replaced_store(&b).is_none(),
+            "the pane would keep offering a door the device already walked through"
+        );
+
+        // And sync is ordinary from here.
+        fs::write(b.join("Next.md"), "after adopting\n").unwrap();
+        assert!(history_snapshot(&b, "next").unwrap());
+        assert_eq!(sync_push_gated(&b, &credentials_b, || ()).unwrap().pushed, 1);
+    }
+
+    /// Adoption is not a general-purpose way to throw a device's vault away:
+    /// it refuses every vault the pull did not actually pause.
+    ///
+    /// Hosted on purpose. A plain Git remote is turned away one check earlier,
+    /// on the transport, so a test written against one would pass without the
+    /// marker gate this is named for existing at all.
+    #[test]
+    fn adopting_refuses_a_vault_that_was_never_paused() {
+        use substrate_hosted_sync_server::{Config, Server};
+        let scratch = TempDir::new().unwrap();
+        let server = Server::start(
+            "127.0.0.1:0",
+            Config {
+                storage: scratch.path().join("server-storage"),
+                token: "test-token-0123456789".into(),
+            },
+        )
+        .unwrap();
+        let url = format!("blob+{}", server.base_url());
+
+        let a = scratch.path().join("a");
+        fs::create_dir_all(&a).unwrap();
+        let history_a = owned(&a);
+        let credentials_a = scratch.path().join("config-a/sync.json");
+        sync_set_remote(
+            &a,
+            &credentials_a,
+            &url,
+            "test-token-0123456789",
+            None,
+            Some("correct horse battery"),
+        )
+        .unwrap();
+        fs::write(a.join("Note.md"), "mine\n").unwrap();
+        assert!(history_a.snapshot("snapshot").unwrap());
+        sync_push_gated(&a, &credentials_a, || ()).unwrap();
+
+        let error = sync_adopt_replaced_gated(&a, &credentials_a, || ()).unwrap_err();
+        assert!(error.contains("nothing to adopt"), "{error}");
+        assert!(a.join("Note.md").is_file(), "a vault that was never paused was reset anyway");
+    }
+
+    /// The other half of the same rule, from the replacing side: a device that
+    /// owes an answer about someone else's rewrite cannot publish a rewrite of
+    /// its own over the store. Doing so would carry the content the first
+    /// device purged back to the server and out to every device, which is the
+    /// exact damage the pause exists to prevent.
+    #[test]
+    fn replacing_the_hosted_copy_is_refused_while_the_vault_is_paused() {
+        use substrate_hosted_sync_server::{Config, Server};
+        let scratch = TempDir::new().unwrap();
+        let server = Server::start(
+            "127.0.0.1:0",
+            Config {
+                storage: scratch.path().join("server-storage"),
+                token: "test-token-0123456789".into(),
+            },
+        )
+        .unwrap();
+        let url = format!("blob+{}", server.base_url());
+        const PHRASE: Option<&str> = Some("correct horse battery");
+
+        let a = scratch.path().join("vault-a");
+        let credentials_a = scratch.path().join("creds-a.json");
+        fs::create_dir_all(&a).unwrap();
+        let history_a = owned(&a);
+        fs::write(a.join("Keep.md"), "keep me\n").unwrap();
+        assert!(history_snapshot(&a, "keep").unwrap());
+        fs::write(a.join("Secret.md"), "erase me everywhere\n").unwrap();
+        assert!(history_snapshot(&a, "secret").unwrap());
+        // Work on top of the note being purged, so the rewrite has descendants
+        // to rebuild and the replacement head is one no other device holds.
+        fs::write(a.join("Later.md"), "after the secret\n").unwrap();
+        assert!(history_snapshot(&a, "later").unwrap());
+        sync_set_remote(&a, &credentials_a, &url, "test-token-0123456789", None, PHRASE).unwrap();
+        sync_push_gated(&a, &credentials_a, || ()).unwrap();
+
+        let b = scratch.path().join("vault-b");
+        let credentials_b = scratch.path().join("creds-b.json");
+        fs::create_dir_all(&b).unwrap();
+        let history_b = owned(&b);
+        sync_set_remote(&b, &credentials_b, &url, "test-token-0123456789", None, PHRASE).unwrap();
+        sync_pull_with_snapshot(&b, &credentials_b, || Ok(()), || ()).unwrap();
+
+        fs::remove_file(a.join("Secret.md")).unwrap();
+        history_a.purge_files(&["Secret.md"]).unwrap();
+        sync_replace_hosted_gated(&a, &credentials_a, || ()).unwrap();
+        sync_pull_with_snapshot(&b, &credentials_b, || Ok(()), || ()).unwrap_err();
+        assert!(hosted_sync_replaced_store(&b).is_some(), "device B was never paused");
+
+        // B now purges something of its own — the one state where the pane
+        // would otherwise show two doors at once.
+        fs::write(b.join("Local.md"), "b's own secret\n").unwrap();
+        assert!(history_snapshot(&b, "local").unwrap());
+        fs::remove_file(b.join("Local.md")).unwrap();
+        history_b.purge_files(&["Local.md"]).unwrap();
+        assert!(hosted_sync_blocked_by_rewrite(&b), "the purge on B did not register");
+
+        let refused = sync_replace_hosted_gated(&b, &credentials_b, || ()).unwrap_err();
+        assert!(refused.contains("paused"), "{refused}");
+        assert!(refused.contains("Vault sync pane"), "the refusal named no way out: {refused}");
+        assert!(
+            b.join("Secret.md").is_file(),
+            "the refusal ran far enough to touch this device's worktree"
+        );
+        assert!(
+            hosted_sync_replaced_store(&b).is_some(),
+            "the refusal cleared the pause it was refusing on"
+        );
+
+        // Holding both states used to be a dead end: Replace refuses because
+        // the vault is paused (above), and Pull refused before it asked the
+        // store anything, because this vault's history was rewritten here.
+        // Neither door opened, and the pane pointed each at the other.
+        // Consenting to adopt is consenting to abandon the local history, the
+        // rewrite included, so it is the one leg with nothing left to protect.
+        sync_adopt_replaced_gated(&b, &credentials_b, || ()).unwrap();
+        assert!(
+            hosted_sync_replaced_store(&b).is_none(),
+            "the pane would keep offering a door the device already walked through"
+        );
+        assert!(
+            !hosted_sync_blocked_by_rewrite(&b),
+            "the vault stayed parked on a refusal about a rewrite it no longer has"
+        );
+
+        // And sync is ordinary from here, which is the whole point of the door.
+        fs::write(b.join("After.md"), "after adopting\n").unwrap();
+        assert!(history_snapshot(&b, "after").unwrap());
+        assert!(sync_push_gated(&b, &credentials_b, || ()).unwrap().pushed >= 1);
+    }
+
+    /// The same protection, reached in the order that gets past the marker.
+    /// The marker in front of Replace is written by a PULL that reached the
+    /// network — so a device that rewrites its own history FIRST never has one:
+    /// its pulls refuse locally, before they ask the store anything, and it
+    /// arrives at Replace looking clean. Replace is the one leg that publishes
+    /// over a head it cannot fast-forward from, so it is the one leg that could
+    /// carry another device's purged content back to the server and out again.
+    #[test]
+    fn replacing_the_hosted_copy_is_refused_when_this_device_purged_first() {
+        use substrate_hosted_sync_server::{Config, Server};
+        let scratch = TempDir::new().unwrap();
+        let server = Server::start(
+            "127.0.0.1:0",
+            Config {
+                storage: scratch.path().join("server-storage"),
+                token: "test-token-0123456789".into(),
+            },
+        )
+        .unwrap();
+        let url = format!("blob+{}", server.base_url());
+        const PHRASE: Option<&str> = Some("correct horse battery");
+
+        let a = scratch.path().join("vault-a");
+        let credentials_a = scratch.path().join("creds-a.json");
+        fs::create_dir_all(&a).unwrap();
+        let history_a = owned(&a);
+        fs::write(a.join("Keep.md"), "keep me\n").unwrap();
+        assert!(history_snapshot(&a, "keep").unwrap());
+        fs::write(a.join("Secret.md"), "erase me everywhere\n").unwrap();
+        assert!(history_snapshot(&a, "secret").unwrap());
+        // Work on top of the note being purged, so the rewrite has descendants
+        // to rebuild: the replacement head is then a commit no other device has.
+        fs::write(a.join("Later.md"), "after the secret\n").unwrap();
+        assert!(history_snapshot(&a, "later").unwrap());
+        sync_set_remote(&a, &credentials_a, &url, "test-token-0123456789", None, PHRASE).unwrap();
+        sync_push_gated(&a, &credentials_a, || ()).unwrap();
+
+        let b = scratch.path().join("vault-b");
+        let credentials_b = scratch.path().join("creds-b.json");
+        fs::create_dir_all(&b).unwrap();
+        let history_b = owned(&b);
+        sync_set_remote(&b, &credentials_b, &url, "test-token-0123456789", None, PHRASE).unwrap();
+        sync_pull_with_snapshot(&b, &credentials_b, || Ok(()), || ()).unwrap();
+
+        // B rewrites its own history and stops pulling — so it never learns,
+        // through a pull, that the store moved under it.
+        fs::write(b.join("Local.md"), "b's own secret\n").unwrap();
+        assert!(history_snapshot(&b, "local").unwrap());
+        fs::remove_file(b.join("Local.md")).unwrap();
+        history_b.purge_files(&["Local.md"]).unwrap();
+        assert!(hosted_sync_blocked_by_rewrite(&b), "the purge on B did not register");
+        assert!(hosted_sync_replaced_store(&b).is_none(), "B was paused by something other than a pull");
+
+        // Only now does A publish its own rewrite over the store.
+        fs::remove_file(a.join("Secret.md")).unwrap();
+        history_a.purge_files(&["Secret.md"]).unwrap();
+        sync_replace_hosted_gated(&a, &credentials_a, || ()).unwrap();
+
+        // B's Replace has the store's head in hand and asks the same question
+        // the pull asks: did the store stop building on the position this
+        // device last took from it?
+        let refused = sync_replace_hosted_gated(&b, &credentials_b, || ()).unwrap_err();
+        assert!(refused.contains("another device rewrote this vault's history"), "{refused}");
+        assert!(refused.contains("Vault sync pane"), "the refusal named no way out: {refused}");
+        assert!(!refused.contains("revspec"), "a raw git line reached the pane: {refused}");
+        assert!(
+            hosted_sync_replaced_store(&b).is_some(),
+            "the refusal left no pause for the pane to offer a door from"
+        );
+
+        // The content stayed gone where it was purged: the store still holds
+        // A's rewritten history, so A's own pull is a no-op rather than the
+        // note walking back in.
+        // Repeatable — and from the second attempt on it is the pause itself
+        // that refuses, one gate earlier, because the first attempt recorded it.
+        let again = sync_replace_hosted_gated(&b, &credentials_b, || ()).unwrap_err();
+        assert!(again.contains("paused"), "{again}");
+        assert!(again.contains("Vault sync pane"), "{again}");
+        sync_pull_with_snapshot(&a, &credentials_a, || Ok(()), || ()).unwrap();
+        assert!(!a.join("Secret.md").exists(), "the refused replace carried the purged note back");
+        assert!(a.join("Keep.md").is_file(), "the pull took more than the purge did");
+    }
+
+    /// A second seal while the first still waits must not eat the evidence the
+    /// replacing push checks: the marker's recorded store position survives a
+    /// re-write, so the purge-first refusal above still fires after sealing
+    /// twice — and the question is answered without importing the store's
+    /// history onto the device that just purged.
+    #[test]
+    fn a_second_seal_keeps_the_recorded_store_position() {
+        use substrate_hosted_sync_server::{Config, Server};
+        let scratch = TempDir::new().unwrap();
+        let server = Server::start(
+            "127.0.0.1:0",
+            Config {
+                storage: scratch.path().join("server-storage"),
+                token: "test-token-0123456789".into(),
+            },
+        )
+        .unwrap();
+        let url = format!("blob+{}", server.base_url());
+        const PHRASE: Option<&str> = Some("correct horse battery");
+
+        let a = scratch.path().join("vault-a");
+        let credentials_a = scratch.path().join("creds-a.json");
+        fs::create_dir_all(&a).unwrap();
+        let history_a = owned(&a);
+        fs::write(a.join("Keep.md"), "keep me\n").unwrap();
+        assert!(history_snapshot(&a, "keep").unwrap());
+        fs::write(a.join("Secret.md"), "erase me everywhere\n").unwrap();
+        assert!(history_snapshot(&a, "secret").unwrap());
+        fs::write(a.join("Later.md"), "after the secret\n").unwrap();
+        assert!(history_snapshot(&a, "later").unwrap());
+        sync_set_remote(&a, &credentials_a, &url, "test-token-0123456789", None, PHRASE).unwrap();
+        sync_push_gated(&a, &credentials_a, || ()).unwrap();
+
+        let b = scratch.path().join("vault-b");
+        let credentials_b = scratch.path().join("creds-b.json");
+        fs::create_dir_all(&b).unwrap();
+        let history_b = owned(&b);
+        sync_set_remote(&b, &credentials_b, &url, "test-token-0123456789", None, PHRASE).unwrap();
+        sync_pull_with_snapshot(&b, &credentials_b, || Ok(()), || ()).unwrap();
+
+        // Two seals in a row: the second one used to truncate the marker and
+        // re-read tracking refs the first had already deleted — no position
+        // recorded, the guard fails open, and the purge-first hole reopens.
+        fs::write(b.join("Local.md"), "b's first secret\n").unwrap();
+        assert!(history_snapshot(&b, "local one").unwrap());
+        fs::remove_file(b.join("Local.md")).unwrap();
+        history_b.purge_files(&["Local.md"]).unwrap();
+        fs::write(b.join("Local2.md"), "b's second secret\n").unwrap();
+        assert!(history_snapshot(&b, "local two").unwrap());
+        fs::remove_file(b.join("Local2.md")).unwrap();
+        history_b.purge_files(&["Local2.md"]).unwrap();
+        assert!(hosted_sync_blocked_by_rewrite(&b), "the second purge on B did not register");
+        let repo_b = Repository::open(&b).unwrap();
+        assert!(
+            fs::read_to_string(repo_b.path().join(REWRITE_MARKER))
+                .unwrap()
+                .contains(REWRITE_MARKER_SEEN),
+            "the second seal lost the recorded store position"
+        );
+
+        fs::remove_file(a.join("Secret.md")).unwrap();
+        history_a.purge_files(&["Secret.md"]).unwrap();
+        sync_replace_hosted_gated(&a, &credentials_a, || ()).unwrap();
+        let head_a = Repository::open(&a).unwrap().head().unwrap().target().unwrap();
+
+        let mut objects_before = 0usize;
+        repo_b.odb().unwrap().foreach(|_| {
+            objects_before += 1;
+            true
+        })
+        .unwrap();
+        let refused = sync_replace_hosted_gated(&b, &credentials_b, || ()).unwrap_err();
+        assert!(refused.contains("Vault sync pane"), "the refusal named no way out: {refused}");
+        assert!(
+            hosted_sync_replaced_store(&b).is_some(),
+            "the refusal left no pause for the pane to offer a door from"
+        );
+        // The question was answered off the store, in memory: the replacement
+        // history never landed in B's object database, where it would sit in
+        // cleartext on the one device that just purged its own copy — not the
+        // head, and not any object at all.
+        assert!(
+            !repo_b.odb().unwrap().exists(head_a),
+            "the refusing replace imported the store's history"
+        );
+        let mut objects_after = 0usize;
+        repo_b.odb().unwrap().foreach(|_| {
+            objects_after += 1;
+            true
+        })
+        .unwrap();
+        assert_eq!(objects_before, objects_after, "the refusing replace imported objects");
+        sync_pull_with_snapshot(&a, &credentials_a, || Ok(()), || ()).unwrap();
+        assert!(!a.join("Secret.md").exists(), "the refused replace carried the purged note back");
+    }
+
+    /// A rewrite marker from before store positions were recorded cannot
+    /// justify an overwrite — and must not dead-end either. The refusal names
+    /// the redo, and the redo works: adopt the store's history, purge again
+    /// (which records fresh evidence), replace.
+    #[test]
+    fn a_marker_without_a_recorded_position_refuses_replace_and_the_redo_works() {
+        use substrate_hosted_sync_server::{Config, Server};
+        let scratch = TempDir::new().unwrap();
+        let server = Server::start(
+            "127.0.0.1:0",
+            Config {
+                storage: scratch.path().join("server-storage"),
+                token: "test-token-0123456789".into(),
+            },
+        )
+        .unwrap();
+        let url = format!("blob+{}", server.base_url());
+        const PHRASE: Option<&str> = Some("correct horse battery");
+
+        let a = scratch.path().join("vault-a");
+        let credentials_a = scratch.path().join("creds-a.json");
+        fs::create_dir_all(&a).unwrap();
+        let history_a = owned(&a);
+        fs::write(a.join("Keep.md"), "keep me\n").unwrap();
+        assert!(history_snapshot(&a, "keep").unwrap());
+        fs::write(a.join("Secret.md"), "erase me everywhere\n").unwrap();
+        assert!(history_snapshot(&a, "secret").unwrap());
+        fs::write(a.join("Later.md"), "purged in the redo\n").unwrap();
+        assert!(history_snapshot(&a, "later").unwrap());
+        sync_set_remote(&a, &credentials_a, &url, "test-token-0123456789", None, PHRASE).unwrap();
+        sync_push_gated(&a, &credentials_a, || ()).unwrap();
+
+        let b = scratch.path().join("vault-b");
+        let credentials_b = scratch.path().join("creds-b.json");
+        fs::create_dir_all(&b).unwrap();
+        let history_b = owned(&b);
+        sync_set_remote(&b, &credentials_b, &url, "test-token-0123456789", None, PHRASE).unwrap();
+        sync_pull_with_snapshot(&b, &credentials_b, || Ok(()), || ()).unwrap();
+
+        fs::write(b.join("Local.md"), "b's own secret\n").unwrap();
+        assert!(history_snapshot(&b, "local").unwrap());
+        fs::remove_file(b.join("Local.md")).unwrap();
+        history_b.purge_files(&["Local.md"]).unwrap();
+        // A pre-upgrade marker: the note without any recorded position.
+        let repo_b = Repository::open(&b).unwrap();
+        fs::write(repo_b.path().join(REWRITE_MARKER), REWRITE_MARKER_NOTE).unwrap();
+
+        fs::remove_file(a.join("Secret.md")).unwrap();
+        history_a.purge_files(&["Secret.md"]).unwrap();
+        sync_replace_hosted_gated(&a, &credentials_a, || ()).unwrap();
+
+        let refused = sync_replace_hosted_gated(&b, &credentials_b, || ()).unwrap_err();
+        assert!(refused.contains("purge again"), "the refusal named no redo: {refused}");
+        assert!(refused.contains("Vault sync pane"), "{refused}");
+        assert!(
+            hosted_sync_replaced_store(&b).is_some(),
+            "the blind refusal left no pause to adopt from"
+        );
+
+        // The redo, end to end. Adopting works even though the pause's own
+        // graph evidence is unreadable — the standing marker is the evidence.
+        sync_adopt_replaced_gated(&b, &credentials_b, || ()).unwrap();
+        assert!(hosted_sync_replaced_store(&b).is_none(), "adopting left the pause armed");
+        assert!(!hosted_sync_blocked_by_rewrite(&b), "adopting left the rewrite marker");
+        // Seal again — on the adopted history, with tracking refs standing,
+        // so the fresh marker records a position — then replace.
+        fs::remove_file(b.join("Later.md")).unwrap();
+        history_b.purge_files(&["Later.md"]).unwrap();
+        sync_replace_hosted_gated(&b, &credentials_b, || ()).unwrap();
+        // A is now the device on the wrong side of a replacement: its pull
+        // pauses, and adopting brings it onto the redone history.
+        let paused = sync_pull_with_snapshot(&a, &credentials_a, || Ok(()), || ()).unwrap_err();
+        assert!(paused.contains("Vault sync pane"), "{paused}");
+        sync_adopt_replaced_gated(&a, &credentials_a, || ()).unwrap();
+        assert!(!a.join("Later.md").exists(), "the redo's purge did not hold");
+        assert!(a.join("Keep.md").is_file(), "the redo took more than its purge");
+    }
+
+    /// A store that moved FORWARD from where this device last stood is not a
+    /// replacement: the walk reads the new commits' headers off the store,
+    /// finds the recorded position in their ancestry, and the replace
+    /// publishes — the approving answer, still importing nothing.
+    #[test]
+    fn a_store_that_built_on_this_device_does_not_block_the_replace() {
+        use substrate_hosted_sync_server::{Config, Server};
+        let scratch = TempDir::new().unwrap();
+        let server = Server::start(
+            "127.0.0.1:0",
+            Config {
+                storage: scratch.path().join("server-storage"),
+                token: "test-token-0123456789".into(),
+            },
+        )
+        .unwrap();
+        let url = format!("blob+{}", server.base_url());
+        const PHRASE: Option<&str> = Some("correct horse battery");
+
+        let a = scratch.path().join("vault-a");
+        let credentials_a = scratch.path().join("creds-a.json");
+        fs::create_dir_all(&a).unwrap();
+        let _history_a = owned(&a);
+        fs::write(a.join("Keep.md"), "keep me\n").unwrap();
+        assert!(history_snapshot(&a, "keep").unwrap());
+        sync_set_remote(&a, &credentials_a, &url, "test-token-0123456789", None, PHRASE).unwrap();
+        sync_push_gated(&a, &credentials_a, || ()).unwrap();
+
+        let b = scratch.path().join("vault-b");
+        let credentials_b = scratch.path().join("creds-b.json");
+        fs::create_dir_all(&b).unwrap();
+        let history_b = owned(&b);
+        sync_set_remote(&b, &credentials_b, &url, "test-token-0123456789", None, PHRASE).unwrap();
+        sync_pull_with_snapshot(&b, &credentials_b, || Ok(()), || ()).unwrap();
+
+        fs::write(b.join("Local.md"), "b's own secret\n").unwrap();
+        assert!(history_snapshot(&b, "local").unwrap());
+        fs::remove_file(b.join("Local.md")).unwrap();
+        history_b.purge_files(&["Local.md"]).unwrap();
+
+        // The store moves on legitimately while B's rewrite waits: two more
+        // snapshots from A, neither of which B ever pulls.
+        fs::write(a.join("More1.md"), "first while sealed\n").unwrap();
+        assert!(history_snapshot(&a, "more one").unwrap());
+        sync_push_gated(&a, &credentials_a, || ()).unwrap();
+        fs::write(a.join("More2.md"), "second while sealed\n").unwrap();
+        assert!(history_snapshot(&a, "more two").unwrap());
+        sync_push_gated(&a, &credentials_a, || ()).unwrap();
+        let head_a = Repository::open(&a).unwrap().head().unwrap().target().unwrap();
+
+        let repo_b = Repository::open(&b).unwrap();
+        sync_replace_hosted_gated(&b, &credentials_b, || ()).unwrap();
+        assert!(
+            !repo_b.odb().unwrap().exists(head_a),
+            "the approving walk imported the store's history"
+        );
+
+        // The other device lands in the pause the gate copy warned about, and
+        // adopting brings it onto the replacement — its unadopted work behind.
+        let paused = sync_pull_with_snapshot(&a, &credentials_a, || Ok(()), || ()).unwrap_err();
+        assert!(paused.contains("Vault sync pane"), "{paused}");
+        sync_adopt_replaced_gated(&a, &credentials_a, || ()).unwrap();
+        assert!(a.join("Keep.md").is_file(), "the replace took more than the store's line");
+        assert!(!a.join("More2.md").exists(), "the replacement did not stand");
+    }
+
+    /// The app cannot force-push a plain Git remote, so the replacement flow
+    /// stays hosted-only rather than half-working on the other transport.
+    #[test]
+    fn replacing_the_hosted_copy_refuses_a_plain_git_remote() {
+        let scratch = TempDir::new().unwrap();
+        let bare = scratch.path().join("remote.git");
+        Repository::init_bare(&bare).unwrap();
+        let a = scratch.path().join("a");
+        fs::create_dir_all(&a).unwrap();
+        let history_a = owned(&a);
+        let credentials_a = scratch.path().join("config-a/sync.json");
+        configure(&a, &credentials_a, &bare);
+
+        fs::write(a.join("Secret.md"), "gone\n").unwrap();
+        assert!(history_a.snapshot("snapshot").unwrap());
+        sync_push(&a, &credentials_a).unwrap();
+        fs::remove_file(a.join("Secret.md")).unwrap();
+        history_a.purge_files(&["Secret.md"]).unwrap();
+
+        let error = sync_replace_hosted_gated(&a, &credentials_a, || ()).unwrap_err();
+        assert!(error.contains("end-to-end-encrypted remote"), "{error}");
     }
 
     /// The whole hosted seam through the app's own entry points: configure

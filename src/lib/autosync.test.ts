@@ -81,6 +81,8 @@ function harness(opts: {
           // the lane never reads these; a plain remote is the neutral stand-in
           remote_kind: "git",
           remote_url: "https://sync.example.com/vault.git",
+          rewrite_blocked: false,
+          replaced_store: null,
         };
       },
       push: async () => {

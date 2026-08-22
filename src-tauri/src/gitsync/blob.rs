@@ -8,14 +8,15 @@
 //! changing the crypto or Git integration.
 
 use super::{
-    apply_backfill, clear_history_rewritten, current_branch, current_branch_state, ensure_clean,
-    exclusive_commit_count, history_rewritten, owned_repo, pull_local_phase, report,
-    working_tree_is_dirty, SyncReport, REMOTE,
+    apply_backfill, changed_between, clear_history_rewritten, clear_pending_merge, clear_ref,
+    current_branch, current_branch_state, ensure_clean, exclusive_commit_count, history_rewritten,
+    owned_repo, pull_local_phase, report, report_changed, working_tree_is_dirty, SyncReport,
+    REMOTE, STAGING_REF,
 };
 use argon2::{Algorithm, Argon2, Params, Version};
 use chacha20poly1305::aead::{Aead, Payload};
 use chacha20poly1305::{KeyInit, XChaCha20Poly1305, XNonce};
-use git2::{ObjectType, Oid, Repository, TreeWalkMode, TreeWalkResult};
+use git2::{ObjectType, Oid, Repository, ResetType, TreeWalkMode, TreeWalkResult};
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
 use rand::rngs::OsRng;
@@ -921,6 +922,45 @@ pub(crate) fn push<G>(
     transport: &impl BlobTransport,
     gate: impl FnOnce() -> G,
 ) -> Result<SyncReport, String> {
+    push_inner(root, key, transport, gate, Replace::No)
+}
+
+/// The same push, told to publish this device's history over whatever the
+/// store currently points at instead of refusing the divergence.
+///
+/// This is the way out of the post-rewrite refusal, and the only caller is the
+/// one the user reaches through an explicit consent step — a purge or trim
+/// leaves a history the store cannot fast-forward to, so nothing else ever
+/// makes the two agree again.
+///
+/// Only the branch head moves. The CAS is still a compare-and-swap against the
+/// version this call read, so a device writing at the same moment loses the
+/// race rather than being overwritten unseen, and the objects the old history
+/// reached stay in the store as unreferenced ciphertext until the store itself
+/// is rebuilt. Callers owe the user both of those facts in plain words.
+pub(crate) fn push_replacing_remote<G>(
+    root: &Path,
+    key: &MasterKey,
+    transport: &impl BlobTransport,
+    gate: impl FnOnce() -> G,
+) -> Result<SyncReport, String> {
+    push_inner(root, key, transport, gate, Replace::Yes)
+}
+
+/// Whether a push may publish over a head it cannot fast-forward from.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Replace {
+    No,
+    Yes,
+}
+
+fn push_inner<G>(
+    root: &Path,
+    key: &MasterKey,
+    transport: &impl BlobTransport,
+    gate: impl FnOnce() -> G,
+    replace: Replace,
+) -> Result<SyncReport, String> {
     let repo = owned_repo(root)?;
     let (branch, local_oid, pushed) = {
         let _guard = gate();
@@ -932,24 +972,77 @@ pub(crate) fn push<G>(
         (branch, local_oid, pushed)
     };
 
+    let tracking_ref = format!("refs/remotes/{REMOTE}/{branch}");
     let current_ref = transport.read_ref(MAX_REF_ENVELOPE_BYTES)?;
     if let Some(remote_ref) = current_ref.as_ref() {
         let document = decrypt_ref(key, &remote_ref.bytes)?;
         require_branch(&branch, &document.branch)?;
         let remote_oid = parse_oid(&document.head)?;
-        if remote_oid != local_oid
+        let diverged = remote_oid != local_oid
             && (repo.find_commit(remote_oid).is_err()
-                || !repo.graph_descendant_of(local_oid, remote_oid).unwrap_or(false))
-        {
+                || !repo.graph_descendant_of(local_oid, remote_oid).unwrap_or(false));
+        if replace == Replace::No && diverged {
             if history_rewritten(&repo) {
-                return Err(
-                    "hosted sync push rejected: this vault's history was rewritten by a purge \
-                        or trim, but the remote still holds the old history; replace or \
-                        re-initialize the hosted-sync vault before pushing again"
-                        .into(),
-                );
+                return Err(rewritten_history_push_error());
+            }
+            // The mirror state, and the reason it is worth its own arm here:
+            // the generic line below sends the user to Pull, and Pull is the
+            // leg that is refusing. Say what is actually true instead.
+            if super::store_replaced(&repo) {
+                // Priced against the head this push just read off the store —
+                // the replacement itself. That is the history this device
+                // would end up on, so it is the only thing that decides what
+                // survives; the tracking ref is where this device stood
+                // BEFORE the replacement and says nothing about it.
+                //
+                // A head this device never fetched cannot be priced at all,
+                // and the raw graph failure would land on the one screen whose
+                // job is honest pricing. Say the amount is unknown instead.
+                return Err(replaced_store_pause_error(
+                    HeldLocally::measure(&repo, remote_oid).ok().as_ref(),
+                ));
             }
             return Err("hosted sync push rejected: the remote moved; pull and merge first".into());
+        }
+        // The replacing push is the one leg that publishes over a head it
+        // cannot fast-forward from, so it is also the only leg that can undo
+        // another device's purge — and the marker gate in front of it does not
+        // catch every way in. That marker is written by a PULL that reached
+        // the network, and a device that rewrote its own history first never
+        // gets one: its pulls refuse before they ask the store anything. It
+        // therefore arrives here believing the store is still the one it last
+        // pushed to, and the CAS below would swap the other device's
+        // replacement out for this device's pre-purge history — the purge
+        // undone on the server, and from there on every device.
+        //
+        // The head is already in hand, so the same question the pull asks can
+        // be asked here: did the store stop building on the position this
+        // device last took from it? Only a store this device's history already
+        // reaches may be overwritten. Anything else is refused and marked, so
+        // the pane flips to the pause with its adopt door, and the refusal
+        // repeats until someone answers it.
+        if replace == Replace::Yes && diverged {
+            match last_seen_position(&repo, &tracking_ref) {
+                // No recorded position: a marker written before positions were
+                // recorded, or a device that never took anything from this
+                // store. An overwrite cannot be justified blind, and fetching
+                // evidence here would import the store's history back onto the
+                // one device that just purged it. Refuse into the pause; its
+                // consent door is the first step of the redo that mints fresh
+                // evidence — adopt, purge again, replace.
+                None => {
+                    super::mark_store_replaced(&repo, remote_oid)?;
+                    return Err(replaced_store_redo_error());
+                }
+                Some(seen) => {
+                    if !remote_head_builds_on(&repo, key, transport, remote_oid, seen)? {
+                        super::mark_store_replaced(&repo, remote_oid)?;
+                        return Err(replaced_store_pause_error(
+                            HeldLocally::measure(&repo, remote_oid).ok().as_ref(),
+                        ));
+                    }
+                }
+            }
         }
     }
 
@@ -957,8 +1050,7 @@ pub(crate) fn push<G>(
     let store_key = cache_store_key(&transport.store_identity());
     let cached = load_listing_cache(&cache_path, &store_key);
     let previous_cursor = cached.as_ref().map(|cached| cached.cursor.clone());
-    let listing =
-        transport.list_objects_since(previous_cursor.as_deref(), MAX_LIST_OBJECTS)?;
+    let listing = transport.list_objects_since(previous_cursor.as_deref(), MAX_LIST_OBJECTS)?;
     // The only branch where the cache is believed. Everything else — an older
     // server, an unrecognised cursor, a store that lost objects — arrives as a
     // complete listing and replaces what this device thought it knew.
@@ -1011,7 +1103,6 @@ pub(crate) fn push<G>(
         }
     }
 
-    let tracking_ref = format!("refs/remotes/{REMOTE}/{branch}");
     repo.reference(&tracking_ref, local_oid, true, "hosted sync push updated tracking ref")
         .map_err(|error| format!("hosted sync tracking update failed: {error}"))?;
     clear_history_rewritten(&repo)?;
@@ -1164,7 +1255,7 @@ pub(crate) fn pull<G>(
     root: &Path,
     key: &MasterKey,
     transport: &impl BlobTransport,
-    gate: impl FnOnce() -> G,
+    mut gate: impl FnMut() -> G,
 ) -> Result<SyncReport, String> {
     pull_with_snapshot(root, key, transport, || Ok(()), gate)
 }
@@ -1191,15 +1282,76 @@ pub(crate) fn pull<G>(
 /// inside), then the gate around import and integration. The purge-marker
 /// re-check and the object GETs stay inside the gate — see [`pull`]'s note; the
 /// snapshot moving in front of the gate does not move them.
+///
+/// Whether the store was REPLACED is decided ahead of the snapshot, in a gate
+/// of its own, and that ordering is a data-safety property rather than a
+/// tidiness one. Snapshot first and a mid-sentence edit becomes a commit; the
+/// adoption that may follow resets that commit away and sweeps its objects, so
+/// the edit would be destroyed without ever having been something its author
+/// could see, keep or refuse. Deciding first means an unadoptable store leaves
+/// the working tree exactly as the user left it.
+///
+/// The second gate imports nothing — the graph arrived inside the first one —
+/// so the purge race that the object GETs have to be gated for is covered by
+/// the first gate re-checking the marker, exactly as before.
 pub(crate) fn pull_with_snapshot<G>(
     root: &Path,
     key: &MasterKey,
     transport: &impl BlobTransport,
     snapshot: impl FnOnce() -> Result<(), String>,
-    gate: impl FnOnce() -> G,
+    mut gate: impl FnMut() -> G,
+) -> Result<SyncReport, String> {
+    pull_inner(root, key, transport, snapshot, gate, AdoptConsent::Withheld)
+}
+
+/// The same pull, run by someone who was shown what adopting the replaced
+/// store costs this device and asked for it anyway — the far end of the
+/// pane's arm-then-confirm.
+///
+/// No snapshot step, deliberately: the consent that reaches here is consent to
+/// let the uncommitted edits go, and committing them first would only add a
+/// snapshot for the reset to destroy a moment later.
+pub(crate) fn pull_adopting_replaced<G>(
+    root: &Path,
+    key: &MasterKey,
+    transport: &impl BlobTransport,
+    mut gate: impl FnMut() -> G,
+) -> Result<SyncReport, String> {
+    pull_inner(root, key, transport, || Ok(()), gate, AdoptConsent::Given)
+}
+
+/// Whether this pull may reset the device onto a store some other device
+/// replaced, taking what is held here with it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AdoptConsent {
+    /// The ordinary pull. A device with nothing of its own still adopts — it
+    /// has nothing to lose and nothing to be asked about — but one holding
+    /// snapshots or edits is left paused instead.
+    Withheld,
+    /// The user read the cost and asked for it.
+    Given,
+}
+
+fn pull_inner<G>(
+    root: &Path,
+    key: &MasterKey,
+    transport: &impl BlobTransport,
+    snapshot: impl FnOnce() -> Result<(), String>,
+    mut gate: impl FnMut() -> G,
+    consent: AdoptConsent,
 ) -> Result<SyncReport, String> {
     let repo = owned_repo(root)?;
-    if history_rewritten(&repo) {
+    // The rewrite refusal is about MERGING: a vault whose history was rewritten
+    // here cannot take the store's old history back without re-adding what the
+    // purge removed. An adopt does not merge — it resets this device onto the
+    // store's history and drops its own, the rewrite included — so the refusal
+    // has nothing to protect there, and applying it anyway is what left a
+    // device holding both markers with no way out: Replace pointed at Adopt and
+    // Adopt pointed back at Replace. Consent to adopt is consent to abandon the
+    // local history, its rewrite along with the rest. The ordinary pull is
+    // unchanged, and a consented pull that turns out to face no replacement
+    // still meets this refusal at the last gate below, before anything merges.
+    if consent == AdoptConsent::Withheld && history_rewritten(&repo) {
         return Err(rewritten_history_pull_error());
     }
     let (branch, _) = current_branch_state(&repo)?;
@@ -1222,7 +1374,64 @@ pub(crate) fn pull_with_snapshot<G>(
         None => false,
     };
     if integrated {
+        // A store this device already stands on is not one it can still owe an
+        // answer about, so an older refusal's marker goes here too.
+        super::clear_store_replaced(&repo)?;
         return idle_pull(&repo, local_oid.unwrap_or(remote_oid), gate);
+    }
+
+    // Read before the fetch and before the tracking ref moves: it is the
+    // position this device last took from the store, and the only evidence
+    // that says whether the store MOVED or was REPLACED.
+    let tracking_ref = format!("refs/remotes/{REMOTE}/{branch}");
+    {
+        let _guard = gate();
+        // Re-checked under the gate for the same reason it is checked at all,
+        // and passed for the same reason: a purge that landed while this call
+        // was on the network changes what an ordinary pull may do, and changes
+        // nothing about what an adopt discards.
+        if consent == AdoptConsent::Withheld && history_rewritten(&repo) {
+            return Err(rewritten_history_pull_error());
+        }
+        let seen = last_seen_position(&repo, &tracking_ref);
+        fetch_reachable_graph(&repo, key, transport, remote_oid)?;
+        // Answerable only now: both commits have to be present locally before
+        // the graph question means anything. The standing marker is evidence
+        // in its own right for exactly one device — the one whose own rewrite
+        // destroyed the position that proved the pause (or never recorded
+        // one), where the graph below answers "not replaced" for the wrong
+        // reason. Every other paused device re-asks the store, which is how a
+        // pause heals when the store turns ordinary again.
+        let pause_stands_on_marker =
+            super::store_replaced(&repo) && seen.is_none() && history_rewritten(&repo);
+        if pause_stands_on_marker || store_left_this_device_behind(&repo, seen, remote_oid) {
+            let held = HeldLocally::measure(&repo, remote_oid)?;
+            if consent == AdoptConsent::Withheld && held.anything() {
+                // The tracking ref deliberately stays where it is. Moving it to
+                // the replacement would make the next pull read `seen ==
+                // remote_oid`, decide the store was never replaced, and merge —
+                // putting the purged content back on this device and, from its
+                // next push, back on the server. The refusal has to be
+                // repeatable to be a refusal at all.
+                super::mark_store_replaced(&repo, remote_oid)?;
+                return Err(replaced_store_pause_error(Some(&held)));
+            }
+            repo.reference(
+                &tracking_ref,
+                remote_oid,
+                true,
+                "hosted sync pull adopted a replaced store",
+            )
+            .map_err(|error| format!("hosted sync tracking update failed: {error}"))?;
+            return adopt_replaced_history(&repo, &branch, remote_oid, &held);
+        }
+        // Reaching here means both arms just answered "the store is ordinary
+        // again" off real evidence, so the clear is established, not a strip.
+        // It has to run BEFORE the rewrite bail below: for a device holding
+        // both markers this failed adopt is the only leg that can retire an
+        // answered pause, and retiring it is what puts the Replace door back
+        // on the pane.
+        super::clear_store_replaced(&repo)?;
     }
 
     snapshot()?;
@@ -1231,12 +1440,365 @@ pub(crate) fn pull_with_snapshot<G>(
     if history_rewritten(&repo) {
         return Err(rewritten_history_pull_error());
     }
-    fetch_reachable_graph(&repo, key, transport, remote_oid)?;
-
-    let tracking_ref = format!("refs/remotes/{REMOTE}/{branch}");
     repo.reference(&tracking_ref, remote_oid, true, "hosted sync pull updated tracking ref")
         .map_err(|error| format!("hosted sync tracking update failed: {error}"))?;
     pull_local_phase(&repo, &branch, remote_oid)
+}
+
+/// What this device would lose by adopting a store that was replaced from
+/// somewhere else — the two kinds of work the new history has no line to.
+///
+/// Counted against the REPLACEMENT head, because what survives adoption is
+/// exactly what the new history reaches, and nothing else about this device's
+/// position matters to that. The tracking ref — where this device last stood
+/// with the store — is the wrong basis and was the earlier one: a push moves
+/// it, so a device that pushed into the window between the rewrite and the
+/// replacement measures zero against it, adopts on the automatic lane with no
+/// one asked, and has the snapshots the replacement discarded server-side
+/// swept locally too. Gone everywhere, reported as nothing lost.
+///
+/// The cost of the honest basis is that it counts a snapshot the rewrite
+/// carried forward under a new identity — same text, new commit — the same as
+/// one the replacement dropped outright. Telling those apart needs the head
+/// the replacement overwrote, which nothing in the store records; and the
+/// direction of the error is the safe one, since over-counting only means the
+/// device is asked instead of reset. In practice that is what happens: after a
+/// replacement, essentially every other device pauses and its user is shown
+/// the price. Silent adoption survives for the case where the measure is
+/// honestly zero (a HEAD the new history already reaches, clean tree), which
+/// is where "nothing was lost" is a claim the code can stand behind.
+struct HeldLocally {
+    snapshots: u32,
+    edits: bool,
+}
+
+impl HeldLocally {
+    /// `replacement` is the store's new head — the history this device would
+    /// be reset onto.
+    fn measure(repo: &Repository, replacement: Oid) -> Result<Self, String> {
+        let (_, local_oid) = current_branch_state(repo)?;
+        let snapshots = match local_oid {
+            Some(local) => exclusive_commit_count(repo, local, Some(replacement))?,
+            None => 0,
+        };
+        Ok(Self { snapshots, edits: working_tree_is_dirty(repo)? })
+    }
+
+    /// Whether there is anything here worth stopping for. A device with
+    /// neither is fully contained in the store it is being handed: adopting
+    /// costs it nothing, so asking would be a question with one answer.
+    fn anything(&self) -> bool {
+        self.snapshots > 0 || self.edits
+    }
+
+    /// The cost in the words the pane and the error both use.
+    ///
+    /// "Taken here" and not "not yet on the server": a snapshot this device
+    /// pushed before the replacement is discarded by adopting just the same as
+    /// one it never pushed, so the sentence prices them alike rather than
+    /// implying only unsynced work is at stake.
+    ///
+    /// The empty case is a real state, not a placeholder — the marker outlives
+    /// the work that caused it if the user reverts the edits and nothing else
+    /// is held — and saying "edits no snapshot holds yet" there was a sentence
+    /// that could not be true, on the one screen whose job is honest pricing.
+    fn describe(&self) -> String {
+        let snapshots = match self.snapshots {
+            0 => None,
+            1 => Some("1 snapshot taken here".to_string()),
+            n => Some(format!("{n} snapshots taken here")),
+        };
+        match (snapshots, self.edits) {
+            (Some(snapshots), true) => format!("{snapshots}, and edits no snapshot holds yet"),
+            (Some(snapshots), false) => snapshots,
+            (None, true) => "edits no snapshot holds yet".to_string(),
+            (None, false) => "nothing the server's history is missing".to_string(),
+        }
+    }
+}
+
+/// The refusal a device meets when the store it syncs with was replaced from
+/// another device and this one is not empty-handed.
+///
+/// Worded as a pause with a door, like the other two: the vault is intact and
+/// nothing was decided against the user. What it does not do is offer a way to
+/// keep both — there is none, and pretending otherwise would send someone
+/// looking for a merge that would put the purged content back.
+fn replaced_store_pause_error(held: Option<&HeldLocally>) -> String {
+    let tail = match held {
+        Some(held) if held.anything() => format!(
+            "this device holds work that new history has no line to: {}. Adopting the server's \
+             history, from the Vault sync pane, discards that work and starts sync again.",
+            held.describe()
+        ),
+        // The window where the marker outlives its cause: the pause stands
+        // until someone ends it, but pricing it at work that is no longer here
+        // would be a bill for nothing.
+        Some(_) => "this device no longer holds anything that new history is missing. Adopting \
+                    the server's history, from the Vault sync pane, starts sync again."
+            .to_string(),
+        // No count is reachable — this device has not fetched the history that
+        // replaced its own, or its object graph will not answer. An unanswered
+        // question says so here rather than arriving as a raw git line on the
+        // one screen whose job is to price the button honestly.
+        None => "this device cannot work out here what it holds that the new history is \
+                 missing. Adopting the server's history, from the Vault sync pane, discards \
+                 whatever that is and starts sync again."
+            .to_string(),
+    };
+    format!(
+        "hosted sync is paused: another device rewrote this vault's history (a purge or trim) \
+         and published it over the copy on the server, and {tail}"
+    )
+}
+
+/// Move this device onto a store that was replaced from another one, and let
+/// go of the history it replaced.
+///
+/// A merge is the wrong answer here and a quietly damaging one. The replaced
+/// history is the OUTPUT of a purge or trim, so merging this device's copy
+/// into it re-adds every file that rewrite removed — to the working tree, and
+/// from there back to the store on this device's next push. The user asked for
+/// that content to be gone and would be told it was.
+///
+/// So this device adopts instead: the branch, the index and the working tree
+/// are reset onto the store's history, and what stood before it is dropped —
+/// reflogs, the refs vault sync parks its own state in, and then every loose
+/// object no ref reaches any more. Without that last sweep the purged blobs
+/// are still sitting in `.git/objects` on this device, unreferenced but
+/// readable, which is the same "gone except it isn't" the rewrite existed to
+/// avoid. Objects this device had already packed survive it — the sweep reads
+/// loose files only, the same limit the mobile rewrite engine names.
+///
+/// It runs on exactly two devices: one that holds nothing of its own, where
+/// there is nothing to lose and so nothing to ask, and one whose user was
+/// shown `held` in the pane and asked for this anyway. Either way the report
+/// says the device moved onto a rewritten history — silence would leave
+/// someone reading "Pulled 12" with no idea their vault had just been replaced
+/// wholesale.
+fn adopt_replaced_history(
+    repo: &Repository,
+    fetched_branch: &str,
+    remote_oid: Oid,
+    held: &HeldLocally,
+) -> Result<SyncReport, String> {
+    let (branch, local_oid) = current_branch_state(repo)?;
+    if branch != fetched_branch {
+        return Err("vault sync branch changed mid-pull; try again".into());
+    }
+    let pulled = exclusive_commit_count(repo, remote_oid, local_oid)?;
+    let changed = changed_between(repo, local_oid, remote_oid);
+    let commit = repo
+        .find_object(remote_oid, Some(ObjectType::Commit))
+        .map_err(|error| format!("vault sync remote commit unavailable: {error}"))?;
+    repo.reset(&commit, ResetType::Hard, None)
+        .map_err(|error| format!("vault sync could not adopt the replaced history: {error}"))?;
+    // A merge parked against the history that was replaced is a conflict
+    // against a graph nothing reaches any more, and each of these refs pins
+    // that graph past the sweep below.
+    clear_pending_merge(repo)?;
+    clear_ref(repo, STAGING_REF)?;
+    crate::githist::remove_reflogs(repo)?;
+    crate::githist::sweep_loose_objects(repo)?;
+    super::clear_store_replaced(repo)?;
+    // The history that marker described is not on this device any more — the
+    // reset above dropped it and the sweep collected what it reached. Leaving
+    // the marker standing would park the vault on a refusal about a rewrite
+    // that no longer exists, which is the dead end this door was opened to end.
+    clear_history_rewritten(repo)?;
+    let mut adopted =
+        apply_backfill(repo, report_changed(0, pulled, Vec::new(), remote_oid, changed));
+    adopted.notice = Some(if held.anything() {
+        format!(
+            "This vault moved onto a history another device rewrote (a purge or trim). {} \
+             discarded here.",
+            capitalize(&held.describe())
+        )
+    } else {
+        "This vault moved onto a history another device rewrote (a purge or trim). Nothing held \
+         here was lost."
+            .to_string()
+    });
+    Ok(adopted)
+}
+
+/// [`HeldLocally::describe`] reads mid-sentence in the error and starts one in
+/// the notice.
+fn capitalize(text: &str) -> String {
+    let mut chars = text.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
+    }
+}
+
+/// Whether the store's head stopped building on the position this device last
+/// took from it — which is what a replacement leaves behind, and nothing else
+/// does.
+///
+/// An ordinary remote move is a descendant of what this device last saw. A
+/// server replaying an older authentic ref (§5) is an ancestor of it, and the
+/// ordinary path already declines to walk a device backwards. Only a
+/// [`push_replacing_remote`] elsewhere leaves neither: it published a history
+/// rewritten by a purge or trim, whose commits are new objects sharing no line
+/// with the ones they replaced.
+///
+/// A graph question that cannot be answered says no. Both commits are in this
+/// repository by the time it is asked, so the honest reading of a failure is
+/// "something is wrong with this object database", and the ordinary merge path
+/// is where that belongs — not a reset onto a store this may not even be.
+/// Where this device last stood in the store, for both legs that need to ask.
+///
+/// The tracking ref holds it — until a rewrite here deletes it along with the
+/// rest of the pre-rewrite graph (githist `delete_sync_refs`), which is exactly
+/// the state the replacing push runs in. The marker that rewrite wrote carries
+/// the value it had at that moment, so the question survives its own answer
+/// being swept.
+fn last_seen_position(repo: &Repository, tracking_ref: &str) -> Option<Oid> {
+    repo.find_reference(tracking_ref)
+        .ok()
+        .and_then(|reference| reference.target())
+        .or_else(|| super::history_rewrite_seen(repo, tracking_ref))
+}
+
+/// [`store_was_replaced`], asked once the store head's graph is in this
+/// repository — with the one answer the graph cannot give.
+///
+/// The position itself can be gone: a rewrite here sweeps what it replaced,
+/// and the fetch only brings back what the store's head reaches. A position
+/// still missing after it is therefore one the store's history has no line to,
+/// which is the answer, not an unanswerable question.
+fn store_left_this_device_behind(repo: &Repository, seen: Option<Oid>, remote_oid: Oid) -> bool {
+    let Some(seen) = seen else {
+        return false;
+    };
+    repo.find_commit(seen).is_err() || store_was_replaced(repo, Some(seen), remote_oid)
+}
+
+/// Whether the store's head still BUILDS ON the position this device last took
+/// from it — the question that decides if a replacing push overwrites only
+/// history this device has already answered for.
+///
+/// Asked without importing anything: where the local graph cannot answer, the
+/// walk reads commit objects off the store, parses their `parent` lines in
+/// memory and throws the bytes away. The replacing push is the one leg that
+/// runs on a device that just PURGED — importing the store's history here
+/// would re-materialize, in cleartext under the object database, exactly the
+/// content the purge removed. Commit headers carry no note content.
+///
+/// `Ok(false)` is a DETERMINED answer — the head's whole ancestry was walked
+/// and the position is not in it — and the caller records it as one (the
+/// pause, with its adopt door). Every unanswerable shape refuses as an error
+/// instead, recording nothing: a walk past the caps, an object the store
+/// cannot produce right now, a non-commit or wrong object in the chain. A
+/// network blip must not be written down as "the store replaced you".
+fn remote_head_builds_on(
+    repo: &Repository,
+    key: &MasterKey,
+    transport: &impl BlobTransport,
+    remote_oid: Oid,
+    seen: Oid,
+) -> Result<bool, String> {
+    if remote_oid == seen {
+        return Ok(true);
+    }
+    if repo.find_commit(remote_oid).is_ok() && repo.find_commit(seen).is_ok() {
+        return Ok(repo.graph_descendant_of(remote_oid, seen).unwrap_or(false));
+    }
+    let mut pending = vec![remote_oid];
+    let mut visited: BTreeSet<Oid> = BTreeSet::new();
+    while let Some(oid) = pending.pop() {
+        if oid == seen {
+            return Ok(true);
+        }
+        if !visited.insert(oid) {
+            continue;
+        }
+        if visited.len() > MAX_LIST_OBJECTS || pending.len() > MAX_PENDING_EDGES {
+            return Err(
+                "hosted sync push refused: the server's history is too large to check the \
+                 replacement against; nothing changed here — the hosted store needs \
+                 rebuilding from a current vault before a replace can be verified"
+                    .into(),
+            );
+        }
+        let parents = if let Ok(commit) = repo.find_commit(oid) {
+            commit.parent_ids().collect::<Vec<_>>()
+        } else {
+            let name = object_name(key, oid);
+            let envelope =
+                transport.get_object(&name, MAX_OBJECT_ENVELOPE_BYTES).map_err(|error| {
+                    format!(
+                        "hosted sync push refused: could not read the server's history to \
+                         check the replacement against ({error}); nothing changed here — \
+                         try again"
+                    )
+                })?;
+            let object = decrypt_object(key, &name, &envelope)?;
+            if object.kind != ObjectType::Commit {
+                return Err(
+                    "hosted sync push refused: the server's history chain holds something \
+                     that is not a commit; nothing changed here"
+                        .into(),
+                );
+            }
+            verify_git_hash(&object)?;
+            if object.oid != oid {
+                return Err(
+                    "hosted sync push refused: the server returned the wrong object for \
+                     its own history; nothing changed here"
+                        .into(),
+                );
+            }
+            commit_parent_ids(&object.data)
+        };
+        pending.extend(parents);
+    }
+    Ok(false)
+}
+
+/// The `parent` header lines of a raw commit object, and nothing else read
+/// from it — the walk above needs the edges, never the message or the tree.
+/// Parsed off the borrowed bytes so no copy of the commit (whose message can
+/// carry snapshot titles) outlives the zeroizing owner.
+fn commit_parent_ids(data: &[u8]) -> Vec<Oid> {
+    let mut parents = Vec::new();
+    for line in data.split(|byte| *byte == b'\n') {
+        if line.is_empty() {
+            break;
+        }
+        if let Some(rest) = line.strip_prefix(b"parent ") {
+            if let Some(oid) =
+                std::str::from_utf8(rest).ok().and_then(|text| Oid::from_str(text.trim()).ok())
+            {
+                parents.push(oid);
+            }
+        }
+    }
+    parents
+}
+
+/// The refusal for a replacing push that has no recorded store position to
+/// check the replacement against — a rewrite marker from before positions
+/// were recorded. It names the redo that mints fresh evidence rather than
+/// implying a dead end.
+fn replaced_store_redo_error() -> String {
+    "hosted sync push refused: this vault's rewrite predates the recorded store positions, \
+     so there is nothing to check the server's copy against. To redo it with evidence: \
+     adopt the server's history from the Vault sync pane, purge again on this device, \
+     then replace."
+        .to_string()
+}
+
+fn store_was_replaced(repo: &Repository, seen: Option<Oid>, remote_oid: Oid) -> bool {
+    let Some(seen) = seen else {
+        // Nothing was ever taken from this store, so there is no position for
+        // it to have stopped building on: a first join, not a replacement.
+        return false;
+    };
+    seen != remote_oid
+        && !repo.graph_descendant_of(remote_oid, seen).unwrap_or(true)
+        && !repo.graph_descendant_of(seen, remote_oid).unwrap_or(true)
 }
 
 /// What a hosted pull owes when the remote head is already reachable: the
@@ -1266,9 +1828,23 @@ fn idle_pull<G>(
 
 /// Both purge-marker refusals in [`pull`] say the same thing, so a caller
 /// cannot tell whether the marker was there all along or landed mid-pull.
+///
+/// Worded as a state with a way out, not as damage: the pane offers that way
+/// out ([`push_replacing_remote`]), and the sentence that reaches someone
+/// staring at a red pane should say so rather than read like a vault that has
+/// stopped working for good.
 fn rewritten_history_pull_error() -> String {
-    "hosted sync pull refused: this vault's history was rewritten by a purge or trim; \
-     replace or re-initialize the hosted-sync vault before pulling again"
+    "hosted sync is paused: this vault's history was rewritten here by a purge or trim, so it \
+     no longer matches the copy on the server. Pulling would bring the removed history back. \
+     Replacing the server's copy with this vault, from the Vault sync pane, starts sync again."
+        .into()
+}
+
+/// The same state, met by a push instead of a pull.
+fn rewritten_history_push_error() -> String {
+    "hosted sync is paused: this vault's history was rewritten here by a purge or trim, and the \
+     server still holds the history from before it, which this push cannot build on. Replacing \
+     the server's copy with this vault, from the Vault sync pane, starts sync again."
         .into()
 }
 
@@ -2254,8 +2830,165 @@ mod tests {
 
         let error = push(&a, &key, &store, || ()).unwrap_err();
         assert!(error.contains("history was rewritten"), "{error}");
-        assert!(error.contains("re-initialize"), "{error}");
+        // The state is one the pane can end, so the sentence points at that
+        // door instead of reading like a vault that has stopped for good.
+        assert!(error.contains("Vault sync pane"), "{error}");
         assert!(!error.contains("pull and merge first"), "{error}");
+    }
+
+    /// The way out, end to end: the refusal above, then the replacement the
+    /// pane offers, then an ordinary push — and a second device that ends up
+    /// on the rewritten history without the purged blob.
+    #[test]
+    fn replacing_the_hosted_copy_ends_the_post_rewrite_pause() {
+        let scratch = TempDir::new().unwrap();
+        let a = scratch.path().join("vault-a");
+        let b = scratch.path().join("vault-b");
+        let history_a = vault(&a);
+        let _history_b = vault(&b);
+        let store = FileBlobStore::new(scratch.path().join("blob-store")).unwrap();
+        let key = MasterKey::from_bytes([21; 32]);
+
+        write_note(&a, "Secret.md", "erase me everywhere\n");
+        history_a.snapshot("secret").unwrap();
+        write_note(&a, "Keep.md", "keep me\n");
+        history_a.snapshot("keep").unwrap();
+        let secret_oid = {
+            let repo_a = Repository::open(&a).unwrap();
+            let oid = repo_a
+                .head()
+                .unwrap()
+                .peel_to_commit()
+                .unwrap()
+                .tree()
+                .unwrap()
+                .get_name("Secret.md")
+                .unwrap()
+                .id();
+            oid
+        };
+        push(&a, &key, &store, || ()).unwrap();
+        // The second device holds the pre-rewrite history, the way a real one
+        // would: it synced before the purge happened — and pushed the merge
+        // that pull left it with, so the store holds everything device B has.
+        pull(&b, &key, &store, || ()).unwrap();
+        push(&b, &key, &store, || ()).unwrap();
+        pull(&a, &key, &store, || ()).unwrap();
+        assert!(Repository::open(&b).unwrap().odb().unwrap().exists(secret_oid));
+
+        fs::remove_file(a.join("Secret.md")).unwrap();
+        history_a.purge_files(&["Secret.md"]).unwrap();
+        assert!(history_rewritten(&Repository::open(&a).unwrap()));
+        push(&a, &key, &store, || ()).unwrap_err();
+
+        // The replacement publishes this vault over what the store points at.
+        let mut gated = false;
+        push_replacing_remote(&a, &key, &store, || gated = true).unwrap();
+        assert!(gated, "the replacement never took the caller's write gate");
+        assert!(
+            !history_rewritten(&Repository::open(&a).unwrap()),
+            "the marker outlived the push that made the store agree, so the pane would still \
+             offer a replacement for a vault that no longer needs one"
+        );
+
+        // Sync is ordinary again from here: the next change pushes with no
+        // refusal and no second replacement.
+        write_note(&a, "After.md", "written after the repair\n");
+        history_a.snapshot("after").unwrap();
+        push(&a, &key, &store, || ()).unwrap();
+
+        // And the device that still held the old history is not moved onto the
+        // replacement behind its user's back. Device B is as synced as a device
+        // gets — it pushed, so its HEAD is exactly the position the tracking
+        // ref records — and the replacement still reaches none of its commits,
+        // because a purge reissues every one of them. Pushed-but-discarded
+        // snapshots are as gone after adoption as ones that never left, so the
+        // pull pauses and prices them alike.
+        let seen = {
+            let repo_b = Repository::open(&b).unwrap();
+            let head = repo_b.head().unwrap().target().unwrap();
+            let seen =
+                repo_b.find_reference("refs/remotes/substrate/main").unwrap().target().unwrap();
+            assert_eq!(head, seen, "device B was not fully pushed, so this proves nothing");
+            seen
+        };
+        let paused = pull(&b, &key, &store, || ()).unwrap_err();
+        assert!(paused.contains("rewrote this vault's history"), "{paused}");
+        assert!(paused.contains("snapshots taken here"), "the pause named no cost: {paused}");
+        assert!(paused.contains("Vault sync pane"), "the pause named no way out: {paused}");
+        assert!(b.join("Secret.md").is_file(), "the refusal already checked the replacement out");
+        assert_eq!(
+            Repository::open(&b)
+                .unwrap()
+                .find_reference("refs/remotes/substrate/main")
+                .unwrap()
+                .target()
+                .unwrap(),
+            seen,
+            "the refusal moved the tracking ref, so the next pull would read an ordinary move \
+             and merge the purged content back"
+        );
+
+        // Asked and answered, it adopts — onto the rewritten history, without
+        // the blob the purge removed.
+        let adopted = pull_adopting_replaced(&b, &key, &store, || ()).unwrap();
+        let notice = adopted.notice.as_deref().unwrap_or_default();
+        assert!(
+            notice.contains("rewrote"),
+            "the device was reset onto someone else's rewritten history and the report said \
+             nothing about it: {notice:?}"
+        );
+        assert!(
+            notice.contains("discarded here"),
+            "the report left its user guessing what the reset cost: {notice:?}"
+        );
+        let repo_b = Repository::open(&b).unwrap();
+        assert!(
+            !repo_b.odb().unwrap().exists(secret_oid),
+            "the purged blob came back to the second device"
+        );
+        assert!(b.join("After.md").is_file(), "the second device never adopted the new history");
+        assert!(!b.join("Secret.md").exists(), "the purged note came back to the second device");
+    }
+
+    /// What the pause is priced against: the replacement head, and nothing
+    /// about where this device last stood with the store. A HEAD the new
+    /// history already reaches costs nothing — the one case where adopting
+    /// without asking is a claim the code can stand behind — and every commit
+    /// outside it is one the pause has to name.
+    #[test]
+    fn held_work_is_measured_against_the_replacement_head() {
+        let scratch = TempDir::new().unwrap();
+        let a = scratch.path().join("vault-a");
+        let history_a = vault(&a);
+        write_note(&a, "First.md", "first\n");
+        history_a.snapshot("first").unwrap();
+        let repo = Repository::open(&a).unwrap();
+        let first = repo.head().unwrap().target().unwrap();
+        write_note(&a, "Second.md", "second\n");
+        history_a.snapshot("second").unwrap();
+        let second = repo.head().unwrap().target().unwrap();
+
+        // Handed a history that already contains this device's HEAD, with
+        // nothing being typed: adopting takes nothing, and the sentence says
+        // that rather than pricing edits that are not there.
+        let contained = HeldLocally::measure(&repo, second).unwrap();
+        assert!(!contained.anything());
+        assert_eq!(contained.describe(), "nothing the server's history is missing");
+
+        // A commit the replacement cannot reach is one the pause names, even
+        // though this device never took a step the store did not see.
+        let held = HeldLocally::measure(&repo, first).unwrap();
+        assert!(held.anything());
+        assert_eq!(held.describe(), "1 snapshot taken here");
+        let paused = replaced_store_pause_error(Some(&held));
+        assert!(paused.contains("1 snapshot taken here"), "{paused}");
+
+        // And an edit no snapshot holds counts on its own.
+        write_note(&a, "Typing.md", "still being typed\n");
+        let typing = HeldLocally::measure(&repo, second).unwrap();
+        assert!(typing.anything());
+        assert_eq!(typing.describe(), "edits no snapshot holds yet");
     }
 
     /// §5 says a server can replay an older authentic ref. Pin what that
@@ -2611,6 +3344,208 @@ mod tests {
         assert_eq!(joined.0, winner_key.0, "the loser must adopt the winner's key");
     }
 
+    /// A transport that answers every leg except reading objects back — the
+    /// shape of a store mid-outage under the replace's ancestry walk.
+    struct FlakyGets<'a> {
+        inner: &'a FileBlobStore,
+        failing: std::cell::Cell<bool>,
+    }
+
+    impl BlobTransport for FlakyGets<'_> {
+        fn list_objects(&self, max_objects: usize) -> Result<Vec<String>, String> {
+            self.inner.list_objects(max_objects)
+        }
+        fn store_identity(&self) -> String {
+            self.inner.store_identity()
+        }
+        fn get_object(&self, name: &str, max_bytes: usize) -> Result<Vec<u8>, String> {
+            if self.failing.get() {
+                return Err("connection reset".into());
+            }
+            self.inner.get_object(name, max_bytes)
+        }
+        fn put_object(&self, name: &str, bytes: &[u8]) -> Result<(), String> {
+            self.inner.put_object(name, bytes)
+        }
+        fn read_ref(&self, max_bytes: usize) -> Result<Option<VersionedRef>, String> {
+            self.inner.read_ref(max_bytes)
+        }
+        fn compare_and_swap_ref(
+            &self,
+            expected_version: Option<&str>,
+            bytes: &[u8],
+        ) -> Result<CasResult, String> {
+            self.inner.compare_and_swap_ref(expected_version, bytes)
+        }
+        fn read_key(&self, max_bytes: usize) -> Result<Option<VersionedRef>, String> {
+            self.inner.read_key(max_bytes)
+        }
+        fn compare_and_swap_key(
+            &self,
+            expected_version: Option<&str>,
+            bytes: &[u8],
+        ) -> Result<CasResult, String> {
+            self.inner.compare_and_swap_key(expected_version, bytes)
+        }
+    }
+
+    /// A transport failure inside the replace's ancestry walk is not evidence.
+    /// The refusal must record nothing — a network blip written down as "the
+    /// store replaced you" would pause the vault on a claim nobody established
+    /// — and the retry once the store answers again gets the real verdict,
+    /// through the walk's fetched-header path.
+    #[test]
+    fn a_transport_failure_in_the_replace_walk_records_nothing() {
+        let scratch = TempDir::new().unwrap();
+        let a = scratch.path().join("vault-a");
+        let b = scratch.path().join("vault-b");
+        let history_a = vault(&a);
+        let history_b = vault(&b);
+        let store = FileBlobStore::new(scratch.path().join("blob-store")).unwrap();
+        let key = MasterKey::from_bytes([7; 32]);
+
+        write_note(&a, "Keep.md", "keep\n");
+        history_a.snapshot("a1").unwrap();
+        push(&a, &key, &store, || ()).unwrap();
+        pull(&b, &key, &store, || ()).unwrap();
+
+        write_note(&b, "Local.md", "b only\n");
+        history_b.snapshot("b1").unwrap();
+        fs::remove_file(b.join("Local.md")).unwrap();
+        history_b.purge_files(&["Local.md"]).unwrap();
+
+        // The store moves on while B's rewrite waits, so B's walk has a
+        // commit it can only read off the store.
+        write_note(&a, "More.md", "moved on\n");
+        history_a.snapshot("a2").unwrap();
+        push(&a, &key, &store, || ()).unwrap();
+
+        let flaky = FlakyGets { inner: &store, failing: std::cell::Cell::new(true) };
+        let error = push_replacing_remote(&b, &key, &flaky, || ()).unwrap_err();
+        assert!(error.contains("try again"), "the refusal named no retry: {error}");
+        let repo_b = git2::Repository::open(&b).unwrap();
+        assert!(
+            !super::super::store_replaced(&repo_b),
+            "a network blip was recorded as a replaced store"
+        );
+
+        flaky.failing.set(false);
+        push_replacing_remote(&b, &key, &flaky, || ()).unwrap();
+        assert!(
+            !super::super::store_replaced(&repo_b),
+            "the approving retry left a pause behind"
+        );
+    }
+
+    /// A pause heals when the store turns ordinary again: an operator restore
+    /// puts back a history that builds on what this device last took, and the
+    /// next ordinary pull clears the pause and merges — no adopt, nothing
+    /// discarded.
+    #[test]
+    fn a_restored_store_heals_the_pause_on_the_next_pull() {
+        let scratch = TempDir::new().unwrap();
+        let a = scratch.path().join("vault-a");
+        let b = scratch.path().join("vault-b");
+        let history_a = vault(&a);
+        let _history_b = vault(&b);
+        let store = FileBlobStore::new(scratch.path().join("blob-store")).unwrap();
+        let key = MasterKey::from_bytes([7; 32]);
+
+        write_note(&a, "Keep.md", "keep\n");
+        history_a.snapshot("a1").unwrap();
+        write_note(&a, "More.md", "purged later\n");
+        history_a.snapshot("a2").unwrap();
+        push(&a, &key, &store, || ()).unwrap();
+        // B's position includes the commit the purge will sweep, so the
+        // replacement genuinely leaves B behind.
+        pull(&b, &key, &store, || ()).unwrap();
+        write_note(&a, "Third.md", "ahead of b\n");
+        history_a.snapshot("a3").unwrap();
+        push(&a, &key, &store, || ()).unwrap();
+        let good = store.read_ref(MAX_REF_ENVELOPE_BYTES).unwrap().unwrap();
+
+        fs::remove_file(a.join("More.md")).unwrap();
+        history_a.purge_files(&["More.md"]).unwrap();
+        push_replacing_remote(&a, &key, &store, || ()).unwrap();
+        let paused = pull(&b, &key, &store, || ()).unwrap_err();
+        assert!(paused.contains("paused"), "{paused}");
+        let repo_b = git2::Repository::open(&b).unwrap();
+        assert!(super::super::store_replaced(&repo_b), "the refusal armed no pause");
+
+        // The operator restore: the pre-replacement ref document goes back,
+        // its objects still in the store.
+        let current = store.read_ref(MAX_REF_ENVELOPE_BYTES).unwrap().unwrap();
+        assert!(matches!(
+            store.compare_and_swap_ref(Some(&current.version), &good.bytes).unwrap(),
+            CasResult::Updated(_)
+        ));
+
+        pull(&b, &key, &store, || ()).unwrap();
+        assert!(
+            !super::super::store_replaced(&repo_b),
+            "an ordinary store left the pause armed"
+        );
+        assert_eq!(fs::read_to_string(b.join("Third.md")).unwrap(), "ahead of b\n");
+    }
+
+    /// The same restore seen from a device that purged its own history while
+    /// paused: its consented adopt finds the store ordinary, retires the
+    /// answered pause on the way to the rewrite refusal, and the Replace the
+    /// pane then offers publishes.
+    #[test]
+    fn a_failed_adopt_against_an_ordinary_store_retires_the_answered_pause() {
+        let scratch = TempDir::new().unwrap();
+        let a = scratch.path().join("vault-a");
+        let b = scratch.path().join("vault-b");
+        let history_a = vault(&a);
+        let history_b = vault(&b);
+        let store = FileBlobStore::new(scratch.path().join("blob-store")).unwrap();
+        let key = MasterKey::from_bytes([7; 32]);
+
+        write_note(&a, "Keep.md", "keep\n");
+        history_a.snapshot("a1").unwrap();
+        write_note(&a, "More.md", "purged later\n");
+        history_a.snapshot("a2").unwrap();
+        push(&a, &key, &store, || ()).unwrap();
+        // B's position includes the commit the purge will sweep, so the
+        // replacement genuinely leaves B behind.
+        pull(&b, &key, &store, || ()).unwrap();
+        write_note(&a, "Third.md", "ahead of b\n");
+        history_a.snapshot("a3").unwrap();
+        push(&a, &key, &store, || ()).unwrap();
+        let good = store.read_ref(MAX_REF_ENVELOPE_BYTES).unwrap().unwrap();
+
+        fs::remove_file(a.join("More.md")).unwrap();
+        history_a.purge_files(&["More.md"]).unwrap();
+        push_replacing_remote(&a, &key, &store, || ()).unwrap();
+        pull(&b, &key, &store, || ()).unwrap_err();
+        let repo_b = git2::Repository::open(&b).unwrap();
+        assert!(super::super::store_replaced(&repo_b), "the refusal armed no pause");
+
+        // While paused, B seals a secret of its own — both markers standing.
+        write_note(&b, "Local.md", "b only\n");
+        history_b.snapshot("b1").unwrap();
+        fs::remove_file(b.join("Local.md")).unwrap();
+        history_b.purge_files(&["Local.md"]).unwrap();
+
+        let current = store.read_ref(MAX_REF_ENVELOPE_BYTES).unwrap().unwrap();
+        assert!(matches!(
+            store.compare_and_swap_ref(Some(&current.version), &good.bytes).unwrap(),
+            CasResult::Updated(_)
+        ));
+
+        // The adopt finds nothing to adopt — the store is ordinary — and its
+        // refusal is the rewrite's, with the pause retired rather than left
+        // blocking the Replace door.
+        let refused = pull_adopting_replaced(&b, &key, &store, || ()).unwrap_err();
+        assert!(refused.contains("rewritten"), "{refused}");
+        assert!(
+            !super::super::store_replaced(&repo_b),
+            "the answered pause outlived its answer"
+        );
+        push_replacing_remote(&b, &key, &store, || ()).unwrap();
+    }
+
     /// The whole point of a passphrase change: the vault's key is untouched,
     /// so nothing already encrypted has to be rewritten and no enrolled device
     /// is interrupted — only which phrase opens the envelope moves.
@@ -2620,8 +3555,13 @@ mod tests {
         let store = FileBlobStore::new(scratch.path()).unwrap();
         let (original, _) = enroll(&store, b"correct horse battery staple").unwrap();
 
-        change_passphrase(&store, b"correct horse battery staple", b"a whole new phrase", &original)
-            .unwrap();
+        change_passphrase(
+            &store,
+            b"correct horse battery staple",
+            b"a whole new phrase",
+            &original,
+        )
+        .unwrap();
 
         // The new phrase enrolls a device; the old one no longer does.
         let (joined, how) = enroll(&store, b"a whole new phrase").unwrap();

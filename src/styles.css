@@ -11520,6 +11520,13 @@ th.sheet-computed:hover {
   background: var(--active);
 }
 
+/* Armed: the next press replaces what the server holds, so the button must
+   not look like the one that only asked. */
+.vault-sync-button.danger {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
 .vault-sync-button:disabled,
 .vault-sync-save:disabled {
   opacity: 0.45;

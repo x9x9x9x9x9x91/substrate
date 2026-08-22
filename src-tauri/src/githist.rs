@@ -1076,7 +1076,7 @@ fn reachable_objects(repo: &Repository) -> Result<HashSet<Oid>, String> {
     Ok(reachable)
 }
 
-fn sweep_loose_objects(repo: &Repository) -> Result<(), String> {
+pub(crate) fn sweep_loose_objects(repo: &Repository) -> Result<(), String> {
     let reachable = reachable_objects(repo)?;
     let objects_dir = repo.path().join("objects");
     let directories = fs::read_dir(&objects_dir)
@@ -1117,7 +1117,7 @@ fn sweep_loose_objects(repo: &Repository) -> Result<(), String> {
     Ok(())
 }
 
-fn remove_reflogs(repo: &Repository) -> Result<(), String> {
+pub(crate) fn remove_reflogs(repo: &Repository) -> Result<(), String> {
     match fs::remove_dir_all(repo.path().join("logs")) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
