@@ -4,7 +4,7 @@ title: Holdings
 created: 2026-07-23
 ---
 A demo portfolio sheet — data rows in the csv fence, computed columns and named
-summaries in the formulas fence. [[Portfolio]] binds cards to the summaries.
+summaries in the formulas fence. [[Label Board]] binds cards to the summaries.
 
 ```csv
 asset,bucket,units,price_usd

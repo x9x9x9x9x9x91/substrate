@@ -2221,8 +2221,10 @@ that tile and never drops its siblings. Runtime source errors (missing sheet,
 summary, database, or saved view) use the delegated surface's own error. Card
 emphasis is selected after flattening all cards tiles: at most two values per
 board stay sharp, and with no `emph` option the first card anchors the board.
-The grid is read-only, participates in dashboard printing, and is a normal
-flat dashboard target inside §5.6a workbook pages.
+`view` tiles edit in place exactly as the full pane does. The board itself
+carries no Print button — on paper the tile grid collapses to a stack — but it
+is a normal flat dashboard target inside §5.6a workbook pages, and printing a
+workbook page prints the flattened grid with it.
 
 ### 5.7 Recurring calendar entries — `repeat` / `repeat_until` / `repeat_skip`
 
@@ -2523,7 +2525,7 @@ or `ctx.toast`.
 | Member | Shape | What it is |
 | --- | --- | --- |
 | `ctx.api` | `number` | The contract version actually handed over — what the kind got, not what it asked for. |
-| `ctx.el` | `Element` | The same element passed as the first argument, for convenience. |
+| `ctx.el` | `HTMLElement` | The same element passed as the first argument, for convenience. |
 | `ctx.note` | `{ path, title, props, body }` | The dashboard note the kind is mounted in: its vault path, title, frontmatter props and raw body. |
 | `ctx.css` | `Record<string, string>` | Sanctioned class names, the full api-1 roster: `dash-metrics`, `dash-metric`, `dash-metric-sub`, `dash-label`, `dash-value`, `dash-sub`, `dash-hero`, `dash-table`, `dash-card`, `dash-cards`, `dash-section-label`, `dash-link`, `dash-foot`. Rendering through these is how a kind speaks in the app's voice and follows its theme; a kind may also ship its own `style.css`. A key not in the map reads as `undefined` — interpolated straight into a template string that becomes `class="undefined"` — so look keys up defensively (`ctx.css["dash-hero"] ?? ""`) and put anything the roster doesn't cover on your own prefixed classes. |
 | `ctx.accents` | `readonly string[]` | The accent roster — `gray`, `blue`, `indigo`, `violet`, `pink`, `red`, `orange`, `yellow`, `green`, `teal`. Put one on `data-accent` on a `dash-card` and the app resolves the hue — that is the one sanctioned class wired for it; an off-roster name paints nothing. Named mood, not CSS: a kind that names `teal` follows the theme when the theme moves. Added inside api 1, so **feature-check it** (`ctx.accents ?? []`) — a build older than SUB-969 mounts the same kind with the member absent. |

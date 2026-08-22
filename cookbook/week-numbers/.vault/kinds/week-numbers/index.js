@@ -25,7 +25,8 @@ export default {
       const now = isoWeek(today());
       const current = now && now.year === year ? now.week : 0;
       const dated = [...weeks.values()].reduce((a, b) => a + b.length, 0);
-      const busiest = Math.max(1, ...[...weeks.values()].map((b) => b.length));
+      const most = Math.max(0, ...[...weeks.values()].map((b) => b.length));
+      const busiest = Math.max(1, most);
 
       const cells = [];
       for (let w = 1; w <= weeksInYear(year); w++) {
@@ -53,7 +54,7 @@ export default {
           </div>
           <div class="${ctx.css["dash-metric"]}">
             <div class="${ctx.css["dash-label"]}">Busiest week</div>
-            <div class="${ctx.css["dash-value"]}">${busiest}</div>
+            <div class="${ctx.css["dash-value"]}">${most}</div>
           </div>
         </div>
         <div class="${ctx.css["dash-section-label"]}">${year} by ISO week</div>

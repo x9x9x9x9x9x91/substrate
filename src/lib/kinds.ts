@@ -14,8 +14,8 @@
    it is handed. Pure TS, no DOM/node imports: runs in the app and under
    `node --test`.
 
-   The loading mechanism, the enable pane and the dispatch change ship in
-   later units of the arc — this file is the contract they all agree on. */
+   The loading mechanism, the enable pane and the dispatch all live now —
+   this file is the contract they agree on. */
 
 import { foldedPropKey, propStr } from "./types.ts";
 
