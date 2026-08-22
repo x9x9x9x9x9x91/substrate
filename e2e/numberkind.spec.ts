@@ -59,7 +59,7 @@ test("junk and empty number values render exactly as typed (SUB-188)", async ({ 
 });
 
 test("note chip shows the formatted value (SUB-188)", async ({ page }) => {
-  await page.locator(".db-title-txt", { hasText: "Falke F-3" }).click();
+  await page.locator(".db-title-txt", { hasText: "Falke F-3" }).dblclick();
   await expect(page.locator(".note-title")).toHaveValue("Falke F-3");
 
   const chip = page.locator(".chip", { hasText: "price" });

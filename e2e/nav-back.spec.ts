@@ -31,7 +31,7 @@ test("the chevron returns from a database the way ⌫ does", async ({ page }) =>
 test("the chevron closes an open entry before leaving the database", async ({ page }) => {
   await page.goto("/");
   await openDb(page, "Contact");
-  await page.locator(".db-table tbody tr", { hasText: "Gero" }).locator(".db-title").click();
+  await page.locator(".db-table tbody tr", { hasText: "Gero" }).locator(".db-title").dblclick();
   await expect(page.locator(".note-title")).toHaveValue("Gero");
 
   // same order ⌫ walks: the side note first, then the view history

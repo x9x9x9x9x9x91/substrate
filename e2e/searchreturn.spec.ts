@@ -38,7 +38,7 @@ test("a db entry hit lands in its database, Esc returns to the results", async (
 test("Esc out of a search restores the database's open side note", async ({ page }) => {
   await page.goto("/");
   await openDb(page, "Contact");
-  await page.locator(".db-table tbody tr", { hasText: "Gero" }).locator(".db-title").click();
+  await page.locator(".db-table tbody tr", { hasText: "Gero" }).locator(".db-title").dblclick();
   await expect(page.locator(".db-note .note-title")).toHaveValue("Gero");
 
   await page.keyboard.press("Meta+Shift+f");
@@ -57,7 +57,7 @@ test("Esc out of a search restores the database's open side note", async ({ page
 test("⌫ back into a database restores its open side note", async ({ page }) => {
   await page.goto("/");
   await openDb(page, "Contact");
-  await page.locator(".db-table tbody tr", { hasText: "Gero" }).locator(".db-title").click();
+  await page.locator(".db-table tbody tr", { hasText: "Gero" }).locator(".db-title").dblclick();
   await expect(page.locator(".db-note .note-title")).toHaveValue("Gero");
 
   // leave via a search hit that lands in a different view — the bridge push

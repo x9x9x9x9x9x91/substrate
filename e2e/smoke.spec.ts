@@ -83,7 +83,7 @@ test("chip edit via picker, chip add via key:value", async ({ page }) => {
   await page
     .locator(".db-table tbody tr", { hasText: "Slow Bloom EP" })
     .locator(".db-title")
-    .click();
+    .dblclick();
   await expect(page.locator(".note-title")).toHaveValue("Slow Bloom EP");
 
   // schema'd prop edits through the SelectMenu picker
@@ -448,7 +448,7 @@ test("multi-select prop: picker toggles values, per-value pills + filter (SUB-79
   await page
     .locator(".db-table tbody tr", { hasText: "Slow Bloom EP" })
     .locator(".db-title")
-    .click();
+    .dblclick();
   await expect(page.locator(".note-title")).toHaveValue("Slow Bloom EP");
   const format = chip(page, "format");
   await expect(format.locator(".chip-val")).toHaveText("Vinyl");
@@ -889,7 +889,7 @@ test("database new entry is born complete: schema chips + template body (SUB-17)
   // the new row lands in the table and opens in the side split
   const newRow = page.locator(".db-table tr", { hasText: "Test Pressing" });
   await expect(newRow).toBeVisible();
-  await newRow.locator(".db-title").click();
+  await newRow.locator(".db-title").dblclick();
   const split = page.locator(".db-note");
   await expect(split.locator(".note-title")).toHaveValue("Test Pressing");
 
@@ -1350,7 +1350,7 @@ test("typing a note into a NEW database announces the birth (SUB-470)", async ({
   // carries it into the NEW database — the leave-clear must not
   // close the pane out from under the follow
   await openDb(page, "Expense");
-  await page.locator(".db-title-txt", { hasText: "Second expense" }).click();
+  await page.locator(".db-title-txt", { hasText: "Second expense" }).dblclick();
   await expect(page.locator(".note-title")).toHaveValue("Second expense");
   await chip(page, "Database").click();
   await expect(page.locator(".selmenu")).toBeVisible();
@@ -1410,7 +1410,7 @@ test("view embed: inline db table, row click-through, unknown-type card (SUB-86)
   await page
     .locator(".db-table tbody tr", { hasText: "Vessel Songs" })
     .locator(".db-title")
-    .click();
+    .dblclick();
   const side = page.locator(".db-note");
   await expect(side.locator(".note-title")).toHaveValue("Vessel Songs");
   await side.locator(".cm-line").first().click();

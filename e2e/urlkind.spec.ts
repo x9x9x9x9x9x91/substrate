@@ -39,7 +39,7 @@ test("url cells render the stripped title and open the raw link (SUB-172)", asyn
 });
 
 test("url note chip opens externally; right-click edits the raw string (SUB-172)", async ({ page }) => {
-  await page.locator(".db-title-txt", { hasText: "Aeon Driftbox" }).click();
+  await page.locator(".db-title-txt", { hasText: "Aeon Driftbox" }).dblclick();
   await expect(page.locator(".note-title")).toHaveValue("Aeon Driftbox");
 
   await expect(page.locator(".chip .url-link")).toHaveText("aeon.audio/driftbox");

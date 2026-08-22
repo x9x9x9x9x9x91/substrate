@@ -14,7 +14,7 @@ async function openRelease(page: Page) {
   await page
     .locator(".db-table tbody tr", { hasText: "Slow Bloom EP" })
     .locator(".db-title")
-    .click();
+    .dblclick();
   await expect(page.locator(".note-title")).toHaveValue("Slow Bloom EP");
 }
 
@@ -61,7 +61,7 @@ test("property controls expose native actions and an announced relation picker",
   await page
     .locator(".db-table tbody tr", { hasText: "Vessel Songs" })
     .locator(".db-title")
-    .click();
+    .dblclick();
   await expect(page.getByRole("button", { name: "Edit contract: missing contract.pdf" })).toBeVisible();
 });
 
@@ -92,7 +92,7 @@ test("checkbox and URL properties retain their distinct keyboard semantics", asy
   await page
     .locator(".db-table tbody tr", { hasText: "Aeon Driftbox" })
     .locator(".db-title")
-    .click();
+    .dblclick();
   await expect(page.locator(".note-title")).toHaveValue("Aeon Driftbox");
 
   const toggle = page.getByRole("button", { name: "in use: checked. Toggle" });
@@ -122,7 +122,7 @@ test("phone property actions keep the established full-width row geometry", asyn
   await page
     .locator(".db-table tbody tr", { hasText: "Slow Bloom EP" })
     .locator(".db-title")
-    .click();
+    .dblclick();
 
   const row = propertyRow(page, "contact");
   const primary = page.getByRole("button", { name: "Edit contact relations: Gero" });

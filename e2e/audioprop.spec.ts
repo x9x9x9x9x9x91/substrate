@@ -125,7 +125,7 @@ test("row button and note embed share one player across navigation", async ({ pa
 
   // opening the note mounts the embed for the same file — the row button
   // binds to the player the embed creates, before anything plays
-  await row(page, "Vessel Songs").locator(".db-title").click();
+  await row(page, "Vessel Songs").locator(".db-title").dblclick();
   const embed = page.locator(".cm-audio", {
     has: page.locator('.cm-audio-name:text-is("vessel-master-v2.wav")'),
   });
@@ -144,7 +144,7 @@ test("row button and note embed share one player across navigation", async ({ pa
 
   // reopening rebinds the same playing element: the embed shows the pause
   // glyph (two rects), not a restarted player
-  await row(page, "Vessel Songs").locator(".db-title").click();
+  await row(page, "Vessel Songs").locator(".db-title").dblclick();
   await expect(embed).toBeVisible();
   await expect(embed.locator(".cm-audio-btn svg rect")).toHaveCount(2);
 

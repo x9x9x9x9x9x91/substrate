@@ -25,11 +25,20 @@ export interface HopGrid {
   rows: number;
   /** the kind of data column `i` (0-based over data columns, so `c - 1`) */
   kindAt: (i: number) => PropKind | undefined;
+  /** whether column 0 holds an editor of its own — true where the Name cell
+      renames in place, false where the vault does not own the file and the
+      title is read-only text. A Tab walk steps over it when it is false,
+      exactly as it steps over a derived column. */
+  titleEditable?: boolean;
 }
 
 /** A derived cell holds no value of its own, so the commit-and-move
-    hop steps over it rather than opening an editor that could not commit. */
+    hop steps over it rather than opening an editor that could not commit.
+    The title column is the same question asked of column 0: it holds the
+    rename editor where there is a rename to make, and nothing where there
+    is not. */
 function inert(grid: HopGrid, c: number): boolean {
+  if (c === 0) return !grid.titleEditable;
   return grid.kindAt(c - 1) === "rollup";
 }
 
@@ -38,9 +47,10 @@ function inert(grid: HopGrid, c: number): boolean {
     Vertical (Enter / Shift-Enter) stays in its column and stops at the last
     and first row — a column is one kind throughout, so nothing to skip.
 
-    Horizontal (Tab / Shift-Tab) walks the data columns and wraps at the ends
+    Horizontal (Tab / Shift-Tab) walks the columns and wraps at the ends
     into the next/previous row, spreadsheet-style; it stops at the very last
-    and very first data cell of the table. Rollup columns are walked past. */
+    and very first cell of the table. Rollup columns are walked past, and so
+    is the Name column wherever it holds no editor. */
 export function nextEditableCell(from: Cell, dir: HopDir, grid: HopGrid): Cell | null {
   if (grid.cols < 1 || grid.rows < 1) return null;
   if (dir === "down" || dir === "up") {
@@ -50,18 +60,18 @@ export function nextEditableCell(from: Cell, dir: HopDir, grid: HopGrid): Cell |
     return { c: from.c, r };
   }
   const step = dir === "right" ? 1 : -1;
-  // start from the first data column when the walk begins on the title cell,
-  // so a Tab out of a title never dead-ends
-  let c = from.c < 1 ? (step > 0 ? 0 : grid.cols + 1) : from.c;
+  // a walk that starts outside the grid's columns still has to enter it, so
+  // it begins one step short of the first (or past the last) column
+  let c = from.c < 0 || from.c > grid.cols ? (step > 0 ? -1 : grid.cols + 1) : from.c;
   let r = from.r;
   // bounded by the grid: a table whose every column is a rollup terminates
   // here instead of walking forever
-  for (let guard = grid.cols * grid.rows + grid.cols; guard > 0; guard--) {
+  for (let guard = (grid.cols + 1) * grid.rows + grid.cols + 1; guard > 0; guard--) {
     c += step;
     if (c > grid.cols) {
-      c = 1;
+      c = 0;
       r += 1;
-    } else if (c < 1) {
+    } else if (c < 0) {
       c = grid.cols;
       r -= 1;
     }

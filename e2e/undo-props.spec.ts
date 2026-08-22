@@ -43,7 +43,7 @@ test("a select cell edit is one ⌘Z away, on screen and on disk", async ({ page
   await expect(cell()).toHaveText("mix engineer");
 
   // and on disk: open the note, whose props are re-read from the store
-  await row(page, "Gero").locator(".db-title").click();
+  await row(page, "Gero").locator(".db-title").dblclick();
   await expect(page.locator(".note-title")).toHaveValue("Gero");
   await expect(chip(page, "role").locator(".chip-val")).toHaveText("mix engineer");
 });
@@ -140,7 +140,7 @@ test("⌘Z in the editor undoes text, not the last property edit", async ({ page
   await expect(cell()).toHaveText("booking");
 
   // into the note's body, type, then ⌘Z with the caret in CodeMirror
-  await row(page, "Gero").locator(".db-title").click();
+  await row(page, "Gero").locator(".db-title").dblclick();
   await expect(page.locator(".note-title")).toHaveValue("Gero");
   const ed = page.locator(".cm-content");
   await ed.click();

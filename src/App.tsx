@@ -2946,7 +2946,7 @@ export default function App() {
   // otherwise the pane's late flush writes to the OLD path after the mutation
   // and dies silently, losing the typed text
   const renameNote = useCallback(
-    (path: string, title: string): Promise<void> =>
+    (path: string, title: string): Promise<NoteMeta> =>
       afterOpenFlush(() =>
         renameUndoable({
           path,
@@ -2957,6 +2957,9 @@ export default function App() {
         }).then((m) => {
           setRenaming(null);
           onRenamed(path, m);
+          // the note's new metadata carries the path it moved to — callers
+          // that renamed a row on screen follow it there
+          return m;
         })
       ),
     [afterOpenFlush, onRenamed, undoApi]
@@ -5302,6 +5305,7 @@ export default function App() {
               onSaveSchema={(prop, opts, kind, notify, notifyBefore, target, format, description, rollup, review) => saveSchemaProp(view.type, prop, opts, kind, notify, notifyBefore, target, format, description, rollup, review)}
               relationCandidates={relCandidates}
               onCreateEntry={createEntry}
+              onRenameNote={renameNote}
               dbTypes={dbTypes}
               openPath={dbNote}
               newSignal={dbNewSeq}
@@ -5349,6 +5353,7 @@ export default function App() {
               onSaveSchema={(prop, opts, kind, notify, notifyBefore, target, format, description, rollup, review) => saveSchemaProp(activeSaved.db, prop, opts, kind, notify, notifyBefore, target, format, description, rollup, review)}
               relationCandidates={relCandidates}
               onCreateEntry={createEntry}
+              onRenameNote={renameNote}
               dbTypes={dbTypes}
               openPath={dbNote}
               newSignal={dbNewSeq}

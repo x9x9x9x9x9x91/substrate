@@ -11,7 +11,7 @@ async function openRelease(page: Page) {
   await page
     .locator(".db-table tbody tr", { hasText: "Slow Bloom EP" })
     .locator(".db-title")
-    .click();
+    .dblclick();
   await expect(page.locator(".note-title")).toHaveValue("Slow Bloom EP");
 }
 
@@ -78,7 +78,7 @@ test("file menu is a named composite whose actions ride the input", async ({ pag
   await page
     .locator(".db-table tbody tr", { hasText: "Vessel Songs" })
     .locator(".db-title")
-    .click();
+    .dblclick();
   await page.getByRole("button", { name: "Edit contract: missing contract.pdf" }).click();
 
   const combo = page.getByRole("combobox", { name: "File path" });
@@ -153,7 +153,7 @@ test("phone select picker keeps its geometry inside the viewport", async ({ brow
   await page
     .locator(".db-table tbody tr", { hasText: "Slow Bloom EP" })
     .locator(".db-title")
-    .click();
+    .dblclick();
   await page.getByRole("button", { name: "Edit status: in review" }).click();
   const listbox = page.getByRole("listbox", { name: "Pick status options" });
   const geometry = await listbox.evaluate((el) => {

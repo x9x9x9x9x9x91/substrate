@@ -150,19 +150,25 @@ test("Tab carries the editor across, wrapping at the row ends (SUB-947)", async 
   await expectEditingAt(page, period, 0);
   await page.keyboard.press("Escape");
 
-  // the right end of a row wraps to the first data cell of the next one
+  // The right end of a row wraps to the start of the next one. The Name cell
+  // renames in place in this table, so it IS that start — the walk enters the
+  // row through the name and carries on into the data columns from there.
   const lastCol =
     (await page.locator(".db-table tbody tr").first().locator("td[data-fc]").count()) - 1;
   await focusCell(page, lastCol, 0);
   await page.keyboard.press("F2");
   await expectEditingAt(page, lastCol, 0);
   await page.keyboard.press("Tab");
+  await expectEditingAt(page, 0, 1);
+  await page.keyboard.press("Tab");
   await expectEditingAt(page, 1, 1);
   await page.keyboard.press("Escape");
 
-  // …and the left end wraps back up
+  // …and the left end wraps back up, through the same name on the way out
   await focusCell(page, 1, 1);
   await page.keyboard.press("F2");
+  await page.keyboard.press("Shift+Tab");
+  await expectEditingAt(page, 0, 1);
   await page.keyboard.press("Shift+Tab");
   await expectEditingAt(page, lastCol, 0);
 });

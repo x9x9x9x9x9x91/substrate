@@ -83,7 +83,7 @@ test("⌫ closes an open db side note first, then leaves the view (SUB-392)", as
   await page.goto("/");
   await expect(page.locator(".list-title")).toHaveText("Notes");
   await openDb(page, "Contact");
-  await page.locator(".db-table tbody tr", { hasText: "Gero" }).locator(".db-title").click();
+  await page.locator(".db-table tbody tr", { hasText: "Gero" }).locator(".db-title").dblclick();
   const split = page.locator(".db-note");
   await expect(split.locator(".note-title")).toHaveValue("Gero");
 
@@ -101,7 +101,7 @@ test("⌘⌫ in a db view trashes the open side note (SUB-392)", async ({ page }
   await page.goto("/");
   await expect(page.locator(".list-title")).toHaveText("Notes");
   await openDb(page, "Contact");
-  await page.locator(".db-table tbody tr", { hasText: "Gero" }).locator(".db-title").click();
+  await page.locator(".db-table tbody tr", { hasText: "Gero" }).locator(".db-title").dblclick();
   await expect(page.locator(".db-note .note-title")).toHaveValue("Gero");
 
   await page.locator(".list-title").click();
