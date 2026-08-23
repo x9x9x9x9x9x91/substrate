@@ -154,7 +154,9 @@ seventh is the one that deliberately exercises the no-props default.
   and stubs `.css` imports to an empty module.
 - **`renderComponent(t, element)`**: React 19 `createRoot` inside `act`, then
   two settle turns so mock IPC promises resolve and the state updates they
-  schedule land before you assert. Returns `{ container, text(), one(), all(),
+  schedule land before you assert — plus, for a surface that reaches for
+  WebCrypto, however many more turns the `crypto.subtle` calls in flight ask
+  for (see the known edge below). Returns `{ container, text(), one(), all(),
   click(), settle(), unmount() }`. `text()` is whitespace-collapsed — assert on
   it rather than on markup. `unmount()` is for asserting on what unmounting
   itself does; cleanup is automatic.
@@ -189,6 +191,15 @@ no snapshot framework, no second test runner.
   that stages either seam needs a turn that actually outlasts the timer
   (`await act(async () => new Promise((done) => setTimeout(done, ms)))` with
   `ms` past the configured delay), or it is flaky by construction.
+- **WebCrypto is waited on, not guessed at.** Node's `crypto.subtle` resolves
+  from the libuv threadpool, not from JS, so an `importKey`/`decrypt` pair can
+  land after any number of zero-length turns when the machine is loaded — that
+  is what made the lens-reader tests flaky on a busy rig (SUB-1442). The
+  harness wraps the subtle methods to keep their promises and `settle()`
+  awaits the actual work, looping while more is started (import → decrypt →
+  state → render). Nothing is needed in a test; a surface that keeps crypto
+  permanently in flight falls back to the two-turn guarantee after 20 rounds
+  rather than hanging.
 - **`click()` is the only interaction the harness synthesizes.** Typing,
   focus, and keyboard events aren't built — a test that needs them belongs in
   the browser spec.

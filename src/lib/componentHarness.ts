@@ -196,6 +196,58 @@ if (typeof elementProto.scrollIntoView !== "function") {
 /* React 19 refuses to run `act` without this flag and warns without it. */
 target.IS_REACT_ACT_ENVIRONMENT = true;
 
+/* WEBCRYPTO IN FLIGHT — the one boundary `settle` cannot buy with turns.
+   A macrotask turn covers any DEPTH of promise chain that resolves in JS, so
+   two of them are enough for the mock bridge. Node's WebCrypto does not
+   resolve in JS: `importKey`/`decrypt` land from the libuv threadpool, and on
+   a loaded machine that callback can arrive after any number of zero-length
+   turns. A surface that decrypts on mount (the lens reader opens a cached
+   page: seal in the mock, open in the app, four subtle calls before the first
+   assertion) then renders AFTER the assertions ran — a flake, not a slow
+   test, and it reads as "the notice never came up".
+   So the harness keeps the promises rather than guessing a turn count, and
+   `settle` awaits the actual work. Registration is on the instance the app
+   reaches: components call the bare global `crypto`, which is node's, not
+   jsdom's — the DOM copy above deliberately leaves `crypto` off. */
+const SUBTLE_METHODS = [
+  "decrypt",
+  "deriveBits",
+  "deriveKey",
+  "digest",
+  "encrypt",
+  "exportKey",
+  "generateKey",
+  "importKey",
+  "sign",
+  "unwrapKey",
+  "verify",
+  "wrapKey",
+] as const;
+const inFlightCrypto = new Set<Promise<unknown>>();
+const subtle = globalThis.crypto?.subtle as unknown as Record<string, unknown> | undefined;
+if (subtle) {
+  for (const name of SUBTLE_METHODS) {
+    const original = subtle[name];
+    if (typeof original !== "function") continue;
+    const call = original as (...args: unknown[]) => unknown;
+    subtle[name] = (...args: unknown[]) => {
+      const result = call.apply(subtle, args);
+      if (!(result instanceof Promise)) return result;
+      inFlightCrypto.add(result);
+      /* the handler consumes the rejection on this DERIVED promise only —
+         the caller's copy still rejects, and nothing here turns a failed
+         decrypt into an unhandled rejection that would kill the run */
+      const forget = () => inFlightCrypto.delete(result);
+      result.then(forget, forget);
+      return result;
+    };
+  }
+}
+/* Backstop for a surface that keeps crypto permanently in flight (a digest on
+   an interval, say): the wait degrades to the two-generation guarantee rather
+   than hanging the run. Nothing in the tree needs more than a handful. */
+const CRYPTO_SETTLE_ROUNDS = 20;
+
 /** The staging seams every component test is expected to have. They are
     declared optional on `Window` (the bridge only installs them in mock
     builds), which is what makes `win.__mockEditProp?.(…)` compile — and a
@@ -285,23 +337,38 @@ export async function renderComponent(t: TestLike, element: unknown): Promise<Re
   dom.window.document.body.appendChild(container);
   const root = createRoot(container as unknown as HTMLElement);
 
+  const turn = async () => {
+    await act(async () => {
+      await new Promise((done) => setTimeout(done, 0));
+    });
+  };
+
   const settle = async () => {
-    /* TWO MACROTASK GENERATIONS, and that is the whole guarantee. Each turn
-       drains the microtask queue behind it, so the DEPTH of an effect's
-       promise chain doesn't matter — `.then().then().then()` lands in the same
-       turn as a bare `await`. What costs a turn is a macrotask BOUNDARY: a
-       read whose result schedules a state update whose effect reads again.
-       Two of those are covered; a third goes silently stale — the assertions
-       just see the previous render. The delay is 0 because it is the cheapest
-       turn marker, and the harness declines to guess how long a component's
-       own timers run — a surface that schedules real-delay work needs a turn
-       that outlasts the timer, not more zero-length turns. */
-    await act(async () => {
-      await new Promise((done) => setTimeout(done, 0));
-    });
-    await act(async () => {
-      await new Promise((done) => setTimeout(done, 0));
-    });
+    /* TWO MACROTASK GENERATIONS, and that is the whole guarantee for work
+       that resolves in JS. Each turn drains the microtask queue behind it, so
+       the DEPTH of an effect's promise chain doesn't matter —
+       `.then().then().then()` lands in the same turn as a bare `await`. What
+       costs a turn is a macrotask BOUNDARY: a read whose result schedules a
+       state update whose effect reads again. Two of those are covered; a
+       third goes silently stale — the assertions just see the previous
+       render. The delay is 0 because it is the cheapest turn marker, and the
+       harness declines to guess how long a component's own timers run — a
+       surface that schedules real-delay work needs a turn that outlasts the
+       timer, not more zero-length turns. */
+    await turn();
+    await turn();
+    /* …plus as many more as the WebCrypto in flight asks for, which is the
+       one wait that is not a guess: these are the component's own promises,
+       awaited. A batch can start the next one — import a key, decrypt with
+       it, set state, render — so this loops until the tree stops asking, and
+       each batch is followed by a turn so the render it caused lands before
+       the next check. */
+    for (let round = 0; round < CRYPTO_SETTLE_ROUNDS && inFlightCrypto.size > 0; round++) {
+      await act(async () => {
+        await Promise.allSettled([...inFlightCrypto]);
+      });
+      await turn();
+    }
   };
 
   await act(async () => {
