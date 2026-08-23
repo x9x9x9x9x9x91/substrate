@@ -81,6 +81,9 @@ type Item = {
   section: string;
   hint?: string;
   snippet?: string;
+  /** the row was not matched by its letters, so its snippet renders plain —
+      marking a hit that never happened would lie about how it was found */
+  plain?: boolean;
   /** note behind this row — Tab/→ opens its actions */
   note?: NoteMeta;
   /** folder behind this row — Tab/→ opens its actions */
@@ -109,6 +112,7 @@ function MarkedText({ parts }: { parts: SnippetPart[] }) {
   );
 }
 
+
 type Stage =
   | { kind: "root" }
   | { kind: "actions"; note: NoteMeta }
@@ -121,7 +125,7 @@ type Stage =
   | { kind: "newtpl" }
   | { kind: "newtyped"; dbType: string }
   | { kind: "newdash" }
-  | { kind: "newdashnamed"; dashKind: string };
+  | { kind: "newdashnamed"; dashKind: string }
 
 /** Stage the palette can be opened straight into (e.g. from a context menu). */
 export type StartStage = { kind: "moveto"; note: NoteMeta };
@@ -452,6 +456,7 @@ export default function Palette({
     () => (hitsQuery === searchText ? hits : []),
     [hits, hitsQuery, searchText]
   );
+
 
   const enterStage = useCallback((s: Stage, initialQ = "") => {
     setStage(s);
@@ -827,6 +832,7 @@ export default function Palette({
         },
       ];
     }
+
 
     // root stage
     const out: Item[] = [];
@@ -1561,7 +1567,7 @@ export default function Palette({
                     ? `Title for the new ${stage.dbType}…`
                     : stage.kind === "newdash"
                       ? "New dashboard — pick a kind…"
-                      : stage.kind === "newdashnamed"
+                      stage.kind === "newdashnamed"
                         ? `Title for the new ${stage.dashKind} dashboard…`
                         : mode === "capture"
                           ? "Note title…"
@@ -1644,9 +1650,10 @@ export default function Palette({
                       // noise, not the reason). Note rows ranked against
                       // searchText (filters stripped), command rows against
                       // the raw query — mark with what ranked.
-                      const snippetParts = item.snippet
-                        ? markSnippet(searchText, item.snippet)
-                        : null;
+                      const snippetParts =
+                        item.snippet && !item.plain
+                          ? markSnippet(searchText, item.snippet)
+                          : null;
                       const labelParts =
                         stage.kind === "root" && !item.fallback && !item.snippet
                           ? markLabel(item.note ? searchText : q, item.label)
@@ -1685,9 +1692,10 @@ export default function Palette({
                   </div>
                 );
               })}
-              {items.length === 0 && (
-                <EmptyState icon={<SearchIcon />} title="No matches" role="status" style={{ height: 80 }} />
-              )}
+              {items.length === 0 &&
+                (
+                  <EmptyState icon={<SearchIcon />} title="No matches" role="status" style={{ height: 80 }} />
+                )}
             </div>
             <div className="palette-foot">
               {stage.kind === "root" ? (

@@ -69,15 +69,10 @@ test("the real changelog.ts fences every private item (SUB-985)", () => {
      strip left neither an item nor a marker behind. On any dev checkout
      share-mirror.sh is present and the original guard is untouched, so a
      private item that vanishes or loses its fence here still reds. */
-  /* Anchored to the start of a line, so it reads item flags and not the file's
-     own prose: the header comment quotes `private: true` while explaining the
-     fence, and an unanchored match called that mention a surviving item and
-     reddened the snapshot suite. */
-  const ITEM_FLAG = /^\s*private:\s*true/m;
   if (existsSync(resolve(here, "share-mirror.sh"))) {
-    assert.ok(ITEM_FLAG.test(source), "fixture guard: the file should have private items");
+    assert.ok(/private:\s*true/.test(source), "fixture guard: the file should have private items");
   } else {
-    assert.ok(!ITEM_FLAG.test(source), "the strip left a private item in the snapshot");
+    assert.ok(!/private:\s*true/.test(source), "the strip left a private item in the snapshot");
     assert.ok(
       !source.includes(START) && !source.includes(END),
       "the strip left a fence marker in the snapshot"

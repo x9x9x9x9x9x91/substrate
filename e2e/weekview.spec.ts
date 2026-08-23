@@ -1,5 +1,4 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { ALLDAY_CAP, applyFakeToday, overflowCount, todayBase } from "./calcells";
 
 // Week is a time grid — a pinned all-day strip of entry
 // cards (.cal-grid.week .cal-day[data-iso]) over a scrollable 24h canvas
@@ -10,7 +9,7 @@ import { ALLDAY_CAP, applyFakeToday, overflowCount, todayBase } from "./calcells
 
 /** "2026-07-18" — ISO of today +/- offsetDays, local like dates.todayIso */
 function isoDay(offsetDays = 0): string {
-  const d = todayBase();
+  const d = new Date();
   d.setDate(d.getDate() + offsetDays);
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
@@ -25,7 +24,6 @@ function addDaysIso(iso: string, n: number): string {
 }
 
 test.beforeEach(async ({ page }) => {
-  await applyFakeToday(page);
   await page.goto("/");
   // the list's first paint doubles as the "app is live" barrier (cold open
   // lands on Notes — Today is a destination)
@@ -44,7 +42,7 @@ test("week toggle renders the all-day strip over the 24h canvas", async ({ page 
 
   // the data-iso contract holds on both halves: a Monday-start run of
   // consecutive days, today inside
-  const dow = (todayBase().getDay() + 6) % 7; // Monday = 0
+  const dow = (new Date().getDay() + 6) % 7; // Monday = 0
   for (let i = 0; i < 7; i++) {
     await expect(cells.nth(i)).toHaveAttribute("data-iso", isoDay(i - dow));
     await expect(cols.nth(i)).toHaveAttribute("data-iso", isoDay(i - dow));
@@ -58,16 +56,12 @@ test("week toggle renders the all-day strip over the 24h canvas", async ({ page 
     page.locator(`.cal-wk-col[data-iso="${isoDay(0)}"] .cal-wk-now`)
   ).toHaveCount(1);
 
-  // the mock vault dates enough entries onto today to overflow the strip:
-  // all-day ones ride here capped at ALLDAY_CAP (+N more expands in place),
-  // timed ones ride the canvas. How many all-day cards today carries moves
-  // with the calendar, so N is read (see calcells.ts) and then held exactly —
-  // expanding reveals precisely that many further cards.
-  const cards = todayCell.locator(".cal-entry");
-  await expect(cards).toHaveCount(ALLDAY_CAP);
-  const overflow = await overflowCount(todayCell);
-  await todayCell.locator('.cal-more[aria-expanded="false"]').click();
-  await expect(cards).toHaveCount(ALLDAY_CAP + overflow);
+  // the mock vault dates 8 entries today, one timed — the strip carries the
+  // 7 all-day cards capped at 3 (+4 more expands in place), the canvas the
+  // timed block
+  await expect(todayCell.locator(".cal-entry")).toHaveCount(3);
+  await todayCell.locator(".cal-more").click();
+  await expect(todayCell.locator(".cal-entry")).toHaveCount(7);
 
   // card anatomy: a title element plus a compact prop subtitle — a task reads
   // its status, an event without notable props falls back to its excerpt
@@ -154,7 +148,7 @@ test("drag a strip card to another day reschedules it", async ({ page }) => {
 
   // a guaranteed-visible target ≠ today: this week's Monday — or Tuesday when
   // today IS Monday
-  const dow = (todayBase().getDay() + 6) % 7; // Monday = 0
+  const dow = (new Date().getDay() + 6) % 7; // Monday = 0
   const target = page.locator(`.cal-day[data-iso="${isoDay(dow === 0 ? 1 : -dow)}"]`);
 
   await card.dragTo(target);
@@ -226,7 +220,7 @@ test("canvas blocks peek on click and keep the entry menu", async ({ page }) => 
 test("header, strip and canvas columns stay aligned", async ({ page }) => {
   // the three surfaces share a 46px + 7-col grid template — a future
   // scrollbar/padding change is exactly what this pins down
-  const dow = (todayBase().getDay() + 6) % 7; // Monday = 0
+  const dow = (new Date().getDay() + 6) % 7; // Monday = 0
   const iso = isoDay(-dow); // Monday's column exists on all three
   const stripLeft = (await page
     .locator(`.cal-grid.week .cal-day[data-iso="${iso}"]`)

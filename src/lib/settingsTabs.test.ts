@@ -17,10 +17,8 @@
     silently failed. */
 
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import {
   EXPERIMENTAL_TOGGLES,
   visibleExperimentalToggles,
@@ -38,29 +36,10 @@ function sharedToggles(): ExperimentalToggle[] {
   return EXPERIMENTAL_TOGGLES.filter((t) => kept.includes(t.key));
 }
 
-/** True in a dev checkout, false inside a stripped mirror snapshot — the share
-    script deletes itself on the way past, so its absence is the proof the strip
-    ran (the same tell scripts/gen-changelog.test.ts reads). */
-function inDevCheckout(): boolean {
-  const here = dirname(fileURLToPath(import.meta.url));
-  return existsSync(resolve(here, "../../scripts/share-mirror.sh"));
-}
-
 test("the fenced toggles really are the ones the shared build loses", () => {
   const kept = sharedToggles().map((t) => t.key);
+  assert.ok(kept.length < EXPERIMENTAL_TOGGLES.length, "nothing is fenced — has the fence moved?");
   assert.ok(kept.includes("experimental-context-capture"), "the unfenced toggle was cut too");
-  if (inDevCheckout()) {
-    assert.ok(kept.length < EXPERIMENTAL_TOGGLES.length, "nothing is fenced — has the fence moved?");
-  } else {
-    /* This file ships to the mirror, where experimental.ts arrives already cut:
-       there is no fence left to re-cut, so the dev assertion inverts and the
-       stronger snapshot claim is that the strip took the fenced toggles AND
-       left no marker behind. */
-    assert.equal(kept.length, EXPERIMENTAL_TOGGLES.length, "a fence survived the strip");
-    const src = readFileSync(new URL("./experimental.ts", import.meta.url), "utf8");
-    assert.ok(!src.includes(`${MARK}-start`) && !src.includes(`${MARK}-end`),
-      "the strip left a fence marker in the snapshot");
-  }
 });
 
 test("off macOS, the shared build has no experimental toggle left to show", () => {

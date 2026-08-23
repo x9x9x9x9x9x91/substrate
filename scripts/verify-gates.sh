@@ -312,9 +312,8 @@ ios_check() {
 # host class this FAILS with the reason, never skips — a skip would read as
 # green on a run that certified nothing about the Mac binary.
 #
-# Two parts, sized for the per-merge budget (~5 min; the Mac gate host's
-# gates-ledger.tsv has this leg warm at 166s and 168s on an M4 Max, so ~3 min
-# against a 5 min budget):
+# Two parts, sized for the per-merge budget (~5 min; measured ~1–3 min warm
+# on an M4):
 #   1. `cargo check --all-targets` — compiles lib, binaries and every test
 #      target with the mac cfg on, which is the half the ios leg's lesson
 #      says otherwise stays unchecked.
