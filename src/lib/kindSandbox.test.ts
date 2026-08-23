@@ -15,13 +15,92 @@ import { armKindSandbox, hostSurface, watchKindDom } from "./kindSandbox.ts";
 /* In the webview `setInterval` IS `window.setInterval` — one object. Under
    jsdom they are two: bare calls reach node's timers, which the sandbox has
    no business patching. So the kind's side of every case below says `window.`
-   out loud (what a kind's bare call compiles to in the app), and the test's
-   own waiting uses `globalThis.setTimeout`, which stays node's throughout. */
-const wait = (ms: number) => new Promise((r) => globalThis.setTimeout(r, ms));
+   out loud (what a kind's bare call compiles to in the app). The test's own
+   side never sleeps: the timer cases hand-crank `KindClock` instead. */
+
+/* A stand-in for the window's timers that only moves when the test says so.
+   Installed BEFORE `armKindSandbox`, so the sandbox captures these as its
+   originals, wraps them exactly as it wraps jsdom's, and `release` clears
+   them through the same `window.clearInterval` the app reaches for.
+
+   The timer cases used to sleep a fixed number of milliseconds and hope the
+   chain had run by then — a wall-clock bet that loses whenever the box is
+   busy. Cranking a clock we own settles the same facts with no race in
+   either direction: a chain that has not run is a hang here rather than a
+   quiet pass. */
+type Due = { at: number; every: number | null; fn: (...a: unknown[]) => void; args: unknown[] };
+
+class KindClock {
+  now = 0;
+  #next = 1;
+  #due = new Map<number, Due>();
+  #real: Record<string, unknown> | null = null;
+
+  install() {
+    const slots = window as unknown as Record<string, unknown>;
+    this.#real = {
+      setTimeout: slots.setTimeout,
+      setInterval: slots.setInterval,
+      clearTimeout: slots.clearTimeout,
+      clearInterval: slots.clearInterval,
+    };
+    const arm =
+      (repeat: boolean) =>
+      (fn: (...a: unknown[]) => void, ms = 0, ...args: unknown[]) => {
+        const id = this.#next++;
+        // a zero-period interval would spin `advance` forever; browsers clamp it too
+        this.#due.set(id, { at: this.now + Math.max(0, ms), every: repeat ? Math.max(1, ms) : null, fn, args });
+        return id;
+      };
+    const disarm = (id: number) => {
+      this.#due.delete(id);
+    };
+    slots.setTimeout = arm(false);
+    slots.setInterval = arm(true);
+    slots.clearTimeout = disarm;
+    slots.clearInterval = disarm;
+  }
+
+  restore() {
+    if (this.#real) {
+      const slots = window as unknown as Record<string, unknown>;
+      for (const [name, fn] of Object.entries(this.#real)) slots[name] = fn;
+      this.#real = null;
+    }
+    this.#due.clear();
+  }
+
+  /** Fire everything due up to `now + ms`, in due order, including whatever
+      those callbacks arm inside that window. */
+  async advance(ms: number) {
+    const until = this.now + ms;
+    for (let guard = 0; ; guard += 1) {
+      assert.ok(guard < 10_000, "the clock never drained — a timer is re-arming faster than it fires");
+      let pick: [number, Due] | undefined;
+      for (const entry of this.#due) {
+        if (entry[1].at > until) continue;
+        if (!pick || entry[1].at < pick[1].at) pick = entry;
+      }
+      if (!pick) break;
+      const [id, timer] = pick;
+      this.now = timer.at;
+      if (timer.every === null) this.#due.delete(id);
+      else this.#due.set(id, { ...timer, at: timer.at + timer.every });
+      timer.fn(...timer.args);
+      await Promise.resolve(); // let a callback's promise continuations land before the next tick
+    }
+    this.now = until;
+  }
+}
 
 test("timers a kind arms are cancelled when its pane goes", async (t) => {
+  const clock = new KindClock();
+  clock.install(); // before the sandbox arms, so the sandbox wraps the clock
   const sb = armKindSandbox();
-  t.after(() => sb.release()); // release is idempotent; this keeps a failing assert from leaving a live interval behind
+  t.after(() => {
+    sb.release(); // idempotent; keeps a failing assert from leaving a live interval behind
+    clock.restore(); // after release, which clears through the clock
+  });
   let ticks = 0;
   sb.run(() => {
     window.setInterval(() => {
@@ -32,13 +111,18 @@ test("timers a kind arms are cancelled when its pane goes", async (t) => {
   sb.release();
   assert.equal(sb.outstanding().timers, 0);
   const before = ticks;
-  await wait(20);
+  await clock.advance(20);
   assert.equal(ticks, before, "a released kind's interval kept ticking");
 });
 
 test("a timer armed from inside the kind's own callback is caught too", async (t) => {
+  const clock = new KindClock();
+  clock.install(); // before the sandbox arms, so the sandbox wraps the clock
   const sb = armKindSandbox();
-  t.after(() => sb.release()); // release is idempotent; this keeps a failing assert from leaving a live interval behind
+  t.after(() => {
+    sb.release(); // idempotent; keeps a failing assert from leaving a live interval behind
+    clock.restore(); // after release, which clears through the clock
+  });
   let chained = 0;
   sb.run(() => {
     window.setTimeout(() => {
@@ -47,18 +131,23 @@ test("a timer armed from inside the kind's own callback is caught too", async (t
       }, 1);
     }, 1);
   });
-  await wait(15);
+  await clock.advance(15);
   assert.ok(chained > 0, "the chained interval never ran — test is not proving anything");
   assert.equal(sb.outstanding().timers, 1, "the chained interval was not recorded");
   sb.release();
   const before = chained;
-  await wait(20);
+  await clock.advance(20);
   assert.equal(chained, before, "the chained interval survived release");
 });
 
 test("what the host arms while serving the kind is the host's and survives", async (t) => {
+  const clock = new KindClock();
+  clock.install(); // before the sandbox arms, so the sandbox wraps the clock
   const sb = armKindSandbox();
-  t.after(() => sb.release()); // release is idempotent; this keeps a failing assert from leaving a live interval behind
+  t.after(() => {
+    sb.release(); // idempotent; keeps a failing assert from leaving a live interval behind
+    clock.restore(); // after release, which clears through the clock
+  });
   let hostTicks = 0;
   sb.run(() => {
     // what `ctx.toast` does: host code, called from the kind
@@ -70,7 +159,7 @@ test("what the host arms while serving the kind is the host's and survives", asy
   });
   assert.equal(sb.outstanding().timers, 0, "a host timer was attributed to the kind");
   sb.release();
-  await wait(25);
+  await clock.advance(25);
   assert.equal(hostTicks, 1, "the host's own timer was cancelled with the kind");
 });
 
@@ -176,8 +265,13 @@ test("two overlapping kinds keep their own timers, and the last one restores", (
 });
 
 test("a ctx call is the host's work, even reached through the kind", async (t) => {
+  const clock = new KindClock();
+  clock.install(); // before the sandbox arms, so the sandbox wraps the clock
   const sb = armKindSandbox();
-  t.after(() => sb.release());
+  t.after(() => {
+    sb.release(); // idempotent; keeps a failing assert from leaving a live interval behind
+    clock.restore(); // after release, which clears through the clock
+  });
   let dismissed = 0;
   const ctx = {
     reads: 0,
@@ -200,7 +294,7 @@ test("a ctx call is the host's work, even reached through the kind", async (t) =
   assert.equal(ctx.reads, 1, "the getter was not read through the proxy");
   assert.equal(sb.outstanding().timers, 0, "the app's toast timer was billed to the kind");
   sb.release();
-  await wait(25);
+  await clock.advance(25);
   assert.equal(dismissed, 1, "unmounting the kind cancelled the app's own toast");
 });
 
