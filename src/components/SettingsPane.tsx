@@ -168,13 +168,14 @@ function VoiceModelRow({ onToast }: { onToast: (msg: string) => void }) {
               });
             }}
           >
-            {busy ? `${pct}%` : "download…"}
+            {busy || state.bytes > 0 ? `${pct}%` : "download…"}
           </button>
         )}
       </div>
     </>
   );
 }
+
 
 /** Which build this is, and a way to ask the release feed whether it is still
     the newest one.

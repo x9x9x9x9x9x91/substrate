@@ -361,8 +361,14 @@ pub fn guard_url(raw: &str) -> Result<Url, String> {
     Ok(url)
 }
 
-/// A URL safe to write to the app log: the `user:pass@` userinfo is dropped,
-/// everything else is kept so a log line stays diagnosable.
+/// A URL safe to write to the app log: the `user:pass@` userinfo and the
+/// `#fragment` are dropped, everything else is kept so a log line stays
+/// diagnosable.
+///
+/// The fragment goes because it never reaches the server anyway — nothing
+/// about a failed fetch is explained by it — while a lens link carries the
+/// page's decryption key there (`/l/<id>#<key>`). A secret that the network
+/// never sees has no business in a file on disk.
 ///
 /// A string that doesn't parse into a host-bearing URL is replaced wholesale
 /// rather than logged raw. `Url::parse` is lenient enough to be dangerous
@@ -374,6 +380,7 @@ pub fn redact_url(raw: &str) -> String {
     if url.cannot_be_a_base() || url.host().is_none() {
         return "<unparseable url>".into();
     }
+    url.set_fragment(None);
     if url.username().is_empty() && url.password().is_none() {
         return url.into();
     }
@@ -557,10 +564,26 @@ mod tests {
     fn redact_url_drops_userinfo_and_keeps_the_rest() {
         assert_eq!(
             redact_url("https://alice:hunter2@example.com/page?q=1#frag"),
-            "https://example.com/page?q=1#frag"
+            "https://example.com/page?q=1"
         );
         // username with no password still identifies an account
         assert_eq!(redact_url("https://alice@example.com/p"), "https://example.com/p");
+        assert_eq!(redact_url("https://example.com/p"), "https://example.com/p");
+    }
+
+    #[test]
+    fn redact_url_drops_the_fragment_because_a_lens_key_lives_there() {
+        // `/l/<id>#<key>` is a lens link: the fragment IS the page's
+        // decryption key, and this string ends up in substrate.log when an
+        // enrichment fetch fails. The path and query stay — they are what
+        // makes the line diagnosable — but the key does not reach the disk.
+        assert_eq!(
+            redact_url("https://relay.example/l/abc123#0123456789012345678901234567890123456789012"),
+            "https://relay.example/l/abc123"
+        );
+        // ordinary fragments go too: no fetch is ever explained by one, since
+        // the fragment never leaves the client in the first place
+        assert_eq!(redact_url("https://example.com/p#section"), "https://example.com/p");
         assert_eq!(redact_url("https://example.com/p"), "https://example.com/p");
     }
 

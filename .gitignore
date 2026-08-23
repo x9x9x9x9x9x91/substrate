@@ -45,3 +45,7 @@ dist-ssr
 # Local Cargo config is intentionally untracked. Checked-in absolute paths
 # made every clone fail after the primary-machine cutover.
 .cargo/config.toml
+
+# Meaning search fetches its ONNX Runtime here (scripts/fetch-onnxruntime.sh):
+# a pinned 38 MB native library, not source.
+/src-tauri/vendor/onnxruntime/

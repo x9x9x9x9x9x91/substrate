@@ -199,7 +199,7 @@ pub(super) fn fts_match_expr(q: &str) -> String {
 /// — the same exact-path set as the client's `APP_FILES` in
 /// src/lib/settings.ts. A nested copy or a user's own "agents notes.md" is
 /// normal content and stays in.
-fn is_app_file(path: &str) -> bool {
+pub(crate) fn is_app_file(path: &str) -> bool {
     path == seed::AGENTS_REL_PATH || path == seed::CLAUDE_REL_PATH || path == Settings::REL_PATH
 }
 

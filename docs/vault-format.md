@@ -75,7 +75,7 @@ Vault/
 ├── .claude/skills/            # agent skills, seeded + user-written (§12)
 ├── .assets/                   # embedded binaries, flat (§9)
 ├── .trash/                    # deleted notes + folders, recoverable (§10)
-├── .vault/                    # format.json + schema.json + views.json + folders.json + calendars.json + mounts.json + mounts/ + notifications.json + jobs-exit.json + sealed-key.age + lens.json + templates/ + kinds/ + backup/ (§2a, §5b–§8)
+├── .vault/                    # format.json + schema.json + views.json + folders.json + calendars.json + mounts.json + mounts/ + notifications.json + jobs-exit.json + sealed-key.age + lens.json + lens-subscriptions.json + templates/ + kinds/ + backup/ (§2a, §5b–§8)
 ├── .substrate-seal            # optional vault-wide inherited seal marker (§2a)
 └── .git/                      # version history, owned by the app (§11)
 ```
@@ -451,6 +451,23 @@ External-writer contract:
   does not remove the key from history and cannot un-read what a copy already
   exposed. A vault whose history is shared with people who should not read its
   shared pages should not hold lenses.
+- `.vault/lens-subscriptions.json` holds the other direction: one row per lens
+  this vault has subscribed to (`id`, `relay`, `key`, `label`, `added`). It is
+  synced vault data for the same reason the two registries above are — the
+  subscription belongs to the vault, so a lens followed on one machine is
+  followed on the next. The fetched ciphertext is NOT in the vault: it lives in
+  a machine-local cache beside the app's other device state, because it is
+  somebody else's page and does not belong in this vault's history.
+- What that costs, stated plainly, and it is the lens cost read from the other
+  side: **`key` is the AES-256 key that opens the page, in plaintext**, so
+  anyone who can read a copy of this vault — a sync remote, a backup, a Git
+  host, an old clone — can read every page it has subscribed to for as long as
+  the publisher keeps it up, whether or not this machine is theirs. The key is
+  the publisher's, handed out in the link's fragment; unsubscribing drops the
+  row and prunes the cached bytes, but it does not remove the key from history
+  and cannot un-read what a copy already exposed. A reader whose vault history
+  is shared with people the publisher did not hand the link to should not
+  subscribe from that vault.
 - The second cost of the registry being vault data: **two devices publish the
   same slug independently.** The app serializes publishes within one window,
   but a synced registry gives every rig the same `id` and the same `token`, and
@@ -5249,14 +5266,19 @@ Plain notes the app treats specially — all optional, all just files:
   `net-lens` (a shared page registers its slug and re-uploads a sealed
   snapshot on every save of the note behind it — off parks registration and
   every republish, and the share dialog and the Lenses ledger explain the
-  switch instead of failing quietly).
+  switch instead of failing quietly) and `net-lens-subscribe` (the other
+  direction through the same door: a subscribed lens is checked for a newer
+  version on a background sweep — off stops every check, and the reader keeps
+  the last version it holds with its age on the page).
   Enforced at the app's
   request-initiating call sites, not in the engine — see
-  `docs/security-config.md`. `net-letterbox` and `net-lens` are the two
-  exceptions, both for the same reason: their work is not one button press.
+  `docs/security-config.md`. `net-letterbox`, `net-lens` and
+  `net-lens-subscribe` are the three exceptions, all for the same reason:
+  their work is not one button press.
   The letterbox poller is a background thread with no frontend call site, and
-  a lens republishes off a save the user never aimed at a network — so the
-  engine reads the key itself in both (`vault::net_switch_allowed`, the twin
+  a lens republishes off a save the user never aimed at a network, and a
+  subscription refreshes on a timer nobody pressed — so the
+  engine reads the key itself in all three (`vault::net_switch_allowed`, the twin
   of `netAllowed()`) before every request, on the same explicit-`false`-only
   rule. Both carve out their revoke, which is un-gated on purpose: the switch
   parks publishing, it must not be what makes an already-shared page

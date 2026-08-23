@@ -98,16 +98,18 @@ frame-src 'none'; frame-ancestors 'none'; form-action 'none'
 
   Three of those four have an off switch in `Settings.md`, all default on:
   `net-link-titles`, `net-fx-rates`, `net-share-relay` — joined by
-  `net-letterbox` for the drop-box lane and `net-lens` for the shared-page
-  lane (both below). All five are rows under
+  `net-letterbox` for the drop-box lane, `net-lens` for the shared-page lane
+  and `net-lens-subscribe` for reading somebody else's shared page (all
+  below). All six are rows under
   "Outbound requests" on the ⌘, sheet's **Sharing** tab, so the answer to "what does this app
   talk to?" is one place in the UI. **Enforcement is at the
   app's request-initiating call sites**, not in `net.rs` — the engine makes a
   request only because something in the frontend asked it to, so a closed
-  switch means the ask never happens. The two exceptions are `net-letterbox`
-  and `net-lens`, whose work is not one button press — a background poller and
-  a republish riding an ordinary save — so those two are read in the engine as
-  well, before every request. `netAllowed()` in `src/lib/settings.ts`
+  switch means the ask never happens. The three exceptions are `net-letterbox`,
+  `net-lens` and `net-lens-subscribe`, whose work is not one button press — a
+  background poller, a republish riding an ordinary save, and a background
+  refresh sweep — so those three are read in the engine as well, before every
+  request. `netAllowed()` in `src/lib/settings.ts`
   is the one reader; only an explicit `false` closes a switch, so a typo'd
   value leaves the app behaving as documented rather than quietly losing a
   feature. The gates: link capture passes `enrich: false` to `url_capture`,

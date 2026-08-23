@@ -336,6 +336,7 @@ impl Door {
             .engine
             .list()
             .into_iter()
+            .filter(|n| !n.sealed)
             .map(|n| n.path)
             .filter(|p| readable(scopes, p))
             .collect();
@@ -347,6 +348,7 @@ impl Door {
             .collect();
         Ok(json!({ "query": query, "hits": hits }))
     }
+
 
     /// Fence off uncommitted user edits to `rel` under the app's normal
     /// identity before an MCP write touches it. A fence that FAILS aborts
@@ -428,6 +430,7 @@ fn rpc_envelope(id: Value, result: Result<Value, (i64, String)>) -> Value {
         }
     }
 }
+
 
 fn tool_definitions() -> Value {
     let obj = |props: Value, required: &[&str]| {
@@ -870,6 +873,7 @@ mod tests {
         assert!(!paths.iter().any(|p| p.starts_with("Finance")), "{paths:?}");
     }
 
+
     #[test]
     fn revoking_a_grant_takes_effect_on_the_next_call() {
         let (mut door, _root, cfg) = setup("revoke", &[("Notes", Access::Write)]);
@@ -972,7 +976,13 @@ mod tests {
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert_eq!(
             names,
-            ["vault_list", "note_read", "note_write", "note_create", "vault_search"]
+            [
+                "vault_list",
+                "note_read",
+                "note_write",
+                "note_create",
+                "vault_search"
+            ]
         );
         assert_eq!(lines[2]["result"]["isError"], false, "{:?}", lines[2]);
         assert_eq!(lines[3]["error"]["code"], -32601);

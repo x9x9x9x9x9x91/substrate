@@ -599,9 +599,13 @@ export default function App() {
      named as attributes: a JSX opening tag has nowhere to put a comment, so a
      prop only the private build carries has to arrive through an object the
      strip pass can leave empty. */
+
   const ledgerSidebarProps: Record<string, boolean> = {};
   const ledgerPaletteProps: Record<string, boolean> = {};
   const ledgerListProps: Record<string, ReadonlySet<string>> = {};
+  /* Same workaround, for the palette's lens rows: an optional prop the shared
+     build does not carry at all. */
+  const lensPaletteProps: Record<string, { id: string; relay: string; label: string }[]> = {};
 
 
   // palette quick actions come from Settings.md, so they must be
@@ -5568,6 +5572,7 @@ export default function App() {
           tags={tagCounts}
           drives={drives}
           {...ledgerPaletteProps}
+          {...lensPaletteProps}
           current={selectedMeta}
           startStage={paletteStart}
           templateTypes={templateTypes}

@@ -39,7 +39,11 @@ use super::server::{config_dir, resolve_root, Door, PROTOCOL_VERSION};
 /// "I asked wrong" from "I am not allowed".
 pub const EXIT_REFUSED: i32 = 4;
 
-const USAGE: &str = "\
+/// The help text, in three pieces so the fenced verb can leave with its
+/// implementation: a mirror that advertises `recall` while the handler is
+/// stripped would print a command it then rejects as unknown.
+const USAGE: &str = concat!(
+    "\
 substrate-mcp — vault access under the same grants the MCP door uses.
 
   substrate-mcp                       serve MCP over stdio (no arguments)
@@ -51,7 +55,8 @@ Commands:
   write PATH [--body TEXT]            replace a note's body (stdin if no --body)
   create [FOLDER] --title T [--type X]  create a note
   search QUERY                        search inside granted folders
-
+",
+    "\n\
 Options:
   --client NAME   the granted client name (or SUBSTRATE_MCP_CLIENT); required
   --body TEXT     body for write; --body-file PATH reads it from a file
@@ -66,7 +71,8 @@ waits for end-of-input — pipe it, or pass --body for a one-liner.
 Grant folders to the client name in Settings first; without a grant every
 call is refused. Output is JSON on stdout; refusals print on stderr.
 
-Exit codes: 0 done, 1 usage, 2 door closed, 3 no vault, 4 refused.";
+Exit codes: 0 done, 1 usage, 2 door closed, 3 no vault, 4 refused.",
+);
 
 /// Every option the parser accepts, anywhere. An unknown flag is a usage
 /// error rather than something silently ignored: a script whose `--body`
@@ -552,6 +558,7 @@ mod tests {
         assert!(!out.contains("Finance"), "ungranted hits never surface: {out}");
         let _ = fs::remove_dir_all(root.parent().unwrap());
     }
+
 
     #[test]
     fn help_is_a_command_slot_not_a_magic_word() {

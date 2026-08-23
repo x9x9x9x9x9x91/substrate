@@ -463,6 +463,7 @@ let mockMcpGrants: {
 
 
 
+
 /** The mock lane's in-flight recording — a stem and a start time, no audio. */
 let mockVoice: { stem: string; startedMs: number } | null = null;
 /** What `context_pending` reports — the shape `ContextSnapshot` serializes to.
@@ -482,6 +483,7 @@ let mockAxTrusted = false;
 /** The mock lane starts with no speech model, so the settings row opens in the
     state a new install actually has: an offer to download, not a done tick. */
 let mockVoiceModel = false;
+
 
 /** A mock disk path for a loose file — what the real engine returns as
     `FolderFile.path` and what the shared player keys on. */
