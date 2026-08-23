@@ -110,6 +110,55 @@ export function splitLead(text: string): { lead: string; rest: string } | null {
 
 export const CHANGELOG: ChangelogRelease[] = [
   {
+    version: "0.27.0",
+    date: "2026-08-23",
+    title: "The day gets a spine, and every exit is one door",
+    items: [
+      {
+        text: "Today plans the day: pick one thing as the day's headline, the scheduled lane says what is happening now and how long until the next thing, the capture line writes a note that is already on the day, and wrapping the day leaves one journal line with the leftovers cleared.",
+        kind: "new",
+        headline: true,
+      },
+      {
+        text: "One door out: every way a note leaves this machine goes through the same share dialog.",
+        kind: "new",
+        headline: true,
+      },
+      {
+        text: "Quick capture pivots: ⌘K inside the capture window jumps to the vault palette carrying what you typed — one global chord in from anywhere, and ⌘K always means search. The palette's own chord retires to an empty Settings binding.",
+        kind: "new",
+      },
+      {
+        text: "The About row can ask the release feed whether this build is current, and answers plainly: current, update available with an Install action, or unreachable.",
+        kind: "new",
+      },
+      {
+        text: "The accent tone dial drives the whole app's accent family — one tone across rings, selections, buttons and charts.",
+        kind: "improved",
+      },
+      {
+        text: "Hub boards pack tight: tiles fill the hole under a short neighbor, a callout can claim the double-width card, and a tile can own a custom span.",
+        kind: "improved",
+      },
+      {
+        text: "A paused hosted vault names the pause and walks the way out of it from the sync pane — including replacing the server's copy, with what that costs stated before anything moves.",
+        kind: "improved",
+      },
+      {
+        text: "Calendar week: the all-day strip, the weekday header and the day canvas share one scrollbar lane, so the columns line up again; the focused day is a quiet top mark instead of a loud ring; a month cell rings only while its day number holds keyboard focus.",
+        kind: "fixed",
+      },
+      {
+        text: "Tab-indented list lines hang by their prefix tabs instead of collapsing at the wrap.",
+        kind: "fixed",
+      },
+      {
+        text: "A database draft title paints one accent ring, not a frame in a frame.",
+        kind: "fixed",
+      },
+    ],
+  },
+  {
     version: "0.26.0",
     date: "2026-08-22",
     title: "Dashboards find one voice, and the app explains itself",

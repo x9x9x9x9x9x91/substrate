@@ -3,6 +3,43 @@
 <!-- Generated from src/lib/changelog.ts by scripts/gen-changelog.ts.
      Edit that file, then run `node scripts/gen-changelog.ts`. -->
 
+## 0.27.0 — 2026-08-23 — The day gets a spine, and every exit is one door
+
+### Highlights
+
+- Today plans the day: pick one thing as the day's headline, the scheduled lane says
+  what is happening now and how long until the next thing, the capture line writes a
+  note that is already on the day, and wrapping the day leaves one journal line with the
+  leftovers cleared.
+- One door out: every way a note leaves this machine goes through the same share dialog.
+
+### New
+
+- Quick capture pivots: ⌘K inside the capture window jumps to the vault palette carrying
+  what you typed — one global chord in from anywhere, and ⌘K always means search. The
+  palette's own chord retires to an empty Settings binding.
+- The About row can ask the release feed whether this build is current, and answers
+  plainly: current, update available with an Install action, or unreachable.
+
+### Improved
+
+- The accent tone dial drives the whole app's accent family — one tone across rings,
+  selections, buttons and charts.
+- Hub boards pack tight: tiles fill the hole under a short neighbor, a callout can claim
+  the double-width card, and a tile can own a custom span.
+- A paused hosted vault names the pause and walks the way out of it from the sync pane —
+  including replacing the server's copy, with what that costs stated before anything
+  moves.
+
+### Fixed
+
+- Calendar week: the all-day strip, the weekday header and the day canvas share one
+  scrollbar lane, so the columns line up again; the focused day is a quiet top mark
+  instead of a loud ring; a month cell rings only while its day number holds keyboard
+  focus.
+- Tab-indented list lines hang by their prefix tabs instead of collapsing at the wrap.
+- A database draft title paints one accent ring, not a frame in a frame.
+
 ## 0.26.0 — 2026-08-22 — Dashboards find one voice, and the app explains itself
 
 ### Highlights
