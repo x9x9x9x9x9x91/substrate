@@ -254,6 +254,7 @@ import { useUndoStack } from "./hooks/useUndoStack";
 import { useViewHistory } from "./hooks/useViewHistory";
 import { useVaultEvents, type SheetRowTarget } from "./hooks/useVaultEvents";
 import { useAutoSync } from "./hooks/useAutoSync";
+import { useShareCapture } from "./hooks/useShareCapture";
 import { useShortcutRouter } from "./hooks/useShortcutRouter";
 import { useToast } from "./hooks/useToast";
 import { useUpdater } from "./hooks/useUpdater";
@@ -721,6 +722,10 @@ export default function App() {
     setVaultEpoch,
     lastOwnRefreshRef,
   });
+
+  // iOS share-sheet captures waiting in the App Group — swept before the sync
+  // lane below, so anything shared while the app was away rides the next push
+  useShareCapture();
 
   // the timer lane of vault sync — push on settle, pull on open/focus/interval
   useAutoSync(autoSync);

@@ -1,12 +1,41 @@
 //! Vault root, first-run onboarding and app relaunch.
 
 use crate::appcfg;
-use crate::{AppState, OnboardingState};
-use tauri::{Manager, State};
+use crate::{AppState, OnboardingState, SnapDirty};
+use tauri::{Emitter, Manager, State};
 
 #[tauri::command]
 pub(crate) fn vault_root(state: State<AppState>) -> String {
     state.0.lock().unwrap().root.display().to_string()
+}
+
+/* ---- iOS share-sheet capture (landing.rs owns the mechanics) ---- */
+
+/// True when this build has a share extension dropping captures for the app
+/// to pick up.
+#[tauri::command]
+pub(crate) fn share_capture_supported() -> bool {
+    crate::landing::capture_supported()
+}
+
+/// File everything the share extension has left in the App Group since the
+/// last look. Idempotent and cheap on an empty folder, so the app calls it at
+/// open and on every return to the foreground — a share made while the app was
+/// closed becomes a note the moment it is opened.
+#[tauri::command]
+pub(crate) fn share_capture_sweep(
+    app: tauri::AppHandle,
+    state: State<AppState>,
+    dirty: State<SnapDirty>,
+) -> crate::landing::SweepReport {
+    let report = crate::landing::sweep(&mut state.0.lock().unwrap());
+    if report.landed > 0 {
+        dirty.mark();
+        // the notes were written under the app's own lock rather than typed
+        // into a pane, so nothing on screen knows about them yet
+        app.emit("vault:changed", Vec::<String>::new()).ok();
+    }
+    report
 }
 
 /* ---- iOS WidgetKit read model (widgets.rs owns the mechanics) ---- */

@@ -15,6 +15,7 @@ mod gitsync;
 mod history;
 mod kinds;
 mod jobs;
+mod landing;
 mod mcpdoor;
 mod net;
 mod notify;
@@ -1524,6 +1525,8 @@ pub fn run() {
             vault_demo,
             onboarding_set_agent,
             app_relaunch,
+            share_capture_supported,
+            share_capture_sweep,
             widget_summary_supported,
             widget_summary_write,
             widget_configured_ids,

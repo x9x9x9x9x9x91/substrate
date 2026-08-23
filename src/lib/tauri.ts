@@ -3250,6 +3250,12 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       // a browser mock cannot restart a process; specs assert the call landed
       mockRelaunched = true;
       return null;
+    // the mock is a browser, which has no share extension behind it — the
+    // hook's whole lane stays disarmed, exactly as on desktop
+    case "share_capture_supported":
+      return false;
+    case "share_capture_sweep":
+      return { landed: 0, quarantined: 0 };
     case "widget_summary_supported":
       return false;
     case "widget_configured_ids":

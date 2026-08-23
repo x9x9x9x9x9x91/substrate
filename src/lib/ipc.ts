@@ -170,6 +170,13 @@ export const vaultDemo = () => invoke<string>("vault_demo");
 export const onboardingSetAgent = (command: string) =>
   invoke<null>("onboarding_set_agent", { command });
 export const appRelaunch = () => invoke<null>("app_relaunch");
+/** What one share-capture sweep filed, and what it could not read. */
+export type ShareCaptureReport = { landed: number; quarantined: number };
+/** A share extension writing captures exists only in the iOS target. */
+export const shareCaptureSupported = () => invoke<boolean>("share_capture_supported");
+/** File everything the iOS share sheet has dropped since the last look. */
+export const shareCaptureSweep = () =>
+  invoke<ShareCaptureReport>("share_capture_sweep");
 /** Native WidgetKit support exists only in the iOS target. Checking before
     evaluating any dashboard keeps desktop startup unchanged. */
 export const widgetSummarySupported = () => invoke<boolean>("widget_summary_supported");
