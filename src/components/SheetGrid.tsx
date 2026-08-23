@@ -466,6 +466,31 @@ export default function SheetGrid({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reveal, model]);
 
+  /* A body that arrived from disk replaces the rows without remounting the
+     grid, and WKWebView has been reported presenting the composited layer the
+     sticky header and totals row sandwich the body into exactly as it was —
+     a grid that reads blank until a hover forces the repaint. Carrying the
+     scrollport through one frame of a different (geometrically identical)
+     transform makes the compositor rebuild the layer from the DOM it now has.
+     Defensive: the swap itself is correct, only its presentation is at issue,
+     and no headless engine reproduces it. */
+  const invalidatePaint = useCallback(() => {
+    const scroll = scrollRef.current;
+    if (!scroll || typeof requestAnimationFrame === "undefined") return;
+    scroll.classList.add("sheet-scroll-repaint");
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => scroll.classList.remove("sheet-scroll-repaint"));
+    });
+  }, []);
+
+  /* Opening a note mounts the grid into a pane that already exists, which is
+     the other half of the same report ("Holdings opens blank"): the first
+     frame of the new layer is the one the compositor may keep. Same one-frame
+     nudge, once, when the grid appears. */
+  useEffect(() => {
+    invalidatePaint();
+  }, [invalidatePaint]);
+
   /* External body adoption: swap the data under an open cell edit —
      the input keeps its DOM node, focus and draft, and commitEdit lands the
      draft on the adopted body. A draft whose row or column vanished in the
@@ -480,6 +505,7 @@ export default function SheetGrid({
         if (ed.r >= m.rows.length || ed.c >= m.headers.length) setEditing(null);
       }
       setBody(next);
+      invalidatePaint();
     };
     return () => {
       if (docRef.current) docRef.current = null;

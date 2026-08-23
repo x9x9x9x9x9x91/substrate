@@ -10214,6 +10214,17 @@ tr.db-draft-tr,
   overflow: auto;
 }
 
+/* Held for one frame while the sheet swaps to a body that arrived from disk.
+   The rows under a sticky header and a sticky totals row live in a composited
+   layer WKWebView will happily leave on screen after the DOM under it changed
+   — the reported symptom is a grid that opens blank and paints in full the
+   moment a hover repaints it. Changing the scrollport's own transform forces
+   the layer to be rebuilt from the current DOM instead of presented as it
+   was; translateZ(0) is a no-op geometrically, so nothing moves. */
+.sheet-scroll-repaint {
+  transform: translateZ(0);
+}
+
 /* the cell cursor moves by focusing a cell, and the browser scrolls it to
    the nearest edge of the scrollport — where the column header is painted,
    opaque and sticky. Growing the cell's own scroll box by the header's
