@@ -483,27 +483,6 @@ let mockAxTrusted = false;
     state a new install actually has: an offer to download, not a done tick. */
 let mockVoiceModel = false;
 
-/** Same for the embedding model: meaning search opens in the state a new
-    install has, an offer rather than a tick. */
-let mockMeaningModel = false;
-
-/** The mock lane's stand-in for an embedding space.
- *
- *  There is no ONNX runtime in a spec, so "meaning" here is a hand-written
- *  concept table: a query word and a note word in the same row count as a
- *  match even though they share no letters. That is enough to exercise the
- *  palette's mode — entry, debounce, rows, empty states — with a case real
- *  keyword search provably cannot answer. It is NOT evidence that the model
- *  works; that is measured against the real model on a real vault.
- */
-const MOCK_CONCEPTS: string[][] = [
-  ["tax", "steuer", "levy", "deduction", "filing", "invoice", "accountant"],
-  ["boat", "ship", "harbour", "harbor", "sail", "vessel", "quay", "tide"],
-  ["dog", "puppy", "hound", "kennel", "leash"],
-  ["music", "track", "song", "album", "mix", "master", "record"],
-  ["money", "cash", "payment", "salary", "budget", "cost", "price"],
-];
-
 /** A mock disk path for a loose file — what the real engine returns as
     `FolderFile.path` and what the shared player keys on. */
 function mockLoosePath(rel: string): string {
@@ -929,6 +908,7 @@ let mockCalendarFeeds: CalendarFeedConfig[] = [];
 /** Remembered link-folder targets, per saved view. Device-local in
     the real app (app-config dir), in-memory here. */
 const mockExportTargets = new Map<string, string>();
+
 
 /** the consent state the reflexes settings section reads and writes.
     There is no rules file until a spec stages one — which is exactly the
@@ -4654,60 +4634,6 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       window.__mockEmit?.("voice:model", { received: 574041195, total: 574041195 });
       return null;
     }
-    // Meaning search. See MOCK_CONCEPTS: a stand-in for an embedding space,
-    // present so the palette's mode has something to render in a spec.
-    case "meaning_supported":
-      return true;
-    case "meaning_model_state":
-      return {
-        installed: mockMeaningModel,
-        bytes: mockMeaningModel ? 111000000 : 0,
-        expected_bytes: 111000000,
-      };
-    case "meaning_model_download": {
-      mockMeaningModel = true;
-      window.__mockEmit?.("meaning:model", { received: 111000000, total: 111000000 });
-      window.__mockEmit?.("meaning:index", { indexed: mockNotes.length, working: false });
-      return null;
-    }
-    case "meaning_model_remove":
-      mockMeaningModel = false;
-      window.__mockEmit?.("meaning:index", { indexed: 0, working: false });
-      return null;
-    case "meaning_index_state":
-      return { indexed: mockMeaningModel ? mockNotes.length : 0, working: false };
-    case "meaning_index_refresh":
-      window.__mockEmit?.("meaning:index", {
-        indexed: mockMeaningModel ? mockNotes.length : 0,
-        working: false,
-      });
-      return null;
-    case "meaning_search": {
-      if (!mockMeaningModel) throw new Error("meaning search is not set up on this machine");
-      const q = String(args?.q ?? "").toLowerCase();
-      const words = q.split(/[^a-z]+/).filter(Boolean);
-      const concepts = new Set<string>();
-      for (const w of words) {
-        for (const row of MOCK_CONCEPTS) if (row.includes(w)) row.forEach((x) => concepts.add(x));
-      }
-      const hits = mockNotes
-        .filter((n) => !n.sealed)
-        .map((n) => {
-          const text = `${n.title} ${n.body ?? ""}`.toLowerCase();
-          const shared = [...concepts].filter((c) => text.includes(c)).length;
-          return { note: n, score: shared === 0 ? 0 : Math.min(0.95, 0.5 + shared * 0.1) };
-        })
-        .filter((h) => h.score >= 0.45)
-        .sort((a, b) => b.score - a.score || a.note.path.localeCompare(b.note.path))
-        .slice(0, Math.max(1, Number(args?.limit ?? 5)))
-        .map((h) => ({
-          path: h.note.path,
-          title: h.note.title,
-          snippet: (h.note.body ?? "").trim().split("\n")[0]?.slice(0, 160) ?? "",
-          score: h.score,
-        }));
-      return hits;
-    }
     case "voice_transcribe":
       // there is no model and no audio in the mock lane; the command's job in
       // a spec is to be callable and not throw
@@ -6598,6 +6524,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
     case "view_export_forget":
       mockExportTargets.delete(args?.viewId as string);
       return undefined;
+
     case "history_list": {
       const n = find();
       if (n) return mockEntries(n.path, snapsFor(n));

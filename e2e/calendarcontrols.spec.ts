@@ -1,21 +1,23 @@
 import { expect, test, type Page } from "@playwright/test";
+import { applyFakeToday, MONTH_CAP, overflowCount, todayBase } from "./calcells";
 
 function isoDay(offset = 0): string {
-  const d = new Date();
+  const d = todayBase();
   d.setDate(d.getDate() + offset);
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
 function humanDay(offset = 0): string {
-  const d = new Date();
+  const d = todayBase();
   d.setDate(d.getDate() + offset);
   const month = d.toLocaleString("en-US", { month: "short" });
   const base = `${month} ${d.getDate()}`;
-  return d.getFullYear() === new Date().getFullYear() ? base : `${base}, ${d.getFullYear()}`;
+  return d.getFullYear() === todayBase().getFullYear() ? base : `${base}, ${d.getFullYear()}`;
 }
 
 async function openCalendar(page: Page) {
+  await applyFakeToday(page);
   await page.goto("/");
   await expect(page.locator(".list-title")).toBeVisible();
   await page.keyboard.press("Meta+4");
@@ -63,8 +65,15 @@ test("Calendar targets are named native controls with exact keyboard actions (SU
   await expect(today.locator(".cal-draft-input")).toBeFocused();
   await page.keyboard.press("Escape");
 
+  // The cell caps at MONTH_CAP chips; how many it hides behind "+N more"
+  // depends on what today's fixtures date onto today, so N is read (see
+  // calcells.ts) and then held exactly — the control names that number, and
+  // expanding reveals precisely that many further chips.
+  const chips = today.locator(".cal-entry");
+  await expect(chips).toHaveCount(MONTH_CAP);
+  const overflow = await overflowCount(today);
   const more = today.getByRole("button", {
-    name: `Show 5 more entries for ${humanDay()}`,
+    name: `Show ${overflow} more entries for ${humanDay()}`,
     exact: true,
   });
   await expect(more).toHaveAttribute("aria-expanded", "false");
@@ -75,8 +84,10 @@ test("Calendar targets are named native controls with exact keyboard actions (SU
     exact: true,
   });
   await expect(less).toHaveAttribute("aria-expanded", "true");
+  await expect(chips).toHaveCount(MONTH_CAP + overflow);
   await less.press("Enter");
   await expect(more).toBeVisible();
+  await expect(chips).toHaveCount(MONTH_CAP);
 
   const agenda = page.locator(".cal-agenda");
   await expect(agenda.getByRole("button", { name: "Overdue", exact: true })).toHaveCount(0);
@@ -175,14 +186,18 @@ test.describe("phone Calendar controls", () => {
     await expect(today.locator(".cal-draft-input")).toBeFocused();
     await page.keyboard.press("Escape");
 
+    const chips = today.locator(".cal-entry");
+    await expect(chips).toHaveCount(MONTH_CAP);
+    const overflow = await overflowCount(today);
     const more = today.getByRole("button", {
-      name: `Show 5 more entries for ${humanDay()}`,
+      name: `Show ${overflow} more entries for ${humanDay()}`,
       exact: true,
     });
     await more.press("Enter");
     await expect(
       today.getByRole("button", { name: `Show fewer entries for ${humanDay()}`, exact: true })
     ).toBeVisible();
+    await expect(chips).toHaveCount(MONTH_CAP + overflow);
 
     const geometry = await page.locator(".cal-grid-scroll").evaluate((el) => ({
       clientWidth: el.clientWidth,

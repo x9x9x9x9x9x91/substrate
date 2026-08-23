@@ -146,30 +146,6 @@ cpal = "0.15"
 hound = "3.5"
 whisper-rs = { version = "0.14", features = ["metal"] }
 
-# Meaning search — on-device sentence embeddings. macOS-only for the same
-# reason voice capture is: the runtime below is a per-platform native library
-# and the shipped desktop app is macOS. Keeping the whole set behind this cfg
-# is also what lets the `ios` gate build an app with no embedding runtime in it
-# at all.
-#
-# `default-features = false` matters: ort's default `download-binaries` feature
-# fetches a prebuilt ONNX Runtime from its maintainer's CDN at build time,
-# unpinned. `load-dynamic` instead means NO native dependency at link time —
-# nothing here has to exist for `cargo build` to succeed. The library is
-# dlopened at first use from a pinned, checksummed copy that
-# scripts/fetch-onnxruntime.sh installs; a machine without it simply reports
-# that meaning search isn't set up. `api-27` must stay in lockstep with
-# ORT_API_LEVEL in that script.
-ort = { version = "=2.0.0-rc.13", default-features = false, features = [
-  "std",
-  "load-dynamic",
-  "api-27",
-] }
-# The tokenizer half of the model. `default-features = false` drops the
-# progress bars and the HTTP model-hub client — this only ever loads a
-# tokenizer.json already on disk, and must never fetch one.
-tokenizers = { version = "0.23", default-features = false, features = ["onig"] }
-
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 security-framework = { version = "3", features = ["OSX_10_15"] }
 

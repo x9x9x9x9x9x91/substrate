@@ -176,7 +176,6 @@ function VoiceModelRow({ onToast }: { onToast: (msg: string) => void }) {
   );
 }
 
-
 /** Which build this is, and a way to ask the release feed whether it is still
     the newest one.
 

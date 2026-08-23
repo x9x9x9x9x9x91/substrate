@@ -6,7 +6,7 @@ the third-party code the app bundles and ships:
 
 - the **63 npm packages** in the production dependency closure, compiled into
   the app's frontend bundle;
-- the **776 Rust crates** pinned by `src-tauri/Cargo.lock`, listed
+- the **735 Rust crates** pinned by `src-tauri/Cargo.lock`, listed
   conservatively — the lockfile is the whole pinned set, so build- and test-only
   crates are listed too rather than guessed away.
 
@@ -2181,19 +2181,16 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 
 ### Apache-2.0
 
-11 crates:
+8 crates:
 
 - clang-sys 1.9.1 — crates.io
 - cpal 0.15.3 — crates.io
-- esaxx-rs 0.1.10 — crates.io
 - gethostname 1.1.0 — crates.io
 - hound 3.5.1 — crates.io
 - oboe 0.6.1 — crates.io
 - oboe-sys 0.6.1 — crates.io
-- spm_precompiled 0.1.4 — crates.io
 - sync_wrapper 1.0.2 — crates.io
 - tao 0.35.3 — crates.io
-- tokenizers 0.23.1 — crates.io
 
 ### Apache-2.0 / MIT
 
@@ -2235,7 +2232,7 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 
 ### Apache-2.0 OR MIT
 
-88 crates:
+86 crates:
 
 - aes-gcm 0.10.3 — crates.io
 - async-channel 2.5.0 — crates.io
@@ -2295,8 +2292,6 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - polling 3.11.0 — crates.io
 - poly1305 0.8.0 — crates.io
 - polyval 0.6.2 — crates.io
-- portable-atomic 1.15.0 — crates.io
-- portable-atomic-util 0.2.7 — crates.io
 - primeorder 0.13.6 — crates.io
 - rustc-hash 2.1.3 — crates.io
 - sec1 0.7.3 — crates.io
@@ -2326,13 +2321,6 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - zeroize 1.9.0 — crates.io
 - zeroize_derive 1.5.0 — crates.io
 
-### Apache-2.0 OR MIT OR Zlib
-
-2 crates:
-
-- macro_rules_attribute 0.2.3 — crates.io
-- macro_rules_attribute-proc_macro 0.2.3 — crates.io
-
 ### Apache-2.0 WITH LLVM-exception
 
 1 crate:
@@ -2351,7 +2339,7 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 
 ### Apache-2.0/MIT
 
-8 crates:
+7 crates:
 
 - alsa 0.9.1 — crates.io
 - cesu8 1.1.0 — crates.io
@@ -2359,7 +2347,6 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - dbus 0.9.12 — crates.io
 - intl_pluralrules 7.0.2 — crates.io
 - libdbus-sys 0.2.7 — crates.io
-- rayon-cond 0.4.0 — crates.io
 - shared_library 0.1.9 — crates.io
 
 ### BSD-2-Clause OR Apache-2.0
@@ -2442,19 +2429,18 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 
 ### ISC
 
-7 crates:
+6 crates:
 
 - inotify 0.11.4 — crates.io
 - inotify-sys 0.1.8 — crates.io
 - libloading 0.7.4 — crates.io
 - libloading 0.8.9 — crates.io
-- libloading 0.9.0 — crates.io
 - rustls-webpki 0.103.13 — crates.io
 - untrusted 0.9.0 — crates.io
 
 ### MIT
 
-161 crates:
+154 crates:
 
 - alsa-sys 0.3.1 — crates.io
 - atk 0.18.2 — crates.io
@@ -2466,19 +2452,14 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - cairo-rs 0.18.5 — crates.io
 - cairo-sys-rs 0.18.2 — crates.io
 - cargo_metadata 0.19.2 — crates.io
-- castaway 0.2.4 — crates.io
 - cfb 0.7.3 — crates.io
 - cfg_aliases 0.1.1 — crates.io
 - combine 4.6.7 — crates.io
-- compact_str 0.9.1 — crates.io
 - cookie-factory 0.3.3 — crates.io
 - coreaudio-sys 0.2.18 — crates.io
 - crunchy 0.2.4 — crates.io
-- darling 0.20.11 — crates.io
 - darling 0.23.0 — crates.io
-- darling_core 0.20.11 — crates.io
 - darling_core 0.23.0 — crates.io
-- darling_macro 0.20.11 — crates.io
 - darling_macro 0.23.0 — crates.io
 - data-encoding 2.11.1 — crates.io
 - derive_more 2.1.1 — crates.io
@@ -2542,8 +2523,6 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - objc2 0.6.4 — crates.io
 - objc2-encode 4.1.0 — crates.io
 - objc2-foundation 0.3.2 — crates.io
-- onig 6.5.3 — crates.io
-- onig_sys 69.9.3 — crates.io
 - open 5.4.0 — crates.io
 - openssl-sys 0.9.117 — crates.io
 - ordered-multimap 0.7.3 — crates.io
@@ -2620,14 +2599,13 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 
 ### MIT OR Apache-2.0
 
-353 crates:
+332 crates:
 
 - aead 0.5.2 — crates.io
 - aes 0.8.4 — crates.io
 - aes 0.9.2 — crates.io
 - age 0.12.1 — crates.io
 - age-core 0.12.0 — crates.io
-- ahash 0.8.12 — crates.io
 - allocator-api2 0.2.21 — crates.io
 - anyhow 1.0.103 — crates.io
 - arbitrary 1.4.2 — crates.io
@@ -2669,20 +2647,13 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - cpufeatures 0.3.0 — crates.io
 - crc32fast 1.5.0 — crates.io
 - crossbeam-channel 0.5.16 — crates.io
-- crossbeam-deque 0.8.7 — crates.io
-- crossbeam-epoch 0.9.20 — crates.io
 - crossbeam-utils 0.8.22 — crates.io
 - crypto-common 0.1.7 — crates.io
 - crypto-common 0.2.2 — crates.io
 - ctr 0.9.2 — crates.io
-- daachorse 1.0.1 — crates.io
-- dary_heap 0.3.9 — crates.io
 - dasp_sample 0.11.0 — crates.io
 - deranged 0.5.8 — crates.io
 - derive_arbitrary 1.4.2 — crates.io
-- derive_builder 0.20.2 — crates.io
-- derive_builder_core 0.20.2 — crates.io
-- derive_builder_macro 0.20.2 — crates.io
 - digest 0.10.7 — crates.io
 - digest 0.11.3 — crates.io
 - dirs 6.0.0 — crates.io
@@ -2741,7 +2712,6 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - io_tee 0.1.1 — crates.io
 - ipnet 2.12.0 — crates.io
 - itertools 0.13.0 — crates.io
-- itertools 0.14.0 — crates.io
 - itoa 1.0.18 — crates.io
 - jni 0.22.4 — crates.io
 - jni-macros 0.22.4 — crates.io
@@ -2763,9 +2733,6 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - markup5ever 0.38.0 — crates.io
 - md-5 0.11.0 — crates.io
 - mime 0.3.17 — crates.io
-- monostate 0.1.18 — crates.io
-- monostate-impl 0.1.18 — crates.io
-- ndarray 0.17.2 — crates.io
 - ndk 0.8.0 — crates.io
 - ndk 0.9.0 — crates.io
 - ndk-context 0.1.1 — crates.io
@@ -2773,24 +2740,19 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - ndk-sys 0.6.0+11769913 — crates.io
 - notify-rust 4.18.0 — crates.io
 - notify-types 2.1.0 — crates.io
-- num-complex 0.4.6 — crates.io
 - num-conv 0.2.2 — crates.io
 - num-derive 0.4.2 — crates.io
-- num-integer 0.1.47 — crates.io
 - num-traits 0.2.19 — crates.io
 - ogg_pager 0.7.2 — crates.io
 - once_cell 1.21.4 — crates.io
 - opaque-debug 0.3.1 — crates.io
 - openssl-probe 0.2.1 — crates.io
 - ordered-stream 0.2.0 — crates.io
-- ort 2.0.0-rc.13 — crates.io
-- ort-sys 2.0.0-rc.13 — crates.io
 - osakit 0.3.1 — crates.io
 - parking_lot 0.12.5 — crates.io
 - parking_lot_core 0.9.12 — crates.io
 - password-hash 0.5.0 — crates.io
 - paste 1.0.15 — crates.io
-- pastey 0.2.3 — crates.io
 - pbkdf2 0.12.2 — crates.io
 - percent-encoding 2.3.2 — crates.io
 - piper 0.2.5 — crates.io
@@ -2820,8 +2782,6 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - rand_core 0.6.4 — crates.io
 - rand_core 0.9.5 — crates.io
 - rand_xorshift 0.4.0 — crates.io
-- rayon 1.12.0 — crates.io
-- rayon-core 1.13.0 — crates.io
 - ref-cast 1.0.25 — crates.io
 - ref-cast-impl 1.0.25 — crates.io
 - regex 1.13.1 — crates.io
@@ -2866,7 +2826,6 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - socket2 0.6.5 — crates.io
 - softbuffer 0.4.8 — crates.io
 - stable_deref_trait 1.2.1 — crates.io
-- static_assertions 1.1.0 — crates.io
 - string_cache 0.9.0 — crates.io
 - string_cache_codegen 0.6.1 — crates.io
 - swift-rs 1.0.7 — crates.io
@@ -2908,7 +2867,6 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - unicode-bidi 0.3.18 — crates.io
 - unicode-normalization 0.1.25 — crates.io
 - unicode-segmentation 1.13.3 — crates.io
-- unicode_categories 0.1.1 — crates.io
 - universal-hash 0.5.1 — crates.io
 - ureq 2.12.1 — crates.io
 - url 2.5.8 — crates.io
@@ -3005,10 +2963,9 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 
 ### MIT/Apache-2.0
 
-47 crates:
+43 crates:
 
 - android_system_properties 0.1.5 — crates.io
-- base64 0.13.1 — crates.io
 - bitflags 1.3.2 — crates.io
 - bs58 0.5.1 — crates.io
 - coreaudio-rs 0.11.3 — crates.io
@@ -3028,13 +2985,11 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - jni 0.21.1 — crates.io
 - json-patch 3.0.1 — crates.io
 - mac-notification-sys 0.6.15 — crates.io
-- matrixmultiply 0.3.11 — crates.io
 - minimal-lexical 0.2.1 — crates.io
 - openssl-probe 0.1.6 — crates.io
 - openssl-src 300.6.1+3.6.3 — crates.io
 - quick-error 1.2.3 — crates.io
 - rangemap 1.7.1 — crates.io
-- rawpointer 0.2.1 — crates.io
 - rusty-fork 0.3.1 — crates.io
 - shell-words 1.1.1 — crates.io
 - siphasher 1.0.3 — crates.io
@@ -3046,7 +3001,6 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - unic-common 0.9.0 — crates.io
 - unic-ucd-ident 0.9.0 — crates.io
 - unic-ucd-version 0.9.0 — crates.io
-- unicode-normalization-alignments 0.1.12 — crates.io
 - unicode-properties 0.1.4 — crates.io
 - vcpkg 0.2.15 — crates.io
 - version_check 0.9.5 — crates.io
