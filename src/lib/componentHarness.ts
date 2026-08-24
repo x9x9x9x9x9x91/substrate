@@ -94,6 +94,10 @@ registerHooks({
   },
   load(url, context, nextLoad) {
     if (!url.startsWith("file:")) return nextLoad(url, context);
+    /* A stylesheet reached through a package's exports map rather than a
+       `.css` specifier — `@fontsource-variable/inter` resolves to one — never
+       passes the resolve hook above, so it is stubbed here too. */
+    if (url.endsWith(".css")) return { format: "module", source: "", shortCircuit: true };
     const path = fileURLToPath(url);
     if (!path.startsWith(SRC_DIR) || !/\.tsx?$/.test(path)) return nextLoad(url, context);
     /* `.ts` under src/ goes through esbuild too, not just `.tsx`: node's

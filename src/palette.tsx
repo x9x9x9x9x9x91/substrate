@@ -9,6 +9,12 @@ import { createLatestGuard } from "./lib/latest";
 import { foldedPropStr, type NoteMeta, type SearchHit } from "./lib/types";
 import { looksLikeUrl } from "./lib/url";
 import { errText } from "./lib/errtext";
+import {
+  contextChipIcon,
+  contextChipLabel,
+  contextProps,
+  type CaptureContext,
+} from "./lib/capturecontext";
 
 // The everywhere palette: a floating window a global chord summons over
 // whatever app is frontmost. Type to search the vault, Enter to jump to a
@@ -28,7 +34,7 @@ async function hideWindow(): Promise<void> {
     .catch(() => undefined);
 }
 
-function PaletteApp() {
+export function PaletteApp() {
   const [q, setQ] = useState("");
   const [notes, setNotes] = useState<NoteMeta[]>([]);
   const [hits, setHits] = useState<SearchHit[]>([]);
@@ -40,6 +46,12 @@ function PaletteApp() {
   // the cursor while the user is typing, and an index would silently move the
   // highlight onto a different note
   const [selId, setSelId] = useState<string | null>(null);
+  /** The snapshot Rust armed for this summon, or null when the feature is off
+      — the backend answers `context_pending` with null and nothing renders. */
+  const [ctx, setCtx] = useState<CaptureContext | null>(null);
+  /** Backspace on an empty box drops the chip, exactly as in quick capture:
+      one keystroke, no click target, and it lasts until the next summon. */
+  const [ctxDropped, setCtxDropped] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const searchGuard = useMemo(() => createLatestGuard(), []);
@@ -75,6 +87,13 @@ function PaletteApp() {
     searchGuard.issue();
     inputRef.current?.focus();
     reload();
+    // Same non-consuming pull quick capture does, for the same reason: this
+    // reset runs more than once per summon. The slot is armed Rust-side just
+    // before the window is shown and re-armed (or cleared) on the next summon.
+    setCtxDropped(false);
+    invoke<CaptureContext | null>("context_pending")
+      .then((c) => setCtx(c && c.app ? c : null))
+      .catch(() => setCtx(null));
     paletteSeedQuery()
       .then((seed) => {
         if (seed) setQ(seed);
@@ -164,12 +183,24 @@ function PaletteApp() {
     listRef.current?.querySelector(`[data-idx="${sel}"]`)?.scrollIntoView({ block: "nearest" });
   }, [sel, rows]);
 
+  /* The chip shows for the capture this window can actually attach it to: a
+     pasted link files through `url_capture`, which carries no props, so the
+     chip steps aside there rather than promising context the note won't get. */
+  const chip = ctx && !ctxDropped && !looksLikeUrl(q.trim()) ? ctx : null;
+
   const capture = async (text: string) => {
     setError(null);
     try {
       // a pasted link becomes a reference note, exactly as in quick capture
       if (looksLikeUrl(text)) await invoke("url_capture", { url: text });
-      else await invoke("vault_create", { title: text, folder: "Inbox" });
+      else
+        await invoke("vault_create", {
+          title: text,
+          folder: "Inbox",
+          // attached unless it was dropped; flat `context-*` frontmatter, the
+          // same keys however the note was captured
+          props: chip ? contextProps(chip) : null,
+        });
     } catch (e) {
       // never discard what the user typed: it stays in the box so Enter
       // retries or the text can be copied out
@@ -246,8 +277,22 @@ function PaletteApp() {
             e.preventDefault();
             run(selected);
           }
+          // Backspace with nothing to delete can only mean the chip: there is
+          // no text left for it to act on.
+          else if (e.key === "Backspace" && q === "" && chip) {
+            e.preventDefault();
+            setCtxDropped(true);
+          }
         }}
     />
+      {chip && (
+        <div className="capture-context" data-testid="palette-context-chip">
+          <span aria-hidden="true" className="capture-context-mark">
+            {contextChipIcon(chip)}
+          </span>
+          <span className="capture-context-label">{contextChipLabel(chip)}</span>
+        </div>
+      )}
       {error && <div className="capture-error">couldn’t save — {error}</div>}
       <div
         className="palette-results"
@@ -291,6 +336,11 @@ function PaletteApp() {
         <span>
           <span className="key">↩</span> {foot}
         </span>
+        {chip && (
+          <span>
+            <span className="key">⌫</span> drop context
+          </span>
+        )}
         <span>
           <span className="key">esc</span> close
         </span>
@@ -299,8 +349,12 @@ function PaletteApp() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <React.StrictMode>
-    <PaletteApp />
-  </React.StrictMode>,
-);
+// Only when this bundle is the window’s entry point — the component test
+// imports the same module to render `PaletteApp` into a root of its own.
+const rootEl = document.getElementById("root");
+if (rootEl)
+  ReactDOM.createRoot(rootEl).render(
+    <React.StrictMode>
+      <PaletteApp />
+    </React.StrictMode>,
+  );

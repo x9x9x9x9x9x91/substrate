@@ -28,6 +28,7 @@ const lane = (points: [string, string | null][], oldest: string | null): FactLan
     subject: "snapshot",
   })),
   oldest_ts_ms: oldest === null ? null : noon(oldest),
+  born_ts_ms: null,
 });
 
 const note = (path: string, props: Record<string, unknown>) =>

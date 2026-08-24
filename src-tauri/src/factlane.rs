@@ -153,6 +153,14 @@ pub struct FactLane {
     /// the vault has no snapshots yet — then nothing about the past is
     /// knowable, including today.
     pub oldest_ts_ms: Option<u64>,
+    /// When the note living at this path today was created — the oldest
+    /// snapshot that saw the file exist with no later snapshot that saw it
+    /// gone. None when the path was never empty in this history, so the whole
+    /// lane belongs to one note. A path reused after a deletion carries a
+    /// previous note's changes below this line: the lane keeps them (`AT()`,
+    /// charts and freshness follow the PATH), and the receipts surfaces, which
+    /// answer for a note, cut there.
+    pub born_ts_ms: Option<u64>,
 }
 
 /// What the lane can say about one instant.
@@ -353,6 +361,7 @@ mod tests {
             key: "weight".into(),
             points,
             oldest_ts_ms: oldest,
+            born_ts_ms: None,
         }
     }
 

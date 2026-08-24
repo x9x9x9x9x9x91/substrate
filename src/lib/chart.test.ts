@@ -1201,6 +1201,7 @@ function lane(oldest: string | null, pts: [string, string | null][] = []) {
     subject: "snapshot",
   })),
     oldest_ts_ms: oldest === null ? null : at(oldest),
+    born_ts_ms: null,
   };
 }
 

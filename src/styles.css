@@ -18080,6 +18080,15 @@ body.col-resizing * {
     min-height: 44px;
   }
 
+  /* 16px is the phone webview's no-zoom floor for a focused field; below it
+     the page zooms in and stays zoomed after the keyboard goes. The viewport
+     meta already pins scale — this keeps the one long-typing form on the
+     phone (enrollment: URL, token, passphrase) legible at native size too. */
+  .vault-sync-form input,
+  .vault-sync-form textarea {
+    font-size: 16px;
+  }
+
   .vault-sync-form-foot {
     align-items: flex-start;
     flex-direction: column;

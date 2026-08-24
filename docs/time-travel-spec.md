@@ -470,6 +470,30 @@ Two points, both raised here rather than silently contradicted:
    is an additive interface request against that spec, not a divergence in
    behaviour.
 
+### 5.5 A reused path holds two notes — the lane keeps both, receipts show one
+
+A lane is addressed by `(path, key)` and is built from the whole history of that
+path, so a note deleted and a new note later written at the same name share one
+lane. That is deliberate for the engine: `AT()`, charts and freshness all ask a
+question about a *path* over time, and dropping the earlier stretch would put a
+hole in a series that git can plainly see.
+
+It is wrong for receipts, which answer a question about a *note*: the peek's rows
+would otherwise credit today's note with a stranger's edits, and open on a
+"cleared" row that is really the old note's deletion. So the lane carries
+`born_ts_ms` — the first snapshot that saw the file after the last one that saw
+it gone, null when the path only ever held one note — and everything a person
+reads (`src/lib/receipts.ts`: the peek rows, the footer, the chip's last-change
+line) starts there. Nothing else does; `history-facts.ts`, `chart.ts` and
+freshness read the full lane.
+
+The boundary is **file existence, not a null value**. A key removed while the
+note lived is a real change of that note's and still renders; only points from
+before the note existed are cut. For a reborn note the trim boundary (§2.3) lies
+in the previous life, so its footer states `first set <birth date>` rather than
+"no history before …" — the note does know its own beginning. A note deleted and
+never recreated has no current life to cut to, and its whole lane stands.
+
 ---
 
 ## 6. Honest costs
@@ -498,6 +522,8 @@ Two points, both raised here rather than silently contradicted:
   survive, and the latter would make purge a lie.
 - **Merge-only values can be invisible** on synced vaults (§2.4).
 - **A renamed key splits its own history** (§5.3).
+- **A reused path is one lane and two notes** — receipts cut at the current
+  note's birth, the engine keeps the whole path (§5.5).
 - **Past money converts at today's rate** — no historical FX store exists
   (open question 5).
 - **Timezone is the reader's**, not the writer's (§2.2).

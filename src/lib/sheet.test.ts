@@ -1881,6 +1881,7 @@ describe("SUB-832 — the history seam through a sheet", () => {
       { commit: "ccc", ts_ms: at("2026-02-28"), value: "81", actor: { kind: "app" }, subject: "snapshot" },
     ],
     oldest_ts_ms: at("2026-01-05"),
+    born_ts_ms: null,
   };
 
   /** What a pane does, in three lines: collect the sheet's past reads, fetch

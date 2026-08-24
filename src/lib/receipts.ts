@@ -81,14 +81,25 @@ export function relativeTime(ms: number, now: number = Date.now()): string {
 /** The date the footer states as a boundary — a day, not a moment: the footer
     answers "how far back does this go", which is a coarser question than a
     row's. */
-function boundaryDate(ms: number): string {
+export function boundaryDate(ms: number): string {
   return new Intl.DateTimeFormat(dateLocale(), { year: "numeric", month: "short", day: "numeric" }).format(ms);
 }
 
-/** The peek's rows: change points newest first. The lane is complete by
-    construction, so this is the whole truth the peek scrolls through. */
+/** The points that belong to the note a reader is looking at (§6): the lane
+    follows the PATH, so a path reused after a deletion carries a dead note's
+    changes — and its clearing, and whoever made them — under a note created
+    today. Receipts answer for a note, so they start at `born_ts_ms`.
+
+    The cut is by the note's existence, never by a null value: a key removed
+    while the note lived is a real change of this note's and stays. */
+function visiblePoints(lane: FactLane): FactPoint[] {
+  const born = lane.born_ts_ms;
+  return born === null ? lane.points : lane.points.filter((p) => p.ts_ms >= born);
+}
+
+/** The peek's rows: this note's change points, newest first. */
 export function receiptRows(lane: FactLane | undefined): FactPoint[] {
-  return lane ? [...lane.points].reverse() : [];
+  return lane ? [...visiblePoints(lane)].reverse() : [];
 }
 
 /** The peek's footer, which is never blank (§6, the trim trap): either the
@@ -96,12 +107,16 @@ export function receiptRows(lane: FactLane | undefined): FactPoint[] {
     trimmed under it and the honest line says so. A lane with no points at all
     (a fact the vault's history never saw change) still gets a line. */
 export function footerText(lane: FactLane | undefined): string {
-  const points = lane?.points ?? [];
+  const points = lane ? visiblePoints(lane) : [];
   const oldest = lane?.oldest_ts_ms ?? null;
   if (points.length === 0) {
     return oldest === null ? "no snapshots yet" : `no history before ${boundaryDate(oldest)}`;
   }
   const first = points[0];
+  // a reborn note knows its own beginning: the trim boundary lies in a
+  // previous life at this path, so it is not this note's story and the footer
+  // dates the birth instead
+  if (lane?.born_ts_ms != null) return `first set ${boundaryDate(first.ts_ms)}`;
   // the lane starts where history itself does: anything before the oldest
   // surviving snapshot was trimmed, so "first set" would be a guess
   if (oldest !== null && first.ts_ms <= oldest) return `no history before ${boundaryDate(oldest)}`;

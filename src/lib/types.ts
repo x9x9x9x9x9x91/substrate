@@ -1002,12 +1002,19 @@ export interface FactPoint {
     `oldest_ts_ms` is the commit time of the oldest snapshot still
     in the vault: anything before it was trimmed or purged and is UNKNOWABLE,
     which surfaces as "no history before …" rather than as a blank or a zero.
-    Null when the vault has no snapshots at all. */
+    Null when the vault has no snapshots at all.
+    `born_ts_ms` is when the note living at this path today was created — the
+    first snapshot that saw the file after the last one that saw it gone, null
+    when the path only ever held this one note. A path reused after a deletion
+    carries a dead note's changes below that line: the lane keeps them, because
+    AT(), charts and freshness deliberately follow the PATH, and the receipts
+    surfaces, which answer for a NOTE, cut there. */
 export interface FactLane {
   path: string;
   key: string;
   points: FactPoint[];
   oldest_ts_ms: number | null;
+  born_ts_ms: number | null;
 }
 
 /** How long one fact has stood: the last time a person set it, with sweeps

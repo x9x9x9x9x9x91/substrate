@@ -16,7 +16,7 @@ use git2::{
     RepositoryInitOptions, Signature, StatusOptions,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::io::Write;
 use std::path::Path;
@@ -1743,6 +1743,23 @@ fn pull_local_phase_inner(
         )
         .and_then(|_| repo.set_head(&format!("refs/heads/{branch}")))
         .map_err(|e| format!("vault sync initial branch update failed: {e}"))?;
+        // The checkout above wrote the whole vault at once, which would leave
+        // every note reading as edited this minute on a device that has just
+        // joined. Cosmetic, and paid for once per join: never fatal.
+        //
+        // This is the arm a join takes today. The older whole-vault checkouts —
+        // the born-seed belt below and the conflicted variant that finishes
+        // through `sync_resolve_finish_gated` — still leave their files at the
+        // checkout time; dating those is deliberately left out of this fix.
+        match stamp_mtimes_from_history(repo, remote_oid) {
+            Ok(StampOutcome { failed: 0, unreached: 0 }) => {}
+            Ok(outcome) => applog!(
+                "vault sync left {} joined files at the checkout time ({} unreached by history)",
+                outcome.failed + outcome.unreached,
+                outcome.unreached
+            ),
+            Err(error) => applog!("vault sync could not date the joined files: {error}"),
+        }
         let changed = changed_between(repo, None, remote_oid);
         return Ok(report_changed(0, pulled, Vec::new(), remote_oid, changed));
     };
@@ -2384,6 +2401,52 @@ fn stage_side(index: &mut git2::Index, path: &str, side: &ConflictSide) -> Resul
 /// is the worst first screen the app has. A real divergence — two synced
 /// devices that both changed their layout — carries an ancestor and still
 /// parks, because this whole loop skips conflicts that have one.
+///
+/// `.vault/format.json` is the second such path, adopted for the same shape of
+/// reason. It is the version sidecar — one integer per config file saying which
+/// shape that file is written in — and not one byte of it is a decision anybody
+/// made. The notification scheduler alone is enough to create it: persisting
+/// what it has already fired stamps the sidecar, from its own thread, so a
+/// device that did nothing but sit open overnight before joining arrives
+/// carrying one, and so does the vault it joins.
+///
+/// Adopting the vault's sidecar cannot cost the joining device anything today:
+/// every file this app writes is at v1, and an entry the sidecar does not carry
+/// already reads as v1, so the worst the vault's copy can say about a config
+/// file the joining device brought along is nothing — the same reading that
+/// file would get from an empty sidecar. What adoption buys is the other
+/// direction. This merge is landing the vault's config files, and the sidecar
+/// that describes them is the vault's, not this device's; keeping the local
+/// copy would leave an older app believing files it just adopted are older
+/// than they are, and rewriting them in a shape their real owner cannot read.
+/// The refuse-newer guard only works if the number travels with the files.
+///
+/// Every other path under `.vault/` keeps parking, deliberately. Four of them —
+/// `.vault/notifications.json`, `.vault/jobs-exit.json`,
+/// `.vault/seal-conversion.json`, `.vault/seal-trust.json` — are device-local
+/// and never enter a commit at all, so they can never reach a conflict to be
+/// adopted out of. The rest cannot land on a never-joined device without
+/// somebody having decided something first: `.vault/schema.json` wants a
+/// database created or a column edited, `.vault/folders.json` a folder bound,
+/// `.vault/mounts.json` a source mounted, `.vault/calendars.json` a feed
+/// subscribed, `.vault/tagfolders.json` a tag folder made,
+/// `.vault/reflexes.json` a rule written — and `.vault/reflexes-log.json` only
+/// comes into being once such a rule has fired. `.vault/lens.json`,
+/// `.vault/letterbox.json` and `.vault/lens-subscriptions.json` want a share
+/// opened or taken; `.vault/templates/` and `.vault/kinds/` hold files a
+/// person sat down and wrote. `.vault/backup/` is written only by a migration,
+/// and no migration chain is non-empty yet.
+///
+/// Parking those is not a hole left in this belt — it is the belt drawing its
+/// line in the right place. `.vault/schema.json` is the clearest of them: it
+/// holds what the user's databases *are*, every prop with its type, its
+/// options and its rollups, and two vaults that each grew a `trips` database
+/// grew two different ones. Silently taking the vault's copy would delete a
+/// database somebody built, with no screen having said so and nothing to point
+/// an undo at. The conflict screen is an ugly first impression, and on that
+/// file it is also the only honest one: the two sides disagree about something
+/// a person meant. Layout state was adoptable precisely because nobody meant
+/// it.
 fn adopt_untouched_seed_conflicts(
     repo: &Repository,
     merged: &mut git2::Index,
@@ -2403,7 +2466,7 @@ fn adopt_untouched_seed_conflicts(
             continue;
         };
         let path = String::from_utf8_lossy(&ours.path).into_owned();
-        if path == crate::vault::ViewPref::REL_PATH {
+        if path == crate::vault::ViewPref::REL_PATH || path == crate::vaultfmt::FORMAT_REL_PATH {
             adopt.push((path, side(repo, Some(theirs))?));
             continue;
         }
@@ -3092,6 +3155,146 @@ fn report_changed(
 /// A diff that can't be computed reports no paths: the caller's checkout has
 /// already landed, and an empty list means "unknown" everywhere it is read
 /// (the app then falls back to its conservative invalidation).
+/// Give the files a fresh join just checked out the edit times its history
+/// records, instead of the moment the checkout wrote them.
+///
+/// A join writes every file in the vault at once, so every fs mtime reads as
+/// the pull moment and the notes list shows a whole vault "edited now" —
+/// recency sorting and "last edited" labels are meaningless on a device that
+/// just joined until organic edits accumulate. Everything downstream reads the
+/// filesystem (`vault::*` builds `updated_ms` from `metadata().modified()`),
+/// so the honest place to fix it is here, once, at the one checkout that wrote
+/// the whole tree.
+///
+/// One walk, newest commit first: the first commit that touches a path is by
+/// definition the last one that edited it, so the first assignment wins and
+/// the walk stops as soon as every checked-out path has a time. Paths the
+/// history does not reach — seeds the backfill puts back, markers — are left
+/// alone rather than invented.
+///
+/// Never fails the join. The checkout is correct data-wise whatever happens
+/// here; a vault whose mtimes could not be stamped is a cosmetic loss, so
+/// trouble is logged and the counts of files left at the checkout time are
+/// returned for the caller to say something about.
+fn stamp_mtimes_from_history(repo: &Repository, head: Oid) -> Result<StampOutcome, String> {
+    let workdir = repo
+        .workdir()
+        .ok_or_else(|| "vault sync has no working tree to stamp".to_string())?
+        .to_path_buf();
+    let head_commit = repo.find_commit(head).map_err(|e| e.to_string())?;
+    let mut pending: HashSet<String> = HashSet::new();
+    head_commit
+        .tree()
+        .map_err(|e| e.to_string())?
+        .walk(git2::TreeWalkMode::PreOrder, |dir, entry| {
+            // Symlinks are blobs too, and stamping opens the path for writing:
+            // following one would write outside the tree entirely.
+            if entry.kind() == Some(git2::ObjectType::Blob) && entry.filemode() != SYMLINK_MODE {
+                if let Some(name) = entry.name() {
+                    pending.insert(format!("{dir}{name}"));
+                }
+            }
+            git2::TreeWalkResult::Ok
+        })
+        .map_err(|e| e.to_string())?;
+
+    let mut walk = repo.revwalk().map_err(|e| e.to_string())?;
+    walk.set_sorting(git2::Sort::TIME).map_err(|e| e.to_string())?;
+    walk.push(head).map_err(|e| e.to_string())?;
+    let mut failed = 0usize;
+    for oid in walk {
+        if pending.is_empty() {
+            break;
+        }
+        let Ok(commit) = oid.and_then(|oid| repo.find_commit(oid)) else {
+            continue;
+        };
+        let Ok(tree) = commit.tree() else { continue };
+        // Diffed against the first parent, a merge lists everything its other
+        // sides contributed, and the walk reaches a merge before the parents it
+        // joined — claiming those paths here would date every note another
+        // device wrote from the moment this one merged it in, which is the very
+        // symptom being fixed. So on a merge only a path the merge itself
+        // settled differently from all of its sides is claimed; the rest are
+        // left for the commit that actually wrote them, further down the walk.
+        let is_merge = commit.parent_count() > 1;
+        let parent_tree = commit.parent(0).ok().and_then(|parent| parent.tree().ok());
+        let Ok(diff) = repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), None) else {
+            continue;
+        };
+        let when = commit_system_time(commit.time().seconds());
+        for delta in diff.deltas() {
+            // A deletion still names a path; it is the opposite of an edit to
+            // the file standing there now.
+            if delta.status() == git2::Delta::Deleted {
+                continue;
+            }
+            let Some(path) = delta.new_file().path().and_then(|p| p.to_str()) else {
+                continue;
+            };
+            if !pending.contains(path) {
+                continue;
+            }
+            if is_merge && !merge_settled_path(&commit, &tree, Path::new(path)) {
+                continue;
+            }
+            pending.remove(path);
+            if set_mtime(&workdir.join(path), when).is_err() {
+                failed += 1;
+            }
+        }
+    }
+    // Anything still pending was never touched by a commit the walk reached,
+    // which the diff shapes above make unlikely but not impossible; it keeps
+    // the checkout's time rather than a made-up one. Counted apart from the
+    // files a real filesystem error stopped us stamping: both leave the note
+    // reading as edited at the join, for very different reasons.
+    Ok(StampOutcome { failed, unreached: pending.len() })
+}
+
+/// Whether a merge is where a path got its current content, rather than a
+/// place it merely passed through: true only when the merge's version of the
+/// path matches none of its parents, i.e. someone resolved or rewrote it here.
+/// A parent whose tree cannot be read is treated as a match, which errs toward
+/// leaving the path to a later commit rather than dating it from the merge.
+fn merge_settled_path(commit: &git2::Commit<'_>, tree: &git2::Tree<'_>, path: &Path) -> bool {
+    let Ok(here) = tree.get_path(path).map(|entry| entry.id()) else {
+        return false;
+    };
+    for parent in commit.parents() {
+        let Ok(parent_tree) = parent.tree() else {
+            return false;
+        };
+        if parent_tree.get_path(path).map(|entry| entry.id()) == Ok(here) {
+            return false;
+        }
+    }
+    true
+}
+
+/// What a stamping pass could not date: files a filesystem error refused, and
+/// files no commit in the history reached.
+struct StampOutcome {
+    failed: usize,
+    unreached: usize,
+}
+
+/// Git's mode for a symlink entry.
+const SYMLINK_MODE: i32 = 0o120000;
+
+/// Commit times are seconds since the epoch and may sit before it.
+fn commit_system_time(seconds: i64) -> std::time::SystemTime {
+    let epoch = std::time::SystemTime::UNIX_EPOCH;
+    match u64::try_from(seconds) {
+        Ok(after) => epoch + std::time::Duration::from_secs(after),
+        Err(_) => epoch - std::time::Duration::from_secs(seconds.unsigned_abs()),
+    }
+}
+
+fn set_mtime(path: &Path, when: std::time::SystemTime) -> std::io::Result<()> {
+    fs::OpenOptions::new().write(true).open(path)?.set_modified(when)
+}
+
 fn changed_between(repo: &Repository, from: Option<Oid>, to: Oid) -> Vec<String> {
     let tree_of = |oid: Oid| repo.find_commit(oid).and_then(|c| c.tree());
     let Ok(new_tree) = tree_of(to) else {
@@ -4375,6 +4578,155 @@ mod tests {
         Pair { _scratch: scratch, a, b, credentials_a, credentials_b, history_a, history_b }
     }
 
+    /// Commit whatever is in `root` under an explicit commit time, so a test
+    /// can lay down a history whose edits are months apart. The app's own
+    /// snapshot always stamps "now", which is precisely the time a join must
+    /// not use.
+    fn commit_at(root: &Path, seconds: i64, label: &str) -> Oid {
+        let repo = Repository::open(root).unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_all(["*"].iter(), IndexAddOption::DEFAULT, None).unwrap();
+        index.write().unwrap();
+        let tree_oid = index.write_tree().unwrap();
+        let tree = repo.find_tree(tree_oid).unwrap();
+        let when = git2::Time::new(seconds, 0);
+        let who = Signature::new("Test", "test@example.com", &when).unwrap();
+        let parent = repo.head().ok().and_then(|head| head.peel_to_commit().ok());
+        let parents: Vec<&git2::Commit> = parent.iter().collect();
+        repo.commit(Some("HEAD"), &who, &who, label, &tree, &parents).unwrap()
+    }
+
+    fn mtime_seconds(path: &Path) -> i64 {
+        fs::metadata(path)
+            .unwrap()
+            .modified()
+            .unwrap()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64
+    }
+
+    /// A join writes the whole vault in one checkout, so left alone every note
+    /// on a device that has just joined reads as edited this minute and any
+    /// recency sort or "last edited" label is noise. The checked-out files
+    /// carry the time of the last commit that touched them instead.
+    #[test]
+    fn a_fresh_join_dates_its_files_from_history_not_the_checkout() {
+        const OLD: i64 = 1_600_000_000;
+        const MIDDLE: i64 = 1_650_000_000;
+        const RECENT: i64 = 1_700_000_000;
+
+        let scratch = TempDir::new().unwrap();
+        let bare = scratch.path().join("remote.git");
+        Repository::init_bare(&bare).unwrap();
+        let a = scratch.path().join("a");
+        let b = scratch.path().join("b");
+        fs::create_dir_all(&a).unwrap();
+        fs::create_dir_all(&b).unwrap();
+        let _history_a = owned(&a);
+        let _history_b = owned(&b);
+        let credentials_a = scratch.path().join("config-a/sync.json");
+        let credentials_b = scratch.path().join("config-b/sync.json");
+        configure(&a, &credentials_a, &bare);
+        configure(&b, &credentials_b, &bare);
+
+        write_note(&a, "Old.md", "written once\n");
+        write_note(&a, "Folder/Nested.md", "in a folder\n");
+        commit_at(&a, OLD, "the first two notes");
+        write_note(&a, "Recent.md", "written later\n");
+        commit_at(&a, MIDDLE, "a third note");
+        // Re-edited after it was first written: the LAST commit that touched a
+        // path is the one its mtime has to come from, not the first.
+        write_note(&a, "Recent.md", "and edited later still\n");
+        commit_at(&a, RECENT, "the third note again");
+        sync_push(&a, &credentials_a).unwrap();
+
+        let joined_at = std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        let report = sync_pull(&b, &credentials_b).unwrap();
+        assert!(report.changed.contains(&"Old.md".to_string()), "{:?}", report.changed);
+
+        assert_eq!(mtime_seconds(&b.join("Old.md")), OLD);
+        assert_eq!(mtime_seconds(&b.join("Folder/Nested.md")), OLD);
+        assert_eq!(mtime_seconds(&b.join("Recent.md")), RECENT);
+        assert!(
+            mtime_seconds(&b.join("Recent.md")) < joined_at,
+            "the join stamped its own moment onto a note"
+        );
+        // Stamping mtimes must not leave git thinking the tree was edited: a
+        // vault that reads dirty right after joining refuses its next pull.
+        assert_clean(&b);
+    }
+
+    /// A path that reached the remote through somebody else's device arrives on
+    /// a later joiner inside a merge commit, and a merge's diff against its
+    /// first parent lists everything the second parent contributed. Attributing
+    /// those paths to the merge would stamp them with the merging device's
+    /// "now" — the same whole-vault-edited-today symptom, just for the notes
+    /// that came from the other device. The walk has to see through the merge
+    /// to the commit that actually wrote the note.
+    #[test]
+    fn a_join_dates_merged_in_notes_from_the_commit_that_wrote_them() {
+        const OLD: i64 = 1_600_000_000;
+        const MIDDLE: i64 = 1_650_000_000;
+        const LOCAL: i64 = 1_680_000_000;
+
+        let scratch = TempDir::new().unwrap();
+        let bare = scratch.path().join("remote.git");
+        Repository::init_bare(&bare).unwrap();
+        let a = scratch.path().join("a");
+        let b = scratch.path().join("b");
+        let c = scratch.path().join("c");
+        for root in [&a, &b, &c] {
+            fs::create_dir_all(root).unwrap();
+        }
+        let _history_a = owned(&a);
+        let _history_b = owned(&b);
+        let _history_c = owned(&c);
+        let credentials_a = scratch.path().join("config-a/sync.json");
+        let credentials_b = scratch.path().join("config-b/sync.json");
+        let credentials_c = scratch.path().join("config-c/sync.json");
+        configure(&a, &credentials_a, &bare);
+        configure(&b, &credentials_b, &bare);
+        configure(&c, &credentials_c, &bare);
+
+        // A writes the first note and publishes it.
+        write_note(&a, "FromA.md", "the first device\n");
+        commit_at(&a, OLD, "a note from the first device");
+        sync_push(&a, &credentials_a).unwrap();
+
+        // B joins, writes a note of its own and publishes that.
+        sync_pull(&b, &credentials_b).unwrap();
+        write_note(&b, "FromB.md", "the second device\n");
+        commit_at(&b, MIDDLE, "a note from the second device");
+        sync_push(&b, &credentials_b).unwrap();
+
+        // A has meanwhile edited its own note, so A's pull has to merge: the
+        // local commit is the first parent, the remote the second, and
+        // `FromB.md` enters A's history through that merge.
+        write_note(&a, "FromA.md", "the first device, edited\n");
+        commit_at(&a, LOCAL, "the first note again");
+        sync_pull(&a, &credentials_a).unwrap();
+        sync_push(&a, &credentials_a).unwrap();
+        let merged_at = std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+
+        // C joins last and sees the whole history, merge included.
+        sync_pull(&c, &credentials_c).unwrap();
+        assert_eq!(mtime_seconds(&c.join("FromA.md")), LOCAL);
+        assert_eq!(
+            mtime_seconds(&c.join("FromB.md")),
+            MIDDLE,
+            "a note that arrived through a merge was dated from the merge, not from its own edit"
+        );
+        assert!(mtime_seconds(&c.join("FromB.md")) < merged_at);
+        assert_clean(&c);
+    }
+
     fn write_note(root: &Path, path: &str, body: &str) {
         let full = root.join(path);
         if let Some(parent) = full.parent() {
@@ -4813,13 +5165,20 @@ mod tests {
         pair.history_a.snapshot("snapshot").unwrap();
         sync_push(&pair.a, &pair.credentials_a).unwrap();
 
+        // A file the remote never touched must come out of the pull with the
+        // date it already had: rewriting untouched files would make an ordinary
+        // pull look like an edit to the whole vault.
+        let untouched_before = mtime_seconds(&pair.b.join("Other.md"));
+
         // Fast-forward: only the two files the remote touched.
         let report = sync_pull(&pair.b, &pair.credentials_b).unwrap();
         assert_eq!(report.changed, vec!["Added.md".to_string(), "Note.md".to_string()]);
+        assert_eq!(mtime_seconds(&pair.b.join("Other.md")), untouched_before);
 
         // Nothing left to pull: no checkout, so no paths.
         let idle = sync_pull(&pair.b, &pair.credentials_b).unwrap();
         assert!(idle.changed.is_empty(), "{:?}", idle.changed);
+        assert_eq!(mtime_seconds(&pair.b.join("Other.md")), untouched_before);
 
         // A push checks nothing out either.
         write_note(&pair.b, "Other.md", "local only\n");
@@ -6408,6 +6767,109 @@ mod tests {
             "a real layout divergence was swallowed"
         );
         assert!(sync_conflicts(&pair.b).unwrap().active);
+    }
+
+    /// The version sidecar is the other file a device writes without being
+    /// asked, so it gets the same answer as the layout file.
+    ///
+    /// Nothing here is a user act: persisting which reminders have already
+    /// fired stamps `.vault/format.json` from the notification scheduler's own
+    /// thread, and the notifications file it is stamping for is device-local
+    /// and never even reaches a commit. The sidecar does, on both sides, and
+    /// the first join used to park on it.
+    #[test]
+    fn a_first_join_adopts_the_remote_format_sidecar_instead_of_parking_it() {
+        let remote = populated_remote(&[
+            ("Welcome.md", "the real vault's own Welcome\n"),
+            (".vault/format.json", "{\n  \"schema\": 1,\n  \"views\": 1\n}\n"),
+        ]);
+        let b = remote.scratch.path().join("b");
+        {
+            let _engine = crate::vault::Engine::new(b.clone());
+            // the scheduler's own housekeeping, on a device whose owner has
+            // done nothing but leave the app open
+            crate::vaultfmt::record_version(&b, crate::vaultfmt::VaultFile::Notifications, 1)
+                .unwrap();
+        }
+        let history_b = owned(&b);
+        let credentials_b = remote.scratch.path().join("config-b/sync.json");
+        configure(&b, &credentials_b, &remote.bare);
+        assert!(history_b.snapshot("snapshot").unwrap());
+
+        let report = sync_pull(&b, &credentials_b).unwrap();
+
+        assert!(
+            report.conflicted.is_empty(),
+            "a fresh device was parked on the version sidecar: {:?}",
+            report.conflicted
+        );
+        assert!(!sync_conflicts(&b).unwrap().active, "the join left a divergence parked");
+        let sidecar = fs::read_to_string(b.join(crate::vaultfmt::FORMAT_REL_PATH)).unwrap();
+        assert!(sidecar.contains("schema"), "the vault's own sidecar was not adopted: {sidecar}");
+        assert!(
+            !sidecar.contains("notifications"),
+            "the joining device's sidecar survived: {sidecar}"
+        );
+        assert_eq!(
+            fs::read_to_string(b.join("Welcome.md")).unwrap(),
+            "the real vault's own Welcome\n"
+        );
+        assert_clean(&b);
+    }
+
+    /// And the other half: two devices already sharing this vault's history
+    /// that disagree about the sidecar have a real disagreement — one of them
+    /// may be a build the other cannot write for — so it parks like anything
+    /// else. Adoption keys off the missing ancestor, not off the path.
+    #[test]
+    fn a_shared_history_format_sidecar_divergence_still_parks() {
+        let pair = paired_vaults(&[
+            ("Note.md", "base body\n"),
+            (".vault/format.json", "{\n  \"schema\": 1\n}\n"),
+        ]);
+        let report = pair.diverge(
+            &[(".vault/format.json", "{\n  \"schema\": 2\n}\n")],
+            &[(".vault/format.json", "{\n  \"schema\": 1,\n  \"views\": 1\n}\n")],
+        );
+
+        assert_eq!(
+            report.conflicted,
+            vec![".vault/format.json".to_string()],
+            "a real sidecar divergence was swallowed"
+        );
+        assert!(sync_conflicts(&pair.b).unwrap().active);
+    }
+
+    /// The keep-parking half of the per-path verdicts, on the file with the
+    /// most at stake: `.vault/schema.json` holds what the user's databases
+    /// are. Two never-joined vaults that each grew a database grew different
+    /// ones, and no ancestor exists to merge them by, so the add/add is a real
+    /// disagreement between two people's work. It surfaces.
+    #[test]
+    fn a_first_join_still_parks_a_schema_divergence() {
+        let remote = populated_remote(&[
+            ("Welcome.md", "the real vault's own Welcome\n"),
+            (".vault/schema.json", "{\n  \"albums\": {\n    \"props\": {}\n  }\n}\n"),
+        ]);
+        let b = remote.scratch.path().join("b");
+        {
+            let engine = crate::vault::Engine::new(b.clone());
+            // a database the joining user deliberately built before joining
+            engine.create_type("trips", Vec::new()).unwrap();
+        }
+        let history_b = owned(&b);
+        let credentials_b = remote.scratch.path().join("config-b/sync.json");
+        configure(&b, &credentials_b, &remote.bare);
+        assert!(history_b.snapshot("snapshot").unwrap());
+
+        let report = sync_pull(&b, &credentials_b).unwrap();
+
+        assert_eq!(
+            report.conflicted,
+            vec![crate::vault::SCHEMA_REL_PATH.to_string()],
+            "the user's own database definitions were adopted away"
+        );
+        assert!(sync_conflicts(&b).unwrap().active);
     }
 
     /// The delete walk's half of the same rule, directly: even a vault that did

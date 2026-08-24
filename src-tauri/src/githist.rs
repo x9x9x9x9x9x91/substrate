@@ -429,6 +429,7 @@ fn fact_lanes_grouped(
                 key: key.clone(),
                 points: Vec::new(),
                 oldest_ts_ms,
+                born_ts_ms: None,
             })
         })
         .collect())
@@ -539,6 +540,10 @@ fn fact_lanes_in(
     let entries = history_list_in(repo, rel)?;
     let mut readings: Vec<Vec<FactPoint>> =
         keys.iter().map(|_| Vec::with_capacity(entries.len())).collect();
+    // whether the note existed at each snapshot, which is what tells a path
+    // reused by a NEW note apart from a key that merely went missing on a note
+    // that lived through it
+    let mut existence: Vec<(u64, bool)> = Vec::with_capacity(entries.len());
     // history_list is newest-first; a lane reads oldest-first so `value_at`
     // can binary-search it.
     for entry in entries.iter().rev() {
@@ -566,6 +571,7 @@ fn fact_lanes_in(
             &entry.subject,
             commit.message().unwrap_or(&entry.subject),
         );
+        existence.push((entry.ts_ms, props.is_some()));
         for (slot, key) in readings.iter_mut().zip(keys) {
             slot.push(FactPoint {
                 commit: entry.id.clone(),
@@ -576,6 +582,19 @@ fn fact_lanes_in(
             });
         }
     }
+    // The birth of the note living here NOW: the first snapshot that saw the
+    // file, after the last one that saw it gone. Read in time order for the
+    // same reason the points below are — the walk's order is topological, and
+    // a merged history walked as if it were a timeline mis-dates the birth.
+    // Absent in every snapshot, or gone at the newest one, means there is no
+    // current life to cut to, so the whole lane stands.
+    existence.sort_by_key(|(ts, _)| *ts);
+    let born_ts_ms = existence
+        .iter()
+        .rfind(|(_, existed)| !existed)
+        .and_then(|(gone, _)| {
+            existence.iter().find(|(ts, existed)| *existed && ts > gone).map(|(ts, _)| *ts)
+        });
     // A topological walk is not a chronological one: a merged or imported
     // history can hand back a commit dated before its own ancestors. `collapse`
     // and `value_at` both read the lane as a timeline, so put it in time order
@@ -590,6 +609,7 @@ fn fact_lanes_in(
                 key: key.to_string(),
                 points: crate::factlane::collapse(points),
                 oldest_ts_ms,
+                born_ts_ms,
             }
         })
         .collect())
@@ -2231,6 +2251,60 @@ mod tests {
         assert_eq!(value_at(&lane, noon_ms("2026-02-15")), FactAnswer::Value("70".into()));
         // after the delete the fact has no value — and does not carry forward
         assert_eq!(value_at(&lane, noon_ms("2026-04-01")), FactAnswer::Absent);
+    }
+
+    #[test]
+    fn fact_lane_dates_the_birth_of_the_note_living_at_the_path_now() {
+        // a path reused: one note deleted, a new one written at the same name.
+        // The lane keeps the whole path's history — AT() and charts follow the
+        // path — and `born_ts_ms` says where the note reading this lane began.
+        let scratch = TempDir::new().unwrap();
+        let root = scratch.path().join("vault");
+        let history = history_vault(&root);
+
+        fs::write(root.join("Inbox.md"), weight_note("70", "first note")).unwrap();
+        dated_snapshot(&root, "first note", "2026-01-01T12:00:00+00:00");
+        fs::remove_file(root.join("Inbox.md")).unwrap();
+        dated_snapshot(&root, "first note deleted", "2026-02-01T12:00:00+00:00");
+        fs::write(root.join("Inbox.md"), weight_note("90", "second note")).unwrap();
+        dated_snapshot(&root, "a new note at the old name", "2026-03-01T12:00:00+00:00");
+        fs::write(root.join("Inbox.md"), weight_note("91", "second note")).unwrap();
+        dated_snapshot(&root, "changed", "2026-04-01T12:00:00+00:00");
+
+        let lane = history.fact_lane("Inbox.md", "weight").unwrap();
+        assert_eq!(lane.born_ts_ms, Some(noon_ms("2026-03-01")));
+        // the lane itself is untouched: the dead note's value and its clearing
+        // are still on it for the formula engine to read
+        assert_eq!(
+            lane.points.iter().map(|p| (p.ts_ms, p.value.clone())).collect::<Vec<_>>(),
+            vec![
+                (noon_ms("2026-01-01"), Some("70".into())),
+                (noon_ms("2026-02-01"), None),
+                (noon_ms("2026-03-01"), Some("90".into())),
+                (noon_ms("2026-04-01"), Some("91".into())),
+            ]
+        );
+
+        // a note that was never gone has one life, so there is nothing to cut
+        let scratch = TempDir::new().unwrap();
+        let root = scratch.path().join("vault");
+        let history = history_vault(&root);
+        fs::write(root.join("Weight.md"), weight_note("70", "start")).unwrap();
+        dated_snapshot(&root, "snapshot", "2026-01-01T12:00:00+00:00");
+        fs::write(root.join("Weight.md"), weight_note("71", "on")).unwrap();
+        dated_snapshot(&root, "snapshot", "2026-02-01T12:00:00+00:00");
+        assert_eq!(history.fact_lane("Weight.md", "weight").unwrap().born_ts_ms, None);
+
+        // and a note deleted for good has no current life to cut to, so the
+        // whole lane stands rather than emptying itself
+        let scratch = TempDir::new().unwrap();
+        let root = scratch.path().join("vault");
+        let history = history_vault(&root);
+        fs::write(root.join("Gone.md"), weight_note("70", "start")).unwrap();
+        dated_snapshot(&root, "snapshot", "2026-01-01T12:00:00+00:00");
+        fs::remove_file(root.join("Gone.md")).unwrap();
+        dated_snapshot(&root, "deleted", "2026-02-01T12:00:00+00:00");
+        assert_eq!(history.fact_lane("Gone.md", "weight").unwrap().born_ts_ms, None);
     }
 
     #[test]

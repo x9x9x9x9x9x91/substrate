@@ -6616,7 +6616,13 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
                   subject: "snapshot",
                 },
               ];
-        return { path: r.path, key: r.key, points, oldest_ts_ms: now - 27 * 3_600_000 };
+        return {
+          path: r.path,
+          key: r.key,
+          points,
+          oldest_ts_ms: now - 27 * 3_600_000,
+          born_ts_ms: null,
+        };
       });
     }
     case "history_freshness": {

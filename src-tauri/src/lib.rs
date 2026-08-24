@@ -460,9 +460,16 @@ fn toggle_palette(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("palette") {
         if w.is_visible().unwrap_or(false) {
             w.hide().ok();
+            // the chord dismissing the window also drops its context, so a
+            // snapshot can't outlive the summon it was taken for
+            app.state::<context_snapshot::PendingContext>().clear();
             return;
         }
     }
+    // Same order, and the same reason, as quick capture: snapshot what is
+    // frontmost BEFORE this window is, because afterwards it is us. Honours
+    // the same flag — off, this clears the slot and touches nothing else.
+    arm_context_snapshot(app);
     show_palette(app, String::new());
 }
 

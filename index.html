@@ -2,7 +2,14 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- maximum-scale + user-scalable pin the iOS webview at 1:1: focusing a
+         sub-16px field makes it zoom the page in, and the zoom outlives the
+         keyboard, leaving every surface clipped and side-scrolling. The app
+         shell honors the clamp; desktop ignores viewport meta entirely. -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
     <title>Substrate</title>
     <style>
       html {
