@@ -45,6 +45,59 @@ test("shift-click ranges from the last plain-clicked row over flat rows indices"
   await expect(page.locator("tr.is-selected")).toHaveCount(4);
 });
 
+test("a plain click then a \u2318-click selects both rows, first one included", async ({ page }) => {
+  await openContacts(page);
+  // a plain click still does the cell's own thing: the Name cell renames in place
+  await titleCell(page, "Annelies").click();
+  await expect(page.locator("input.db-title-edit")).toBeVisible();
+  await page.locator("input.db-title-edit").press("Escape");
+  await expect(page.locator("input.db-title-edit")).toHaveCount(0);
+  // \u2318-clicking a second row brings the first one along, Finder-style
+  await titleCell(page, "Noa").click({ modifiers: ["Meta"] });
+  await expect(page.locator(".bulkbar")).toContainText("2 selected");
+  await expect(row(page, "Annelies")).toHaveClass(/is-selected/);
+  await expect(row(page, "Noa")).toHaveClass(/is-selected/);
+  // and either row still toggles back out
+  await titleCell(page, "Annelies").click({ modifiers: ["Meta"] });
+  await expect(page.locator(".bulkbar")).toContainText("1 selected");
+  await expect(row(page, "Annelies")).not.toHaveClass(/is-selected/);
+});
+
+test("a ⌘-toggle that empties the selection doesn't resurrect the dropped row", async ({ page }) => {
+  await openContacts(page);
+  // build a selection of one, then empty it again with the same gesture
+  await titleCell(page, "Annelies").click({ modifiers: ["Meta"] });
+  await expect(page.locator(".bulkbar")).toContainText("1 selected");
+  await titleCell(page, "Annelies").click({ modifiers: ["Meta"] });
+  await expect(page.locator(".bulkbar")).toHaveCount(0);
+  // the next ⌘-click starts a fresh selection of one — Annelies stays out
+  await titleCell(page, "Noa").click({ modifiers: ["Meta"] });
+  await expect(page.locator(".bulkbar")).toContainText("1 selected");
+  await expect(row(page, "Noa")).toHaveClass(/is-selected/);
+  await expect(row(page, "Annelies")).not.toHaveClass(/is-selected/);
+
+  // the plain-click route can't resurrect either: seed a pair, empty it,
+  // and the third ⌘-click still starts fresh
+  await titleCell(page, "Gero").click();
+  await page.locator("input.db-title-edit").press("Escape");
+  await titleCell(page, "Noa").click({ modifiers: ["Meta"] });
+  await expect(page.locator(".bulkbar")).toContainText("2 selected");
+  await titleCell(page, "Gero").click({ modifiers: ["Meta"] });
+  await titleCell(page, "Noa").click({ modifiers: ["Meta"] });
+  await expect(page.locator(".bulkbar")).toHaveCount(0);
+  await titleCell(page, "Tess").click({ modifiers: ["Meta"] });
+  await expect(page.locator(".bulkbar")).toContainText("1 selected");
+  await expect(row(page, "Tess")).toHaveClass(/is-selected/);
+
+  // and a fresh plain click after all of that still arms the seed
+  await titleCell(page, "Annelies").click();
+  await page.locator("input.db-title-edit").press("Escape");
+  await titleCell(page, "Gero").click({ modifiers: ["Meta"] });
+  await expect(page.locator(".bulkbar")).toContainText("2 selected");
+  await expect(row(page, "Annelies")).toHaveClass(/is-selected/);
+  await expect(row(page, "Gero")).toHaveClass(/is-selected/);
+});
+
 test("Escape clears the selection first; the table stays put", async ({ page }) => {
   await openContacts(page);
   await titleCell(page, "Gero").click({ modifiers: ["Meta"] });

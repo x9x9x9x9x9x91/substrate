@@ -1,3 +1,4 @@
+import type { BulkActionIcon } from "../lib/bulkactions";
 import type { NoteActionIcon } from "../lib/noteactions";
 
 const base = {
@@ -467,6 +468,20 @@ export function NoteActionGlyph({ name }: { name: NoteActionIcon }) {
       return <CalendarIcon />;
     case "pin":
       return <PinIcon />;
+    case "trash":
+      return <TrashIcon />;
+  }
+}
+
+/* glyph for a canonical bulk action — the bulk bar and the palette resolve
+   the same mark for the same verb, the way the note actions do. Set property
+   wears the note actions' property tag; clearing wears the bar's own ✕. */
+export function BulkActionGlyph({ name }: { name: BulkActionIcon }) {
+  switch (name) {
+    case "prop":
+      return <TagIcon />;
+    case "clear":
+      return <XIcon />;
     case "trash":
       return <TrashIcon />;
   }

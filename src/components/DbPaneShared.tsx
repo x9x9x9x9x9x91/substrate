@@ -197,12 +197,21 @@ export type Focus = { c: number; r: number; path: string };
     An item may be OFF instead of absent: `why` states the precondition it is
     waiting on, in the kind hint's voice, and the row renders inert. A feature
     whose entry only appears once its precondition already holds teaches
-    nobody — the off row is how the menu says what would turn it on. */
+    nobody — the off row is how the menu says what would turn it on.
+
+    Arrow keys walk the rows and Enter picks one whenever the menu already
+    holds focus, so a menu reached by keyboard can be finished by keyboard.
+    `takeFocus` is what gets focus in there in the first place, and it is the
+    caller's call: a menu on a keyboard route (the bulk pickers, reachable
+    from the palette) has no pointer behind it and would otherwise strand the
+    reader on a menu no key can reach, while the column-header menus stay as
+    they were and leave focus wherever the click that opened them put it. */
 export function ColMenu({
   anchor,
   items,
   onClose,
   up,
+  takeFocus,
 }: {
   anchor: AnchorRect;
   items: {
@@ -215,8 +224,19 @@ export function ColMenu({
   onClose: () => void;
   /** open upward (footer cells sit at the bottom edge of the scrollport) */
   up?: boolean;
+  /** focus the first pickable row on mount — for menus opened by keyboard */
+  takeFocus?: boolean;
 }) {
   const boxRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!takeFocus) return;
+    const box = boxRef.current;
+    // an inert row would answer Enter with nothing, so the first PICKABLE
+    // row takes the focus; a menu of nothing but off rows still lands
+    // somewhere, because Escape has to be reachable from a row
+    const rows = [...(box?.querySelectorAll<HTMLElement>(".dots-item") ?? [])];
+    (rows.find((el) => el.getAttribute("aria-disabled") !== "true") ?? rows[0])?.focus();
+  }, [takeFocus]);
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
       if (boxRef.current && !boxRef.current.contains(e.target as Node)) onClose();
@@ -225,6 +245,27 @@ export function ColMenu({
       if (e.key === "Escape") {
         e.stopPropagation();
         onClose();
+        return;
+      }
+      const box = boxRef.current;
+      // only when the menu is where the keys are going: a header menu left
+      // open behind a focused cell must not swallow that cell's arrows
+      if (!box || !box.contains(document.activeElement)) return;
+      const rows = [...box.querySelectorAll<HTMLElement>(".dots-item")];
+      const at = rows.indexOf(document.activeElement as HTMLElement);
+      const step = e.key === "ArrowDown" ? 1 : e.key === "ArrowUp" ? -1 : 0;
+      if (step !== 0) {
+        e.preventDefault();
+        e.stopPropagation();
+        rows[Math.min(Math.max(at + step, 0), rows.length - 1)]?.focus();
+      } else if (e.key === "Enter" || e.key === " ") {
+        const row = rows[at];
+        if (!row || row.getAttribute("aria-disabled") === "true") return;
+        // the click the browser would have synthesised, run here so the
+        // default activation can be suppressed and the pick happens once
+        e.preventDefault();
+        e.stopPropagation();
+        row.click();
       }
     };
     window.addEventListener("mousedown", onDown);

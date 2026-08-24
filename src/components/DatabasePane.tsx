@@ -13,7 +13,8 @@ import {
   type HopGrid,
 } from "../lib/cellhop";
 import { cycleSortKeys } from "../lib/dbsort";
-import { rangePaths, togglePath } from "../lib/bulkselect";
+import { anchoredToggle, rangePaths } from "../lib/bulkselect";
+import { buildBulkActions, registerBulkSelection, type BulkActionHandlers } from "../lib/bulkactions";
 import { aggregationKind, aggregateColumnsUnits, formatUnit, normalizeNumberInput, updateAggregation } from "../lib/aggregate";
 import { makeFxResolver } from "../lib/fx";
 import { useFxRates } from "./useFx";
@@ -1886,9 +1887,16 @@ export default function DatabasePane({
   // ranges from the anchor (last clicked row) over `rows` indices — a grouped
   // table interleaves header rows in the DOM, so siblings would lie. Plain
   // clicks keep today's behavior and end any selection (the callers below).
+  // armed by a plain click, consumed by the next modifier click: seeding the
+  // selection with the anchor must only follow a plain click — a selection
+  // the user just emptied by ⌘-toggling stays empty. Everything that clears
+  // the selection also disarms it, so the invariant holds locally.
+  const seedNextToggle = useRef(false);
+
   const clearSel = () => {
     setSel(EMPTY_SEL);
     setSelAnchor(null);
+    seedNextToggle.current = false;
     // The failure marks ride with the selection they narrowed, so
     // dismissing the selection is also how the user says "seen it" — no mark
     // can outlive the rows it was pointing at.
@@ -1899,6 +1907,8 @@ export default function DatabasePane({
   };
 
   const selClick = (r: number, path: string, range: boolean) => {
+    const seedable = seedNextToggle.current;
+    seedNextToggle.current = false;
     if (range) {
       const aIdx = selAnchor === null ? -1 : rows.findIndex((n) => n.path === selAnchor);
       if (aIdx !== -1) {
@@ -1912,7 +1922,12 @@ export default function DatabasePane({
       setSelAnchor(path);
       return;
     }
-    setSel((cur) => togglePath(cur, path));
+    // A ⌘-click straight after a plain click seeds the selection with the
+    // anchor, so the first-clicked row is in it too (Finder's convention) —
+    // an anchor renamed away seeds nothing rather than a ghost path, and a
+    // ⌘-toggle that emptied the selection doesn't re-arm the seed.
+    const liveAnchor = seedable && selAnchor !== null && rows.some((n) => n.path === selAnchor) ? selAnchor : null;
+    setSel((cur) => anchoredToggle(cur, path, liveAnchor));
     setSelAnchor(path);
   };
 
@@ -1921,6 +1936,7 @@ export default function DatabasePane({
   const plainCellClick = (path: string, go: () => void) => {
     setSel(EMPTY_SEL);
     setSelAnchor(path);
+    seedNextToggle.current = true;
     go();
   };
 
@@ -1975,6 +1991,7 @@ export default function DatabasePane({
       const paths = [...sel];
       setSel(EMPTY_SEL);
       setSelAnchor(null);
+      seedNextToggle.current = false;
       setWriteFailed(EMPTY_FAILED);
       if (bulkTrash) onTrashNotes(paths);
     };
@@ -2123,6 +2140,49 @@ export default function DatabasePane({
       setBulkEdit({ key, anchor });
     }
   };
+
+  /* The selection's actions, defined once and rendered by both doors: the
+     bulk bar draws them as its buttons, and the palette draws them as rows
+     while the slot below is claimed. Every handler ends up in the pane's own
+     bulk machinery, so a property set from the palette is the same single
+     undo entry and the same per-row failure marks as one set from the bar. */
+  const openBulkPropPicker = () => {
+    // anchored on the bar's own button — the bar is on screen for as long as
+    // there is a selection to act on, so the palette's row opens the same
+    // menu in the same place rather than inventing a second picker
+    const btn = document.querySelector<HTMLElement>(".bulkbar-prop");
+    if (btn) setBulkColMenu(anchorFrom(btn));
+  };
+  const trashSelection = () => {
+    const paths = [...sel];
+    clearSel();
+    onTrashNotes(paths);
+  };
+  const bulkHandlers: BulkActionHandlers = {
+    count: sel.size,
+    setProperty: openBulkPropPicker,
+    trash: trashSelection,
+    clearSelection: clearSel,
+  };
+  const bulkActions = buildBulkActions(bulkHandlers);
+
+  /* What the palette reads. The handlers close over this render's state, so
+     the slot holds thin forwarders over a ref instead — re-registering on
+     every keystroke would notify every subscriber for nothing. The identity
+     changes with the count, which is the part a reader renders. */
+  const bulkRef = useRef(bulkHandlers);
+  useEffect(() => {
+    bulkRef.current = bulkHandlers;
+  });
+  useEffect(() => {
+    if (sel.size === 0) return;
+    return registerBulkSelection({
+      count: sel.size,
+      setProperty: () => bulkRef.current.setProperty?.(),
+      trash: () => bulkRef.current.trash?.(),
+      clearSelection: () => bulkRef.current.clearSelection?.(),
+    });
+  }, [sel.size]);
 
   const createRelationTarget = (path: string, key: string, targetDb: string, title: string) => {
     onCreateEntry(targetDb, title)
@@ -3138,7 +3198,7 @@ export default function DatabasePane({
       onOpenNote={onOpenNote}
       onNoteMenu={onNoteMenu}
       onCellMenu={onCellMenu}
-      onTrashNotes={onTrashNotes}
+      bulkActions={bulkActions}
       sel={sel}
       writeFailed={writeFailed}
       lastWritten={lastWritten}

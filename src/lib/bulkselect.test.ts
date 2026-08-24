@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { rangePaths, togglePath } from "./bulkselect.ts";
+import { anchoredToggle, rangePaths, togglePath } from "./bulkselect.ts";
 
 // a flat `rows` sequence like the pane's — grouped tables concatenate their
 // sections into one array, so indices 2..3 below cross a section boundary
@@ -44,4 +44,31 @@ test("togglePath: keeps the rest of the selection and never mutates the input", 
   assert.deepEqual(paths(cur), ["a.md", "b.md"]); // input untouched
   const dropped = togglePath(next, "b.md");
   assert.deepEqual(paths(dropped), ["a.md", "c.md"]);
+});
+
+test("anchoredToggle: an empty selection seeds the anchor, so both rows land", () => {
+  // plain-click "a.md" (selection cleared, anchor set), then ⌘-click "c.md"
+  assert.deepEqual(paths(anchoredToggle(new Set(), "c.md", "a.md")), ["a.md", "c.md"]);
+});
+
+test("anchoredToggle: with a selection it is a plain toggle, so rows come back out", () => {
+  const both = anchoredToggle(new Set(), "c.md", "a.md");
+  assert.deepEqual(paths(anchoredToggle(both, "a.md", "c.md")), ["c.md"]);
+  assert.deepEqual(paths(anchoredToggle(both, "c.md", "c.md")), ["a.md"]);
+  // and a third row joins rather than replacing
+  assert.deepEqual(paths(anchoredToggle(both, "e.md", "c.md")), ["a.md", "c.md", "e.md"]);
+});
+
+test("anchoredToggle: ⌘-clicking the anchor itself just selects that one row", () => {
+  assert.deepEqual(paths(anchoredToggle(new Set(), "a.md", "a.md")), ["a.md"]);
+});
+
+test("anchoredToggle: no anchor (fresh table, or renamed away) selects only the clicked row", () => {
+  assert.deepEqual(paths(anchoredToggle(new Set(), "c.md", null)), ["c.md"]);
+});
+
+test("anchoredToggle: never mutates the selection it was given", () => {
+  const cur = new Set(["a.md"]);
+  anchoredToggle(cur, "c.md", "e.md");
+  assert.deepEqual(paths(cur), ["a.md"]);
 });

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { DbIcon, DriveInfo, NoteMeta, SavedView, SearchHit, SnippetPart, TagCount, TagFolder, View } from "../lib/types";
 import { propStr } from "../lib/types";
 import { vaultRoot, vaultSearch, mountRescan } from "../lib/ipc";
@@ -10,6 +10,7 @@ import { createLatestGuard } from "../lib/latest";
 import { exportNoteMarkdown, exportNoteOneSheet, exportNotePdf } from "../lib/export";
 import { useEdgeFade } from "../hooks/useEdgeFade";
 import { buildNoteActions, type NoteActionHandlers } from "../lib/noteactions";
+import { buildBulkActions, getBulkSelection, subscribeBulkSelection } from "../lib/bulkactions";
 import { scanSummary } from "../lib/mounts";
 import { NO_MATCH, fuzzyScore } from "../lib/fuzzy";
 import { noteHint } from "../lib/display";
@@ -53,6 +54,7 @@ import {
   KeyboardIcon,
   PulseIcon,
   LinkIcon,
+  BulkActionGlyph,
   NoteActionGlyph,
   NoteIcon,
   NotesIcon,
@@ -126,9 +128,12 @@ type Stage =
   | { kind: "newtyped"; dbType: string }
   | { kind: "newdash" }
   | { kind: "newdashnamed"; dashKind: string }
+  /** what the rows selected in a table can do — live only while a pane
+      publishes a selection, so it is never a stage you can sit in alone */
+  | { kind: "bulkactions" }
 
 /** Stage the palette can be opened straight into (e.g. from a context menu). */
-export type StartStage = { kind: "moveto"; note: NoteMeta };
+export type StartStage = { kind: "moveto"; note: NoteMeta } | { kind: "bulkactions" };
 
 interface PaletteProps {
   mode: "palette" | "capture";
@@ -525,8 +530,35 @@ export default function Palette({
     [dashboardPaths, onOpenNote, onSetView]
   );
 
+  /* The rows selected in a table, if any pane is holding some. Read from the
+     shared slot rather than threaded down as a prop: the palette is mounted
+     once, far from whichever pane owns the selection, and the actions it
+     draws are the bulk bar's own descriptors either way. */
+  const bulkSel = useSyncExternalStore(subscribeBulkSelection, getBulkSelection, getBulkSelection);
+
   const items: Item[] = useMemo(() => {
     if (mode === "capture") return [];
+
+    // one list, two doors — the same descriptors the bulk bar renders
+    const bulkRows = (section: string): Item[] =>
+      bulkSel
+        ? buildBulkActions(bulkSel).map(
+            (a): Item => ({
+              id: `bulk:${a.id}`,
+              label: a.label,
+              icon: <BulkActionGlyph name={a.icon} />,
+              section,
+              hint: a.hint,
+              run: a.run,
+            })
+          )
+        : [];
+    const bulkSection = `${bulkSel?.count ?? 0} selected`;
+
+    if (stage.kind === "bulkactions") {
+      const rows = bulkRows(bulkSection);
+      return q.trim() ? rows.filter((a) => synFuzzyScore(q, a.label) > NO_MATCH) : rows;
+    }
 
     if (stage.kind === "actions") {
       const note = stage.note;
@@ -836,6 +868,11 @@ export default function Palette({
 
     // root stage
     const out: Item[] = [];
+    // above everything: with rows selected, what you meant by ⌘K is almost
+    // certainly one of these, and the selection is gone the moment you leave
+    for (const r of bulkRows(bulkSection)) {
+      if (!q.trim() || synFuzzyScore(q, r.label) > NO_MATCH) out.push(r);
+    }
     const byPath = new Map(notes.map((n) => [n.path, n]));
     const { filters, trailing } = parsed;
     // A quoted phrase is a typed query like any other — leaving it
@@ -1355,6 +1392,7 @@ export default function Palette({
     mode,
     stage,
     q,
+    bulkSel,
     parsed,
     searchText,
     notes,
@@ -1428,7 +1466,20 @@ export default function Palette({
   // the user's active item by identity so an inserted Content section cannot
   // silently move selection to a different action at the same index.
   const selectedIndex = selectedId ? items.findIndex((item) => item.id === selectedId) : -1;
-  const sel = selectedIndex >= 0 ? selectedIndex : 0;
+  /* Where a cold open lands. Normally the top row — except that a live table
+     selection pushes its actions above everything, and ⌘K-Enter is muscle
+     memory for "open what I was just in". So the bulk rows render on top and
+     the highlight starts BELOW them, on the first ordinary row: bare Enter
+     still opens the most recent note, and one ArrowUp is the whole distance
+     to the selection's actions. A typed query is a stated intent, not a
+     reflex, so it ranks as usual — type "trash" and the trash row is both
+     first and highlighted. */
+  const defaultIndex = useMemo(() => {
+    if (stage.kind !== "root" || q.trim()) return 0;
+    const below = items.findIndex((item) => !item.id.startsWith("bulk:"));
+    return below < 0 ? 0 : below;
+  }, [items, stage, q]);
+  const sel = selectedIndex >= 0 ? selectedIndex : defaultIndex;
   const selectIndex = useCallback(
     (index: number) => setSelectedId(items[index]?.id ?? null),
     [items]
@@ -1439,8 +1490,8 @@ export default function Palette({
   }, [selectedId, selectedIndex]);
 
   useEffect(() => {
-    if (!selectedId && items[0]) setSelectedId(items[0].id);
-  }, [selectedId, items]);
+    if (!selectedId && items[defaultIndex]) setSelectedId(items[defaultIndex].id);
+  }, [selectedId, items, defaultIndex]);
 
   useEffect(() => {
     setSelectedId(null);
@@ -1549,7 +1600,7 @@ export default function Palette({
   };
 
   const placeholder =
-    stage.kind === "actions" || stage.kind === "folderactions"
+    stage.kind === "actions" || stage.kind === "folderactions" || stage.kind === "bulkactions"
       ? "Filter actions…"
       : stage.kind === "setprop"
         ? "key: value — empty value clears"

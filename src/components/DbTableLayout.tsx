@@ -19,6 +19,7 @@ import { AGG_OPTIONS, ColMenu, openExternalLink, SubBadge, TreeTwisty, WIN_INITI
 import type { SubSummary } from "../lib/subitems";
 import { byFoldedKey, isBuiltinDateName } from "../lib/schemalookup";
 import type { HopDir } from "../lib/cellhop";
+import type { BulkAction } from "../lib/bulkactions";
 
 /** the open cell editor (two ways it can open pre-filled:
     `seed` = the keystroke that opened it, `caretAtEnd` = F2's edit-in-place) */
@@ -181,7 +182,7 @@ export default function DbTableLayout({
   onOpenNote,
   onNoteMenu,
   onCellMenu,
-  onTrashNotes,
+  bulkActions,
   sel,
   writeFailed,
   lastWritten,
@@ -304,7 +305,9 @@ export default function DbTableLayout({
   /** right-click on a value cell — the cell IS a (note, key) fact, so its menu
       leads with that fact's receipts (receipts spec §6) */
   onCellMenu?: (path: string, key: string, x: number, y: number) => void;
-  onTrashNotes: (paths: string[]) => void;
+  /** what a live selection can do, built once by the pane so the bar and
+      the palette can never drift apart on a label or an order */
+  bulkActions: BulkAction[];
   sel: ReadonlySet<string>;
   /** Notes a bulk write was refused on, each mapped to what the
       vault said. These rows are also what's selected, so the bar's count and
@@ -1120,34 +1123,39 @@ export default function DbTableLayout({
           <span className={`bulkbar-count${writeFailed.size > 0 ? " is-fail" : ""}`}>
             {sel.size || bulkClosing} {writeFailed.size > 0 ? "didn’t save" : "selected"}
           </span>
-          <button type="button" onClick={(e) => setBulkColMenu(anchorFrom(e.currentTarget))}>
-            Set property…
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              const paths = [...sel];
-              clearSel();
-              onTrashNotes(paths);
-            }}
-          >
-            Move to Trash
-          </button>
-          <button
-            type="button"
-            className="bulkbar-x"
-            title="Clear selection (Esc)"
-            aria-label="Clear selection"
-            onClick={clearSel}
-          >
-            <XIcon />
-          </button>
+          {/* the bar and the palette draw the same list — clearing keeps its
+              ✕ here (and the bar's own Esc hint, which would mislead inside
+              the palette), everything else is a labelled button in order */}
+          {bulkActions
+            .filter((a) => a.id !== "clear")
+            .map((a) => (
+              <button key={a.id} type="button" className={`bulkbar-${a.id}`} onClick={a.run}>
+                {a.label}
+              </button>
+            ))}
+          {bulkActions
+            .filter((a) => a.id === "clear")
+            .map((a) => (
+              <button
+                key={a.id}
+                type="button"
+                className="bulkbar-x"
+                title={`${a.label} (Esc)`}
+                aria-label={a.label}
+                onClick={a.run}
+              >
+                <XIcon />
+              </button>
+            ))}
         </div>
       )}
       {bulkColMenu && (
         <ColMenu
           anchor={bulkColMenu}
           up
+          // both doors onto this picker have to finish by keyboard — the
+          // palette's row opens it with no pointer anywhere near it
+          takeFocus
           items={shown
             // a rollup column is derived — no write path, so no
             // bulk edit
@@ -1163,6 +1171,8 @@ export default function DbTableLayout({
         <ColMenu
           anchor={bulkCheck.anchor}
           up
+          // the second step of the same route: a checkbox column commits here
+          takeFocus
           items={[
             { label: "Checked", run: () => bulkCommit(bulkCheck.key, true) },
             { label: "Unchecked", run: () => bulkCommit(bulkCheck.key, null) },

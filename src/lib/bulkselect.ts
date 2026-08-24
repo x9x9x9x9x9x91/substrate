@@ -22,3 +22,21 @@ export function togglePath(sel: ReadonlySet<string>, path: string): Set<string> 
   else next.add(path);
   return next;
 }
+
+/** ⌘/ctrl-click when nothing is selected yet: OS convention (Finder, file
+    managers, DAW browsers) is that the previously clicked row counts as the
+    first member of the selection, so a plain click followed by a ⌘-click
+    selects BOTH. The anchor is the last plainly clicked row; callers pass it
+    only while it still names a live row (so a renamed-away anchor can't seed
+    a ghost path) and only straight after a plain click (so a selection the
+    user emptied by ⌘-toggling stays empty). Once a selection exists this is
+    a plain toggle, which is
+    what keeps ⌘-clicking a selected row de-selecting it. */
+export function anchoredToggle(
+  sel: ReadonlySet<string>,
+  path: string,
+  anchor: string | null
+): Set<string> {
+  if (sel.size === 0 && anchor !== null && anchor !== path) return new Set([anchor, path]);
+  return togglePath(sel, path);
+}
