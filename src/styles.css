@@ -8186,6 +8186,81 @@ body.agenda-window .palette:focus-visible {
   left: 10px;
 }
 
+/* the header's whole label is one disclosure control: chevron, option dot,
+   name. Bare-button reset — it inherits the header row's type so folding a
+   section never changes how its name reads */
+.db-group-disclose {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+}
+
+.db-group-disclose:hover {
+  color: var(--text-1);
+}
+
+.db-group-chevron {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-right: 2px;
+  color: var(--text-3);
+}
+
+.db-group-chevron svg {
+  transition: transform 120ms ease-out;
+}
+
+.db-group-chevron.open svg {
+  transform: rotate(90deg);
+}
+
+.db-group-disclose:hover .db-group-chevron {
+  color: var(--text-1);
+}
+
+/* A folded section keeps its full height and its count — the only thing
+   that changes is that its rows are gone, so the row below it is the next
+   header. That height is load-bearing, not just tidy: a windowed table
+   measures ONE header height and lays every section out on it, so a
+   collapsed header even 4px off its open twin drifts the scroll geometry
+   by that much per fold. Nothing here may change the row's box. */
+
+/* section drag-reorder: the dragged header dims, and a 2px accent line
+   marks the slot the drop would land in — the column headers' language,
+   one axis over */
+.db-group-tr.dragging td {
+  opacity: 0.45;
+}
+
+.db-group-tr.drop-before td {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.db-group-tr.drop-after td {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+/* rows dragged onto a section header: the section lights up as the
+   destination it would become — the sidebar's drop-target treatment */
+.db-group-tr.note-drop td {
+  background: var(--accent-soft);
+  color: var(--text-1);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
 .db-group-none {
   color: var(--text-3);
   font-weight: 510;

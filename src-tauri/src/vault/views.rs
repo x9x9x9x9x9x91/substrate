@@ -88,6 +88,19 @@ pub struct ViewPref {
     /// Absent = resting order.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub card_order: Option<Vec<String>>,
+    /// A grouped table's hand order: section VALUES of the grouped
+    /// column in the order a header drag left them, the empty string standing
+    /// for the valueless "No <prop>" section. Values naming no current section
+    /// are ignored on read and a section the list doesn't mention keeps its
+    /// default place, so the list is a preference, not the partition.
+    /// Absent = the default order (schema options, then extras).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_order: Option<Vec<String>>,
+    /// A grouped table's folded-shut sections, named the same way.
+    /// A fold is a view state, not a filter: the rows stay in the view's
+    /// tallies and exports, they just aren't painted. Absent = all open.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collapsed_groups: Option<Vec<String>>,
     /// Props hidden from the database's table/list columns. Absent =
     /// everything shows. This flat list is only the SEED a
     /// layout without its own `hidden_per_layout` set falls back to on read —
@@ -583,6 +596,8 @@ impl Engine {
         grid: Option<bool>,
         hidden_per_layout: Option<HiddenPerLayout>,
         card_order: Option<Vec<String>>,
+        group_order: Option<Vec<String>>,
+        collapsed_groups: Option<Vec<String>>,
     ) -> Result<HashMap<String, ViewPref>, String> {
         if !ViewPref::LAYOUTS.contains(&view) {
             return Err(format!(
@@ -618,6 +633,11 @@ impl Engine {
         let card_order = card_order
             .map(|l| l.into_iter().filter(|c| !c.trim().is_empty()).collect::<Vec<_>>())
             .filter(|l: &Vec<String>| !l.is_empty());
+        // the table's section memory holds group VALUES, and the empty string
+        // is the valueless section's own key — so entries keep their exact
+        // spelling and only a wholly empty list collapses to absent
+        let group_order = group_order.filter(|l: &Vec<String>| !l.is_empty());
+        let collapsed_groups = collapsed_groups.filter(|l: &Vec<String>| !l.is_empty());
         let hidden = hidden
             .map(|l| {
                 l.into_iter()
@@ -686,6 +706,8 @@ impl Engine {
             sorts,
             col_order,
             card_order,
+            group_order,
+            collapsed_groups,
             hidden,
             widths,
             wrap,
@@ -1265,6 +1287,8 @@ mod tests {
             .set_view_pref(
                 "release", "table", None, None, None, None, None, None, None, None, None, None,
                 None,
+                None,
+                None,
             )
             .unwrap();
         assert_eq!(map["release"].view, "table");
@@ -1286,6 +1310,8 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
+                None,
             )
             .unwrap();
         assert_eq!(map["release"].view, "board");
@@ -1295,6 +1321,8 @@ mod tests {
             .set_view_pref(
                 "release", "gallery", None, None, None, None, None, None, None, None, None, None,
                 None,
+                None,
+                None,
             )
             .unwrap();
         assert_eq!(map["release"].view, "gallery");
@@ -1303,6 +1331,8 @@ mod tests {
         let map = e
             .set_view_pref(
                 "gear", "list", None, None, None, None, None, None, None, None, None, None, None,
+                None,
+                None,
             )
             .unwrap();
         assert_eq!(map["gear"].view, "list");
@@ -1311,7 +1341,9 @@ mod tests {
 
         assert!(
             e.set_view_pref(
-                "gear", "grid", None, None, None, None, None, None, None, None, None, None, None
+                "gear", "grid", None, None, None, None, None, None, None, None, None, None, None,
+                None,
+                None,
             )
             .is_err(),
             "unknown layout rejected"
@@ -1325,6 +1357,8 @@ mod tests {
                 "table",
                 None,
                 Some("category"),
+                None,
+                None,
                 None,
                 None,
                 None,
@@ -1371,6 +1405,8 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
+                None,
             )
             .unwrap();
         assert_eq!(map["release"].aggregations.as_ref().unwrap()["tracks"], "sum");
@@ -1382,6 +1418,8 @@ mod tests {
         let map = e
             .set_view_pref(
                 "release", "table", None, None, None, None, None, None, None, None, None, None,
+                None,
+                None,
                 None,
             )
             .unwrap();
@@ -1410,6 +1448,8 @@ mod tests {
                 Some(sorts),
                 None,
                 Some(hidden),
+                None,
+                None,
                 None,
                 None,
                 None,
@@ -1447,6 +1487,8 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
+                None,
             )
             .is_err(),
             "dir 0 rejected"
@@ -1463,6 +1505,8 @@ mod tests {
                 Some(vec![]),
                 None,
                 Some(vec![]),
+                None,
+                None,
                 None,
                 None,
                 None,
@@ -1502,6 +1546,8 @@ mod tests {
                 None,
                 Some(hpl),
                 None,
+                None,
+                None,
             )
             .unwrap();
         let got = map["release"].hidden_per_layout.as_ref().unwrap();
@@ -1538,6 +1584,8 @@ mod tests {
                 None,
                 Some(HiddenPerLayout { table: Some(vec!["artist".to_string()]), list: None }),
                 None,
+                None,
+                None,
             )
             .unwrap();
         let got = map["release"].hidden_per_layout.as_ref().unwrap();
@@ -1560,6 +1608,8 @@ mod tests {
                 None,
                 Some(HiddenPerLayout { table: Some(vec!["  ".to_string()]), list: Some(vec![]) }),
                 None,
+                None,
+                None,
             )
             .unwrap();
         assert_eq!(map["release"].hidden_per_layout, None, "both empty — no key written");
@@ -1579,6 +1629,8 @@ mod tests {
                 None,
                 None,
                 Some(vec!["cat#".to_string()]),
+                None,
+                None,
                 None,
                 None,
                 None,
@@ -1611,6 +1663,8 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
+                None,
             )
             .unwrap();
         assert_eq!(
@@ -1637,6 +1691,8 @@ mod tests {
                 None,
                 None,
                 Some(vec!["  ".to_string()]),
+                None,
+                None,
                 None,
                 None,
                 None,
@@ -1678,6 +1734,8 @@ mod tests {
                     "  ".to_string(),
                     "Releases/gone.md".to_string(),
                 ]),
+                None,
+                None,
             )
             .unwrap();
         assert_eq!(
@@ -1713,11 +1771,87 @@ mod tests {
                 None,
                 None,
                 Some(vec!["  ".to_string()]),
+                None,
+                None,
             )
             .unwrap();
         assert_eq!(map["release"].card_order, None, "emptied order — no key written");
         let raw = fs::read_to_string(dir.join(ViewPref::REL_PATH)).unwrap();
         assert!(!raw.contains("card_order"), "{}", raw);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// the table's section memory rides views.json beside the rest of
+    /// the pref: the hand order of the sections and the ones folded shut, both
+    /// naming sections by their group VALUE. The empty string is a real key
+    /// here — the valueless "No <prop>" section — so unlike every other list
+    /// on the pref, blanks are kept and only a wholly empty list collapses.
+    #[test]
+    fn views_group_sections_roundtrip() {
+        let (e, dir) = temp_vault("viewsgroupsections");
+        let map = e
+            .set_view_pref(
+                "release",
+                "table",
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some(vec!["live".to_string(), String::new(), "  draft ".to_string()]),
+                Some(vec![String::new(), "live".to_string()]),
+            )
+            .unwrap();
+        assert_eq!(
+            map["release"].group_order.as_ref().unwrap(),
+            &vec!["live".to_string(), String::new(), "  draft ".to_string()],
+            "section values stored verbatim — the empty key names the No-<prop> section"
+        );
+        assert_eq!(
+            map["release"].collapsed_groups.as_ref().unwrap(),
+            &vec![String::new(), "live".to_string()],
+            "a folded valueless section survives the write"
+        );
+        let raw = fs::read_to_string(dir.join(ViewPref::REL_PATH)).unwrap();
+        assert!(raw.contains("\"group_order\"") && raw.contains("\"collapsed_groups\""), "{}", raw);
+        let reread = e.views();
+        assert_eq!(reread["release"].group_order.as_ref().unwrap().len(), 3, "re-read sees it");
+        assert_eq!(
+            reread["release"].collapsed_groups.as_ref().unwrap(),
+            &vec![String::new(), "live".to_string()],
+            "re-read sees the folded set"
+        );
+
+        // both collapse to absent when emptied — no dead keys in views.json
+        let map = e
+            .set_view_pref(
+                "release",
+                "table",
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some(Vec::new()),
+                Some(Vec::new()),
+            )
+            .unwrap();
+        assert_eq!(map["release"].group_order, None, "emptied order — no key written");
+        assert_eq!(map["release"].collapsed_groups, None, "nothing folded — no key written");
+        let raw = fs::read_to_string(dir.join(ViewPref::REL_PATH)).unwrap();
+        assert!(!raw.contains("group_order") && !raw.contains("collapsed_groups"), "{}", raw);
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -1743,6 +1877,8 @@ mod tests {
                 None,
                 None,
                 Some(paths.iter().map(|p| p.to_string()).collect()),
+                None,
+                None,
             )
             .unwrap()
         };
@@ -1810,6 +1946,8 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
+                None,
             )
             .unwrap();
         let pref = &map["release"];
@@ -1842,6 +1980,8 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
+                None,
             )
             .unwrap();
         assert_eq!(map["release"].widths, None);
@@ -1871,6 +2011,8 @@ mod tests {
                 Some(false),
                 None,
                 None,
+                None,
+                None,
             )
             .unwrap();
         assert_eq!(map["release"].grid, Some(false));
@@ -1892,6 +2034,8 @@ mod tests {
                 Some(true),
                 None,
                 None,
+                None,
+                None,
             )
             .unwrap();
         assert_eq!(map["release"].grid, Some(true));
@@ -1900,6 +2044,8 @@ mod tests {
         let map = e
             .set_view_pref(
                 "release", "table", None, None, None, None, None, None, None, None, None, None,
+                None,
+                None,
                 None,
             )
             .unwrap();
@@ -1919,6 +2065,8 @@ mod tests {
         let map = e
             .set_view_pref(
                 "release", "table", None, None, None, None, None, None, None, None, None, None,
+                None,
+                None,
                 None,
             )
             .unwrap();
@@ -1997,6 +2145,8 @@ mod tests {
             "release",
             "board",
             Some("status"),
+            None,
+            None,
             None,
             None,
             None,
@@ -2331,6 +2481,8 @@ mod tests {
             None,
             None,
             None,
+            None,
+            None,
         )
         .unwrap();
         e.set_sidebar_order(&SidebarOrder {
@@ -2463,6 +2615,8 @@ mod tests {
         // garbage under $views reads as empty instead of poisoning the file
         e.set_view_pref(
             "release", "table", None, None, None, None, None, None, None, None, None, None, None,
+            None,
+            None,
         )
         .unwrap();
         let raw = fs::read_to_string(dir.join(ViewPref::REL_PATH)).unwrap();
@@ -2519,6 +2673,8 @@ mod tests {
         // persisted across reads; db prefs ride along untouched
         e.set_view_pref(
             "release", "table", None, None, None, None, None, None, None, None, None, None, None,
+            None,
+            None,
         )
         .unwrap();
         assert_eq!(e.folder_meta().len(), 2);
@@ -2568,6 +2724,8 @@ mod tests {
         .unwrap();
         e.set_view_pref(
             "release", "board", None, None, None, None, None, None, None, None, None, None, None,
+            None,
+            None,
         )
         .unwrap();
         let views = e.views();
@@ -2635,6 +2793,8 @@ mod tests {
         .unwrap();
         e.set_view_pref(
             "books", "board", None, None, None, None, None, None, None, None, None, None, None,
+            None,
+            None,
         )
         .unwrap();
         let after: serde_json::Value =

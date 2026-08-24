@@ -18,6 +18,12 @@ export const SIDE_DRAG_MIME = "application/x-substrate-side";
     target there. */
 export const COL_DRAG_MIME = "application/x-substrate-col";
 
+/** dataTransfer MIME carrying a table section's value while dragging a
+    grouped table's section header to reorder it (the empty string is the
+    "No <prop>" section). Its own MIME so a section header tells a sibling
+    header apart from the note rows it also accepts as a drop. */
+export const GROUP_DRAG_MIME = "application/x-substrate-group";
+
 /** dataTransfer MIME carrying a key token ("mod+5") while dragging a key chip
     between the key HUD and a sidebar destination row. Its own MIME so
     a destination row can host it alongside the note/db drop and the reorder

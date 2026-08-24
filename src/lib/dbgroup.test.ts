@@ -4,6 +4,9 @@ import {
   bucketByProp,
   distinctNotes,
   extraValues,
+  groupKey,
+  NO_GROUP_KEY,
+  orderedGroups,
   orderedNotes,
   tableGroupBy,
   tableGroups,
@@ -264,5 +267,44 @@ test("orderedNotes: unknown paths cost nothing (SUB-948)", () => {
     orderedNotes([a, b], ["gone.md"]),
     [a, b],
     "an order matching nothing here leaves the column alone"
+  );
+});
+
+test("groupKey: sections fold by casing, the valueless one answers to the empty string", () => {
+  assert.equal(groupKey("SoundHack"), "soundhack");
+  assert.equal(groupKey("soundhack"), "soundhack", "two spellings share one section's memory");
+  assert.equal(groupKey(null), NO_GROUP_KEY);
+  assert.equal(NO_GROUP_KEY, "", "no real group value can be empty, so it is free as a sentinel");
+});
+
+test("orderedGroups: listed sections lead in order, the rest keep grouping order", () => {
+  const groups = [
+    { value: "artwork", notes: [note("a", { role: "artwork" })] },
+    { value: "booking", notes: [note("b", { role: "booking" })] },
+    { value: null, notes: [note("c", {})] },
+  ];
+  assert.deepEqual(orderedGroups(groups, undefined), groups, "no order = untouched");
+  assert.deepEqual(orderedGroups(groups, []), groups, "an empty order = untouched");
+  assert.deepEqual(
+    orderedGroups(groups, ["", "BOOKING"]).map((g) => g.value),
+    [null, "booking", "artwork"],
+    "the empty string names the No-role section; matching folds by casing"
+  );
+});
+
+test("orderedGroups: values naming no live section cost nothing", () => {
+  const groups = [
+    { value: "artwork", notes: [note("a", { role: "artwork" })] },
+    { value: "booking", notes: [note("b", { role: "booking" })] },
+  ];
+  assert.deepEqual(
+    orderedGroups(groups, ["gone", "booking", "booking"]).map((g) => g.value),
+    ["booking", "artwork"],
+    "an emptied section and a repeat are both skipped"
+  );
+  assert.deepEqual(
+    orderedGroups(groups, ["gone"]),
+    groups,
+    "an order matching nothing leaves the sections alone"
   );
 });

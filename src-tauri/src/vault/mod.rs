@@ -4454,6 +4454,8 @@ mod tests {
         e.set_prop("Note.md", "status", Some("live")).unwrap();
         e.set_view_pref(
             "release", "board", None, None, None, None, None, None, None, None, None, None, None,
+            None,
+            None,
         )
         .unwrap();
         let raw = fs::read_to_string(dir.join("Note.md")).unwrap();
@@ -5963,6 +5965,8 @@ mod tests {
                 list: Some(vec!["status".to_string()]),
             }),
             None,
+            None,
+            None,
         )
         .unwrap();
 
@@ -6534,6 +6538,8 @@ mod tests {
         e.create_type("books", Vec::new()).unwrap();
         e.set_view_pref(
             "books", "table", None, None, None, None, None, None, None, None, None, None, None,
+            None,
+            None,
         )
         .unwrap();
         let side = crate::vaultfmt::read_sidecar(&dir);

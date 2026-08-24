@@ -70,7 +70,8 @@ export function canonicalViewPref(pref: ViewPref, columns: string[]): ViewPref {
     keys === undefined ? undefined : canonicalColumnKeys(columns, keys);
   // `...pref` carries card_order through untouched on purpose: it
   // holds note PATHS, not column keys, so column canonicalization would only
-  // corrupt it.
+  // corrupt it. `group_order` and `collapsed_groups` ride through for the
+  // same reason — they hold section VALUES of the grouped column.
   return {
     ...pref,
     group_by: column(pref.group_by),

@@ -149,6 +149,43 @@ export function orderedNotes(notes: NoteMeta[], order: string[] | undefined): No
   return [...lead, ...notes.filter((n) => !taken.has(n.path))];
 }
 
+/** The key a section is remembered by between renders — a folded collapse
+    set and a hand-dragged section order both name sections by VALUE, and the
+    valueless "No <prop>" section by the empty string, which no real group
+    value can take (`propGroupValues` drops empties). Folded by casing the
+    way `bucketByProp` folds, so two spellings sharing a section share its
+    memory too. A number column's sections fold by numeric value on screen
+    but are remembered by their spelling — `1200` collapsed and later
+    respelled `1200.00` re-opens, which is the cheaper wrong of the two. */
+export const NO_GROUP_KEY = "";
+
+export function groupKey(value: string | null): string {
+  return value === null ? NO_GROUP_KEY : value.toLowerCase();
+}
+
+/** Apply a table's hand order to its sections. Mirrors `orderedNotes`: the
+    sections the order names lead, in its sequence; every other section keeps
+    the order grouping produced (schema options, extras, then "No …") behind
+    them. Keys naming no section here are skipped, so a section that emptied
+    out — or a schema option renamed outside the app — costs nothing but its
+    own entry, and a group appearing later joins in its default place. */
+export function orderedGroups(groups: NoteGroup[], order: string[] | undefined): NoteGroup[] {
+  if (!order || order.length === 0) return groups;
+  const byKey = new Map(groups.map((g) => [groupKey(g.value), g]));
+  const lead: NoteGroup[] = [];
+  const taken = new Set<string>();
+  for (const value of order) {
+    const k = groupKey(value);
+    const g = byKey.get(k);
+    if (g && !taken.has(k)) {
+      lead.push(g);
+      taken.add(k);
+    }
+  }
+  if (lead.length === 0) return groups;
+  return [...lead, ...groups.filter((g) => !taken.has(groupKey(g.value)))];
+}
+
 /** The prop a table groups by: the saved pref when it still names
     a groupable column (multi-kind excluded; rollup excluded
     too — a derived column groups nothing), else ungrouped — unlike

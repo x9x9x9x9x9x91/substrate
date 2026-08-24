@@ -1146,6 +1146,8 @@ mod tests {
             None,
             None,
             Some(vec!["Dolomites.md".to_string(), "Kyoto.md".to_string()]),
+            None,
+            None,
         )
         .unwrap();
 
@@ -1196,6 +1198,8 @@ mod tests {
             None,
             None,
             Some(vec!["Releases/Note.md".to_string()]),
+            None,
+            None,
         )
         .unwrap();
         let id = e.trash_folder("Releases").unwrap();

@@ -553,6 +553,17 @@ export interface ViewPref {
       the list doesn't mention appends after the ordered ones in resting
       order — so a note created or renamed outside the app can't break it. */
   card_order?: string[];
+  /** the TABLE's hand order for its group sections — section values in
+      the order a header drag left them, `""` standing for the "No <prop>"
+      section. Absent = the grouping's own order (schema options, then
+      extras, then the valueless section). Tolerant like `card_order`:
+      values naming no live section are ignored, and a section the list
+      doesn't mention follows the ordered ones in its default place. */
+  group_order?: string[];
+  /** the TABLE's group sections currently folded shut, by section value
+      (`""` = the "No <prop>" section). A fold is a view state: the header
+      keeps counting the whole section and the footer keeps tallying it. */
+  collapsed_groups?: string[];
   /** table column widths in px, prop → width; the reserved `title`
       key sizes the Name column. Absent = every column auto-sizes. */
   widths?: Record<string, number>;

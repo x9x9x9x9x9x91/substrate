@@ -5422,7 +5422,13 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       const viewDb = mockFoldedKey(mockViews, dbType);
       const clPref = viewDb ? mockViews[viewDb] : undefined;
       if (clPref?.group_by?.toLowerCase() === prop.toLowerCase()) delete clPref.group_by;
-      if (clPref?.table_group_by?.toLowerCase() === prop.toLowerCase()) delete clPref.table_group_by;
+      if (clPref?.table_group_by?.toLowerCase() === prop.toLowerCase()) {
+        delete clPref.table_group_by;
+        // the section memory goes with the grouping it describes: both keys
+        // name VALUES of this prop, which mean nothing once the prop is gone
+        delete clPref.group_order;
+        delete clPref.collapsed_groups;
+      }
       // The prop's sort key and hidden entry drop with it; emptied
       // lists leave the pref entirely (the engine's collapse-to-None rule)
       if (clPref?.sorts) {
@@ -5566,6 +5572,12 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       const cardOrder = (((args?.cardOrder ?? args?.card_order) as string[] | null) ?? undefined)
         ?.map((c) => c.trim())
         .filter(Boolean);
+      // The table's section memory holds group VALUES, and the empty
+      // string is the "No <prop>" section's own key — so entries keep their
+      // exact spelling and only a wholly empty list collapses to absent
+      const groupOrder = ((args?.groupOrder ?? args?.group_order) as string[] | null) ?? undefined;
+      const collapsedGroups =
+        ((args?.collapsedGroups ?? args?.collapsed_groups) as string[] | null) ?? undefined;
       // Per-layout hidden sets sanitize like the flat list — entries
       // trim, empties drop, an empty set collapses to absent, and a sets
       // object with nothing left leaves the pref entirely
@@ -5598,6 +5610,8 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         sorts: sorts?.length ? sorts : undefined,
         col_order: colOrder?.length ? colOrder : undefined,
         card_order: cardOrder?.length ? cardOrder : undefined,
+        group_order: groupOrder?.length ? groupOrder : undefined,
+        collapsed_groups: collapsedGroups?.length ? collapsedGroups : undefined,
         hidden: hidden?.length ? hidden : undefined,
         widths: Object.keys(widths).length ? widths : undefined,
         wrap: wrap?.length ? wrap : undefined,

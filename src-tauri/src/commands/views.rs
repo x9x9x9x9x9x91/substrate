@@ -28,6 +28,8 @@ pub(crate) fn vault_views_set(
     grid: Option<bool>,
     hidden_per_layout: Option<crate::vault::HiddenPerLayout>,
     card_order: Option<Vec<String>>,
+    group_order: Option<Vec<String>>,
+    collapsed_groups: Option<Vec<String>>,
 ) -> Result<std::collections::HashMap<String, ViewPref>, String> {
     // .vault/ writes are invisible to the watcher, so mark for snapshot here
     dirty.mark();
@@ -45,6 +47,8 @@ pub(crate) fn vault_views_set(
         grid,
         hidden_per_layout,
         card_order,
+        group_order,
+        collapsed_groups,
     )
 }
 

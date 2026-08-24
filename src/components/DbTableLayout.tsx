@@ -7,7 +7,7 @@ import { audioFileTarget, conversionNote, displayColLabel, displayValue } from "
 import type { FxResolver } from "../lib/formula";
 import { contactHref } from "../lib/url";
 import { propList, propListValue, toggleValue, type RelationCandidate } from "../lib/relation";
-import { COL_DRAG_MIME, NOTE_DRAG_MIME } from "../lib/sidebar";
+import { COL_DRAG_MIME, GROUP_DRAG_MIME, NOTE_DRAG_MIME } from "../lib/sidebar";
 import { missingCls } from "../lib/mounts";
 import { AudioPropButton } from "./AudioPropButton";
 import DateMenu from "./DateMenu";
@@ -129,6 +129,18 @@ export default function DbTableLayout({
   subSums,
   collapsed,
   onToggleCollapsed,
+  onToggleGroup,
+  groupDrag,
+  setGroupDrag,
+  groupDropAt,
+  setGroupDropAt,
+  dropGroup,
+  endGroupDrag,
+  noteDropAt,
+  setNoteDropAt,
+  onDropNotesInGroup,
+  rowDrag,
+  setRowDrag,
   windowed,
   win,
   winMetrics,
@@ -234,7 +246,9 @@ export default function DbTableLayout({
   /** section headers: `start` is the section's first index in `rows`, `count`
       the notes it holds with every fold OPEN — the header counts a section,
       not the slice of it currently painted */
-  rowGroups: { value: string | null; start: number; count: number }[] | null;
+  rowGroups:
+    | { value: string | null; start: number; count: number; collapsed: boolean }[]
+    | null;
   /* Sub-item tree rows. `subSums` is null for every database that doesn't
      mark a parent relation, and then the Name cell renders exactly the bare
      title it always did — no wrapper, no gutter, no DOM change at all. */
@@ -246,6 +260,29 @@ export default function DbTableLayout({
   subSums: ReadonlyMap<string, SubSummary> | null;
   collapsed: ReadonlySet<string>;
   onToggleCollapsed: (path: string) => void;
+  /** fold one section shut or back open; `null` is the "No …" section */
+  onToggleGroup: (value: string | null) => void;
+  /** Section drag-reorder, the column headers' gesture one axis over: the
+      section being dragged, the live drop slot, and the two transitions the
+      headers drive. Sections are addressed by VALUE, `""` for the "No …"
+      one — the same key the pref persists. */
+  groupDrag: string | null;
+  setGroupDrag: (v: string | null) => void;
+  groupDropAt: { key: string; after: boolean } | null;
+  setGroupDropAt: (v: { key: string; after: boolean } | null) => void;
+  dropGroup: (target: string, after: boolean) => void;
+  endGroupDrag: () => void;
+  /** the row this table has in hand, or null when the drag started
+      somewhere else entirely (the sidebar, another pane) — a header takes
+      rows from its OWN table and nothing else */
+  rowDrag: string | null;
+  setRowDrag: (v: string | null) => void;
+  /** the section header a row drag is hovering, for its lit drop state */
+  noteDropAt: string | null;
+  setNoteDropAt: (v: string | null) => void;
+  /** rows dropped on a section header join that section: the dragged path,
+      plus the rest of the selection when the dragged row is part of it */
+  onDropNotesInGroup: (path: string, value: string | null) => void;
   windowed: boolean;
   win: { start: number; end: number } | null;
   winMetrics: { rowH: number; groupH: number; draftH: number; headH: number; tbodyTop: number };
@@ -411,10 +448,20 @@ export default function DbTableLayout({
     );
   };
 
-  // Row index → the section starting at it (empty when ungrouped,
-  // so the flat render below never looks). Plain const, not a hook — the
-  // layout branches above return early, hooks can't live down here.
-  const groupStartAt = new Map((rowGroups ?? []).map((g) => [g.start, g] as const));
+  // Row index → the sections starting at it (empty when ungrouped, so the
+  // flat render below never looks). A LIST per index, not one section: a
+  // folded section paints no rows, so its header and the next section's
+  // header both stand before the same row. Sections folded past the last row
+  // have no row to hang off at all and trail the tbody. Plain consts, not
+  // hooks — the layout branches above return early, hooks can't live down
+  // here.
+  type Section = { value: string | null; start: number; count: number; collapsed: boolean };
+  const headersAt = new Map<number, Section[]>();
+  const trailingHeaders: Section[] = [];
+  for (const g of rowGroups ?? []) {
+    if (g.start >= rows.length) trailingHeaders.push(g);
+    else headersAt.set(g.start, [...(headersAt.get(g.start) ?? []), g]);
+  }
 
   /* The painted slice. Unwindowed tables take the whole row set; a
      windowed one takes win (or the WIN_INITIAL first slice until winSync
@@ -438,51 +485,131 @@ export default function DbTableLayout({
   const winTopH = windowed
     ? rowTops[winStart] -
       (newTitle !== null ? winMetrics.draftH : 0) -
-      (groupStartAt.has(winStart) ? winMetrics.groupH : 0)
+      (headersAt.get(winStart)?.length ?? 0) * winMetrics.groupH
     : 0;
-  const winBottomH = windowed ? tbodyTotal - (rowTops[winEnd - 1] + winMetrics.rowH) : 0;
+  // the trailing headers paint only once the last row is in the slice, so
+  // until then the bottom spacer stands in for them too
+  const paintTrailing = !windowed || winEnd >= rows.length;
+  const winBottomH = windowed
+    ? tbodyTotal -
+      (rowTops[winEnd - 1] + winMetrics.rowH) -
+      (paintTrailing ? trailingHeaders.length * winMetrics.groupH : 0)
+    : 0;
   const spacerRow = (h: number, cls: string) => (
     <tr className={`db-win-spacer ${cls}`} aria-hidden="true">
       <td colSpan={shown.length + 2} style={{ height: h }} />
     </tr>
   );
 
-  // a section header row spans the full table width: option dot, label,
-  // muted count — the board column header's type scale and casing. It
-  // carries no data-fc/data-fr, so arrow-key focus glides over it.
-  const groupHeaderRow = (value: string | null, count: number) => {
+  /* A section header row spans the full table width: chevron, option dot,
+     label, muted count — the board column header's type scale and casing. It
+     carries no data-fc/data-fr, so arrow-key focus glides over it.
+
+     The header is three affordances in one row: a disclosure button that
+     folds the section, a drag handle that reorders sections, and a drop
+     target that takes rows dragged onto it. */
+  const groupHeaderRow = (g: Section) => {
     const groupSchema = tableGroup ? byFoldedKey(typeSchema, tableGroup) : undefined;
+    const value = g.value;
     const converted =
       value !== null && groupSchema?.kind === "number"
         ? conversionNote(value, groupSchema.format, fx, fxAsOf)
         : null;
-    return <tr className="db-group-tr">
-      <td colSpan={shown.length + 2}>
-        <span className="db-group-head">
-          {value !== null ? (
+    // the drag/fold key: the section's value, the empty string for the
+    // valueless section — the same key the pref persists
+    const key = value ?? "";
+    const label =
+      value === null
+        ? `No ${tableGroup}`
+        : displayValue(value, groupSchema?.kind, groupSchema?.format, fx, numberLocale);
+    const fold = `${g.collapsed ? "Expand" : "Collapse"} ${label} (${g.count})`;
+    const drop = groupDropAt?.key === key ? (groupDropAt.after ? " drop-after" : " drop-before") : "";
+    // a note drag this table started: the type alone would also match a note
+    // dragged in from the sidebar, which has no row here to regroup
+    const noteDrag = (e: React.DragEvent) =>
+      rowDrag !== null && e.dataTransfer.types.includes(NOTE_DRAG_MIME);
+    return (
+      <tr
+        key={`db-group-${key}`}
+        className={`db-group-tr${g.collapsed ? " is-collapsed" : ""}${
+          groupDrag === key ? " dragging" : ""
+        }${drop}${noteDropAt === key ? " note-drop" : ""}`}
+        onDragOver={(e) => {
+          // rows dragged onto a header join that section; headers dragged
+          // onto it reorder. Nothing else on the page has business here.
+          if (noteDrag(e)) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+            if (noteDropAt !== key) setNoteDropAt(key);
+            return;
+          }
+          if (groupDrag === null || !e.dataTransfer.types.includes(GROUP_DRAG_MIME)) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "move";
+          const r = e.currentTarget.getBoundingClientRect();
+          const after = e.clientY > r.top + r.height / 2;
+          if (groupDropAt?.key !== key || groupDropAt.after !== after) setGroupDropAt({ key, after });
+        }}
+        onDragLeave={() => {
+          if (noteDropAt === key) setNoteDropAt(null);
+        }}
+        onDrop={(e) => {
+          if (noteDrag(e)) {
+            e.preventDefault();
+            setNoteDropAt(null);
+            onDropNotesInGroup(e.dataTransfer.getData(NOTE_DRAG_MIME), value);
+            return;
+          }
+          if (groupDrag === null || !e.dataTransfer.types.includes(GROUP_DRAG_MIME)) return;
+          e.preventDefault();
+          const r = e.currentTarget.getBoundingClientRect();
+          dropGroup(key, e.clientY > r.top + r.height / 2);
+        }}
+      >
+        <td colSpan={shown.length + 2}>
+          <span className="db-group-head">
             <span className="db-group-label">
-              <OptionDot
-                color={optionColor(groupSchema?.options, value)}
-              />
-              {/* The column's format too, like the board header —
-                  without it a number section read raw "1200" over cells
-                  rendering "1.200,00 €" */}
-              {displayValue(
-                value,
-                groupSchema?.kind,
-                groupSchema?.format,
-                fx,
-                numberLocale
-              )}
-              {converted && <span className="prop-conv" title={converted}>*</span>}
+              <button
+                type="button"
+                className="db-group-disclose"
+                aria-expanded={!g.collapsed}
+                aria-label={fold}
+                title={`${fold} — drag to reorder sections`}
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.setData(GROUP_DRAG_MIME, key);
+                  e.dataTransfer.effectAllowed = "move";
+                  setGroupDrag(key);
+                }}
+                onDragEnd={endGroupDrag}
+                onClick={() => onToggleGroup(value)}
+              >
+                <span className={`db-group-chevron${g.collapsed ? "" : " open"}`}>
+                  <ChevronIcon />
+                </span>
+                {value !== null ? (
+                  <>
+                    <OptionDot color={optionColor(groupSchema?.options, value)} />
+                    {/* The column's format too, like the board header —
+                        without it a number section read raw "1200" over cells
+                        rendering "1.200,00 €" */}
+                    {label}
+                    {converted && (
+                      <span className="prop-conv" title={converted}>
+                        *
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  <span className="db-group-none">{label}</span>
+                )}
+              </button>
             </span>
-          ) : (
-            <span className="db-group-label db-group-none">No {tableGroup}</span>
-          )}
-          <span className="db-group-count">{count}</span>
-        </span>
-      </td>
-    </tr>;
+            <span className="db-group-count">{g.count}</span>
+          </span>
+        </td>
+      </tr>
+    );
   };
 
   /* Header drag-reorder. Only the LABEL button is draggable — the
@@ -662,7 +789,7 @@ export default function DbTableLayout({
             {windowed && winTopH > 0 && spacerRow(winTopH, "db-win-top")}
             {rows.slice(winStart, winEnd).map((n, winIdx) => {
               const r = winStart + winIdx;
-              const g = groupStartAt.get(r);
+              const heads = headersAt.get(r);
               // the title reads as text until the cell is being renamed, and
               // the editor takes the text's exact place — the tree gutter and
               // the branch badge around it never move
@@ -697,7 +824,7 @@ export default function DbTableLayout({
                 );
               return (
                 <Fragment key={n.path}>
-                  {g ? groupHeaderRow(g.value, g.count) : null}
+                  {heads?.map(groupHeaderRow)}
               <tr
                 className={
                   `${openPath === n.path ? "db-open" : ""}${sel.has(n.path) ? " is-selected" : ""}${missingCls(n)}`.trim() ||
@@ -709,7 +836,9 @@ export default function DbTableLayout({
                 onDragStart={(e) => {
                   e.dataTransfer.setData(NOTE_DRAG_MIME, n.path);
                   e.dataTransfer.effectAllowed = "move";
+                  setRowDrag(n.path);
                 }}
+                onDragEnd={() => setRowDrag(null)}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   onNoteMenu(n.path, e.clientX, e.clientY);
@@ -1038,6 +1167,9 @@ export default function DbTableLayout({
                 </Fragment>
               );
             })}
+            {/* sections folded shut past the last row: their headers have no
+                row to hang off, so they stand at the foot of the tbody */}
+            {paintTrailing && trailingHeaders.map(groupHeaderRow)}
             {windowed && winBottomH > 0 && spacerRow(winBottomH, "db-win-bottom")}
           </tbody>
           {/* The footer is always here. It used to mount with the

@@ -19,7 +19,7 @@
    it through `useSyncExternalStore`; nothing else has to thread a selection
    up through the app's tree to reach it. */
 
-export type BulkActionIcon = "prop" | "clear" | "trash";
+export type BulkActionIcon = "prop" | "group" | "clear" | "trash";
 
 export interface BulkAction {
   id: string;
@@ -40,6 +40,10 @@ export interface BulkActionHandlers {
       editor, so the property write rides the pane's undoable bulk path
       whichever surface asked for it. */
   setProperty?: () => void;
+  /** open the grouped column's picker over the selection — present only
+      while the surface holding the selection is grouped by a column, since
+      "the group" has no meaning without one */
+  moveToGroup?: () => void;
   trash?: () => void;
   clearSelection?: () => void;
 }
@@ -49,6 +53,8 @@ export function buildBulkActions(h: BulkActionHandlers): BulkAction[] {
   if (h.count <= 0) return out;
   if (h.setProperty)
     out.push({ id: "prop", label: "Set property…", icon: "prop", run: h.setProperty });
+  if (h.moveToGroup)
+    out.push({ id: "group", label: "Move to group…", icon: "group", run: h.moveToGroup });
   if (h.clearSelection)
     out.push({ id: "clear", label: "Clear selection", icon: "clear", run: h.clearSelection });
   // the destructive lane, last and separated — the note actions' convention,

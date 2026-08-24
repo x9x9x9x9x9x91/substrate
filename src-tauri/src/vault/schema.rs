@@ -1438,7 +1438,9 @@ impl Engine {
     /// the schema entry is already gone via `set_schema_prop`'s demote path.
     /// `strip_values` additionally performs the separately-confirmed value
     /// sweep; false is the safe schema-only lane when no values were observed.
-    /// A `group_by`/`table_group_by` view pref on the prop clears with it, as
+    /// A `group_by`/`table_group_by` view pref on the prop clears with it —
+    /// and with `table_group_by`, the section memory that described its
+    /// values (`group_order`, `collapsed_groups`) — as
     /// does its `aggregations` entry and its place in every saved view
     /// of the database. A note that fails to rewrite
     /// stops the sweep and comes back as the partial count plus the error,
@@ -1495,6 +1497,12 @@ impl Engine {
                 }
                 if pref.table_group_by.as_deref().is_some_and(|key| folded_eq(key, prop)) {
                     pref.table_group_by = None;
+                    // the section memory goes with the grouping it describes:
+                    // both keys name VALUES of this prop, which mean nothing
+                    // once the prop is gone (the pane drops them the same way
+                    // when the table is regrouped by another column)
+                    pref.group_order = None;
+                    pref.collapsed_groups = None;
                     views_dirty = true;
                 }
                 // the prop's aggregation drops with it; an emptied
@@ -1942,6 +1950,8 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
+                None,
             )
             .unwrap();
         assert_eq!(views.keys().collect::<Vec<_>>(), [&"Ledger"]);
@@ -2093,6 +2103,8 @@ mod tests {
         .unwrap();
         e.set_view_pref(
             "books", "table", None, None, None, None, None, None, None, None, None, None, None,
+            None,
+            None,
         )
         .unwrap();
         e.set_sidebar_order(&SidebarOrder {
@@ -2392,6 +2404,8 @@ mod tests {
             None,
             None,
             None,
+            None,
+            None,
         )
         .unwrap();
 
@@ -2482,6 +2496,8 @@ mod tests {
             None,
             None,
             None,
+            None,
+            None,
         )
         .unwrap();
 
@@ -2499,6 +2515,50 @@ mod tests {
         );
         assert_eq!(e.views()["books"].group_by, None, "group_by on the prop clears");
         assert_eq!(e.views()["books"].table_group_by, None, "table_group_by on the prop clears");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// The table's section memory names VALUES of the grouped prop, so it
+    /// clears with the prop it describes — and stays put when some other
+    /// prop is the one being deleted.
+    #[test]
+    fn clear_prop_drops_the_section_memory_with_its_grouping() {
+        let (mut e, dir) = temp_vault("cpsec");
+        e.create("A", "Inbox", Some("books")).unwrap();
+        e.set_prop("Inbox/A.md", "author", Some("Herbert")).unwrap();
+        e.set_prop("Inbox/A.md", "shelf", Some("front")).unwrap();
+        e.set_view_pref(
+            "books",
+            "table",
+            None,
+            Some("author"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(vec!["Herbert".into(), String::new()]),
+            Some(vec!["Herbert".into()]),
+        )
+        .unwrap();
+
+        // a different prop goes: the grouping and its memory are not its business
+        e.clear_prop("books", "shelf", false, true).unwrap();
+        let kept = &e.views()["books"];
+        assert_eq!(kept.table_group_by.as_deref(), Some("author"), "grouping survives");
+        assert_eq!(kept.group_order.as_ref().unwrap().len(), 2, "hand order survives");
+        assert_eq!(kept.collapsed_groups.as_ref().unwrap().len(), 1, "fold set survives");
+
+        // the grouped prop goes, and the sections it stood for go with it
+        e.clear_prop("books", "author", false, true).unwrap();
+        let pref = &e.views()["books"];
+        assert_eq!(pref.table_group_by, None, "table_group_by on the prop clears");
+        assert_eq!(pref.group_order, None, "the hand order of its sections clears");
+        assert_eq!(pref.collapsed_groups, None, "the fold set of its sections clears");
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -2538,6 +2598,8 @@ mod tests {
             None,
             None,
             Some(aggs),
+            None,
+            None,
             None,
             None,
             None,
@@ -3120,6 +3182,8 @@ mod tests {
             None,
             None,
             None,
+            None,
+            None,
         )
         .unwrap();
 
@@ -3244,6 +3308,8 @@ mod tests {
             None,
             None,
             Some(aggs),
+            None,
+            None,
             None,
             None,
             None,
@@ -4711,6 +4777,8 @@ mod tests {
         // the rest of the vault is unaffected
         e.set_view_pref(
             "books", "board", None, None, None, None, None, None, None, None, None, None, None,
+            None,
+            None,
         )
         .unwrap();
         assert_eq!(e.views()["books"].view, "board");
@@ -5269,6 +5337,8 @@ mod tests {
             "board",
             Some("author"),
             Some("author"),
+            None,
+            None,
             None,
             None,
             None,

@@ -30,7 +30,7 @@ import { canonicalViewPref, dbColumns, effectiveColumns, hiddenForLayout, ordere
 import { rollupColumns, rollupProps, withRollups } from "./rollup.ts";
 import { filterByQuery } from "./views.ts";
 import { restingCmp, sortCmpFor } from "./dbsort.ts";
-import { tableGroupBy, tableGroups } from "./dbgroup.ts";
+import { groupKey, orderedGroups, tableGroupBy, tableGroups } from "./dbgroup.ts";
 import { byFoldedKey, isBuiltinDateName } from "./schemalookup.ts";
 import { displayValue } from "./display.ts";
 import { propList } from "./relation.ts";
@@ -109,6 +109,10 @@ export interface RowGroup {
   value: string | null;
   start: number;
   count: number;
+  /** Section folded shut: its rows are absent from `rows` entirely, so
+      `start` is where the NEXT section begins and the header stands alone
+      there. `count` still counts the whole section — see `viewOrderedRows`. */
+  collapsed: boolean;
 }
 
 /** Rows in painted order, plus the comparator that produced it.
@@ -141,6 +145,10 @@ export function viewOrderedRows(
     sorts?: SavedViewSort[];
     layout?: DbLayout;
     tableGroup?: string;
+    /** hand-dragged section order, section values in the order they sit in */
+    groupOrder?: string[];
+    /** sections folded shut, by section value (`""` = the "No …" section) */
+    collapsedGroups?: readonly string[];
     arrange?: (ns: NoteMeta[]) => { shown: NoteMeta[]; full: NoteMeta[] };
   } = {}
 ): {
@@ -163,15 +171,25 @@ export function viewOrderedRows(
   const rows: NoteMeta[] = [];
   const fullRows: NoteMeta[] = [];
   const options = byFoldedKey(typeSchema, opts.tableGroup)?.options ?? [];
-  for (const g of tableGroups(visible, opts.tableGroup, options, typeSchema)) {
+  const collapsed = new Set((opts.collapsedGroups ?? []).map(groupKey));
+  const sections = orderedGroups(
+    tableGroups(visible, opts.tableGroup, options, typeSchema),
+    opts.groupOrder
+  );
+  for (const g of sections) {
     const sorted = arrange(apply(g.notes));
+    const shut = collapsed.has(groupKey(g.value));
     // `start` indexes `rows` (the painted sequence, so the geometry and the
     // header's position stay exact); `count` is the section's FULL size — a
     // fold is a view state, and a header count that shrank while the footer
     // tally beside it held would put two disagreeing counts of the same
-    // notes on one screen
-    rowGroups.push({ value: g.value, start: rows.length, count: sorted.full.length });
-    rows.push(...sorted.shown);
+    // notes on one screen. A collapsed section contributes no painted rows,
+    // so its `start` is the index its successor starts at too — the header
+    // still belongs before that row, and several headers can share one.
+    rowGroups.push({ value: g.value, start: rows.length, count: sorted.full.length, collapsed: shut });
+    if (!shut) rows.push(...sorted.shown);
+    // `fullRows` ignores the fold exactly as it ignores a tree fold: the
+    // footer tally and the exports answer for the whole section either way
     fullRows.push(...sorted.full);
   }
   return { cmp, rows, fullRows, rowGroups };
@@ -231,6 +249,12 @@ export function viewRows(
     sorts: opts.sorts ?? model.pref?.sorts ?? [],
     layout,
     tableGroup,
+    // the hand-dragged section order is part of the stored view, so a
+    // headless reader reports the sections in the order the pane paints
+    // them. The FOLD set deliberately is not: a fold is a UI state, and a
+    // reader that dropped folded rows would answer for less than the view
+    // holds.
+    groupOrder: model.pref?.group_order,
   });
   return { shown, visible, cmp, tableGroup, rows, rowGroups };
 }

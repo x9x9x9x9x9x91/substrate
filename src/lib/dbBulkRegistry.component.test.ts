@@ -29,6 +29,7 @@ const DB = "Task";
 
 const SCHEMA = {
   Done: { kind: "checkbox" },
+  Bundle: { kind: "select", options: [{ value: "Delay" }, { value: "Reverb" }] },
 } as unknown as Record<string, PropSchema>;
 
 const { vaultCreate, vaultRead } = await import("./ipc.ts");
@@ -238,4 +239,41 @@ test("Move to Trash from the palette's handler trashes the selection and clears 
 
   assert.deepEqual(trashed, [[a.path, b.path]]);
   assert.equal(getBulkSelection(), null, "the selection survived its own trashing");
+});
+
+test("a grouped table offers Move to group…, an ungrouped one doesn’t", async (t) => {
+  const a = await vaultCreate("Bulk Group A", "", DB, [], "");
+  const b = await vaultCreate("Bulk Group B", "", DB, [], "");
+  const r = await mountPane(t, [a, b], [], {
+    pref: { view: "table", cols: ["Bundle"], table_group_by: "Bundle" },
+  });
+
+  await selectRows(r, 2);
+  assert.deepEqual(
+    r.all(".bulkbar button").map((el) => el.textContent?.trim() || el.getAttribute("aria-label")),
+    ["Set property…", "Move to group…", "Move to Trash", "Clear selection"],
+    "the grouped bar drew something other than the shared list"
+  );
+  assert.ok(r.all(".bulkbar-group").length === 1, "no anchor for the palette’s row to open on");
+  assert.ok(getBulkSelection()?.moveToGroup, "the grouped pane published no group handler");
+
+  // the palette's row opens the grouped column's own picker — no second
+  // menu, no column step in between
+  await act(async () => {
+    getBulkSelection()!.moveToGroup!();
+  });
+  await r.settle();
+  assert.ok(
+    document.querySelector('.selmenu input[aria-label="Pick Bundle"]'),
+    "the group row opened something other than the Bundle picker"
+  );
+});
+
+test("an ungrouped table publishes no group handler", async (t) => {
+  const a = await vaultCreate("Bulk Flat A", "", DB, [], "");
+  const r = await mountPane(t, [a], []);
+
+  await selectRows(r, 1);
+  assert.equal(getBulkSelection()?.moveToGroup, undefined, "a flat table offered a group to move to");
+  assert.equal(r.all(".bulkbar-group").length, 0, "a flat bar drew a group button");
 });

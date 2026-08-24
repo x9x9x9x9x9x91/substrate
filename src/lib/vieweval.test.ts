@@ -191,3 +191,76 @@ test("evaluateSavedView: date filters compare against the day passed in", () => 
   assert.equal(evaluateSavedView(q, TASKS, TASK_SCHEMA, { today: "2026-08-15" }).total, 1);
   assert.equal(evaluateSavedView(q, TASKS, TASK_SCHEMA, { today: "2026-07-01" }).total, 0);
 });
+
+test("viewOrderedRows: a collapsed section paints no rows but still counts them", () => {
+  const out = viewOrderedRows(TASKS.slice(0, 3), TASK_SCHEMA, {
+    tableGroup: "status",
+    collapsedGroups: ["doing"],
+  });
+  assert.deepEqual(out.rows.map((n) => n.title), ["Master", "Art"], "the folded section is gone");
+  assert.deepEqual(
+    out.rowGroups?.map((g) => [g.value, g.start, g.count, g.collapsed]),
+    [
+      ["doing", 0, 1, true],
+      // the next section starts where the folded header sits: one index,
+      // two headers before the row that lives there
+      ["todo", 0, 1, false],
+      [null, 1, 1, false],
+    ]
+  );
+  assert.deepEqual(
+    out.fullRows.map((n) => n.title),
+    ["Mix", "Master", "Art"],
+    "the fold is a view state: the footer tally still sees every row"
+  );
+});
+
+test("viewOrderedRows: the valueless section folds under the empty-string key", () => {
+  const out = viewOrderedRows(TASKS.slice(0, 3), TASK_SCHEMA, {
+    tableGroup: "status",
+    collapsedGroups: [""],
+  });
+  assert.deepEqual(out.rows.map((n) => n.title), ["Mix", "Master"]);
+  const last = out.rowGroups?.[(out.rowGroups?.length ?? 0) - 1];
+  assert.equal(last?.collapsed, true);
+  assert.equal(last?.start, 2, "a trailing fold's header sits past the last row");
+});
+
+test("viewOrderedRows: a hand order re-sections the table, schema order is the default", () => {
+  const plain = viewOrderedRows(TASKS.slice(0, 3), TASK_SCHEMA, { tableGroup: "status" });
+  assert.deepEqual(plain.rowGroups?.map((g) => g.value), ["doing", "todo", null]);
+  const dragged = viewOrderedRows(TASKS.slice(0, 3), TASK_SCHEMA, {
+    tableGroup: "status",
+    groupOrder: ["", "todo"],
+  });
+  assert.deepEqual(dragged.rowGroups?.map((g) => g.value), [null, "todo", "doing"]);
+  assert.deepEqual(dragged.rows.map((n) => n.title), ["Art", "Master", "Mix"]);
+  assert.deepEqual(
+    dragged.rowGroups?.map((g) => g.start),
+    [0, 1, 2],
+    "starts follow the painted order, not the schema's"
+  );
+});
+
+test("viewRows: a headless reader reports the sections in the pane's hand order", () => {
+  const tasks = TASKS.slice(0, 3);
+  const model = viewModel(tasks, TASK_SCHEMA, tasks);
+  const schemaOrder = viewRows({ ...model, pref: { view: "table", table_group_by: "status" } }, TASK_SCHEMA);
+  assert.deepEqual(schemaOrder.rowGroups?.map((g) => g.value), ["doing", "todo", null]);
+
+  // the pane persists a dragged section order on the pref; a reader of the
+  // same view walks the same sections in the same sequence
+  const dragged = viewRows(
+    { ...model, pref: { view: "table", table_group_by: "status", group_order: ["", "todo"] } },
+    TASK_SCHEMA
+  );
+  assert.deepEqual(dragged.rowGroups?.map((g) => g.value), [null, "todo", "doing"]);
+  assert.deepEqual(dragged.rows.map((n) => n.title), ["Art", "Master", "Mix"]);
+
+  // folds are the pane's own: a reader answers for every row the view holds
+  const folded = viewRows(
+    { ...model, pref: { view: "table", table_group_by: "status", collapsed_groups: ["doing"] } },
+    TASK_SCHEMA
+  );
+  assert.deepEqual(folded.rows.map((n) => n.title), ["Mix", "Master", "Art"]);
+});

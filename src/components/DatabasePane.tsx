@@ -53,6 +53,8 @@ import {
   bucketByProp,
   distinctNotes,
   extraValues,
+  groupKey,
+  NO_GROUP_KEY,
   orderedNotes,
   tableGroupBy,
 } from "../lib/dbgroup";
@@ -219,6 +221,10 @@ const EMPTY_FAILED: ReadonlyMap<string, string> = new Map();
     treeSection, so those read the whole tree whatever the view shows. */
 const NO_COLLAPSE: ReadonlySet<string> = new Set();
 
+/** "no section is folded" — a stable empty list, so a pref without the key
+    never re-runs the row memo. */
+const EMPTY_GROUP_KEYS: string[] = [];
+
 export default function DatabasePane({
   dbType,
   notes: diskNotes,
@@ -372,6 +378,8 @@ export default function DatabasePane({
       sorts: normalizedPref?.sorts,
       col_order: normalizedPref?.col_order,
       card_order: normalizedPref?.card_order,
+      group_order: normalizedPref?.group_order,
+      collapsed_groups: normalizedPref?.collapsed_groups,
       hidden: normalizedPref?.hidden,
       hidden_per_layout: normalizedPref?.hidden_per_layout,
       widths: normalizedPref?.widths,
@@ -650,6 +658,16 @@ export default function DatabasePane({
   // The table's own grouping key — no fallback; a table stays
   // ungrouped unless the pref names a still-groupable column
   const tableGroup = tableGroupBy(columns, typeSchema, normalizedPref?.table_group_by);
+  /* The table's section memory, both halves persisted on the pref so a
+     tidied table stays tidied through a navigation away: which sections are
+     folded shut, and the hand order a header drag left them in. Both name
+     sections by VALUE (`""` = the "No <prop>" section) and are dropped
+     wholesale when the grouped column changes. */
+  const collapsedGroups = useMemo(
+    () => normalizedPref?.collapsed_groups ?? EMPTY_GROUP_KEYS,
+    [normalizedPref?.collapsed_groups]
+  );
+  const groupOrder = normalizedPref?.group_order;
 
   // The active sort is an ordered key list (plain header click
   // replaces it, shift-click adds/cycles a secondary key) — empty = unsorted.
@@ -1008,8 +1026,19 @@ export default function DatabasePane({
   // option order, the view's sort within each — and `rowGroups` marks where
   // each section starts and how long it runs, so keyboard nav, Enter and CSV
   // export work on `rows` exactly as before. A headless reader of the same
-  // view calls this same function, so what it reports is what this pane
-  // paints (the reader passes no `arrange` — it never folds).
+  // view calls this same function down to the hand-dragged section order, so
+  // the sections it reports are the sections this pane paints, in the same
+  // sequence. Folds are the one thing it does NOT share: a fold is a UI
+  // state of this pane, and a reader dropping folded rows would answer for
+  // less than the view holds (it passes no `arrange` either — it never
+  // folds a tree).
+  //
+  // Known tolerance: a section the filter empties keeps no slot in the hand
+  // order. The order only names sections that exist, so a section filtered
+  // away and dragged past falls back to its default place when it returns —
+  // the same forgetting a renamed schema option costs, and the alternative
+  // (persisting slots for sections nothing can see) buys a rarer case with a
+  // pref that never stops growing.
   /* Tree rows ride INSIDE that flat sequence: `arrange` re-orders one
      section so each parent is followed by its children, and hands back two
      orders. `rows` is what is on screen — a collapsed parent's children are
@@ -1040,10 +1069,61 @@ export default function DatabasePane({
       sorts,
       layout,
       tableGroup,
+      groupOrder,
+      collapsedGroups,
       arrange,
     });
     return { viewCmp: cmp, rows, fullRows, rowGroups, treeDepth, treeKids };
-  }, [layout, tableGroup, visible, typeSchema, sorts, subLinks, collapsed]);
+  }, [
+    layout,
+    tableGroup,
+    visible,
+    typeSchema,
+    sorts,
+    subLinks,
+    collapsed,
+    groupOrder,
+    collapsedGroups,
+  ]);
+
+  /* A section header is a disclosure: clicking one folds its rows away and
+     the pref remembers it, so a table tidied down to the sections in hand
+     stays that way through a navigation. The header keeps counting the whole
+     section either way — a fold is a view state, not a filter. */
+  const toggleGroup = (value: string | null) => {
+    const key = value ?? NO_GROUP_KEY;
+    const folded = collapsedGroups.some((v) => groupKey(v) === groupKey(key));
+    const next = folded
+      ? collapsedGroups.filter((v) => groupKey(v) !== groupKey(key))
+      : [...collapsedGroups, key];
+    patchPref({ collapsed_groups: next.length > 0 ? next : undefined });
+  };
+
+  /* Section drag-reorder, the column header's gesture one axis over: the
+     header is the drag handle, the drop side is the pointer's half of the
+     target header, and the commit writes the FULL rendered order so a
+     section appearing later lands in its default place instead of jumping. */
+  const [groupDrag, setGroupDrag] = useState<string | null>(null);
+  const [groupDropAt, setGroupDropAt] = useState<{ key: string; after: boolean } | null>(null);
+  // the section header a row drag is hovering, lit while it hovers, and the
+  // row this table has in hand while it does
+  const [noteDropAt, setNoteDropAt] = useState<string | null>(null);
+  const [rowDrag, setRowDrag] = useState<string | null>(null);
+  const endGroupDrag = () => {
+    setGroupDrag(null);
+    setGroupDropAt(null);
+  };
+  const dropGroup = (target: string, after: boolean) => {
+    const dragged = groupDrag;
+    endGroupDrag();
+    // `""` is the "No <prop>" section, a real section with a real slot in
+    // the order — only `null` means no drag is in hand
+    if (dragged === null || dragged === target) return;
+    const flat = (rowGroups ?? []).map((g) => g.value ?? NO_GROUP_KEY);
+    const next = reorderIds(flat, dragged, target, after);
+    if (next.every((v, i) => v === flat[i])) return;
+    patchPref({ group_order: next });
+  };
 
   /* Large tables paint lazily. Above WIN_MIN rows the tbody renders
      only the scroll viewport ± WIN_OVERSCAN rows; spacer rows before and
@@ -1085,6 +1165,12 @@ export default function DatabasePane({
       }
       tops[r] = acc;
       acc += winMetrics.rowH;
+    }
+    // sections folded shut past the last painted row: their headers still
+    // stand at the bottom of the tbody, so the spacer math owes them height
+    while (gi < gs.length) {
+      acc += winMetrics.groupH;
+      gi++;
     }
     return { rowTops: tops, tbodyTotal: acc };
   }, [rows.length, rowGroups, winMetrics, newTitle !== null]);
@@ -2097,14 +2183,15 @@ export default function DatabasePane({
 
   // one-shot bulk commit (select/text/date/file/url/…, checkbox): the write
   // consumes the selection and reports on App's toast
-  const bulkCommit = (key: string, raw: string | string[] | boolean | null) => {
-    // same number-kind normalization as the single-cell path: the
-    // bulk editor is the same free-text SelectMenu over the same column
-    const value = typeof raw === "string" ? commitText(key, raw) : raw;
-    const paths = [...sel];
-    setBulkEdit(null);
-    setBulkCheck(null);
-    clearSel();
+  /* One write door for every one-shot bulk set — the bulk bar's editors
+     commit the selection through it, a row dropped on a section header
+     commits the paths the drag names. N writes, ONE undo entry, and the
+     per-row failure marks the bar leans on either way. */
+  const writePropOn = (
+    paths: string[],
+    key: string,
+    value: string | string[] | boolean | null
+  ) => {
     if (paths.length === 0) return;
     const label = displayColLabel(key);
     const optimistic = bulkPending(paths, key, value);
@@ -2122,6 +2209,45 @@ export default function DatabasePane({
             : `Set ${label} on ${ok === 1 ? "1 note" : `${ok} notes`}`
       );
     });
+  };
+
+  const bulkCommit = (key: string, raw: string | string[] | boolean | null) => {
+    // same number-kind normalization as the single-cell path: the
+    // bulk editor is the same free-text SelectMenu over the same column
+    const value = typeof raw === "string" ? commitText(key, raw) : raw;
+    const paths = [...sel];
+    setBulkEdit(null);
+    setBulkCheck(null);
+    clearSel();
+    writePropOn(paths, key, value);
+  };
+
+  /* Rows dropped on a section header join that section — the drag gesture
+     for what the bulk bar's "Move to group…" does by menu. A dragged row
+     that is part of the selection carries the whole selection with it (the
+     rows the user has in hand); one dragged out of the selection moves
+     alone, and leaves the selection where it was. */
+  const onDropNotesInGroup = (path: string, value: string | null) => {
+    setNoteDropAt(null);
+    if (!tableGroup || !path) return;
+    /* Only this table's own rows. A note dragged in from the sidebar carries
+       the same drag type, and taking it would write the grouped property
+       into the frontmatter of a note this database never showed — the
+       board's card drag guards the same edge the same way. */
+    if (!rows.some((n) => n.path === path)) return;
+    const grouped = sel.has(path);
+    const paths = grouped ? [...sel] : [path];
+    /* Rows already in the section they landed on are not rewritten. Setting
+       a value to itself is still N file writes: an mtime each, a sync diff
+       each, an undo entry for a move that didn't happen, and a toast
+       claiming it did. The board's drop makes the same check. */
+    const moving = paths.filter(
+      (p) =>
+        (foldedPropStr(visible.find((n) => n.path === p)?.props ?? {}, tableGroup) || null) !== value
+    );
+    if (moving.length === 0) return;
+    if (grouped) clearSel();
+    writePropOn(moving, tableGroup, value);
   };
 
   // column picked in the bulk bar's picker: checkbox kinds get a Checked /
@@ -2153,6 +2279,17 @@ export default function DatabasePane({
     const btn = document.querySelector<HTMLElement>(".bulkbar-prop");
     if (btn) setBulkColMenu(anchorFrom(btn));
   };
+  /* Grouping is on, so the property the sections stand for is the one the
+     selection most likely wants: the same picker as "Set property…", opened
+     straight on that column — typing a name the schema doesn't have yet
+     offers to create it. Anchored on its own button by the same idiom, since
+     the palette's row opens it with no pointer anywhere near it. */
+  const grouped = layout === "table" && !!tableGroup;
+  const openBulkGroupPicker = () => {
+    if (!tableGroup) return;
+    const btn = document.querySelector<HTMLElement>(".bulkbar-group");
+    if (btn) pickBulkCol(tableGroup, anchorFrom(btn));
+  };
   const trashSelection = () => {
     const paths = [...sel];
     clearSel();
@@ -2161,6 +2298,7 @@ export default function DatabasePane({
   const bulkHandlers: BulkActionHandlers = {
     count: sel.size,
     setProperty: openBulkPropPicker,
+    moveToGroup: grouped ? openBulkGroupPicker : undefined,
     trash: trashSelection,
     clearSelection: clearSel,
   };
@@ -2179,10 +2317,14 @@ export default function DatabasePane({
     return registerBulkSelection({
       count: sel.size,
       setProperty: () => bulkRef.current.setProperty?.(),
+      // present or absent, never a forwarder onto nothing: an ungrouped
+      // table has no group to move to, and the palette reads that off the
+      // handler being there at all
+      moveToGroup: grouped ? () => bulkRef.current.moveToGroup?.() : undefined,
       trash: () => bulkRef.current.trash?.(),
       clearSelection: () => bulkRef.current.clearSelection?.(),
     });
-  }, [sel.size]);
+  }, [sel.size, grouped]);
 
   const createRelationTarget = (path: string, key: string, targetDb: string, title: string) => {
     onCreateEntry(targetDb, title)
@@ -2615,14 +2757,27 @@ export default function DatabasePane({
             onCommit={(v) => {
               setGroupMenu(null);
               if (layout === "board") patchPref({ view: "board", group_by: v });
-              else patchPref({ view: "table", table_group_by: v || undefined });
+              else
+                // the fold set and the hand order name sections of the OLD
+                // column — they mean nothing under a new one
+                patchPref({
+                  view: "table",
+                  table_group_by: v || undefined,
+                  group_order: undefined,
+                  collapsed_groups: undefined,
+                });
             }}
             onClear={
               layout === "table"
                 ? () => {
                     setGroupMenu(null);
                     // a table has no fallback grouping — clear means ungrouped
-                    patchPref({ view: "table", table_group_by: undefined });
+                    patchPref({
+                      view: "table",
+                      table_group_by: undefined,
+                      group_order: undefined,
+                      collapsed_groups: undefined,
+                    });
                   }
                 : undefined
             }
@@ -3140,6 +3295,18 @@ export default function DatabasePane({
       sorts={sorts}
       rows={rows}
       rowGroups={rowGroups}
+      onToggleGroup={toggleGroup}
+      groupDrag={groupDrag}
+      setGroupDrag={setGroupDrag}
+      groupDropAt={groupDropAt}
+      setGroupDropAt={setGroupDropAt}
+      dropGroup={dropGroup}
+      endGroupDrag={endGroupDrag}
+      rowDrag={rowDrag}
+      setRowDrag={setRowDrag}
+      noteDropAt={noteDropAt}
+      setNoteDropAt={setNoteDropAt}
+      onDropNotesInGroup={onDropNotesInGroup}
       treeDepth={treeDepth}
       treeKids={treeKids}
       subSums={subSums}

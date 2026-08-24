@@ -1287,7 +1287,7 @@ export default function App() {
       const storedDb = viewsDbKey(db);
       setViewsConfig((cur) => ({ ...cur, [storedDb]: p }));
       persistViewsConfig(
-        () => vaultViewsSet(storedDb, p.view, p.group_by, p.table_group_by, p.aggregations, p.sorts, p.col_order, p.hidden, p.widths, p.wrap, p.grid, p.hidden_per_layout, p.card_order),
+        () => vaultViewsSet(storedDb, p.view, p.group_by, p.table_group_by, p.aggregations, p.sorts, p.col_order, p.hidden, p.widths, p.wrap, p.grid, p.hidden_per_layout, p.card_order, p.group_order, p.collapsed_groups),
         setViewsConfig,
         vaultViewsRead,
         "Couldn't save view settings"

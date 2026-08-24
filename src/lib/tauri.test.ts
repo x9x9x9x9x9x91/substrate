@@ -1129,6 +1129,32 @@ test("mock property clear uses the caller's former number kind with no note valu
   assert.equal(views.find((view) => view.id === cases[2].id)?.query, undefined);
 });
 
+test("mock clear_prop drops the table's section memory with its grouping", async () => {
+  const db = "sections-clear";
+  const pref = async (extra: Record<string, unknown>) =>
+    invoke<ViewsConfig>("vault_views_set", { db, view: "table", ...extra });
+  await pref({
+    tableGroupBy: "bundle",
+    groupOrder: ["Delay", ""],
+    collapsedGroups: ["Delay"],
+  });
+
+  // some other prop goes: the grouping and the sections it stands for are
+  // none of its business
+  await invoke("vault_clear_prop", { dbType: db, prop: "mood", stripValues: false });
+  let views = await invoke<ViewsConfig>("vault_views_read");
+  assert.equal(views[db]?.table_group_by, "bundle");
+  assert.deepEqual(views[db]?.group_order, ["Delay", ""]);
+  assert.deepEqual(views[db]?.collapsed_groups, ["Delay"]);
+
+  // the grouped prop goes, and both keys — which name VALUES of it — go too
+  await invoke("vault_clear_prop", { dbType: db, prop: "bundle", stripValues: false });
+  views = await invoke<ViewsConfig>("vault_views_read");
+  assert.equal(views[db]?.table_group_by, undefined);
+  assert.equal(views[db]?.group_order, undefined, "the hand order clears");
+  assert.equal(views[db]?.collapsed_groups, undefined, "the fold set clears");
+});
+
 test("mock delete_type trashes the template and restore round-trips (SUB-781)", async () => {
   await invoke("vault_create_type", { name: "Template Trash 781", props: [] });
   await invoke("vault_write_body", {

@@ -48,6 +48,29 @@ test("buildBulkActions: only the handlers a surface actually wired", () => {
   );
 });
 
+test("buildBulkActions: moving to a group rides next to Set property…, and only when grouped", () => {
+  const grouped = buildBulkActions({
+    count: 2,
+    setProperty: noop,
+    moveToGroup: noop,
+    clearSelection: noop,
+    trash: noop,
+  });
+  assert.deepEqual(
+    grouped.map((a) => a.id),
+    ["prop", "group", "clear", "trash"]
+  );
+  // five e2e selectors match this label — it is not free to reword
+  assert.equal(grouped[1].label, "Move to group…");
+  assert.equal(grouped[1].icon, "group");
+  // an ungrouped table wires no handler, and then no surface offers the row
+  const flat = buildBulkActions({ count: 2, setProperty: noop, clearSelection: noop });
+  assert.deepEqual(
+    flat.map((a) => a.id),
+    ["prop", "clear"]
+  );
+});
+
 test("buildBulkActions: no selection means no actions at all", () => {
   assert.deepEqual(buildBulkActions({ count: 0, setProperty: noop, trash: noop }), []);
 });

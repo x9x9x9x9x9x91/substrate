@@ -190,6 +190,14 @@ export const SubItemsIcon = () => (
   </svg>
 );
 
+/** Grouped sections — a full-width section header with one indented member
+    under it, twice: the shape a grouped table paints. */
+export const GroupIcon = () => (
+  <svg {...base}>
+    <path d="M2.5 3.5h11M5.5 6.8h8M2.5 10h11M5.5 13.3h8" />
+  </svg>
+);
+
 export const TableIcon = () => (
   <svg {...base}>
     <rect x="2.5" y="3.5" width="11" height="9" rx="1.3" />
@@ -475,11 +483,14 @@ export function NoteActionGlyph({ name }: { name: NoteActionIcon }) {
 
 /* glyph for a canonical bulk action — the bulk bar and the palette resolve
    the same mark for the same verb, the way the note actions do. Set property
-   wears the note actions' property tag; clearing wears the bar's own ✕. */
+   wears the note actions' property tag; moving to a group wears the section
+   shape a grouped table paints; clearing wears the bar's own ✕. */
 export function BulkActionGlyph({ name }: { name: BulkActionIcon }) {
   switch (name) {
     case "prop":
       return <TagIcon />;
+    case "group":
+      return <GroupIcon />;
     case "clear":
       return <XIcon />;
     case "trash":
