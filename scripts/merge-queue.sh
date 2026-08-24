@@ -4,6 +4,8 @@
 # Usage:
 #   scripts/merge-queue.sh append <branch> [--issue ID] [--note TEXT]
 #   scripts/merge-queue.sh list
+#   scripts/merge-queue.sh assemble [--note TEXT] [--force]   # "I am building a train"
+#   scripts/merge-queue.sh assemble --clear [--tree PATH]     # "...and I have stopped"
 #   scripts/merge-queue.sh claim [--max N]      # prints one branch per line
 #   scripts/merge-queue.sh done <branch>
 #   scripts/merge-queue.sh drop <branch> [--reason TEXT]
@@ -82,9 +84,71 @@
 # lost) but surprising — if two sessions really do claim under one lock, they
 # are one train and should finish as one.
 #
+# THE WINDOW BEFORE THE LOCK. A coordinator decides which branches its train
+# will carry, then builds the union, and only then takes the merge lock. Until
+# that lock exists there is nothing for a second coordinator to read: the queue
+# still shows the same branches pending, so it builds the same train, and one
+# of the two is thrown away fully gated. `assemble` closes that window by
+# writing a marker naming who is building, where, and since when — readable by
+# `list`, `notify`, and every `claim`, so the second coordinator trips over it
+# before it spends a gate run rather than after.
+#
+# The marker is keyed on host + WORKTREE, not host + pid, and the reason is the
+# transition it has to survive: it is written while no merge lock is held, so
+# it is stamped with the shell's pid, and the moment the train takes the lock
+# claimant_pid starts naming the lock holder instead. A pid-keyed identity
+# would stop recognising its own marker exactly when the train got going — and
+# then warn the train about itself.
+#
+# The cost of that key, which every coordinator meets: the marker belongs to the
+# WORKTREE that wrote it, so a coordinator that assembles in a lane tree and
+# resolves from .worktrees/_main — the mandated flow — is running done/release
+# somewhere its marker is not. It gets warned about itself, and leaves an
+# advertisement nothing local clears. `assemble --clear` ends this worktree's
+# marker, and `--clear --tree PATH` ends a named same-host one, which is the
+# whole of the cross-tree case: finish where you started, or say --clear.
+#
+# LIVENESS. Same host, and EITHER the recorded pid is still running OR the
+# recorded worktree still exists on disk. A marker is litter only when both are
+# gone. The pid alone is not enough, and the case that breaks it is the marker's
+# primary consumer: a coordinator driving this script through discrete tool
+# calls gets a fresh, short-lived shell per invocation, so the `$PPID` stamped
+# at `assemble` time is gone seconds later while that coordinator is very much
+# still assembling. A train running inside ONE long-lived script (with-merge-
+# lock.sh, a lane's shell loop) keeps the pid exact and gets the sharper signal;
+# a discrete-tool-call coordinator is carried by the worktree rule instead. The
+# worktree was already the durable identity here — it is now the durable
+# liveness too. Another host's pid number and path mean nothing here, so its
+# marker is reported, never reaped.
+#
+# The backstop for the case that rule cannot see — a coordinator that walked
+# away while its worktree stayed on disk — is age, and only age: a marker past
+# SUBSTRATE_MERGE_QUEUE_ASSEMBLY_TTL (default four hours) is reapable no matter
+# what is on disk, and the reap says out loud how long it sat. Age is wrong as a
+# primary signal (a train can be in assembly for as long as its gates take) and
+# right as a last resort, where it only ever fires on something that has been
+# advertising for hours. Two consequences of "last resort", both deliberate:
+#
+#   - a RUNNING pid on this host outranks it. kill -0 is evidence, not a guess,
+#     and reaping a marker whose process is right there would be the queue
+#     lying to itself. A coordinator wedged alive is what `--force` is for.
+#   - age outranks foreignness. Everything else about another host's marker is
+#     unjudgeable from here, but an epoch is an epoch on every machine, and a
+#     foreign marker exempt from the backstop is IMMORTAL — it would refuse
+#     every other host's `assemble` for as long as the file exists.
+#
+# marker_state holds that ranking in one place, and it is the ranking, top to
+# bottom: unattributable (no host recorded) is litter, then a live local pid,
+# then the TTL, then another host, then this host's worktree, then a corpse.
+# A missing host field is litter and not `foreign` for the reason above: nobody
+# could ever reap it, so it would block the queue forever.
+#
 # The queue is advisory: it carries branch names and provenance, never a
 # verdict. Whether a branch is ready to land is decided by review before it is
-# appended, and by the train's own gates after it is claimed.
+# appended, and by the train's own gates after it is claimed. The assembly
+# marker is advisory in the same sense — nothing waits on one, and `assemble
+# --force` is always a way past a marker whose train is not taking these
+# branches.
 
 set -euo pipefail
 
@@ -95,7 +159,7 @@ note() { printf 'merge-queue: %s\n' "$*" >&2; }
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/checkout-guard.sh"
 guard_checkout_freshness merge-queue.sh
 
-USAGE="usage: merge-queue.sh append|list|claim|done|drop|release|reclaim|notify|prune [...]"
+USAGE="usage: merge-queue.sh append|list|assemble [--note TEXT|--force|--clear [--tree PATH]]|claim|done|drop|release|reclaim|notify|prune [...]"
 
 # A flag whose value is the argument that isn't there: `shift 2` on a one-element
 # argv fails, and under `set -e` that exits 1 without printing anything at all.
@@ -112,11 +176,12 @@ PENDING="$QUEUE_DIR/pending"
 CLAIMED="$QUEUE_DIR/claimed"
 DONE="$QUEUE_DIR/done"
 TMP="$QUEUE_DIR/tmp"
+ASSEMBLING="$QUEUE_DIR/assembling"
 LOCK_DIR="$GITDIR/substrate-merge.lock"
 
 HOST="$(hostname -s 2>/dev/null || hostname 2>/dev/null || printf 'unknown')"
 
-mkdir -p "$PENDING" "$CLAIMED" "$DONE" "$TMP"
+mkdir -p "$PENDING" "$CLAIMED" "$DONE" "$TMP" "$ASSEMBLING"
 
 now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
@@ -161,10 +226,11 @@ pid_alive() { kill -0 "$1" 2>/dev/null; }
 # in the filesystem makes that pair atomic; the consequences and why reconciling
 # after the fact cannot replace this are spelled out at the call site.
 #
-# Scope kept as small as the bug demands: taken by appenders only, never by the
-# train, and never around anything slower than one directory scan and one
-# rename. An appender therefore still cannot delay, wedge, or contend with a
-# running merge — it is not the merge lock and knows nothing about it.
+# Scope kept as small as the bug demands: taken only around a check-then-act on
+# queue state — an `append`'s duplicate check, and an `assemble`'s "is someone
+# already building?" — and never around anything slower than one directory scan
+# and one rename. Nothing that holds it can delay, wedge, or contend with a
+# running merge: it is not the merge lock and knows nothing about it.
 APPEND_LOCK="$QUEUE_DIR/append.lock"
 APPEND_LOCK_WAIT_SECONDS="${SUBSTRATE_MERGE_QUEUE_LOCK_WAIT:-10}"
 APPEND_LOCK_HELD=0
@@ -265,6 +331,217 @@ claimant_pid() {
   else
     printf '%s' "$PPID"
   fi
+}
+
+# ---- assembly markers ------------------------------------------------------
+# The advertisement that covers the window between "this coordinator has picked
+# its branches" and "this coordinator holds the merge lock" (see THE WINDOW
+# BEFORE THE LOCK above).
+
+# The worktree doing the assembling — the marker's identity, and the one thing
+# a human reading `list` from somewhere else needs in order to go and look.
+assembling_tree() { git rev-parse --show-toplevel 2>/dev/null || printf '%s' "$PWD"; }
+
+# A marker's name IS its identity: this host, that worktree. Being able to name
+# one for an arbitrary tree is what lets a coordinator that assembled in one
+# worktree and resolves from another close its own advertisement.
+marker_for_tree() { printf '%s/%s.%s.marker' "$ASSEMBLING" "$HOST" "$(slug "$1")"; }
+my_marker() { marker_for_tree "$(assembling_tree)"; }
+
+markers_in() {
+  local f
+  for f in "$ASSEMBLING"/*.marker; do
+    [[ -e "$f" ]] || continue
+    printf '%s\n' "$f"
+  done
+}
+
+# How long a marker may advertise before it is reapable whatever is on disk.
+# Hours, not minutes: this is the backstop behind worktree-existence described
+# in the header, and it must not fire on a train whose gates are merely slow.
+# 0 turns the backstop off entirely — then only host+pid+worktree decide.
+ASSEMBLY_TTL_DEFAULT=14400
+ASSEMBLY_TTL_SECONDS="${SUBSTRATE_MERGE_QUEUE_ASSEMBLY_TTL:-$ASSEMBLY_TTL_DEFAULT}"
+# Said out loud rather than absorbed. `4h` and `-1` are both easy things to
+# type and neither is a number of seconds; treating them silently as "no
+# backstop" would be indistinguishable from the documented 0, and an abandoned
+# advertisement would then sit forever with nobody ever told why.
+if [[ ! "$ASSEMBLY_TTL_SECONDS" =~ ^[0-9]+$ ]]; then
+  note "SUBSTRATE_MERGE_QUEUE_ASSEMBLY_TTL='$ASSEMBLY_TTL_SECONDS' is not a whole number of seconds — using the default of ${ASSEMBLY_TTL_DEFAULT}s. Set it to 0 to turn the assembly backstop off."
+  ASSEMBLY_TTL_SECONDS="$ASSEMBLY_TTL_DEFAULT"
+fi
+
+# Seconds since this marker started advertising, or nothing when that cannot be
+# established. `assemble` records the epoch outright; the mtime fallback covers
+# a marker written by an older version of this script, and is honest because a
+# marker is written once, to tmp/, and renamed into place.
+marker_age_seconds() {
+  local f="$1" started now
+  started="$(entry_field "$f" started_epoch)"
+  if [[ ! "$started" =~ ^[0-9]+$ ]]; then
+    # BSD and GNU spell "mtime, as an epoch" differently, and the wrong spelling
+    # does not fail loudly: GNU's -f is --file-system, so `stat -f %m` SUCCEEDS
+    # there and prints a mount point. So each result is checked for a number
+    # before it is believed, rather than trusted because the command exited 0.
+    started="$(stat -f %m "$f" 2>/dev/null || true)"
+    [[ "$started" =~ ^[0-9]+$ ]] || started="$(stat -c %Y "$f" 2>/dev/null || true)"
+  fi
+  [[ "$started" =~ ^[0-9]+$ ]] || return 0
+  now="$(date +%s)"
+  local age=$(( now - started ))
+  [[ "$age" -ge 0 ]] || age=0
+  printf '%s' "$age"
+}
+
+# The one place that decides what a marker IS, so every reader agrees. The order
+# below IS the answer: strongest evidence first, age last, exactly as the
+# header's backstop paragraph says. Prints:
+#   malformed  no host recorded at all, so it names nobody. Judged FIRST, and
+#              deliberately not `foreign`: a marker whose host field is missing
+#              or unreadable would, as `foreign`, be reapable by no machine on
+#              earth and would refuse every other coordinator forever. It is
+#              litter, and it is cleared saying so.
+#   live-pid   same host and the recorded process is still running. The one
+#              state nothing overrides, TTL included, because kill -0 is not a
+#              guess — a coordinator wedged alive is what `--force` is for.
+#   stale      past the assembly TTL. An epoch means the same thing on every
+#              machine, so this backstop reaches a foreign marker too; nothing
+#              else about a foreign marker is judgeable from here, but its age
+#              is, and an advertisement nobody will ever clear is the case the
+#              backstop exists for.
+#   foreign    another host, inside the TTL — nothing here can judge its pid or
+#              its paths, so it is reported and never reaped.
+#   live-tree  this host, that pid is gone but the worktree is there (a
+#              coordinator between tool calls — see LIVENESS in the header)
+#   dead       this host, pid gone and worktree gone
+marker_state() {
+  local f="$1" mhost mpid mtree age
+  mhost="$(entry_field "$f" host)"
+  [[ -n "$mhost" ]] || { printf 'malformed'; return 0; }
+
+  if [[ "$mhost" == "$HOST" ]]; then
+    mpid="$(entry_field "$f" pid)"
+    if [[ "$mpid" =~ ^[0-9]+$ ]] && pid_alive "$mpid"; then printf 'live-pid'; return 0; fi
+  fi
+
+  age="$(marker_age_seconds "$f")"
+  if [[ "$ASSEMBLY_TTL_SECONDS" -gt 0 ]] \
+     && [[ "$age" =~ ^[0-9]+$ ]] && [[ "$age" -ge "$ASSEMBLY_TTL_SECONDS" ]]; then
+    printf 'stale'; return 0
+  fi
+
+  [[ "$mhost" == "$HOST" ]] || { printf 'foreign'; return 0; }
+
+  mtree="$(entry_field "$f" worktree)"
+  if [[ -n "$mtree" && -d "$mtree" ]]; then printf 'live-tree'; return 0; fi
+  printf 'dead'
+}
+
+# Whole hours and minutes, for a message a human reads once and acts on.
+human_age() {
+  local secs="$1"
+  [[ "$secs" =~ ^[0-9]+$ ]] || { printf 'an unknown time'; return 0; }
+  printf '%sh%sm' "$(( secs / 3600 ))" "$(( (secs % 3600) / 60 ))"
+}
+
+# Removes markers whose assembler is gone, and prints how many went. Gone means
+# what marker_state's ranking says it means: this host with the recorded pid not
+# running AND the recorded worktree not on disk; anything past the assembly TTL,
+# whatever host wrote it; or a marker naming no host at all. The three are
+# reaped with different words on purpose — one coordinator died, one walked
+# away, and one wrote litter — and only the last two want a human's attention.
+#
+# Every caller holds the append lock across this. Classifying and then removing
+# is a read followed by a write, and `assemble` publishes a REFRESH by renaming
+# onto these exact paths: a refresh landing between the two would be judged on
+# the old file and deleted with nobody told. The started_epoch re-read below is
+# the same guard from the other side — belt to the lock's braces, and the same
+# single-winner standard the rest of this file holds itself to: if the file
+# changed under us anyway, it is a different advertisement now, not the one
+# that was judged, and this pass has no opinion about it.
+reap_dead_assemblers() {
+  local f state mhost mpid mtree gen n=0
+  while IFS= read -r f; do
+    [[ -n "$f" ]] || continue
+    gen="$(entry_field "$f" started_epoch)"
+    state="$(marker_state "$f")"
+    [[ "$state" == "dead" || "$state" == "stale" || "$state" == "malformed" ]] || continue
+    # Read before the removal: the note below is the only record left of it.
+    mhost="$(entry_field "$f" host)"
+    mpid="$(entry_field "$f" pid)"
+    mtree="$(entry_field "$f" worktree)"
+    local age; age="$(marker_age_seconds "$f")"
+    [[ "$(entry_field "$f" started_epoch)" == "$gen" ]] || continue
+    rm -f "$f"
+    n=$(( n + 1 ))
+    case "$state" in
+      stale)
+        note "cleared the assembly marker from $mhost:$mpid ($mtree) — it had been advertising for $(human_age "$age"), past the assembly TTL of $(human_age "$ASSEMBLY_TTL_SECONDS"). If that train is still being built, re-run \`assemble\` from it." ;;
+      malformed)
+        note "cleared an assembly marker with no host recorded ($(basename "$f")) — nothing could say whose it was, and an unattributable marker left in place would refuse every coordinator on every host forever" ;;
+      *)
+        note "cleared the assembly marker from $mhost:$mpid ($mtree) — that coordinator died before its train reached the merge lock" ;;
+    esac
+  done < <(markers_in)
+  printf '%s' "$n"
+}
+
+# Prints every LIVE marker that is not this worktree's own to stderr, and the
+# number of them to stdout. Loud on purpose: tripping over this is the whole
+# point of the marker, and it has to happen before a second train is built, not
+# after it is gated.
+warn_other_assemblers() {
+  local f state mhost mpid mtree n=0 mine
+  mine="$(assembling_tree)"
+  while IFS= read -r f; do
+    [[ -n "$f" ]] || continue
+    mhost="$(entry_field "$f" host)"
+    mtree="$(entry_field "$f" worktree)"
+    [[ "$mhost" == "$HOST" && "$mtree" == "$mine" ]] && continue
+    # Litter is not a warning: a corpse, an over-TTL marker, or one naming no
+    # host is cleared by the next `claim`, `assemble`, or `prune`, and naming it
+    # would send a coordinator to wait on a train that is already gone.
+    # Everything else on this host is live by the header's rule — including a
+    # coordinator whose recorded pid died with its last tool call but whose
+    # worktree is right there. Another host is never second-guessed, only aged.
+    state="$(marker_state "$f")"
+    [[ "$state" == "dead" || "$state" == "stale" || "$state" == "malformed" ]] && continue
+    mpid="$(entry_field "$f" pid)"
+    n=$(( n + 1 ))
+    note "ASSEMBLING by $mhost:$mpid — a train is already being built from this queue"
+    note "  in:    ${mtree:-<unknown worktree>}"
+    note "  since: $(entry_field "$f" started_at)  $(entry_field "$f" note)"
+    if [[ "$state" == "live-tree" ]]; then
+      note "  (that pid is gone; its worktree is still on disk — a coordinator between tool calls, not a corpse)"
+    elif [[ "$state" == "foreign" ]]; then
+      note "  (another host: its pid number and its paths mean nothing here, so it is reported and never reaped from this machine)"
+    fi
+  done < <(markers_in)
+  printf '%s' "$n"
+}
+
+# Ends this worktree's advertisement. Keyed on host+worktree for the reason the
+# header gives: the pid the marker carries is the one it had before the merge
+# lock existed, so it is a liveness signal, never an identity.
+clear_my_marker() {
+  local m
+  m="$(my_marker)"
+  [[ -e "$m" ]] || return 0
+  rm -f "$m"
+  note "cleared this worktree's assembly marker"
+}
+
+# `release --all` is the "that train is gone, sweep up after it" hatch, so it
+# sweeps markers too — on this host only, same as the claims it hands back.
+clear_host_markers() {
+  local f n=0
+  while IFS= read -r f; do
+    [[ -n "$f" ]] || continue
+    [[ "$(entry_field "$f" host)" == "$HOST" ]] || continue
+    rm -f "$f"
+    n=$(( n + 1 ))
+  done < <(markers_in)
+  [[ "$n" -eq 0 ]] || note "cleared $n assembly marker(s) on $HOST"
 }
 
 # The ref a queued branch IS, for every purpose in this script: origin's copy,
@@ -471,13 +748,21 @@ cmd_append() {
   # queue but decides nothing, so no other appender need wait for it.
   append_lock_release
 
-  local holder position
+  local holder position assembling
   holder="$(lock_holder)"
   position="$(count_in "$PENDING")"
+  assembling="$(warn_other_assemblers)"
   if [[ -n "$holder" ]]; then
     printf 'merge-queue: appended %s @ %s to the running train (merge lock held by pid %s); %s branch(es) now pending\n' \
       "$branch" "$pinned_sha" "$holder" "$position"
     printf 'merge-queue: the train picks it up at its next integration boundary — nothing else to do here.\n'
+  elif [[ "$assembling" -gt 0 ]]; then
+    # No lock yet, but a coordinator is mid-assembly (details on stderr above).
+    # "NO train is running" would be true and misleading: one is being built,
+    # and this branch may well make it into that union.
+    printf 'merge-queue: appended %s @ %s; %s branch(es) pending, and a train is being ASSEMBLED right now\n' \
+      "$branch" "$pinned_sha" "$position"
+    printf 'merge-queue: it picks this up if it claims again before it takes the merge lock — nothing else to do here.\n'
   else
     printf 'merge-queue: appended %s @ %s; %s branch(es) pending, but NO train is running right now\n' \
       "$branch" "$pinned_sha" "$position"
@@ -526,11 +811,129 @@ cmd_list() {
       "$name (a transition caught mid-rename; the next \`claim\` finishes or hands it back)"
   done
 
+  # Who is building a train right now. Listed even when no entries are left:
+  # "empty queue, and a coordinator mid-assembly" is a different situation from
+  # "empty queue", and only one of them means it is safe to start a train.
+  local a mhost mpid mtree astate
+  while IFS= read -r a; do
+    [[ -n "$a" ]] || continue
+    mhost="$(entry_field "$a" host)"
+    mpid="$(entry_field "$a" pid)"
+    mtree="$(entry_field "$a" worktree)"
+    # Every case marker_state can reach, said apart. No catch-all that reads
+    # "live": a marker this host cannot judge, or one already past its TTL, is
+    # not the same news as a coordinator with a running process, and printing
+    # all three as bare `live` is how a human waits on a train that is gone.
+    local mstate; mstate="$(marker_state "$a")"
+    case "$mstate" in
+      live-pid)  astate="live" ;;
+      live-tree) astate="live — pid gone, worktree present (a coordinator between tool calls)" ;;
+      foreign)   astate="live on $mhost — another host, reported here and never reaped from here" ;;
+      stale)     astate="DEAD — advertising for $(human_age "$(marker_age_seconds "$a")"), past the assembly TTL; cleared by the next claim or prune" ;;
+      dead)      astate="DEAD assembler — cleared by the next claim or prune" ;;
+      malformed) astate="MALFORMED — no host recorded, so nobody owns it; cleared by the next claim or prune" ;;
+      *)         astate="$mstate" ;;
+    esac
+    count=$(( count + 1 ))
+    printf 'ASSEMBLING by %s:%s (%s) since %s in %s\n' \
+      "$mhost" "$mpid" "$astate" "$(entry_field "$a" started_at)" "$mtree"
+  done < <(markers_in)
+
   [[ "$count" -gt 0 ]] || printf 'merge-queue: queue empty\n'
+}
+
+cmd_assemble() {
+  local text="" force=0 clear=0 tree_arg=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --note) need_value "$@"; text="$2"; shift 2 ;;
+      --note=*) text="${1#--note=}"; shift ;;
+      --force) force=1; shift ;;
+      --clear) clear=1; shift ;;
+      --tree) need_value "$@"; tree_arg="$2"; shift 2 ;;
+      --tree=*) tree_arg="${1#--tree=}"; shift ;;
+      --) shift ;;
+      *) die "unknown argument $1 — $USAGE" ;;
+    esac
+  done
+
+  # The mandated flow assembles in a lane worktree and resolves from
+  # .worktrees/_main, and a marker is keyed on the worktree that wrote it — so
+  # that coordinator's `done` and `release` run somewhere the marker is not. It
+  # is then warned about itself on every claim, and the advertisement it left
+  # behind blocks every other host until the TTL. `--clear` is the targeted way
+  # out: this worktree's marker by default, a named same-host one with --tree.
+  # Neither is `release --all`, which also hands back claims that are not ours.
+  if [[ "$clear" -eq 1 ]]; then
+    local target ctree
+    ctree="${tree_arg:-$(assembling_tree)}"
+    target="$(marker_for_tree "$ctree")"
+    if [[ -e "$target" ]]; then
+      rm -f "$target"
+      note "cleared the assembly marker for $HOST:$ctree"
+    else
+      note "no assembly marker for $HOST:$ctree — nothing to clear. A marker is keyed on the worktree that wrote it, and \`list\` names the worktree of every one that is up."
+    fi
+    return 0
+  fi
+  [[ -z "$tree_arg" ]] || die "--tree only means something with --clear, where it names WHICH marker to take down — $USAGE"
+  # Line-oriented key=value, and the note is the one field a human types freely.
+  text="$(printf '%s' "$text" | tr -d '\n\r')"
+
+  # "Nobody else is assembling, therefore I am" is a read followed by a write,
+  # and two coordinators reaching this line together is not a hypothetical — it
+  # is the exact collision the marker exists to stop. So it is taken under the
+  # same small lock `append`'s duplicate check uses, around a directory scan and
+  # a rename and nothing else.
+  append_lock_acquire
+  reap_dead_assemblers >/dev/null
+  local others
+  others="$(warn_other_assemblers)"
+  if [[ "$others" -gt 0 && "$force" -eq 0 ]]; then
+    die "another coordinator is already assembling a train from this queue (above) — append your branches to it instead of building a second train, or wait for it to land. If that train is not taking these branches, re-run with --force."
+  fi
+
+  local pid tree marker tmpfile
+  # This process's own parent, NOT claimant_pid(): a claim belongs to the train
+  # that holds the merge lock, but an assembly happens BEFORE this train has a
+  # lock, so whatever lock is held right now belongs to somebody else. Stamping
+  # that holder would put a foreign train's pid on this marker — wrong identity,
+  # and a liveness that outlives this coordinator by the whole of that train.
+  pid="$PPID"
+  tree="$(assembling_tree)"
+  marker="$(my_marker)"
+  tmpfile="$TMP/assembling.$$"
+  {
+    printf 'host=%s\n' "$HOST"
+    printf 'pid=%s\n' "$pid"
+    printf 'worktree=%s\n' "$tree"
+    printf 'started_at=%s\n' "$(now_iso)"
+    # The same instant a machine can subtract — the age backstop reads this.
+    printf 'started_epoch=%s\n' "$(date +%s)"
+    printf 'note=%s\n' "$text"
+  } >"$tmpfile"
+  # The rename is the commit point, exactly as it is for an append: before it no
+  # reader sees the marker, after it every reader sees a complete one. Re-running
+  # from the same worktree refreshes in place rather than accumulating.
+  mv "$tmpfile" "$marker"
+  append_lock_release
+
+  printf 'merge-queue: assembling as %s:%s in %s — %s branch(es) pending\n' \
+    "$HOST" "$pid" "$tree" "$(count_in "$PENDING")"
+  printf 'merge-queue: other coordinators now see this before they build a train of their own.\n'
+  printf 'merge-queue: it clears when the queue empties (done/drop), on release, or at the next claim/prune once this worktree is gone.\n'
+  # The invariant a coordinator has to know before it walks away, said where
+  # it is walking away FROM: this marker is keyed on this worktree, and a
+  # done/release issued from a different one will not take it down.
+  printf 'merge-queue: this marker belongs to %s — run done/release from this same worktree, or finish with:  bash scripts/merge-queue.sh assemble --clear\n' "$tree"
 }
 
 cmd_notify() {
   local pending
+  # Said first and regardless of the pending count: with-merge-lock.sh runs
+  # this as a train takes the lock, and "someone else is already building one"
+  # is the one thing that changes what that train should do next.
+  warn_other_assemblers >/dev/null
   pending="$(count_in "$PENDING")"
   if [[ "$pending" -gt 0 ]]; then
     printf 'merge-queue: %s branch(es) appended by other sessions are waiting — claim them at your\n' "$pending" >&2
@@ -677,6 +1080,16 @@ cmd_claim() {
   [[ -n "$(lock_holder)" ]] || note "WARNING: no live merge-lock holder — the train claiming branches should hold the merge lock"
 
   reclaim_dead
+  # A dead assembler's marker is handed back by the same rule as a dead claim,
+  # at the same boundary: this is where the queue notices corpses. Under the
+  # append lock, for the reason reap_dead_assemblers gives: it classifies and
+  # then deletes, and `assemble` renames a refresh onto the same paths.
+  append_lock_acquire
+  reap_dead_assemblers >/dev/null
+  append_lock_release
+  # And a LIVE one is said out loud here, because a train claiming branches
+  # while another coordinator assembles them is precisely the collision.
+  warn_other_assemblers >/dev/null
 
   local CLAIMANT
   CLAIMANT="$(claimant_pid)"
@@ -757,6 +1170,13 @@ resolve_branch() {
   # archive that actually happened. archive_entry has already said what went
   # wrong; a non-zero exit here is what makes it visible to a caller.
   archive_entry "$f" "$result" "$reason" || return 1
+  # The advertisement ends when there is nothing left to build with — NOT on the
+  # first `done`. A train resolves one branch per integration and carries on
+  # with the rest; clearing the marker there would take the sign down while the
+  # train was still on the track, which is the window this feature exists for.
+  if [[ "$(count_in "$PENDING")" -eq 0 && "$(count_in "$CLAIMED")" -eq 0 ]]; then
+    clear_my_marker
+  fi
   printf 'merge-queue: %s marked %s\n' "$branch" "$result"
 }
 
@@ -797,6 +1217,10 @@ cmd_release() {
     reclaim_entry "$f" || continue
     released=$(( released + 1 ))
   done < <(entries_in "$CLAIMED")
+  # Handing the claims back means this train is not landing them, so the sign
+  # comes down with them: `--all` is the "that train is gone" hatch and sweeps
+  # every marker on this host, a plain release only this worktree's own.
+  if [[ "$all" -eq 1 ]]; then clear_host_markers; else clear_my_marker; fi
   printf 'merge-queue: released %s claim(s) back to pending\n' "$released"
   if [[ "$others" -gt 0 ]]; then
     # A claim made under the merge lock is stamped with the TRAIN's pid, so a
@@ -870,12 +1294,21 @@ cmd_prune() {
     if pid_alive "$owner"; then continue; fi
     rm -f "$f"; removed=$(( removed + 1 ))
   done
+  # A marker whose coordinator is gone is litter of exactly the same kind, and
+  # is swept under the same lock a claim uses — the reap classifies and then
+  # deletes, and an `assemble` refresh renames onto the same paths. The lock is
+  # taken HERE and not inside the substitution below: a command substitution is
+  # a subshell, and a lock acquired in one is released by nobody.
+  append_lock_acquire
+  removed=$(( removed + $(reap_dead_assemblers) ))
+  append_lock_release
   printf 'merge-queue: pruned %s file(s)\n' "$removed"
 }
 
 case "$CMD" in
   append) cmd_append "$@" ;;
   list) cmd_list "$@" ;;
+  assemble) cmd_assemble "$@" ;;
   claim) cmd_claim "$@" ;;
   done) resolve_branch "${1:-}" merged "" ;;
   drop) cmd_drop "$@" ;;

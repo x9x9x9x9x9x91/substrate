@@ -33,6 +33,10 @@ import { fileURLToPath } from "node:url";
 //    quietly integrated;
 //  - a half-written append (the appender died mid-write) is invisible to
 //    readers and reaped by prune;
+//  - a train being ASSEMBLED — picked, not yet holding the merge lock — is
+//    readable by everyone else, and its marker outlives the short-lived shell
+//    that wrote it (the coordinator's worktree is the durable liveness) but
+//    not the coordinator, nor an abandoned advertisement past its TTL;
 //  - the queue survives the merge lock being stolen or deleted.
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
@@ -102,10 +106,12 @@ function commitOn(rig: Rig, name: string, opts: { push?: boolean } = {}) {
 const ageEntry = (dir: string, stamp = "202001010000") =>
   execFileSync("touch", ["-t", stamp, onlyEntry(dir)]);
 
+let queueEnv: Record<string, string> = {};
+
 function queue(rig: Rig, ...args: string[]) {
   return spawnSync("bash", [join(rig.repo, "scripts/merge-queue.sh"), ...args], {
     cwd: rig.repo,
-    env: { ...process.env },
+    env: { ...process.env, ...queueEnv },
     encoding: "utf8",
   });
 }
@@ -127,17 +133,83 @@ const readEntry = (dir: string) => readFileSync(onlyEntry(dir), "utf8");
 const rewriteEntry = (dir: string, fn: (s: string) => string) =>
   writeFileSync(onlyEntry(dir), fn(readEntry(dir)));
 
+const assemblingDir = (rig: Rig) => join(rig.queue, "assembling");
+const markers = (rig: Rig) =>
+  existsSync(assemblingDir(rig)) ? readdirSync(assemblingDir(rig)).filter((f) => f.endsWith(".marker")) : [];
+
+/** What merge-queue.sh calls this machine — the half of every liveness rule here that is not a pid. */
+const HOST = execFileSync("bash", ["-c", "hostname -s 2>/dev/null || hostname"], { encoding: "utf8" }).trim();
+
+/**
+ * A marker as another coordinator's `assemble` would leave it. Written by hand
+ * because the thing under test is what OTHER lanes see: a marker this test's
+ * own worktree wrote is, correctly, its own and invisible to itself.
+ */
+function writeMarker(
+  rig: Rig,
+  opts: { host?: string | null; pid: number; tree?: string; ageSeconds?: number; noEpoch?: boolean },
+) {
+  const host = opts.host === undefined ? HOST : opts.host;
+  const tree = opts.tree ?? "/tmp/some-other-lane";
+  // Default: written just now. The age backstop only ever fires on a marker
+  // that has been advertising for hours, so a test that wants it says so.
+  const ageSeconds = opts.ageSeconds ?? 0;
+  const startedEpoch = Math.floor(Date.now() / 1000) - ageSeconds;
+  mkdirSync(assemblingDir(rig), { recursive: true });
+  const path = join(assemblingDir(rig), `${host ?? "nohost"}.${tree.replace(/\//g, "__")}.marker`);
+  writeFileSync(
+    path,
+    [
+      // `host: null` writes the field away entirely — a marker naming nobody,
+      // which is what a truncated or garbled write leaves behind.
+      ...(host === null ? [] : [`host=${host}`]),
+      `pid=${opts.pid}`,
+      `worktree=${tree}`,
+      "started_at=2026-08-22T10:00:00Z",
+      ...(opts.noEpoch ? [] : [`started_epoch=${startedEpoch}`]),
+      "note=another lane",
+      "",
+    ].join("\n"),
+  );
+  // A marker from before started_epoch existed has only its mtime to be judged
+  // by, so the age this test asked for has to be put THERE instead.
+  if (opts.noEpoch) {
+    execFileSync("touch", ["-t", mtimeStamp(ageSeconds), path]);
+  }
+  return path;
+}
+
+/** `touch -t` form for "this many seconds ago" — the mtime fallback's input. */
+function mtimeStamp(secondsAgo: number): string {
+  const d = new Date(Date.now() - secondsAgo * 1000);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}${p(d.getHours())}${p(d.getMinutes())}`;
+}
+
+/**
+ * A directory that exists for the life of one test, standing in for a
+ * coordinator's worktree. Existence is half the liveness rule, so a marker
+ * pointing at a real path is a live coordinator whatever its pid says.
+ */
+function realTree(rig: Rig, name: string): string {
+  const dir = join(rig.repo, "..", name);
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
 /** A pid guaranteed not to be running: a child we start and reap. */
 function deadPid(): number {
   const res = spawnSync("bash", ["-c", "echo $$"], { encoding: "utf8" });
   return Number(res.stdout.trim());
 }
 
-function withRig(fn: (rig: Rig) => void) {
+function withRig(fn: (rig: Rig) => void, env: Record<string, string> = {}) {
   const dir = mkdtempSync(join(tmpdir(), "substrate-queue-"));
+  queueEnv = env;
   try {
     fn(makeRig(dir));
   } finally {
+    queueEnv = {};
     rmSync(dir, { recursive: true, force: true });
   }
 }
@@ -576,6 +648,561 @@ test("the queue survives the merge lock being deleted under it", () => {
 
     assert.equal(entriesIn(pendingDir(rig)).length, 1);
     assert.equal(queueOk(rig, "claim").stdout.trim(), "sub/foo");
+  });
+});
+
+/* ---- assembling: the window between picking branches and taking the lock ---- */
+
+test("assemble advertises a train being built, before any merge lock exists", () => {
+  withRig((rig) => {
+    makeBranch(rig, "sub/foo");
+    queueOk(rig, "append", "sub/foo");
+
+    const res = queueOk(rig, "assemble", "--note", "union of the reviewed three");
+    assert.match(res.stdout, new RegExp(`assembling as ${HOST}:\\d+ in `));
+    assert.equal(markers(rig).length, 1, "one coordinator, one marker");
+
+    const marker = readFileSync(join(assemblingDir(rig), markers(rig)[0]), "utf8");
+    assert.match(marker, new RegExp(`^host=${HOST}$`, "m"));
+    assert.match(marker, /^pid=\d+$/m, "liveness is judged by pid, so the pid is recorded");
+    assert.match(marker, /^worktree=\/.+$/m, "and a human is told where to go and look");
+    assert.match(marker, /^note=union of the reviewed three$/m);
+    assert.match(marker, /^started_at=\d{4}-\d\d-\d\dT/m);
+    assert.match(marker, /^started_epoch=\d+$/m, "and the same instant the age backstop can subtract");
+  });
+});
+
+test("a second coordinator reads the assembly out of the queue instead of racing it", () => {
+  withRig((rig) => {
+    makeBranch(rig, "sub/foo");
+    queueOk(rig, "append", "sub/foo");
+    // Another lane, mid-assembly. It holds no merge lock — that is the whole
+    // window: until it takes one there used to be nothing here to read.
+    writeMarker(rig, { pid: process.pid, tree: "/tmp/lane-a" });
+
+    assert.match(queueOk(rig, "list").stdout, new RegExp(`ASSEMBLING by ${HOST}:${process.pid} \\(live\\) since .* in /tmp/lane-a`));
+
+    // The claim path says it too, and does not block: the marker is advisory,
+    // and a train that has decided to go ahead must still be able to.
+    const claimed = queueOk(rig, "claim");
+    assert.match(claimed.stderr, new RegExp(`ASSEMBLING by ${HOST}:${process.pid}`));
+    assert.match(claimed.stderr, /a train is already being built from this queue/);
+    assert.match(claimed.stderr, /in: {4}\/tmp\/lane-a/);
+    assert.equal(claimed.stdout.trim(), "sub/foo", "advisory means advisory — nothing is withheld");
+
+    // And an appender is told its branch may ride that union rather than the
+    // flatly wrong "NO train is running".
+    makeBranch(rig, "sub/bar");
+    const appended = queueOk(rig, "append", "sub/bar");
+    assert.match(appended.stdout, /a train is being ASSEMBLED right now/);
+    assert.doesNotMatch(appended.stdout, /NO train is running/);
+  });
+});
+
+test("assemble refuses to build a second train over a live one unless forced", () => {
+  withRig((rig) => {
+    makeBranch(rig, "sub/foo");
+    queueOk(rig, "append", "sub/foo");
+    writeMarker(rig, { pid: process.pid, tree: "/tmp/lane-a" });
+
+    // The refusal is the cheap moment: before a union is built and gated, not
+    // after — three near-collisions in ninety minutes cost one fully gated train.
+    const refused = queue(rig, "assemble");
+    assert.equal(refused.status, 1);
+    assert.match(refused.stderr, /another coordinator is already assembling/);
+    assert.equal(markers(rig).length, 1, "and nothing was advertised behind its back");
+
+    const forced = queueOk(rig, "assemble", "--force");
+    assert.match(forced.stdout, /assembling as /);
+    assert.equal(markers(rig).length, 2, "two coordinators who both mean it are both named");
+  });
+});
+
+test("a dead assembler's marker is cleared by the next claim, by pid and host", () => {
+  withRig((rig) => {
+    makeBranch(rig, "sub/foo");
+    queueOk(rig, "append", "sub/foo");
+    // A coordinator that died between picking its branches and taking the lock.
+    writeMarker(rig, { pid: deadPid(), tree: "/tmp/lane-dead" });
+
+    assert.match(queueOk(rig, "list").stdout, /ASSEMBLING by .*\(DEAD assembler/, "a human sees it for what it is");
+
+    const res = queueOk(rig, "claim");
+    assert.match(res.stderr, /died before its train reached the merge lock/);
+    assert.equal(markers(rig).length, 0, "the corpse does not wedge the next coordinator");
+    assert.equal(res.stdout.trim(), "sub/foo");
+    // A corpse is litter, not a warning: naming it would send this coordinator
+    // to wait on a train that is already gone.
+    assert.doesNotMatch(res.stderr, /a train is already being built/);
+    assert.match(queueOk(rig, "assemble").stdout, /assembling as /, "and assembly is free again");
+  });
+});
+
+test("a marker whose pid died with its tool call still speaks for a live coordinator", () => {
+  withRig((rig) => {
+    makeBranch(rig, "sub/foo");
+    queueOk(rig, "append", "sub/foo");
+    // The shape the marker's primary consumer actually has: a coordinator that
+    // drives this script through discrete tool calls, each its own short-lived
+    // shell. The pid stamped at `assemble` time is gone seconds later — while
+    // that coordinator is still very much building its train, in a worktree
+    // that is right there on disk.
+    const tree = realTree(rig, "lane-between-calls");
+    writeMarker(rig, { pid: deadPid(), tree });
+
+    assert.match(
+      queueOk(rig, "list").stdout,
+      /ASSEMBLING by .*\(live — pid gone, worktree present \(a coordinator between tool calls\)\)/,
+      "and a human is told which of the two live cases this is",
+    );
+
+    const claimed = queueOk(rig, "claim");
+    assert.match(claimed.stderr, /a train is already being built from this queue/);
+    assert.match(claimed.stderr, /that pid is gone; its worktree is still on disk/);
+    assert.equal(markers(rig).length, 1, "not litter — the advertisement survives its own shell");
+
+    const refused = queue(rig, "assemble");
+    assert.equal(refused.status, 1, "and a second coordinator is still stopped at the cheap moment");
+    assert.match(refused.stderr, /another coordinator is already assembling/);
+    assert.equal(markers(rig).length, 1);
+  });
+});
+
+test("a marker is litter only when the pid AND the worktree are both gone", () => {
+  withRig((rig) => {
+    makeBranch(rig, "sub/foo");
+    queueOk(rig, "append", "sub/foo");
+    // Dead pid, and the worktree it named is not on disk: nothing is building
+    // this train any more, by either half of the rule.
+    writeMarker(rig, { pid: deadPid(), tree: "/tmp/lane-gone-for-good" });
+
+    const assembled = queueOk(rig, "assemble");
+    assert.match(assembled.stderr, /died before its train reached the merge lock/);
+    assert.match(assembled.stdout, /assembling as /, "assembly is free again");
+    assert.equal(markers(rig).length, 1, "and the only marker left is this run's own");
+
+    // prune says the same thing about the same corpse.
+    writeMarker(rig, { pid: deadPid(), tree: "/tmp/lane-gone-for-good" });
+    assert.equal(markers(rig).length, 2);
+    queueOk(rig, "prune");
+    assert.equal(markers(rig).length, 1);
+  });
+});
+
+test("an advertisement past the assembly TTL is reaped loudly, worktree or not", () => {
+  withRig(
+    (rig) => {
+      makeBranch(rig, "sub/foo");
+      queueOk(rig, "append", "sub/foo");
+      // The case the backstop exists for, and the only one it may fire on: the
+      // coordinator walked away, so its pid is gone, but the worktree it named
+      // is still right there on disk and the liveness rule alone would keep
+      // this advertisement up forever.
+      const tree = realTree(rig, "lane-abandoned");
+      writeMarker(rig, { pid: deadPid(), tree, ageSeconds: 7 * 3600 });
+
+      assert.match(
+        queueOk(rig, "list").stdout,
+        /ASSEMBLING by .*\(DEAD — advertising for 7h0m, past the assembly TTL/,
+        "a human is told how long it sat, not just that it went",
+      );
+
+      const res = queueOk(rig, "claim");
+      assert.match(res.stderr, /it had been advertising for 7h0m, past the assembly TTL of 1h0m/);
+      assert.match(res.stderr, /If that train is still being built, re-run `assemble` from it\./);
+      assert.equal(markers(rig).length, 0);
+    },
+    { SUBSTRATE_MERGE_QUEUE_ASSEMBLY_TTL: "3600" },
+  );
+});
+
+test("a running process outranks the TTL — age is the last resort, not the first", () => {
+  withRig(
+    (rig) => {
+      makeBranch(rig, "sub/foo");
+      queueOk(rig, "append", "sub/foo");
+      // Same host, and a pid this machine can see with kill -0: that is
+      // evidence, not a guess, and a train can legitimately be in assembly for
+      // as long as its gates take. Reaping it on age would be the queue
+      // deleting an advertisement whose process is right there.
+      const tree = realTree(rig, "lane-slow-gates");
+      writeMarker(rig, { pid: process.pid, tree, ageSeconds: 7 * 3600 });
+
+      assert.match(
+        queueOk(rig, "list").stdout,
+        new RegExp(`ASSEMBLING by ${HOST}:${process.pid} \\(live\\)`),
+        "a process we can see is live, whatever the clock says",
+      );
+      queueOk(rig, "claim");
+      assert.equal(markers(rig).length, 1, "the backstop does not fire on a coordinator that is running");
+
+      const refused = queue(rig, "assemble");
+      assert.equal(refused.status, 1, "and it still holds the queue against a second train");
+      assert.match(refused.stderr, /another coordinator is already assembling/);
+      // The way past a coordinator wedged alive is the one the header names.
+      assert.match(queueOk(rig, "assemble", "--force").stdout, /assembling as /);
+    },
+    { SUBSTRATE_MERGE_QUEUE_ASSEMBLY_TTL: "3600" },
+  );
+});
+
+test("TTL=0 turns the backstop off — then only host, pid and worktree decide", () => {
+  withRig(
+    (rig) => {
+      makeBranch(rig, "sub/foo");
+      queueOk(rig, "append", "sub/foo");
+      // Ancient, and live by the worktree half of the rule. With the documented
+      // off-switch set, there is nothing left to reap it.
+      const tree = realTree(rig, "lane-ancient");
+      writeMarker(rig, { pid: deadPid(), tree, ageSeconds: 400 * 3600 });
+
+      queueOk(rig, "claim");
+      assert.equal(markers(rig).length, 1, "0 means off, and off means age never fires");
+      assert.match(queueOk(rig, "list").stdout, /\(live — pid gone, worktree present/);
+      assert.doesNotMatch(queueOk(rig, "list").stdout, /past the assembly TTL/);
+    },
+    { SUBSTRATE_MERGE_QUEUE_ASSEMBLY_TTL: "0" },
+  );
+});
+
+for (const bad of ["4h", "-1"]) {
+  test(`a TTL of '${bad}' is not silently the off-switch — it falls back to the default, loudly`, () => {
+    withRig(
+      (rig) => {
+        makeBranch(rig, "sub/foo");
+        queueOk(rig, "append", "sub/foo");
+        // Both are easy to type and neither is a number of seconds. Absorbing
+        // them would disable the backstop in a way indistinguishable from the
+        // documented 0 — an abandoned marker sitting forever, nobody told why.
+        const tree = realTree(rig, "lane-abandoned");
+        writeMarker(rig, { pid: deadPid(), tree, ageSeconds: 5 * 3600 });
+
+        const res = queueOk(rig, "claim");
+        assert.match(res.stderr, new RegExp(`ASSEMBLY_TTL='${bad}' is not a whole number of seconds`));
+        assert.match(res.stderr, /using the default of 14400s/);
+        assert.match(res.stderr, /Set it to 0 to turn the assembly backstop off\./);
+        // And the default is genuinely in force: four hours, so five hours goes.
+        assert.match(res.stderr, /past the assembly TTL of 4h0m/);
+        assert.equal(markers(rig).length, 0);
+      },
+      { SUBSTRATE_MERGE_QUEUE_ASSEMBLY_TTL: bad },
+    );
+  });
+}
+
+test("a marker from before started_epoch existed is still aged, by its mtime", () => {
+  withRig(
+    (rig) => {
+      makeBranch(rig, "sub/foo");
+      queueOk(rig, "append", "sub/foo");
+      // Written by an older copy of this script: no epoch field at all, so the
+      // only age there is is the file's own mtime. Honest, because a marker is
+      // written once to tmp/ and renamed into place.
+      const tree = realTree(rig, "lane-old-format");
+      writeMarker(rig, { pid: deadPid(), tree, ageSeconds: 6 * 3600, noEpoch: true });
+
+      const res = queueOk(rig, "claim");
+      assert.match(res.stderr, /past the assembly TTL of 1h0m/, "the mtime fallback is read, not silently dropped");
+      assert.equal(markers(rig).length, 0);
+    },
+    { SUBSTRATE_MERGE_QUEUE_ASSEMBLY_TTL: "3600" },
+  );
+});
+
+test("another host's marker blocks a second train while it is fresh", () => {
+  withRig((rig) => {
+    makeBranch(rig, "sub/foo");
+    queueOk(rig, "append", "sub/foo");
+    writeMarker(rig, { host: "some-other-machine", pid: 4242, tree: "/elsewhere/lane" });
+
+    assert.match(
+      queueOk(rig, "list").stdout,
+      /ASSEMBLING by some-other-machine:4242 \(live on some-other-machine — another host, reported here and never reaped from here\)/,
+      "and `list` says which of the honest cases it is, never a bare `live`",
+    );
+
+    const refused = queue(rig, "assemble");
+    assert.equal(refused.status, 1, "a train being built elsewhere is still a train being built");
+    assert.match(refused.stderr, /another coordinator is already assembling/);
+    assert.match(refused.stderr, /its pid number and its paths mean nothing here/);
+    assert.match(queueOk(rig, "assemble", "--force").stdout, /assembling as /);
+  });
+});
+
+test("another host's marker is reaped once it is past the TTL — an epoch is an epoch everywhere", () => {
+  withRig(
+    (rig) => {
+      makeBranch(rig, "sub/foo");
+      queueOk(rig, "append", "sub/foo");
+      // Nothing here can judge a foreign pid or a foreign path — but the age is
+      // judgeable, and a foreign marker exempt from the backstop is immortal:
+      // it would refuse every `assemble` on this machine for as long as the
+      // file existed, with no host able to clear it.
+      writeMarker(rig, { host: "some-other-machine", pid: 4242, tree: "/elsewhere/lane", ageSeconds: 9 * 3600 });
+
+      assert.match(queueOk(rig, "list").stdout, /\(DEAD — advertising for 9h0m, past the assembly TTL/);
+      const res = queueOk(rig, "claim");
+      assert.match(res.stderr, /cleared the assembly marker from some-other-machine:4242/);
+      assert.match(res.stderr, /it had been advertising for 9h0m/);
+      assert.equal(markers(rig).length, 0, "the queue is not wedged by a machine that never comes back");
+    },
+    { SUBSTRATE_MERGE_QUEUE_ASSEMBLY_TTL: "3600" },
+  );
+});
+
+test("a marker naming no host is litter, not an immortal foreigner", () => {
+  withRig((rig) => {
+    makeBranch(rig, "sub/foo");
+    queueOk(rig, "append", "sub/foo");
+    // A truncated or garbled write. Classified `foreign` it would be reapable
+    // by no machine on earth and would refuse every coordinator forever, so it
+    // is cleared instead — and cleared out loud, because a marker nobody wrote
+    // correctly is a bug somebody should see.
+    writeMarker(rig, { host: null, pid: process.pid, tree: "/tmp/lane-nameless" });
+
+    assert.match(queueOk(rig, "list").stdout, /\(MALFORMED — no host recorded, so nobody owns it/);
+
+    const res = queueOk(rig, "claim");
+    assert.match(res.stderr, /cleared an assembly marker with no host recorded/);
+    assert.match(res.stderr, /would refuse every coordinator on every host forever/);
+    assert.equal(markers(rig).length, 0);
+    assert.doesNotMatch(res.stderr, /a train is already being built/, "litter is cleared, never waited on");
+    assert.match(queueOk(rig, "assemble").stdout, /assembling as /);
+  });
+});
+
+/* ---- assembling: ending an advertisement from somewhere else ---- */
+
+test("assemble --clear ends this worktree's advertisement outright", () => {
+  withRig((rig) => {
+    makeBranch(rig, "sub/foo");
+    queueOk(rig, "append", "sub/foo");
+    const started = queueOk(rig, "assemble");
+    // The invariant is stated where a coordinator walking away will read it.
+    assert.match(started.stdout, /run done\/release from this same worktree, or finish with:/);
+    assert.match(started.stdout, /assemble --clear/);
+    assert.equal(markers(rig).length, 1);
+
+    const cleared = queueOk(rig, "assemble", "--clear");
+    assert.match(cleared.stderr, new RegExp(`cleared the assembly marker for ${HOST}:`));
+    assert.equal(markers(rig).length, 0, "and the queue is free without handing any claims back");
+
+    // Idempotent, and it says which key it looked for rather than pretending.
+    const again = queueOk(rig, "assemble", "--clear");
+    assert.match(again.stderr, /nothing to clear/);
+    assert.match(again.stderr, /keyed on the worktree that wrote it/);
+  });
+});
+
+test("a coordinator that assembles here and resolves there can still close its own marker", () => {
+  withRig((rig) => {
+    makeBranch(rig, "sub/foo");
+    queueOk(rig, "append", "sub/foo");
+    // The mandated flow: assemble in the lane worktree, resolve from another
+    // tree that shares the same gitdir — and therefore the same queue.
+    const other = join(rig.repo, "..", "resolve-tree");
+    execFileSync("git", ["-C", rig.repo, "worktree", "add", "-q", "--detach", other], { encoding: "utf8" });
+    const there = (...args: string[]) =>
+      spawnSync("bash", [join(rig.repo, "scripts/merge-queue.sh"), ...args], {
+        cwd: other,
+        env: { ...process.env, ...queueEnv },
+        encoding: "utf8",
+      });
+
+    queueOk(rig, "assemble");
+    queueOk(rig, "claim");
+    const resolved = there("done", "sub/foo");
+    assert.equal(resolved.status, 0, resolved.stderr);
+
+    // The orphan the worktree key leaves behind: `done` emptied the queue, but
+    // it ran where the marker is not, so the advertisement is still up and now
+    // blocks every other host until the TTL.
+    assert.equal(markers(rig).length, 1, "resolving from elsewhere cannot take down a marker keyed to here");
+
+    // And it is closable without `release --all`, which would also hand back
+    // claims this coordinator does not own. The path is the one the marker
+    // itself records — which is what `list` prints for a human to copy, and
+    // not necessarily the string this test spelled (a tmpdir is a symlink).
+    const recorded = /^worktree=(.+)$/m.exec(
+      readFileSync(join(assemblingDir(rig), markers(rig)[0]), "utf8"),
+    )![1];
+    const cleared = there("assemble", "--clear", "--tree", recorded);
+    assert.equal(cleared.status, 0, cleared.stderr);
+    assert.match(cleared.stderr, new RegExp(`cleared the assembly marker for ${HOST}:`));
+    assert.equal(markers(rig).length, 0);
+  });
+});
+
+test("--tree without --clear is refused rather than quietly ignored", () => {
+  withRig((rig) => {
+    const res = queue(rig, "assemble", "--tree", "/tmp/whatever");
+    assert.equal(res.status, 1);
+    assert.match(res.stderr, /--tree only means something with --clear/);
+  });
+});
+
+/* ---- assembling: reaping a marker is a read then a write, so it takes the lock ---- */
+
+for (const cmd of ["claim", "prune"]) {
+  test(`${cmd} reaps assembly markers under the append lock, so a refresh cannot land inside it`, () => {
+    withRig(
+      (rig) => {
+        makeBranch(rig, "sub/foo");
+        queueOk(rig, "append", "sub/foo");
+        writeMarker(rig, { pid: deadPid(), tree: "/tmp/lane-gone" });
+
+        // `assemble` renames a refresh onto the very path the reap is about to
+        // classify and delete, so the two must not interleave. The harness
+        // cannot schedule that window directly — what it CAN show is that the
+        // window is inside the lock: hold the append lock from here, and the
+        // reaping command refuses to proceed rather than scanning around it.
+        writeFileSync(join(rig.queue, "append.lock"), `${process.pid}\n`);
+        const res = queue(rig, cmd);
+        assert.equal(res.status, 1, `${cmd} classified and deleted markers without the lock`);
+        assert.match(res.stderr, /another append has held .*append\.lock/);
+        assert.equal(markers(rig).length, 1, "and nothing was removed while another writer held it");
+
+        rmSync(join(rig.queue, "append.lock"));
+        queueOk(rig, cmd);
+        assert.equal(markers(rig).length, 0, "with the lock free, the same corpse goes");
+      },
+      { SUBSTRATE_MERGE_QUEUE_LOCK_WAIT: "1" },
+    );
+  });
+}
+
+test("assemble stamps its own shell, never a foreign train's merge-lock holder", () => {
+  withRig((rig) => {
+    makeBranch(rig, "sub/foo");
+    queueOk(rig, "append", "sub/foo");
+    // Legal and ordinary: another train holds the merge lock while this
+    // coordinator picks its branches. Assembly happens BEFORE this train has a
+    // lock, so the holder is somebody else — borrowing its pid would give the
+    // marker the wrong identity and a liveness that outlives this coordinator
+    // by the whole of that train.
+    mkdirSync(rig.lockDir, { recursive: true });
+    writeFileSync(join(rig.lockDir, "pid"), `${process.pid}\n`);
+
+    // Run through an intermediate shell so the stamped $PPID is distinguishable
+    // from the lock holder, and record what that shell's pid was.
+    const shellPidFile = join(rig.repo, "outer.pid");
+    const res = spawnSync(
+      "bash",
+      // The trailing `exit` matters: bash execs the LAST command of a -c string
+      // into its own process, which would hand merge-queue.sh the node runner as
+      // its parent and collapse the two pids this test is telling apart.
+      [
+        "-c",
+        `echo $$ > "${shellPidFile}"; bash "${join(rig.repo, "scripts/merge-queue.sh")}" assemble; rc=$?; exit $rc`,
+      ],
+      { cwd: rig.repo, env: { ...process.env }, encoding: "utf8" },
+    );
+    assert.equal(res.status, 0, res.stderr);
+
+    const outerPid = readFileSync(shellPidFile, "utf8").trim();
+    const marker = readFileSync(join(assemblingDir(rig), markers(rig)[0]), "utf8");
+    assert.match(marker, new RegExp(`^pid=${outerPid}$`, "m"), "the shell that asked for the assembly");
+    assert.doesNotMatch(marker, new RegExp(`^pid=${process.pid}$`, "m"), "not the foreign train holding the lock");
+  });
+});
+
+test("a marker from another host is left alone however dead its pid looks", () => {
+  withRig((rig) => {
+    makeBranch(rig, "sub/foo");
+    queueOk(rig, "append", "sub/foo");
+    writeMarker(rig, { host: "some-other-machine", pid: deadPid(), tree: "/elsewhere/lane" });
+
+    const res = queueOk(rig, "claim");
+    assert.match(res.stderr, /ASSEMBLING by some-other-machine:/, "another host's pid number means nothing here");
+    assert.equal(markers(rig).length, 1, "so it is reported, never reaped");
+    queueOk(rig, "prune");
+    assert.equal(markers(rig).length, 1);
+  });
+});
+
+test("done clears the marker only once the queue has nothing left to build with", () => {
+  withRig((rig) => {
+    makeBranch(rig, "sub/one");
+    makeBranch(rig, "sub/two");
+    queueOk(rig, "append", "sub/one");
+    queueOk(rig, "append", "sub/two");
+    queueOk(rig, "assemble");
+    queueOk(rig, "claim");
+
+    queueOk(rig, "done", "sub/one");
+    assert.equal(markers(rig).length, 1, "a train mid-integration is still a train — the sign stays up");
+
+    queueOk(rig, "drop", "sub/two", "--reason", "red union");
+    assert.equal(markers(rig).length, 0, "and comes down when there is nothing left to assemble");
+  });
+});
+
+test("release takes the assembly marker down with the claims it hands back", () => {
+  withRig((rig) => {
+    makeBranch(rig, "sub/foo");
+    queueOk(rig, "append", "sub/foo");
+    queueOk(rig, "assemble");
+    queueOk(rig, "claim");
+
+    const res = queueOk(rig, "release");
+    assert.match(res.stderr, /cleared this worktree's assembly marker/);
+    assert.equal(markers(rig).length, 0, "a train that gave its branches back is not assembling one");
+    assert.equal(entriesIn(pendingDir(rig)).length, 1);
+  });
+});
+
+test("release --all sweeps assembly markers left on this host too", () => {
+  withRig((rig) => {
+    makeBranch(rig, "sub/foo");
+    queueOk(rig, "append", "sub/foo");
+    // Live, and belonging to a lane this run is not: only the "that train is
+    // gone, sweep up after it" hatch is allowed to touch one.
+    writeMarker(rig, { pid: process.pid, tree: "/tmp/lane-a" });
+    queueOk(rig, "claim");
+
+    queueOk(rig, "release");
+    assert.equal(markers(rig).length, 1, "a plain release only ever ends its own advertisement");
+
+    queueOk(rig, "release", "--all");
+    assert.equal(markers(rig).length, 0);
+  });
+});
+
+test("prune reaps a dead coordinator's marker and counts it", () => {
+  withRig((rig) => {
+    queueOk(rig, "list");
+    writeMarker(rig, { pid: deadPid(), tree: "/tmp/lane-dead" });
+    writeMarker(rig, { pid: process.pid, tree: "/tmp/lane-live" });
+
+    const res = queueOk(rig, "prune");
+    assert.match(res.stdout, /pruned 1 file\(s\)/);
+    assert.deepEqual(markers(rig), [`${HOST}.__tmp__lane-live.marker`], "a live coordinator's sign is not litter");
+  });
+});
+
+test("notify tells a train taking the lock that someone else is already assembling", () => {
+  withRig((rig) => {
+    // No pending entries at all: notify used to be silent here, and "empty
+    // queue" is exactly the reading that makes a second coordinator start.
+    writeMarker(rig, { pid: process.pid, tree: "/tmp/lane-a" });
+    const res = queueOk(rig, "notify");
+    assert.equal(res.status, 0, "notify never fails the merge it is only reporting on");
+    assert.match(res.stderr, /a train is already being built from this queue/);
+  });
+});
+
+test("a marker is complete when it appears — no reader ever sees a half-written one", () => {
+  withRig((rig) => {
+    queueOk(rig, "assemble");
+    // Written to tmp/ and renamed, like every other state change here. The
+    // observable consequence: nothing under assembling/ is ever a partial file,
+    // and a tmp scrap is invisible to every reader.
+    assert.deepEqual(readdirSync(assemblingDir(rig)), markers(rig));
+    assert.deepEqual(readdirSync(join(rig.queue, "tmp")), []);
+    const marker = readFileSync(join(assemblingDir(rig), markers(rig)[0]), "utf8");
+    for (const key of ["host", "pid", "worktree", "started_at", "started_epoch", "note"]) {
+      assert.match(marker, new RegExp(`^${key}=`, "m"), `${key} is there the instant the marker is`);
+    }
   });
 });
 

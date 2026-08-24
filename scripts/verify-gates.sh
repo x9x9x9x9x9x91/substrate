@@ -29,7 +29,10 @@
 # deliberately not a skip: a leg that skips itself reads as green and would
 # recreate exactly the blindness this gate exists to close.
 # Exit 0 only if every requested gate passed; per-gate logs are kept in a
-# temp dir named at the end for anything that needs a closer look.
+# temp dir named at the end for anything that needs a closer look. Exit 2 is
+# a usage or worktree-state refusal and exit 3 is an incomplete host toolchain
+# (see the preflight below) — both are distinct from exit 1, which means a
+# gate actually ran and went red.
 set -uo pipefail
 
 # shellcheck source=scripts/lib/checkout-guard.sh
@@ -58,11 +61,22 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Normalise --only while validating: every gate decision below matches on
+# ",$ONLY," against ",$g,", so a spelling the loop accepts but the case never
+# matches — `--only "test cargo"`, which word-splits fine here — would run the
+# legs it names while silently skipping every guard keyed off the same list,
+# the preflight below included. Padded and space-separated spellings therefore
+# become the same canonical csv rather than being rejected; a typo is still a
+# loud exit 2.
+ONLY_NORM=""
 for g in ${ONLY//,/ }; do
   case "$g" in tsc|test|cargo|ios|e2e|lint|macsmoke) ;; *)
     echo "verify-gates: unknown gate '$g' (valid: tsc,test,cargo,ios,e2e,lint,macsmoke)" >&2; exit 2 ;;
   esac
+  ONLY_NORM+="${ONLY_NORM:+,}$g"
 done
+[[ -n "$ONLY_NORM" ]] || { echo "verify-gates: --only selected no gates" >&2; exit 2; }
+ONLY="$ONLY_NORM"
 
 HEAD_SHA="$(git rev-parse HEAD)"
 if [[ -n "$REF" ]]; then
@@ -81,6 +95,51 @@ fi
 if [[ ! -x node_modules/.bin/eslint ]]; then
   echo "verify-gates: node_modules incomplete in this worktree — run 'npm ci' first (a fresh worktree ships without deps)" >&2
   exit 2
+fi
+
+# ── rig toolchain preflight ────────────────────────────────────────────────
+# A gate host missing a build tool does not fail as a machine problem. It
+# fails as a red gate on whatever branch happens to run next: one rig had no
+# cmake on the gate-run PATH, the test leg's share-mirror --push build died in
+# whisper-rs-sys's build script, and every sha that rig drew wore a red `test`
+# leg it had nothing to do with — twenty minutes of log reading for a
+# machine-environmental cause (2026-08-19). Nothing asserted rig toolchain
+# completeness, so the gap could only surface that way.
+#
+# So the tools the REQUESTED legs need are asserted here, before a suite
+# burns, with a named refusal and the provisioning command. Deliberately
+# before the gates lock below: a rig that cannot run the battery should say so
+# instantly, not after queueing behind someone else's.
+#
+# Scoped by leg and by host class rather than asserted wholesale, so a
+# `--only lint` run on a machine without the full rig stack still works.
+PREFLIGHT_MISSING=""
+PREFLIGHT_NAMES=""
+preflight_need() { # tool, why it is needed
+  command -v "$1" >/dev/null 2>&1 && return 0
+  PREFLIGHT_NAMES="${PREFLIGHT_NAMES:+$PREFLIGHT_NAMES, }$1"
+  PREFLIGHT_MISSING="$PREFLIGHT_MISSING  - $1 — $2
+"
+}
+
+# cmake builds whisper.cpp for whisper-rs-sys, which the engine takes as a
+# cfg(target_os = "macos") dependency — a Darwin-host requirement, and
+# provably not a Linux one, since a Linux host never compiles that cfg.
+# Three legs reach it: cargo and macsmoke compile the mac tree directly, and
+# the test leg reaches it through share-mirror.sh --push, whose publish path
+# runs `cargo check` over the stripped tree.
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  case ",$ONLY," in
+    *,test,*|*,cargo,*|*,macsmoke,*)
+      preflight_need cmake "whisper-rs-sys compiles whisper.cpp with it; the Command Line Tools do not ship one" ;;
+  esac
+fi
+
+if [[ -n "$PREFLIGHT_MISSING" ]]; then
+  echo "verify-gates: rig toolchain incomplete: missing $PREFLIGHT_NAMES — run scripts/setup-substrate-rig.sh <rig>" >&2
+  printf '%s' "$PREFLIGHT_MISSING" >&2
+  echo "  Refusing before any gate leg runs: a build tool absent from the gate PATH reds a leg on whatever branch is under test, which reads as a code fault and is not one." >&2
+  exit 3
 fi
 
 # Local gate runs serialize machine-wide (with-gates-lock.sh, the 2026-07-31

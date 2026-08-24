@@ -149,6 +149,13 @@ const XCRUN_STUB = String.raw`#!/usr/bin/env bash
 echo /fake/iPhoneOS.sdk
 `;
 
+// The toolchain preflight probes for cmake before the mac-compiling legs run,
+// so every harness here carries one: whether this suite's host happens to have
+// cmake is not what any test below is about.
+const CMAKE_STUB = String.raw`#!/usr/bin/env bash
+echo "cmake version 3.31.0 (stub)"
+`;
+
 type Repo = { dir: string; bin: string; fixtures: string };
 
 function makeRepo(dir: string): Repo {
@@ -175,7 +182,7 @@ function makeRepo(dir: string): Repo {
     writeFileSync(join(bin, tool), TOOL_STUB);
     chmodSync(join(bin, tool), 0o755);
   }
-  for (const [tool, body] of [["rustc", RUSTC_STUB], ["xcrun", XCRUN_STUB]]) {
+  for (const [tool, body] of [["rustc", RUSTC_STUB], ["xcrun", XCRUN_STUB], ["cmake", CMAKE_STUB]]) {
     writeFileSync(join(bin, tool), body);
     chmodSync(join(bin, tool), 0o755);
   }
@@ -482,6 +489,8 @@ function makeSmokeRepo(unameSays: string): SmokeRepo {
   chmodSync(join(bin, "uname"), 0o755);
   writeFileSync(join(bin, "cargo"), `#!/usr/bin/env bash\necho "cargo $*" >> "${cargoLog}"\nexit 0\n`);
   chmodSync(join(bin, "cargo"), 0o755);
+  writeFileSync(join(bin, "cmake"), CMAKE_STUB);
+  chmodSync(join(bin, "cmake"), 0o755);
   return { dir, repo, bin, cargoLog };
 }
 
@@ -544,6 +553,177 @@ test("macsmoke collapses to the check when cargo shares the battery — the test
     assert.equal(calls.filter((c) => /^cargo test --lib/.test(c)).length, 1, calls.join("\n"));
     assert.equal(calls.filter((c) => /^cargo check --all-targets/.test(c)).length, 1, calls.join("\n"));
     assert.match(res.stdout, /test half = cargo leg on this host/);
+  } finally {
+    rmSync(r.dir, { recursive: true, force: true });
+  }
+});
+
+// ── The rig toolchain preflight ───────────────────────────────────────────
+// A gate host missing a build tool used to surface as a red gate on an
+// innocent branch: a rig with no cmake on the gate-run PATH failed the test
+// leg's share-mirror --push build of whisper-rs-sys at every sha it drew, and
+// the red read as a code fault (2026-08-19). The preflight turns that into a
+// named refusal before any leg runs. Two promises, both tested here:
+//   1. a required tool absent → non-zero, names the tool, and no leg ran
+//   2. the same invocation on a complete toolchain → straight past it
+// The harness pins the host class with a uname stub and builds PATH from
+// scratch, so "cmake is missing" is a property of the fixture and not of
+// whichever machine runs this suite.
+type PreflightRepo = { dir: string; repo: string; bin: string; ranLog: string };
+
+function makePreflightRepo(unameSays: string, withCmake: boolean): PreflightRepo {
+  const dir = mkdtempSync(join(tmpdir(), "substrate-preflight-"));
+  const repo = join(dir, "repo");
+  mkdirSync(join(repo, "scripts/lib"), { recursive: true });
+  cpSync(join(ROOT, "scripts/verify-gates.sh"), join(repo, "scripts/verify-gates.sh"));
+  cpSync(join(ROOT, "scripts/lib/checkout-guard.sh"), join(repo, "scripts/lib/checkout-guard.sh"));
+  mkdirSync(join(repo, "node_modules/.bin"), { recursive: true });
+  writeFileSync(join(repo, "node_modules/.bin/eslint"), "#!/usr/bin/env bash\nexit 0\n");
+  chmodSync(join(repo, "node_modules/.bin/eslint"), 0o755);
+
+  const git = (...args: string[]) => execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" });
+  git("init", "-q", "-b", "main");
+  git("config", "user.name", "Gate Test");
+  git("config", "user.email", "gate@example.test");
+  git("add", "-A");
+  git("commit", "-qm", "tooling");
+
+  const bin = join(dir, "bin");
+  mkdirSync(bin);
+  const ranLog = join(dir, "ran.log");
+  writeFileSync(join(bin, "uname"), `#!/usr/bin/env bash\necho "${unameSays}"\n`);
+  chmodSync(join(bin, "uname"), 0o755);
+  // Every leg's tool records that it was reached, so "before any gate leg
+  // runs" is asserted against what executed rather than against the wording.
+  for (const tool of ["npm", "npx", "cargo"]) {
+    writeFileSync(join(bin, tool), `#!/usr/bin/env bash\necho "${tool} $*" >> "${ranLog}"\nexit 0\n`);
+    chmodSync(join(bin, tool), 0o755);
+  }
+  if (withCmake) {
+    writeFileSync(join(bin, "cmake"), "#!/usr/bin/env bash\necho 'cmake version 3.31.0 (stub)'\n");
+    chmodSync(join(bin, "cmake"), 0o755);
+  }
+  return { dir, repo, bin, ranLog };
+}
+
+function runPreflight(r: PreflightRepo, only: string) {
+  return spawnSync("bash", [join(r.repo, "scripts/verify-gates.sh"), "--only", only], {
+    cwd: r.repo,
+    env: {
+      // PATH is built from scratch, NOT inherited: an inherited one carries
+      // this machine's Homebrew, and then the missing-tool fixture would only
+      // be missing on machines that happen to lack it.
+      PATH: `${r.bin}:/usr/bin:/bin:/usr/sbin:/sbin`,
+      HOME: r.dir,
+      SUBSTRATE_GATES_LOCK_HELD: "1",
+      SUBSTRATE_ALLOW_STALE_SCRIPTS: "1",
+    },
+    encoding: "utf8",
+  });
+}
+
+function preflightToolCalls(r: PreflightRepo): string[] {
+  try {
+    return readFileSync(r.ranLog, "utf8").trim().split("\n").filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+test("a Mac rig without cmake refuses the battery by name, before any leg runs", () => {
+  const r = makePreflightRepo("Darwin", false);
+  try {
+    const res = runPreflight(r, "test");
+    // Exit 3, not 1: this is a host that cannot run the battery, and a caller
+    // must be able to tell it apart from a gate that ran and went red.
+    assert.equal(res.status, 3, res.stdout + res.stderr);
+    assert.match(res.stderr, /rig toolchain incomplete: missing cmake/);
+    assert.match(res.stderr, /setup-substrate-rig\.sh/);
+    // The whole point: no suite burned, so no branch wears a phantom red.
+    assert.deepEqual(preflightToolCalls(r), []);
+    assert.doesNotMatch(res.stdout, /── test:/);
+  } finally {
+    rmSync(r.dir, { recursive: true, force: true });
+  }
+});
+
+test("the same run on a complete toolchain goes straight past the preflight", () => {
+  const r = makePreflightRepo("Darwin", true);
+  try {
+    const res = runPreflight(r, "test");
+    assert.equal(res.status, 0, res.stdout + res.stderr);
+    assert.doesNotMatch(res.stderr, /rig toolchain incomplete/);
+    assert.match(res.stdout, /── test: npm test/);
+    assert.deepEqual(preflightToolCalls(r), ["npm test"]);
+  } finally {
+    rmSync(r.dir, { recursive: true, force: true });
+  }
+});
+
+test("the preflight asks only for what the requested legs need", () => {
+  // cmake is reached by the legs that compile the mac tree — cargo and
+  // macsmoke directly, test through share-mirror --push. A lint-only run
+  // compiles nothing, so a rig without cmake must still be allowed to run it.
+  const r = makePreflightRepo("Darwin", false);
+  try {
+    const res = runPreflight(r, "lint");
+    assert.equal(res.status, 0, res.stdout + res.stderr);
+    assert.doesNotMatch(res.stderr, /rig toolchain incomplete/);
+    assert.deepEqual(preflightToolCalls(r), ["npm run lint"]);
+  } finally {
+    rmSync(r.dir, { recursive: true, force: true });
+  }
+});
+
+test("a space-separated --only still reaches the preflight, not past it", () => {
+  // Every gate decision matches on ",$ONLY," — so before --only was
+  // normalised, `--only "test cargo"` ran both legs while the preflight's own
+  // case matched nothing and skipped itself: exactly the phantom red the
+  // preflight exists to prevent, reachable by a spelling the validator
+  // accepted.
+  const r = makePreflightRepo("Darwin", false);
+  try {
+    const res = runPreflight(r, "test cargo");
+    assert.equal(res.status, 3, res.stdout + res.stderr);
+    assert.match(res.stderr, /rig toolchain incomplete: missing cmake/);
+    assert.deepEqual(preflightToolCalls(r), []);
+  } finally {
+    rmSync(r.dir, { recursive: true, force: true });
+  }
+});
+
+test("a padded --only is normalised too, and still runs the legs it names", () => {
+  const r = makePreflightRepo("Darwin", true);
+  try {
+    const res = runPreflight(r, "test, cargo");
+    assert.equal(res.status, 0, res.stdout + res.stderr);
+    assert.deepEqual(preflightToolCalls(r), ["npm test", "cargo test --lib --manifest-path src-tauri/Cargo.toml"]);
+  } finally {
+    rmSync(r.dir, { recursive: true, force: true });
+  }
+});
+
+test("an --only naming no gate at all is a loud refusal, not a silent green", () => {
+  const r = makePreflightRepo("Darwin", true);
+  try {
+    const res = runPreflight(r, "  ");
+    assert.equal(res.status, 2, res.stdout + res.stderr);
+    assert.match(res.stderr, /--only selected no gates/);
+    assert.deepEqual(preflightToolCalls(r), []);
+  } finally {
+    rmSync(r.dir, { recursive: true, force: true });
+  }
+});
+
+test("a Linux rig is not asked for cmake — it never compiles the macOS cfg", () => {
+  // whisper-rs sits under [target.'cfg(target_os = "macos")'], so requiring
+  // cmake there would refuse a rig that is in fact perfectly gate-ready.
+  const r = makePreflightRepo("Linux", false);
+  try {
+    const res = runPreflight(r, "test,cargo");
+    assert.equal(res.status, 0, res.stdout + res.stderr);
+    assert.doesNotMatch(res.stderr, /rig toolchain incomplete/);
+    assert.deepEqual(preflightToolCalls(r), ["npm test", "cargo test --lib --manifest-path src-tauri/Cargo.toml"]);
   } finally {
     rmSync(r.dir, { recursive: true, force: true });
   }
