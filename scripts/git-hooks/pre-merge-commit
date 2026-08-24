@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+
+# pre-merge-commit — the merge-commit half of the main merge-lock guard.
+# git does not run pre-commit for an automatic merge commit, so `git merge`
+# would otherwise walk straight past the check pre-commit makes.
+
+set -u
+
+# The hook runs from .git/hooks as a symlink into this repo's
+# scripts/git-hooks; resolve the link so the shared guard is sourced from the
+# tree the hook itself came from, not from .git/hooks. The hop cap keeps a
+# hand-made symlink cycle from hanging every merge; past it the hook steps
+# aside the same way it does when resolution fails.
+hook_self="${BASH_SOURCE[0]}"
+hook_hops=0
+while [[ -L "$hook_self" ]]; do
+  hook_hops=$((hook_hops + 1))
+  if [[ $hook_hops -gt 8 ]]; then
+    printf 'note: pre-merge-commit hook symlink chain exceeds 8 hops — guard skipped; reinstall with: npm run hooks:install\n' >&2
+    exit 0
+  fi
+  hook_link="$(readlink "$hook_self")"
+  case "$hook_link" in
+    /*) hook_self="$hook_link" ;;
+    *) hook_self="$(dirname "$hook_self")/$hook_link" ;;
+  esac
+done
+hook_dir="$(cd "$(dirname "$hook_self")" 2>/dev/null && pwd -P)" || exit 0
+guard_lib="$hook_dir/lib/merge-lock-guard.sh"
+if [[ ! -r "$guard_lib" ]]; then
+  printf 'ERROR: hook cannot read %s — reinstall with: npm run hooks:install\n' "$guard_lib" >&2
+  exit 1
+fi
+# shellcheck source=scripts/git-hooks/lib/merge-lock-guard.sh
+. "$guard_lib"
+merge_lock_guard
+
+exit 0

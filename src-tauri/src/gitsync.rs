@@ -2371,6 +2371,19 @@ fn stage_side(index: &mut git2::Index, path: &str, side: &ConflictSide) -> Resul
 /// The local side is judged from the merge index rather than from disk: a
 /// conflicted pull has not checked anything out, so the index is what the
 /// commit actually holds, and disk could carry an edit not yet snapshotted.
+///
+/// `.vault/views.json` is the one path adopted on a first join whatever its
+/// local bytes say. Its content is not a shipped text the app could recognize —
+/// it is layout state derived from what the vault holds and what the window did
+/// (sidebar order, per-database layout), so a fresh device writes a different
+/// file than the next one and no revision list can vouch for it. What that file
+/// records is also the weakest thing either side could be holding: which pane a
+/// database opens in, in what order the sidebar lists things. A device joining
+/// someone's vault is adopting that vault, view state included, and asking a
+/// brand-new user to arbitrate a merge on an internal file they have never seen
+/// is the worst first screen the app has. A real divergence — two synced
+/// devices that both changed their layout — carries an ancestor and still
+/// parks, because this whole loop skips conflicts that have one.
 fn adopt_untouched_seed_conflicts(
     repo: &Repository,
     merged: &mut git2::Index,
@@ -2390,6 +2403,10 @@ fn adopt_untouched_seed_conflicts(
             continue;
         };
         let path = String::from_utf8_lossy(&ours.path).into_owned();
+        if path == crate::vault::ViewPref::REL_PATH {
+            adopt.push((path, side(repo, Some(theirs))?));
+            continue;
+        }
         let ours = side(repo, Some(ours))?;
         let Some(text) = ours.text.as_deref() else {
             // binary local side — the app seeds no such thing
@@ -6315,6 +6332,82 @@ mod tests {
         // note just written — the belt path keeps its history rather than
         // adopting the remote's wholesale the way the unborn arm does
         assert_eq!(sync_push(&b, &credentials_b).unwrap().pushed, 3);
+    }
+
+    /// A joining device must never be shown a conflict on its own layout file.
+    ///
+    /// Writing `.vault/views.json` takes no deliberate act — opening a database
+    /// once records which pane it opened in — so a device that got as far as a
+    /// snapshot before joining arrives carrying one, and the vault it joins has
+    /// one too. Nobody chose either side, the file is internal, and the person
+    /// looking at the resulting conflict screen has been using the app for a
+    /// minute. The first join adopts the vault's copy instead.
+    #[test]
+    fn a_first_join_adopts_the_remote_layout_file_instead_of_parking_it() {
+        let remote = populated_remote(&[
+            ("Welcome.md", "the real vault's own Welcome\n"),
+            (".vault/views.json", "{\n  \"albums\": {\n    \"view\": \"board\"\n  }\n}\n"),
+        ]);
+        let b = remote.scratch.path().join("b");
+        // the app's own first boot: opening a database records its layout,
+        // which is what writes `.vault/views.json` on a device nobody has
+        // deliberately configured yet
+        {
+            let engine = crate::vault::Engine::new(b.clone());
+            engine.create_type("trips", Vec::new()).unwrap();
+            engine
+                .set_view_pref(
+                    "trips", "table", None, None, None, None, None, None, None, None, None, None,
+                    None,
+                )
+                .unwrap();
+        }
+        let history_b = owned(&b);
+        let credentials_b = remote.scratch.path().join("config-b/sync.json");
+        configure(&b, &credentials_b, &remote.bare);
+        // tracked content under `.vault/`, so this device borns HEAD before it
+        // ever reaches the remote — the add/add the belt has to answer
+        assert!(history_b.snapshot("snapshot").unwrap());
+
+        let report = sync_pull(&b, &credentials_b).unwrap();
+
+        assert!(
+            report.conflicted.is_empty(),
+            "a fresh device was parked on its own layout file: {:?}",
+            report.conflicted
+        );
+        assert!(!sync_conflicts(&b).unwrap().active, "the join left a divergence parked");
+        let views = fs::read_to_string(b.join(".vault/views.json")).unwrap();
+        assert!(views.contains("albums"), "the vault's own layout was not adopted: {views}");
+        assert!(!views.contains("trips"), "the joining device's layout survived: {views}");
+        assert_eq!(
+            fs::read_to_string(b.join("Welcome.md")).unwrap(),
+            "the real vault's own Welcome\n"
+        );
+        assert_clean(&b);
+    }
+
+    /// The other half of the same rule: two devices that already share this
+    /// vault's history and both changed their layout have a real disagreement,
+    /// and it parks like any other. The first-join adoption keys off the
+    /// missing ancestor, not off the path.
+    #[test]
+    fn a_shared_history_layout_divergence_still_parks() {
+        let pair = paired_vaults(&[
+            ("Note.md", "base body\n"),
+            (".vault/views.json", "{\n  \"albums\": {\n    \"view\": \"table\"\n  }\n}\n"),
+        ]);
+        let report = pair.diverge(
+            &[(".vault/views.json", "{\n  \"albums\": {\n    \"view\": \"board\"\n  }\n}\n")],
+            &[(".vault/views.json", "{\n  \"albums\": {\n    \"view\": \"gallery\"\n  }\n}\n")],
+        );
+
+        assert_eq!(
+            report.conflicted,
+            vec![".vault/views.json".to_string()],
+            "a real layout divergence was swallowed"
+        );
+        assert!(sync_conflicts(&pair.b).unwrap().active);
     }
 
     /// The delete walk's half of the same rule, directly: even a vault that did

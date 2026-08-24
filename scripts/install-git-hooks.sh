@@ -13,7 +13,7 @@ source_dir="$repo_root/scripts/git-hooks"
 
 mkdir -p "$hooks_dir"
 
-for hook in post-checkout pre-commit; do
+for hook in post-checkout pre-commit pre-merge-commit; do
   source_path="$source_dir/$hook"
   target_path="$hooks_dir/$hook"
 

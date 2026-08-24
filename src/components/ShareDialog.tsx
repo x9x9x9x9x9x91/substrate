@@ -2,22 +2,17 @@ import { useEffect, useState } from "react";
 import type { NoteMeta } from "../lib/types";
 import SendLinkDialog from "./SendLinkDialog";
 
-/* One "share this" door. Sharing had grown four front doors — a link, a lens,
-   a letterbox, a published folder — that already sit on the same relay, the
-   same sealed wire format and the same relay secret; only the shape of the
-   sharing differed. They are modes now: one dialog, one picker, and each mode
+/* One "share this" door. Sharing had grown three front doors — a link, a lens
+   and a letterbox — that already sit on the same relay, the same sealed wire
+   format and the same relay secret; only the shape of the sharing differed. They are modes now: one dialog, one picker, and each mode
    is the surface it always was, unchanged in behaviour.
 
    The picker only appears when there is a choice to make, so a build that
    carries a single mode shows that mode's dialog exactly as before. */
 
-export type ShareMode = "link" | "lens" | "letterbox" | "publish";
+export type ShareMode = "link" | "lens" | "letterbox";
 
-/* `whole` marks a mode that acts on the note's whole folder rather than the
-   note. The door's title says what it is about to share, and a mode that
-   publishes a folder while the title names one note reads as an offer to
-   share that note. */
-const MODES: { id: ShareMode; label: string; hint: string; whole?: "folder" }[] = [
+const MODES: { id: ShareMode; label: string; hint: string }[] = [
   { id: "link", label: "Send as link", hint: "one sealed copy, expires" },
 ];
 
@@ -49,7 +44,7 @@ export default function ShareDialog({
   }, [onClose]);
 
   const picked = MODES.find((m) => m.id === mode) ?? MODES[0];
-  const target = picked.whole === "folder" ? meta.folder || "the vault root" : meta.title;
+  const target = meta.title;
 
   /* Letterbox is the one mode with two columns of settings to show, so it asks
      for a wider door. Only builds that carry that mode carry the class, which

@@ -599,10 +599,15 @@ function makePreflightRepo(unameSays: string, withCmake: boolean): PreflightRepo
     writeFileSync(join(bin, tool), `#!/usr/bin/env bash\necho "${tool} $*" >> "${ranLog}"\nexit 0\n`);
     chmodSync(join(bin, tool), 0o755);
   }
-  if (withCmake) {
-    writeFileSync(join(bin, "cmake"), "#!/usr/bin/env bash\necho 'cmake version 3.31.0 (stub)'\n");
-    chmodSync(join(bin, "cmake"), 0o755);
-  }
+  // The no-cmake fixture writes a cmake that FAILS rather than leaving one
+  // out: PATH still ends in the system directories, and a rig that ships
+  // /usr/bin/cmake would otherwise satisfy the preflight and never reach the
+  // refusal this asserts.
+  writeFileSync(
+    join(bin, "cmake"),
+    withCmake ? "#!/usr/bin/env bash\necho 'cmake version 3.31.0 (stub)'\n" : "#!/usr/bin/env bash\nexit 1\n",
+  );
+  chmodSync(join(bin, "cmake"), 0o755);
   return { dir, repo, bin, ranLog };
 }
 

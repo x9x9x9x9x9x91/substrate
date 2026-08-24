@@ -116,7 +116,13 @@ fi
 PREFLIGHT_MISSING=""
 PREFLIGHT_NAMES=""
 preflight_need() { # tool, why it is needed
-  command -v "$1" >/dev/null 2>&1 && return 0
+  # Asserted by EXECUTION, not by lookup. A tool that is on PATH but cannot
+  # run reds the leg just as an absent one does, and — the reason this is
+  # shaped this way — a rig that ships its own copy of the tool would satisfy
+  # a lookup even when the run under test deliberately has none, so the
+  # refusal below could never be exercised there. Every tool asserted here
+  # answers `--version`.
+  "$1" --version >/dev/null 2>&1 && return 0
   PREFLIGHT_NAMES="${PREFLIGHT_NAMES:+$PREFLIGHT_NAMES, }$1"
   PREFLIGHT_MISSING="$PREFLIGHT_MISSING  - $1 — $2
 "

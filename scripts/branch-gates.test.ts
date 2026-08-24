@@ -99,3 +99,70 @@ test("the subset is emitted in verify-gates' canonical gate order", () => {
   // must interleave in canonical order, not concatenate per-tier.
   assert.equal(gatesFor("scripts/append-row.ts", "e2e/palette.spec.ts"), "tsc,test,e2e,lint");
 });
+
+// ── The auto-split plan ─────────────────────────────────────────────────────
+// --print-plan takes the fleet answer as a VALUE (--mac-free 0|1) instead of
+// probing, so the split decision is exercised here without a rig anywhere near
+// the test: no ssh, no launch, no wall clock.
+function planFor(macFree: "0" | "1", ...files: string[]): string[] {
+  const out = execFileSync(
+    "bash",
+    [SCRIPT, "--print-plan", "--mac-free", macFree, "--classify", ...files],
+    { encoding: "utf8" },
+  );
+  return out
+    .split("\n")
+    .filter((l) => l.startsWith("branch-gates: plan") || l.startsWith("branch-gates: leg"));
+}
+
+test("a set needing a Mac splits when no Mac is free: linux-servable leg, mac-only leg", () => {
+  assert.deepEqual(planFor("0", "src-tauri/src/lib.rs"), [
+    "branch-gates: plan = split",
+    "branch-gates: leg A (linux-servable) = test,cargo",
+    "branch-gates: leg B (mac-only) = ios,macsmoke",
+  ]);
+  // The full seven cut the same way: five gates the Linux rigs can serve, and
+  // the two that need a Darwin host.
+  assert.deepEqual(planFor("0", "package.json"), [
+    "branch-gates: plan = split",
+    "branch-gates: leg A (linux-servable) = tsc,test,cargo,e2e,lint",
+    "branch-gates: leg B (mac-only) = ios,macsmoke",
+  ]);
+});
+
+test("a free Mac keeps the run single — one run beats two whenever it can be had", () => {
+  for (const f of ["src-tauri/src/lib.rs", "package.json"]) {
+    assert.deepEqual(planFor("1", f), ["branch-gates: plan = single"], f);
+  }
+});
+
+test("a set with no mac-only gate never splits, however busy the Macs are", () => {
+  // These sets had the Linux rigs as candidates all along — splitting them
+  // would buy a second run for nothing.
+  for (const f of ["src/lib/query.ts", "scripts/append-row.ts", "e2e/palette.spec.ts", "CHANGELOG.md"]) {
+    assert.deepEqual(planFor("0", f), ["branch-gates: plan = single"], f);
+  }
+});
+
+test("the two legs partition the classified subset — nothing dropped, nothing gated twice", () => {
+  const plan = planFor("0", "src/lib/query.ts", "src-tauri/src/lib.rs");
+  const legs = plan.filter((l) => l.startsWith("branch-gates: leg")).map((l) => l.split(" = ")[1]);
+  const gates = legs.flatMap((l) => l.split(","));
+  assert.equal(new Set(gates).size, gates.length, `a gate rides both legs: ${plan.join("\n")}`);
+  assert.deepEqual([...gates].sort(), FULL.split(",").sort(), plan.join("\n"));
+  // Each leg keeps verify-gates' canonical order, so --only never arrives padded
+  // or shuffled on either rig.
+  const canonical = (l: string) => FULL.split(",").filter((g) => l.split(",").includes(g)).join(",");
+  for (const leg of legs) assert.equal(leg, canonical(leg));
+});
+
+test("--print-plan without a fleet answer is a usage error, never a guessed plan", () => {
+  assert.throws(
+    () =>
+      execFileSync("bash", [SCRIPT, "--print-plan", "--classify", "src-tauri/src/lib.rs"], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      }),
+    (e: { status?: number }) => e.status === 2,
+  );
+});

@@ -593,6 +593,16 @@ merge_queue_notice() {
 merge_queue_notice
 
 
+# The handshake the main commit guard reads (scripts/git-hooks/lib/
+# merge-lock-guard.sh). That hook refuses a commit on main while another live
+# process holds this lock; the holder's OWN merge commit must still pass, and
+# it says so by carrying this token. It names the pid, not a secret: the hook
+# accepts it only when it equals the pid the lock file currently names, so a
+# token left over in some longer-lived environment goes stale the moment the
+# lock changes hands. Exported here, after the lock is in hand, so nothing
+# upstream of the claim can inherit it.
+export SUBSTRATE_MERGE_LOCK_PID="$$"
+
 status=0
 "$@" || status=$?
 

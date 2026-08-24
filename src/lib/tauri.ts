@@ -915,7 +915,6 @@ let mockCalendarFeeds: CalendarFeedConfig[] = [];
     the real app (app-config dir), in-memory here. */
 const mockExportTargets = new Map<string, string>();
 
-
 /** the consent state the reflexes settings section reads and writes.
     There is no rules file until a spec stages one — which is exactly the
     default the section hides itself on. `enabled` is the one-time per-vault

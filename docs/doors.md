@@ -8,9 +8,11 @@ doesn't exist — and that's a doc bug worth filing. The index describes the
 build it ships with: a door this build does not carry has no row here, because
 for this build it is not a door.
 
-The sharing doors are one door with modes — a note's row menu and ⌘K both offer
-a single **Share…**, and the mode picker inside it chooses what kind of sharing
-this is. They are listed as separate rows because each mode is its own contract.
+The sharing doors are one door — a note's row menu and ⌘K both offer a single
+**Share…**. Where a build carries more than one kind of sharing, a mode picker
+inside the door chooses between them; a build carrying one carries no picker and
+opens that mode directly. Each mode a build carries is listed as its own row
+below, because each mode is its own contract.
 
 ## Ways in
 
