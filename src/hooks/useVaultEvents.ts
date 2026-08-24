@@ -5,11 +5,13 @@ import { deeplinkTakePending } from "../lib/ipc";
 import { hotkeyRejectedMessage, type HotkeyRejection } from "../lib/hotkey";
 import { dropClaimedNear } from "../lib/dragdrop";
 import { basename } from "../lib/files";
+import { parseEverywhereView } from "../lib/everywhere";
 import { splitEcho } from "../lib/ownwrites";
 import { resetAudioSources } from "../lib/assets";
 import { refreshAudioPlayers } from "../lib/editor-widgets";
 import type { UndoAction } from "./useUndoStack";
 import type { ToastAction } from "./useToast";
+import type { View } from "../lib/types";
 
 /** payload of `app:open-sheet-row`: the sheet, the column that
     fired, and the row's label cell — the row identity the alert was keyed
@@ -28,6 +30,8 @@ export interface SheetRowTarget {
  * capture hotkey (capture:hotkey-rejected), a restore that buried a newer
  * external edit (history:restored-over-external), unclaimed Finder drops, and
  * notification/tray note opens (app:open-note, app:open-sheet-row).
+ * The everywhere palette jumping to a destination (app:open-view) rides here
+ * too.
  *
  * `lastOwnRefreshRef` is shared with App's `refresh` (it tags app-initiated
  * refreshes), so it stays in App and is passed in; `openNoteRef` is created
@@ -394,9 +398,30 @@ export function useVaultEvents(opts: {
     };
   }, []);
 
+  // the everywhere palette jumped to a destination rather than a note. Its
+  // own event for the same reason the sheet row has one, and the payload is
+  // checked here (`parseEverywhereView`) rather than trusted: a kind this
+  // build has no case for would show an empty pane.
+  const openViewRef = useRef<(view: View) => void>(() => {});
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    listen<unknown>("app:open-view", (e) => {
+      const view = parseEverywhereView(e.payload);
+      if (view) openViewRef.current(view);
+    }).then((un) => {
+      if (cancelled) un();
+      else unlisten = un;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
 
   return {
     openNoteRef,
     openSheetRowRef,
+    openViewRef,
   };
 }

@@ -3570,6 +3570,34 @@ button.empty-hint-fix:hover {
   background: var(--surface-faint);
 }
 
+/* Everywhere palette — the window quick capture pivots into. Same transparent-frame
+   deal as the tray popover: the window paints nothing, the `.palette` card
+   owns the background, border and 12px radius. */
+body.everywhere-window {
+  background: transparent;
+}
+
+/* The window is 620px wide, which is under the phone breakpoint — so that
+   breakpoint fires inside a DESKTOP window and strips the designed hints.
+   Same trap the tray popover and the capture window hit. */
+body.everywhere-window .palette-foot {
+  display: flex !important;
+}
+
+body.everywhere-window .palette-hint {
+  display: inline !important;
+}
+
+/* The result list is the window's flexible middle: it takes whatever the
+   input and the footer leave, rather than the overlay's fixed 380px ceiling,
+   and drops the overlay's bottom clearance — the footer is a sibling here,
+   not something rows scroll under. */
+body.everywhere-window .palette-results {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  padding-bottom: 6px;
+}
 
 /* Tray mini-agenda popover — palette chrome, greyscale rows; color
    only on meaning-carrying dots: due = yellow, overdue = red. */

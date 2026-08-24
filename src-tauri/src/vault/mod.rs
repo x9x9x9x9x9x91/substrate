@@ -1517,6 +1517,9 @@ pub struct Settings {
     /// the point of a voice note is that it costs one keypress while your
     /// hands are busy.
     pub voice_hotkey: String,
+    /// `palette-hotkey` — summon the everywhere palette (search the vault,
+    /// jump to a note or view, capture) over whatever app is frontmost.
+    pub palette_hotkey: String,
     pub close_to_tray: bool,
     /// `window-opacity` — how solid the app's own surfaces are over
     /// the desktop, in percent. Range 80–100; 100 = the opaque window.
@@ -1534,6 +1537,12 @@ impl Settings {
     /// Shift on the capture chord: adjacent enough to learn in one go, and
     /// free on a stock macOS keymap.
     pub const DEFAULT_VOICE_HOTKEY: &'static str = "alt+shift+space";
+    /// Empty on purpose: one global chord is the whole design. ⌥Space opens
+    /// capture, and ⌘K from inside that window pivots to this palette
+    /// carrying whatever was typed — so the palette needs no chord of its own
+    /// to compete for. Anyone who wants it back one gesture away sets
+    /// `Palette-Hotkey` in Settings; blank means the chord stays unregistered.
+    pub const DEFAULT_PALETTE_HOTKEY: &'static str = "";
     /// The floor exists for legibility, not taste: below it the app's text
     /// starts losing to a bright desktop behind the window.
     ///
@@ -1561,6 +1570,10 @@ impl Settings {
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| Self::DEFAULT_VOICE_HOTKEY.into());
+        let palette_hotkey = folded_prop_str(&props, "palette-hotkey")
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| Self::DEFAULT_PALETTE_HOTKEY.into());
         let close_to_tray = folded_prop_str(&props, "close-to-tray")
             .map(|s| s.trim().eq_ignore_ascii_case("true"))
             .unwrap_or(false);
@@ -1581,6 +1594,7 @@ impl Settings {
         Settings {
             capture_hotkey,
             voice_hotkey,
+            palette_hotkey,
             close_to_tray,
             window_opacity,
             experimental_context_capture,
@@ -5808,6 +5822,42 @@ mod tests {
         }
     }
 
+    #[test]
+    fn palette_hotkey_defaults_and_reads_its_own_row() {
+        let (_e, dir) = temp_vault("settings-palette");
+        // absent from the seeded note → no chord at all: the palette is
+        // reached by ⌘K from the capture window, so nothing is registered
+        // globally unless the reader asks for it
+        assert_eq!(Settings::load(&dir).palette_hotkey, "");
+        assert_eq!(Settings::DEFAULT_PALETTE_HOTKEY, "");
+        // and an unset chord can never collide with the two that are set:
+        // three chords share one handler, and a collision would make the
+        // first match swallow the others
+        assert_ne!(Settings::DEFAULT_PALETTE_HOTKEY, Settings::DEFAULT_HOTKEY);
+        assert_ne!(
+            Settings::DEFAULT_PALETTE_HOTKEY,
+            Settings::DEFAULT_VOICE_HOTKEY
+        );
+
+        // its own row, case-folded, independent of the neighbouring chords
+        fs::write(
+            dir.join(Settings::REL_PATH),
+            "---\nvoice-hotkey: cmd+shift+v\nPalette-Hotkey: cmd+shift+o\n---\n",
+        )
+        .unwrap();
+        let s = Settings::load(&dir);
+        assert_eq!(s.palette_hotkey, "cmd+shift+o");
+        assert_eq!(s.voice_hotkey, "cmd+shift+v");
+
+        // blank reads as the default, which is itself blank — the chord stays
+        // unregistered rather than falling back onto some other gesture
+        fs::write(
+            dir.join(Settings::REL_PATH),
+            "---\npalette-hotkey: \"  \"\n---\n",
+        )
+        .unwrap();
+        assert_eq!(Settings::load(&dir).palette_hotkey, "");
+    }
 
     #[test]
     fn settings_defaults_overrides_and_garbage() {

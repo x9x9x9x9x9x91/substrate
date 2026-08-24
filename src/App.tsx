@@ -711,6 +711,7 @@ export default function App() {
   const {
     openNoteRef,
     openSheetRowRef,
+    openViewRef,
   } = useVaultEvents({
     refresh,
     refreshConfigs,
@@ -4858,6 +4859,12 @@ export default function App() {
     setMobileSidebarOpen(false);
   }, []);
 
+  /* The everywhere palette jumped to a destination. Same door the sidebar
+     and the ⌘K palette use, so a chord-driven jump lands exactly where a
+     click would — including the mobile chrome the door resets. */
+  useEffect(() => {
+    openViewRef.current = navigateFromMobileChrome;
+  }, [navigateFromMobileChrome, openViewRef]);
 
   const closeMobileDetail = () => {
     if (dbNoteMeta) {

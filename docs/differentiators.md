@@ -252,6 +252,11 @@ Capacities, Affine).*
   the notes are the configuration (`cookbook/jobs/`).
 - **Global capture** — ⌥Space from any app, menu-bar tray, zero-decision
   Inbox.
+- **A palette that reaches the vault from anywhere** — the same ⌥Space that
+  opens capture over any app pivots on ⌘K into a search of your notes, a jump
+  to a destination in the main window, or a line filed to the Inbox, without
+  switching to Substrate first. One gesture to remember, and whatever you had
+  typed comes along.
 - **Voice capture that stays a markdown note** — a global chord records from
   anywhere, and what lands in the Inbox is one ordinary note plus one audio
   file sharing its stem: the transcript is plain prose in the body, the

@@ -323,6 +323,15 @@ struct RuntimeState {
     /// `active_hotkey` above.
     #[cfg(target_os = "macos")]
     active_voice_hotkey: String,
+    /// The everywhere-palette chord that is actually registered, same
+    /// contract as `active_hotkey` above.
+    active_palette_hotkey: String,
+    /// Query the palette should open with, parked here between the show call
+    /// and the window pulling it — the pivot out of quick capture is the only
+    /// thing that fills it. Read without consuming (`palette_seed_query`), so
+    /// the window's own repeated resets converge on the text, not on the
+    /// clear that precedes them.
+    palette_seed: String,
     /// The opacity the window material was last installed for. `None`
     /// until the first apply, so a vault whose note already says 100 still
     /// takes the (no-op, material-free) path once rather than never running.
@@ -428,10 +437,58 @@ fn toggle_capture(app: &tauri::AppHandle) {
         arm_context_snapshot(app);
         w.center().ok();
         w.show().ok();
+        // tao's `set_focus` ends in `activateIgnoringOtherApps:`, which raises
+        // Substrate over whatever the user was typing in — and, once the app
+        // is active, hiding this window (⌘K pivots to the palette) surfaces
+        // the main window behind it. The panel takes keys on its own.
+        #[cfg(target_os = "macos")]
+        if let Ok(ns_window) = w.ns_window() {
+            unsafe { panel::make_key(ns_window) };
+        }
+        #[cfg(not(target_os = "macos"))]
         w.set_focus().ok();
     }
 }
 
+/// The everywhere palette: a floating search-and-jump window summoned from
+/// whatever app you are in. Same show/hide contract as quick capture, and on
+/// macOS the window is a non-activating panel (see the builder below), so
+/// summoning it leaves the app you were typing in frontmost until you pick a
+/// destination.
+#[cfg(desktop)]
+fn toggle_palette(app: &tauri::AppHandle) {
+    if let Some(w) = app.get_webview_window("palette") {
+        if w.is_visible().unwrap_or(false) {
+            w.hide().ok();
+            return;
+        }
+    }
+    show_palette(app, String::new());
+}
+
+/// Show the palette with `seed` already in its box. The palette clears itself
+/// on every show, so the seed is parked in the runtime for the window to pull
+/// once it has finished resetting — see `palette_seed_query`. Summoned by
+/// chord or tray the seed is empty; ⌘K out of quick capture hands over
+/// whatever was typed there, so the pivot costs no keystrokes.
+#[cfg(desktop)]
+pub(crate) fn show_palette(app: &tauri::AppHandle, seed: String) {
+    let Some(w) = app.get_webview_window("palette") else {
+        return;
+    };
+    app.state::<SharedRuntime>().0.lock().unwrap().palette_seed = seed;
+    w.center().ok();
+    w.show().ok();
+    // tao's `set_focus` ends in `activateIgnoringOtherApps:`, which would
+    // raise Substrate over the app the user is working in — the whole point
+    // of this window is that it doesn't. The panel takes keys on its own.
+    #[cfg(target_os = "macos")]
+    if let Ok(ns_window) = w.ns_window() {
+        unsafe { panel::make_key(ns_window) };
+    }
+    #[cfg(not(target_os = "macos"))]
+    w.set_focus().ok();
+}
 
 /// The voice chord: press once to start capturing, press again to stop and
 /// file. Deliberately window-free — the whole value of a voice note is that it
@@ -469,6 +526,13 @@ fn toggle_voice(app: &tauri::AppHandle) {
     });
 }
 
+/// Everywhere-palette geometry, logical px. Fixed: the window is a search
+/// box over a scrolling result list, so its height is the list's ceiling
+/// rather than a measurement of it.
+#[cfg(desktop)]
+pub(crate) const PALETTE_WIDTH: f64 = 620.0;
+#[cfg(desktop)]
+pub(crate) const PALETTE_HEIGHT: f64 = 420.0;
 
 /// Popover geometry, logical px. Width is fixed; the height the
 /// window is built at is the maximum, so the first paint can only shrink.
@@ -637,6 +701,9 @@ fn apply_settings(app: &tauri::AppHandle, root: &std::path::Path) {
         let mut active = std::mem::take(&mut rt.active_hotkey);
         apply_hotkey(app, "capture", &settings.capture_hotkey, &mut active);
         rt.active_hotkey = active;
+        let mut active = std::mem::take(&mut rt.active_palette_hotkey);
+        apply_hotkey(app, "palette", &settings.palette_hotkey, &mut active);
+        rt.active_palette_hotkey = active;
     }
     #[cfg(target_os = "macos")]
     {
@@ -725,6 +792,12 @@ pub fn run() {
                         toggle_voice(app);
                         return;
                     }
+                }
+                let palette_chord =
+                    app.state::<SharedRuntime>().0.lock().unwrap().active_palette_hotkey.clone();
+                if matches(&palette_chord) {
+                    toggle_palette(app);
+                    return;
                 }
                 toggle_capture(app);
             })
@@ -1031,6 +1104,8 @@ pub fn run() {
                 active_hotkey: String::new(),
                 #[cfg(target_os = "macos")]
                 active_voice_hotkey: String::new(),
+                active_palette_hotkey: String::new(),
+                palette_seed: String::new(),
                 #[cfg(target_os = "macos")]
                 applied_opacity: None,
             })));
@@ -1068,7 +1143,10 @@ pub fn run() {
             }
 
             // Floating quick-capture window: hidden until the hotkey fires,
-            // hides again on blur like a palette.
+            // hides again on blur like a palette. On macOS it is a
+            // non-activating panel for the same reason the tray popover is —
+            // a capture box summoned over another app must take the
+            // keystrokes without raising Substrate's main window behind it.
             #[cfg(desktop)]
             {
                 let capture = tauri::WebviewWindowBuilder::new(
@@ -1087,6 +1165,15 @@ pub fn run() {
                 .skip_taskbar(true)
                 .center()
                 .build()?;
+                #[cfg(target_os = "macos")]
+                match capture.ns_window() {
+                    Ok(ns_window) if unsafe { panel::install(ns_window) } => {}
+                    Ok(_) => applog!(
+                        "quick capture: NSPanel conversion declined — the chord will \
+                         activate the app"
+                    ),
+                    Err(e) => applog!("quick capture: no ns_window ({e}) — not converted"),
+                }
                 let capture_handle = capture.clone();
                 capture.on_window_event(move |event| {
                     if let WindowEvent::Focused(false) = event {
@@ -1110,6 +1197,48 @@ pub fn run() {
                     }
                 });
 
+                // Everywhere palette: hidden until ⌘K in quick capture (or an
+                // opt-in chord) summons it, hides again on blur like the
+                // capture window. Transparent with the
+                // native shadow off for the same reason the popover is — the
+                // rounded `.palette` card owns the chrome — and, on macOS, a
+                // non-activating panel, which is what lets it search and jump
+                // without pulling focus off the app you summoned it from.
+                let palette = tauri::WebviewWindowBuilder::new(
+                    app,
+                    "palette",
+                    tauri::WebviewUrl::App("palette.html".into()),
+                )
+                .title("Substrate Everywhere Palette")
+                .inner_size(PALETTE_WIDTH, PALETTE_HEIGHT)
+                .resizable(false)
+                .maximizable(false)
+                .minimizable(false)
+                .always_on_top(true)
+                .decorations(false)
+                .transparent(true)
+                .shadow(false)
+                .visible(false)
+                .skip_taskbar(true)
+                .center()
+                .build()?;
+                #[cfg(target_os = "macos")]
+                match palette.ns_window() {
+                    Ok(ns_window) if unsafe { panel::install(ns_window) } => {}
+                    Ok(_) => applog!(
+                        "everywhere palette: NSPanel conversion declined — the chord will \
+                         activate the app"
+                    ),
+                    Err(e) => applog!("everywhere palette: no ns_window ({e}) — not converted"),
+                }
+                let palette_handle = palette.clone();
+                palette.on_window_event(move |event| {
+                    // clicking away is a dismissal, panel or not — tao emits
+                    // this from `windowDidResignKey:` either way
+                    if let WindowEvent::Focused(false) = event {
+                        palette_handle.hide().ok();
+                    }
+                });
 
                 // Tray mini-agenda popover: hidden until the tray icon
                 // is left-clicked, hides again on blur like the capture window.
@@ -1217,7 +1346,15 @@ pub fn run() {
                 #[cfg(target_os = "macos")]
                 let voice_item =
                     MenuItem::with_id(app, "voice-record", "Voice Note", true, None::<&str>)?;
+                let everywhere = MenuItem::with_id(
+                    app,
+                    "everywhere-palette",
+                    "Everywhere Palette",
+                    true,
+                    None::<&str>,
+                )?;
                 let mut items: Vec<&dyn tauri::menu::IsMenuItem<_>> = vec![&open, &capture];
+                items.push(&everywhere);
                 #[cfg(target_os = "macos")]
                 items.push(&voice_item);
                 items.push(&quit);
@@ -1228,6 +1365,7 @@ pub fn run() {
                     .on_menu_event(|app, event| match event.id().as_ref() {
                         "open" => show_main(app),
                         "quick-capture" => toggle_capture(app),
+                        "everywhere-palette" => toggle_palette(app),
                         #[cfg(target_os = "macos")]
                         "voice-record" => toggle_voice(app),
                         "quit" => app.exit(0),
@@ -1710,6 +1848,10 @@ pub fn run() {
             agenda_open_note,
             agenda_open_capture,
             agenda_resize,
+            palette_open_note,
+            palette_open_view,
+            capture_pivot_palette,
+            palette_seed_query,
             commands::deeplink::deeplink_take_pending,
             commands::deeplink::deeplink_capture_prefill,
             commands::deeplink::deeplink_clear_capture_prefill,

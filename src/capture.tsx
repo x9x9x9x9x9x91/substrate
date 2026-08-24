@@ -4,6 +4,7 @@ import "@fontsource-variable/inter";
 import "./styles.css";
 import { invoke } from "./lib/tauri";
 import { resetCaptureBox } from "./lib/captureprefill";
+import { capturePivotPalette } from "./lib/ipc";
 import {
   contextChipIcon,
   contextChipLabel,
@@ -395,6 +396,15 @@ function CaptureApp() {
               }
               // any other key answers the pending discard question with "no"
               else if (armed) setArmed(false);
+              // ⌘K pivots to the everywhere palette, carrying the line
+              // across: a search often starts by mistake in this box, and
+              // the pivot is the palette's front door now that it ships
+              // without a chord of its own. Never mid-recording — Escape and
+              // Enter own the keyboard while voice is listening.
+              else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k" && !voiceOn) {
+                e.preventDefault();
+                void capturePivotPalette(q);
+              }
             }}
           />
           {voiceOn && (
@@ -501,6 +511,11 @@ function CaptureApp() {
         {dropHint && (
           <span className="capture-foot-drop">
             <span className="key">⌫</span> {dropHint}
+          </span>
+        )}
+        {!voiceOn && (
+          <span className="capture-foot-hint">
+            <span className="key">⌘K</span> search vault
           </span>
         )}
         <span className="capture-foot-hint">

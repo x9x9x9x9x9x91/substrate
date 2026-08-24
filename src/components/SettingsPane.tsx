@@ -555,6 +555,16 @@ const FIELDS: Field[] = [
     only: "macos",
   },
   {
+    key: "palette-hotkey",
+    tab: "general",
+    label: "Everywhere palette hotkey",
+    hint: "optional global shortcut for the palette — it already opens with ⌘K from quick capture; set a chord here to reach it from any app without capture first",
+    // empty is the default and means no chord, so the placeholder shows a
+    // chord that would work rather than one that is registered
+    placeholder: "none — e.g. cmd+shift+space",
+    kind: "text",
+  },
+  {
     key: "close-to-tray",
     tab: "general",
     label: "Close to menu bar",

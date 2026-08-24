@@ -75,6 +75,7 @@ import type {
   TagFolder,
   TrashEntry,
   VaultSyncStatus,
+  View,
   ViewExportReport,
   ViewsConfig,
   VaultHistoryPoint,
@@ -981,6 +982,20 @@ export const drivesIgnored = () => invoke<string[]>("drives_ignored");
 // Tray agenda popover: window management lives Rust-side
 export const agendaOpenNote = (path: string) => invoke<void>("agenda_open_note", { path });
 export const agendaOpenCapture = () => invoke<void>("agenda_open_capture");
+// Everywhere palette: same deal — the window it opens things in is not the
+// one asking, so Rust surfaces the main window and dismisses the palette.
+export const paletteOpenNote = (path: string) => invoke<void>("palette_open_note", { path });
+/** Open a destination — a fixed view or a dashboard. The payload is the
+    frontend's own `View`, which the main window re-checks before rendering. */
+export const paletteOpenView = (view: View) => invoke<void>("palette_open_view", { view });
+/** ⌘K out of quick capture: close that window and open the palette with the
+    line already typed there. */
+export const capturePivotPalette = (text: string) =>
+  invoke<void>("capture_pivot_palette", { text });
+/** The query this summon should start from — empty unless the pivot above
+    put one there. Reading leaves it in place, so the palette's own reset can
+    ask after it has cleared the box rather than racing it. */
+export const paletteSeedQuery = () => invoke<string>("palette_seed_query");
 /** Drain `substrate://` links the OS handed us. Called on mount —
     which is also what tells Rust the window is ready, so a cold-start link
     queued before the vault loaded resolves here — and again on

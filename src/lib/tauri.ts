@@ -423,6 +423,10 @@ let mockAgentCommand: string | null = null;
 let mockSealedPassword: string | null = null;
 /// Mirrors `sealed::MIN_PASSWORD_CHARS` in the backend — the browser mock must
 /// refuse exactly what the real vault refuses.
+/** Where the browser mock parks the everywhere palette's opening query: the
+    pivot out of quick capture is a page navigation here, and sessionStorage
+    is what survives one. */
+const PALETTE_SEED_KEY = "mock:palette-seed";
 const MOCK_MIN_SEALED_PASSWORD = 12;
 const mockUnlockedSealed = new Set<string>();
 const mockSealScopes = new Set<string>();
@@ -6475,6 +6479,27 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
     case "agenda_open_capture":
       console.info("[mock] open capture from tray agenda");
       return null;
+    // The palette's two exits. Both surface the main window and hide the
+    // palette in the real backend — neither is something a browser can do,
+    // so the mock says what would have happened.
+    case "palette_open_note":
+      console.info("[mock] open note from everywhere palette", args?.path);
+      return null;
+    case "palette_open_view":
+      console.info("[mock] open view from everywhere palette", JSON.stringify(args?.view));
+      return null;
+    // The ⌘K pivot out of quick capture. Rust swaps one window for the other
+    // and parks the typed line for the palette to pull; in the browser the
+    // two windows are two pages, so the mock parks the line where a
+    // navigation survives it and goes to the other page.
+    case "capture_pivot_palette":
+      sessionStorage.setItem(PALETTE_SEED_KEY, String(args?.text ?? ""));
+      window.location.href = "/palette.html";
+      return null;
+    case "palette_seed_query":
+      // reading does not consume it, exactly as in Rust: the palette clears
+      // its box first and asks afterwards
+      return sessionStorage.getItem(PALETTE_SEED_KEY) ?? "";
     // In the browser mock nothing ever hands us a `substrate://`
     // link — the scheme is registered with the OS around a packaged app — so
     // the queue is always empty and the prefill always absent.

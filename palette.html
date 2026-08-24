@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Substrate Everywhere Palette</title>
+    <style>
+      /* Transparent frame so only the rounded `.palette` card paints — the
+         same two-step the tray agenda uses: this inline rule covers the frame
+         before styles.css loads, and `body.everywhere-window` in styles.css
+         is what beats its opaque `body { background: var(--bg) }`, since Vite
+         injects that sheet after this element. */
+      html,
+      body,
+      #root {
+        background: transparent;
+      }
+    </style>
+  </head>
+
+  <body class="everywhere-window" spellcheck="false" autocorrect="off" autocapitalize="off">
+    <div id="root"></div>
+    <script type="module" src="/src/palette.tsx"></script>
+  </body>
+</html>

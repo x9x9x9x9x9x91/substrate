@@ -94,14 +94,15 @@ const port = Number(process.env.SUBSTRATE_DEV_PORT || 1420);
 export default defineConfig(async () => ({
   plugins: [react(), stripMockSeedsPlugin(), ...(noScrollAnchor ? [noScrollAnchorPlugin()] : [])],
 
-  // Multi-page: main window + the floating quick-capture and tray-agenda
-  // windows.
+  // Multi-page: main window + the floating quick-capture, tray-agenda and
+  // everywhere-palette windows.
   build: {
     rollupOptions: {
       input: {
         main: input("./index.html"),
         capture: input("./capture.html"),
         agenda: input("./agenda.html"),
+        palette: input("./palette.html"),
       },
     },
   },

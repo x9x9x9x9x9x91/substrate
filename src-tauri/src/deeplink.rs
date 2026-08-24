@@ -230,6 +230,13 @@ fn show_capture(app: &tauri::AppHandle) {
     #[cfg(desktop)]
     w.center().ok();
     w.show().ok();
+    // Same non-activating summon as the hotkey path: the window is an NSPanel
+    // on macOS, and tao's `set_focus` would activate the app behind it.
+    #[cfg(target_os = "macos")]
+    if let Ok(ns_window) = w.ns_window() {
+        unsafe { crate::panel::make_key(ns_window) };
+    }
+    #[cfg(not(target_os = "macos"))]
     w.set_focus().ok();
 }
 
