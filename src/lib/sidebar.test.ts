@@ -12,6 +12,7 @@ import {
   orderedSiblingFolders,
   pinTreeFolder,
   reorderIds,
+  hiddenFromSidebar,
   splitDashboards,
   splitPins,
 } from "./sidebar.ts";
@@ -246,6 +247,7 @@ test("splitDashboards: empty input and all-in-one-subfolder are stable", () => {
     flat: [],
     groups: [],
     byFolder: new Map(),
+    groupFolders: new Set(),
   });
   // every dashboard in one subfolder: parent and subfolder score the same, so
   // the shallower parent takes home and the subfolder renders as one group.
@@ -895,4 +897,171 @@ test("dashgroups lane: migrateOrderId keeps a renamed group in place (SUB-698)",
     ),
     ["dashgroup:Dashboards/Finance", "dashgroup:Dashboards/Rigs"]
   );
+});
+
+/* ----- per-note sidebar opt-out (`sidebar: false`) ----- */
+
+const dash = (path: string, props: Record<string, unknown> = {}) => ({ path, props });
+
+test("hiddenFromSidebar reads the opt-out as bool, as string, and case-folded", () => {
+  assert.equal(hiddenFromSidebar({ sidebar: false }), true);
+  assert.equal(hiddenFromSidebar({ sidebar: "false" }), true);
+  assert.equal(hiddenFromSidebar({ Sidebar: false }), true, "key folds");
+  assert.equal(hiddenFromSidebar({ SIDEBAR: "false" }), true);
+  // only the opt-out hides — everything else leaves the row listed
+  assert.equal(hiddenFromSidebar({ sidebar: true }), false);
+  assert.equal(hiddenFromSidebar({ sidebar: "yes" }), false);
+  assert.equal(hiddenFromSidebar({ sidebar: "" }), false);
+  assert.equal(hiddenFromSidebar({ sidebar: null }), false);
+  assert.equal(hiddenFromSidebar({}), false);
+  assert.equal(hiddenFromSidebar(undefined), false);
+});
+
+test("splitDashboards: an opted-out dashboard leaves the listing, flat and in the tree", () => {
+  const { flat, byFolder } = splitDashboards([
+    dash("Dashboards/Overview.md"),
+    dash("Dashboards/Hidden.md", { sidebar: false }),
+    dash("Dashboards/Str.md", { sidebar: "false" }),
+    dash("Dashboards/Cased.md", { Sidebar: false }),
+    dash("Dashboards/Kept.md", { sidebar: true }),
+    // a dashboard filed in a content folder hides from its tree row too —
+    // hidden means hidden on every surface the sidebar draws
+    dash("Studio/Gear Health.md", { sidebar: false }),
+    dash("Studio/Uptime.md"),
+  ]);
+  assert.deepEqual(paths(flat), ["Dashboards/Overview.md", "Dashboards/Kept.md"]);
+  assert.deepEqual(paths(byFolder.get("Studio") ?? []), ["Studio/Uptime.md"]);
+
+  // deleting the prop puts the row back, in its own position
+  const { flat: back } = splitDashboards([
+    dash("Dashboards/Overview.md"),
+    dash("Dashboards/Hidden.md"),
+  ]);
+  assert.deepEqual(paths(back), ["Dashboards/Overview.md", "Dashboards/Hidden.md"]);
+});
+
+test("splitDashboards: hiding never re-roots the dashboards home", () => {
+  // Music holds the most dashboards, so it takes home by the descendant score;
+  // hiding all but one of them must leave that decision where it was
+  const notes = [
+    dash("Music/Hub.md"),
+    dash("Music/Subs/Mixdown.md"),
+    dash("Music/Subs/Mastering.md"),
+    dash("Studio/Uptime.md"),
+  ];
+  assert.equal(splitDashboards(notes).home, "Music");
+  const hidden = [
+    dash("Music/Hub.md"),
+    dash("Music/Subs/Mixdown.md", { sidebar: false }),
+    dash("Music/Subs/Mastering.md", { sidebar: false }),
+    dash("Studio/Uptime.md"),
+  ];
+  const after = splitDashboards(hidden);
+  assert.equal(after.home, "Music", "home is elected off the full set");
+  assert.deepEqual(paths(after.flat), ["Music/Hub.md"]);
+  assert.deepEqual(after.groups, []);
+  assert.deepEqual(paths(after.byFolder.get("Studio") ?? []), ["Studio/Uptime.md"]);
+});
+
+test("splitDashboards: a group hiding leaves with one row renders flat", () => {
+  // the hub-and-tabs case: the sub-dashboards ride the hub's workbook tabs, so
+  // only the hub is listed — and a header above that single row is noise
+  const { flat, groups } = splitDashboards([
+    dash("Dashboards/Overview.md"),
+    dash("Dashboards/Music/Hub.md"),
+    dash("Dashboards/Music/Mixdown.md", { sidebar: false }),
+    dash("Dashboards/Music/Mastering.md", { sidebar: false }),
+    dash("Dashboards/Releases/Royalties.md"),
+    dash("Dashboards/Releases/Accounting.md"),
+  ]);
+  assert.deepEqual(paths(flat), ["Dashboards/Overview.md", "Dashboards/Music/Hub.md"]);
+  assert.deepEqual(
+    groups.map((g) => [g.folder, paths(g.items)]),
+    [["Dashboards/Releases", ["Dashboards/Releases/Royalties.md", "Dashboards/Releases/Accounting.md"]]]
+  );
+
+  // a subfolder the user filled with ONE dashboard and hid nothing in keeps
+  // its header — that group is a place they made
+  const lone = splitDashboards([
+    dash("Dashboards/Overview.md"),
+    dash("Dashboards/Sync.md"),
+    dash("Dashboards/Music/Hub.md"),
+  ]);
+  assert.deepEqual(lone.groups.map((g) => g.folder), ["Dashboards/Music"]);
+  assert.deepEqual(paths(lone.flat), ["Dashboards/Overview.md", "Dashboards/Sync.md"]);
+
+  // every member hidden: the group disappears entirely, nothing goes flat —
+  // but the folder still holds dashboards, so its collapse id is retained
+  const all = splitDashboards([
+    dash("Dashboards/Overview.md"),
+    dash("Dashboards/Music/Hub.md", { sidebar: false }),
+    dash("Dashboards/Music/Mixdown.md", { sidebar: false }),
+  ]);
+  assert.deepEqual(all.groups, []);
+  assert.deepEqual(paths(all.flat), ["Dashboards/Overview.md"]);
+  assert.equal(all.groupFolders.has("Dashboards/Music"), true);
+});
+
+test("splitDashboards: a vanished group's persisted order and collapse ids are inert", () => {
+  const notes = [
+    dash("Dashboards/Overview.md"),
+    dash("Dashboards/Music/Hub.md"),
+    dash("Dashboards/Music/Mixdown.md", { sidebar: false }),
+    dash("Dashboards/Releases/Royalties.md"),
+    dash("Dashboards/Releases/Accounting.md"),
+  ];
+  // the row order was persisted while Mixdown was still listed, and the group
+  // header order while Music still had one
+  const rowOrder = [
+    "Dashboards/Music/Mixdown.md",
+    "Dashboards/Overview.md",
+    "Dashboards/Music/Hub.md",
+  ];
+  // the order lane runs over every dashboard, hidden ones included — the
+  // listing filter lives in the split, so a persisted entry for a hidden row
+  // sorts a row that is then simply never rendered
+  const ordered = applyOrder(notes, rowOrder, (d) => d.path);
+  assert.deepEqual(paths(ordered), [
+    "Dashboards/Music/Mixdown.md",
+    "Dashboards/Overview.md",
+    "Dashboards/Music/Hub.md",
+    "Dashboards/Releases/Royalties.md",
+    "Dashboards/Releases/Accounting.md",
+  ]);
+  const { flat, groups, groupFolders } = splitDashboards(ordered);
+  assert.deepEqual(paths(flat), ["Dashboards/Overview.md", "Dashboards/Music/Hub.md"]);
+
+  const groupOrder = ["Dashboards/Music", "Dashboards/Releases"];
+  assert.deepEqual(
+    applyOrder(groups, groupOrder, (g) => g.folder).map((g) => g.folder),
+    ["Dashboards/Releases"],
+    "the stale group id drops instead of minting an empty header"
+  );
+  // the flattened group renders no header, but its folder still HOLDS a
+  // hidden dashboard — groupFolders keeps it, so the collapse id the app
+  // prunes against survives and unhiding finds the chevron how it was left
+  const keepIds = new Set([...groupFolders].map((f) => `dashgroup:${f}`));
+  assert.equal(keepIds.has("dashgroup:Dashboards/Music"), true, "hidden-held folder keeps its id");
+  assert.equal(keepIds.has("dashgroup:Dashboards/Releases"), true);
+  assert.equal(keepIds.has("dashgroup:Dashboards/Gone"), false, "an emptied folder is still pruned");
+});
+
+test("splitPins: a pinned hidden dashboard keeps its pin row", () => {
+  // the caller's dashPaths carries only LISTED dashboards — a hidden one has
+  // no dashboard row to collide with, so its pin is not suppressed
+  const dashPaths = new Set(["Studio/Uptime.md"]);
+  const { flat, byFolder } = splitPins(
+    [
+      { path: "Studio/Gear Health.md", folder: "Studio" }, // hidden dashboard, pinned
+      { path: "Studio/Uptime.md", folder: "Studio" }, // listed dashboard, pinned
+      { path: "Dashboards/Finance/Budgets.md", folder: "Dashboards/Finance" }, // hidden, pinned, hidden root
+    ],
+    dashPaths
+  );
+  // the listed dashboard's pin is suppressed (it already has a row); the
+  // hidden one nests under its folder like any pinned note
+  assert.deepEqual(paths(byFolder.get("Studio") ?? []), ["Studio/Gear Health.md"]);
+  // under the hidden Dashboards/ root there is no tree row to nest into, so
+  // that pin stays a flat Pinned row
+  assert.deepEqual(paths(flat), ["Studio/Uptime.md", "Dashboards/Finance/Budgets.md"]);
 });

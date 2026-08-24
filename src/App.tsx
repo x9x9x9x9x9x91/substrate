@@ -160,6 +160,7 @@ import {
   orderedRootNodes,
   orderedSiblingFolders,
   pinTreeFolder,
+  hiddenFromSidebar,
   splitDashboards,
   splitPins,
 } from "./lib/sidebar";
@@ -3179,11 +3180,15 @@ export default function App() {
   // ("dashboards" | "pinned" | "folders") or a Dashboards subfolder group
   // ("dashgroup:<folder>"); state persists in `.vault/views.json` under
   // `$sidebar.collapsed`
-  // The `dashgroup:<folder>` ids the sidebar can actually render right
-  // now — a group exists only while some dashboard lives in that subfolder
+  // The `dashgroup:<folder>` ids whose collapse state is worth keeping — a
+  // subfolder counts while ANY dashboard lives in it, hidden ones included,
+  // so opting rows out of the listing never forgets how the user left the
+  // chevron; only a genuinely emptied folder gets its persisted id pruned
   const dashGroupIds = useMemo(
     () =>
-      new Set(splitDashboards(orderedDashboards, folders).groups.map((g) => `dashgroup:${g.folder}`)),
+      new Set(
+        [...splitDashboards(orderedDashboards, folders).groupFolders].map((f) => `dashgroup:${f}`)
+      ),
     [orderedDashboards, folders]
   );
 
@@ -3255,8 +3260,10 @@ export default function App() {
   // Computed once from the list that reaches the Sidebar's `dashboards` prop
   // and passed down, so menu math and render can't disagree (e.g. on mobile,
   // where the filtered list moves the dashboards home).
+  // A dashboard opted out of the listing has no row to collide with, so it
+  // keeps the pin the tree would otherwise suppress
   const dashPaths = useMemo(
-    () => new Set(mobileDashboards.map((d) => d.path)),
+    () => new Set(mobileDashboards.filter((d) => !hiddenFromSidebar(d.props)).map((d) => d.path)),
     [mobileDashboards]
   );
 

@@ -944,13 +944,22 @@ written in the note. It gets the banner, naming the missing closing line.
 Any dashboard can grow pages: add a `pages:` list to its frontmatter and the
 pane gains a sheet-tab strip at the bottom, like a spreadsheet. The first tab
 is the dashboard itself; each entry adds a page pointing at a sheet note
-(editable grid), another dashboard (rendered flat — no nested tabs), or a
-database cut (`view:` or `saved:`) with the same optional `sort:`, `limit:` and
-`columns:` keys as a view fence; `query:` applies to `view:`, while `saved:`
-keeps its pin's query. ⌃⇥ / ⌃⇧⇥
+(editable grid), another dashboard, or a database cut (`view:` or `saved:`)
+with the same optional `sort:`, `limit:` and `columns:` keys as a view fence;
+`query:` applies to `view:`, while `saved:` keeps its pin's query. ⌃⇥ / ⌃⇧⇥
 cycle pages. The demo vault's `Label Accounting` workbook is the reference:
 metrics cards over a statements sheet, with the statement and splits sheets
 plus the release database one tab away. Full contract: `vault-format.md` §5.6a.
+
+When a page points at a dashboard that has pages of its own, those pages come
+with it: a small switcher appears at the top of that page, above the
+dashboard, and moves between them. So a hub whose Tax tab is itself a
+workbook of sheets reaches those sheets from inside the hub, instead of
+showing the Tax overview and quietly dropping the rest. The strip along the
+bottom stays the workbook you opened, so it is always clear which of the two
+you are paging. It goes one level: a dashboard opened from inside a switcher
+renders on its own, which is also why two dashboards pointing at each other
+can't spiral.
 
 ## Adding a built-in kind
 
@@ -1304,3 +1313,15 @@ many dashboards pile up elsewhere; the folder decides, not a head count.
 Without a `Dashboards/` folder the app infers a home instead — whichever folder's
 subtree holds the most dashboards — so a vault that never made one still gets a
 sensible section. Create the folder any time you want to stop it moving.
+
+A dashboard you'd rather not see in that list takes `sidebar: false` in its
+frontmatter (the string `"false"` works too). It keeps no sidebar row — section
+or tree — and loses nothing else: it still opens from a workbook tab, a
+wikilink, search and the folder tree, and deleting the prop brings the row back.
+Pinning is the one exception: a pinned hidden dashboard keeps its pin row,
+nested under its folder like any other pinned note — the pin was your explicit
+ask, so the opt-out doesn't eat it.
+That's how a hub dashboard whose tabs already carry its sub-dashboards shows up
+as one row instead of a stack of them. If hiding leaves a subfolder group with a
+single visible dashboard, that one renders as a flat row rather than a group
+with one member; hiding nothing leaves your one-dashboard folders alone.

@@ -1,5 +1,7 @@
 /** Pure sidebar helpers — folder tree, subtree counts, persisted ordering. */
 
+import { foldedPropKey } from "./types.ts";
+
 /** dataTransfer MIME carrying a note path while dragging a list row. */
 export const NOTE_DRAG_MIME = "application/x-substrate-note";
 
@@ -204,6 +206,22 @@ export interface DashGroup<T> {
   items: T[];
 }
 
+/** Per-note opt-out from the Dashboards sidebar listing: `sidebar: false`.
+    YAML parses it to a bool, imports and hand edits may carry the string —
+    both hide the row, and the key is read case-folded like every other prop.
+    Same shape as the calendar's `calendar: false`.
+
+    LISTING-ONLY, by design: the note keeps working everywhere else — it opens
+    from a workbook tab reference, a wikilink, search and the folder tree, and
+    deleting the prop puts the row back. The case it exists for is a hub
+    dashboard whose tabs already carry its sub-dashboards, where the section
+    should show the hub alone instead of repeating every tab as a row. */
+export function hiddenFromSidebar(props: Record<string, unknown> | undefined): boolean {
+  if (!props) return false;
+  const v = props[foldedPropKey(props, "sidebar")];
+  return v === false || v === "false";
+}
+
 /** parent folder of a vault-relative note path ("" for a vault-root note). */
 function folderOfPath(path: string): string {
   const i = path.lastIndexOf("/");
@@ -318,22 +336,56 @@ export function dashTreeFolder(path: string, home: string): string | null {
  * pass off `dashTreeFolder`, so a path can't land in two of them — the
  * no-dup rule holds by construction rather than by two agreeing predicates.
  *
+ * A dashboard carrying `sidebar: false` is listed nowhere here — not flat, not
+ * in a group, not in the tree. The home decision above it runs on the FULL
+ * set, hidden ones included, so opting rows out of the listing can never
+ * re-root the section under some other folder.
+ *
+ * A group HIDING LEAVES with exactly one visible dashboard renders as a flat
+ * row instead: a header whose only content is the single row beneath it is
+ * noise. A subfolder the user filled with one dashboard and hid nothing in
+ * keeps its header — that group is a place they made, and dropping it would
+ * take the header, its drag lane and its collapse state away from every
+ * one-dashboard folder in the vault.
+ *
  * Input order is preserved: flat rows keep their relative order, groups appear
- * in order of their first member, members keep their order inside the group.
+ * in order of their first VISIBLE member, members keep their order inside the
+ * group.
+ *
+ * `groupFolders` is every subfolder that still holds dashboards, hidden ones
+ * included — collapse-state retention reads it, so hiding a group down to a
+ * flat row (or to nothing) does not forget how the user left the chevron; a
+ * folder whose dashboards were genuinely moved or deleted is in neither tally
+ * and its persisted id still gets pruned.
  */
-export function splitDashboards<T extends { path: string }>(
+export function splitDashboards<T extends { path: string; props?: Record<string, unknown> }>(
   dashboards: T[],
   folders?: readonly string[]
-): { home: string; flat: T[]; groups: DashGroup<T>[]; byFolder: Map<string, T[]> } {
+): {
+  home: string;
+  flat: T[];
+  groups: DashGroup<T>[];
+  byFolder: Map<string, T[]>;
+  groupFolders: Set<string>;
+} {
+  // the full set, before any hiding — see above
   const home = dashboardsHome(dashboards, folders);
   const prefix = home ? `${home}/` : "";
   const flat: T[] = [];
   const groups: DashGroup<T>[] = [];
   const groupByFolder = new Map<string, DashGroup<T>>();
   const byFolder = new Map<string, T[]>();
+  // section rows are routed in a first pass and placed in a second, because
+  // whether a subfolder gets a header depends on how many of its dashboards
+  // survive the hiding — a count only the finished pass knows
+  const sectionRows: { d: T; groupFolder: string | null; name: string }[] = [];
+  const visiblePerGroup = new Map<string, number>();
+  const hiddenPerGroup = new Map<string, number>();
   for (const d of dashboards) {
+    const hidden = hiddenFromSidebar(d.props);
     const treeFolder = dashTreeFolder(d.path, home);
     if (treeFolder !== null) {
+      if (hidden) continue;
       const nested = byFolder.get(treeFolder);
       if (nested) nested.push(d);
       else byFolder.set(treeFolder, [d]);
@@ -341,20 +393,36 @@ export function splitDashboards<T extends { path: string }>(
     }
     const folder = folderOfPath(d.path);
     if (folder === home || !folder.startsWith(prefix)) {
-      flat.push(d);
+      if (!hidden) sectionRows.push({ d, groupFolder: null, name: "" });
       continue;
     }
     const name = folder.slice(prefix.length).split("/")[0];
     const groupFolder = `${prefix}${name}`;
-    let group = groupByFolder.get(groupFolder);
+    // hidden members still count, because whether the header survives
+    // depends on the group having had more than this one row to show
+    const tally = hidden ? hiddenPerGroup : visiblePerGroup;
+    tally.set(groupFolder, (tally.get(groupFolder) ?? 0) + 1);
+    if (!hidden) sectionRows.push({ d, groupFolder, name });
+  }
+  for (const row of sectionRows) {
+    const lastOneStanding =
+      row.groupFolder !== null &&
+      visiblePerGroup.get(row.groupFolder) === 1 &&
+      (hiddenPerGroup.get(row.groupFolder) ?? 0) > 0;
+    if (row.groupFolder === null || lastOneStanding) {
+      flat.push(row.d);
+      continue;
+    }
+    let group = groupByFolder.get(row.groupFolder);
     if (!group) {
-      group = { folder: groupFolder, name, items: [] };
-      groupByFolder.set(groupFolder, group);
+      group = { folder: row.groupFolder, name: row.name, items: [] };
+      groupByFolder.set(row.groupFolder, group);
       groups.push(group);
     }
-    group.items.push(d);
+    group.items.push(row.d);
   }
-  return { home, flat, groups, byFolder };
+  const groupFolders = new Set([...visiblePerGroup.keys(), ...hiddenPerGroup.keys()]);
+  return { home, flat, groups, byFolder, groupFolders };
 }
 
 /**

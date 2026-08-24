@@ -257,8 +257,10 @@ function builtInDashboard(kind: string, props: DashboardPaneProps) {
 export default function DashboardPane(props: DashboardPaneProps) {
   // a pages: list makes the dashboard a workbook; page 0 is this
   // note's own kind. A dashboard rendered AS a page comes back through
-  // renderDashboard with the page note's meta — parsePages is never consulted
-  // for it, so a nested workbook renders flat: one tab strip, no recursion.
+  // renderDashboard with the page note's meta, and this dispatch is not
+  // consulted again for it: whether that page grows a switcher over the
+  // target's OWN pages is the workbook's call, and it renders the target flat
+  // here once nesting has already spent its one level.
   if (parsePages(props.meta.props).length > 0) {
     return (
       <WorkbookPane

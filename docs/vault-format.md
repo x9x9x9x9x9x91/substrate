@@ -211,6 +211,7 @@ type: release
 | `url` | source link on `type: reference` notes |
 | `artwork` | gallery cover: bare asset name, absolute/`~/` path, or `![[...]]`/`[[...]]` wrapper |
 | `dashboard` | dashboard renderer key on `type: dashboard` notes (§5.2) |
+| `sidebar` | `false` keeps a `type: dashboard` note out of the sidebar's Dashboards listing (§5.2); absent or any other value lists it |
 | `icon` | dashboard sidebar icon override (§5.2): a curated glyph id or an emoji |
 | `cards` | card list for the metrics dashboard and the tax board (§5.4) |
 | `claimed_usd` | yield dashboard: cumulative claimed total, set by the Claim button (§5.3) |
@@ -971,6 +972,20 @@ file and hands it to the other surface. No dashboard renders on both
 (`src/lib/sidebar.ts` `splitDashboards`). Notes at the vault root and inside the
 hidden surfaces (`Journal/`, `Dashboards/`) have no tree row to nest under, so
 those always stay section rows.
+
+Keeping one out of the listing: a dashboard carrying
+`sidebar: false` (bool or the string `"false"`) gets no sidebar row of its
+own — not in the Dashboards section, not on a folder's tree row. A pin is the
+exception: a pinned hidden dashboard keeps its pin row (nested under its
+folder), because the pin was an explicit ask. Everything else
+about it is unchanged: it still opens from a workbook tab, a wikilink, search
+and the folder tree, and deleting the prop puts the row back where it was. The
+case it exists for is a hub dashboard whose tabs already carry its
+sub-dashboards, where listing every tab as its own row says the same thing
+several times. When hiding leaves a subfolder group with exactly one visible
+dashboard, that row renders flat instead — a group header above a single row is
+noise; a subfolder you filled with one dashboard and hid nothing in keeps its
+header.
 
 Sidebar icon: each dashboard row renders a curated per-kind glyph
 (`src/lib/dbicons.ts` DASHBOARD_ICONS — `food`, `metrics`, `hub`,
@@ -2125,9 +2140,19 @@ pages:
 - `note:` resolves by title/stem, case-insensitive (the §5.1 sheet
   resolution). A sheet target renders the editable grid (edits write to the
   SHEET note, debounced, same optimistic-concurrency guard as the editor); a
-  dashboard target renders its pane with its own `pages:` ignored — one tab
-  strip, never nested. Anything else, a missing note, or a page pointing at
-  its own workbook renders an in-place error page.
+  dashboard target renders its pane. Anything else, a missing note, or a page
+  pointing at its own workbook renders an in-place error page.
+- A dashboard target that carries a `pages:` list of its OWN keeps it: the
+  page gains a segmented switcher at the TOP of its content, choosing between
+  the TARGET's pages (slot 0 is the target itself, labelled by its
+  `pageLabel:`, else "Overview"). The tab strip along the bottom stays the
+  outer workbook's — the two never merge.
+- That nesting is exactly ONE level deep. A dashboard reached through a
+  switcher renders flat, its own `pages:` ignored, and that flattening is
+  also the depth guard: two notes whose `pages:` lists point at each other
+  render finitely rather than recursing. A sub-page pointing at the dashboard
+  that lists it gets the same "can't point at its own workbook" error page,
+  measured against the note the list belongs to.
 - `view:`/`saved:` render a read-only database table through the §5.6 embed
   semantics with full-page caps (8 columns / 200 rows). `sort:`, `limit:` and
   `columns:` use the same parser and semantics as a fence; explicit page
@@ -2136,9 +2161,10 @@ pages:
 - A malformed entry becomes an error page in place — the ` ```chart `-fence
   convention: it never breaks sibling pages. Unknown keys inside an entry
   are ignored (forward compat).
-- The active tab is ephemeral UI state (like scroll position) — nothing
-  about it is written to disk. External writers add/remove/reorder pages by
-  editing the frontmatter list.
+- The active tab, and the active slot in a nested switcher, are ephemeral UI
+  state (like scroll position) — nothing about either is written to disk, and
+  changing the tab resets the switcher under it. External writers
+  add/remove/reorder pages by editing the frontmatter list.
 
 ### 5.7 Recurring calendar entries — `repeat` / `repeat_until` / `repeat_skip`
 

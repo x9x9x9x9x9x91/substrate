@@ -1430,6 +1430,13 @@ export const TIPS: TipEntry[] = [
     },
   },
   {
+    selector: ".wb-subpages button",
+    tip: (element) => ({
+      title: elementLabel(element, "Dashboard page"),
+      body: "This dashboard has pages of its own. Switch between them here — the tabs along the bottom still belong to the workbook around it.",
+    }),
+  },
+  {
     // last resort for the segmented control: every named variant above wins first
     selector: ".db-switch button",
     tip: (element) => ({
