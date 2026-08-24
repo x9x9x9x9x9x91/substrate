@@ -1472,6 +1472,16 @@ function Sidebar({
       <div className="side-bottom">
         {item("vaultsync", "Vault sync", <SyncIcon />, () => setView({ kind: "vaultsync" }))}
         {item("trash", "Trash", <TrashIcon />, () => setView({ kind: "trash" }))}
+        {/* The gear sits in the tool row below, which is desktop-only, and ⌘,
+            needs a keyboard — so on a phone this row is the only door to
+            Settings. It closes the drawer on the way, the same thing the
+            navigate door does for every sibling row here; Settings is an
+            overlay rather than a view, so it asks for the close itself. */}
+        {mobile &&
+          item("settings", "Settings", <GearIcon />, () => {
+            onMobileClose();
+            onOpenSettings();
+          })}
         <div className="side-foot">{root}</div>
         {!mobile && (
           <div className="side-tools">

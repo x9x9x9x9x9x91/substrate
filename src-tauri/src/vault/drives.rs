@@ -222,9 +222,34 @@ pub(crate) fn shelf_worthy(kind: &VolumeKind) -> bool {
     !NETWORK_FSTYPES.iter().any(|deny| fs == *deny || fs.starts_with(deny))
 }
 
-/// Read the kind of the filesystem mounted at `root`.
+/// The platform state one poll of the volumes shares.
+///
+/// On macOS that is a single DiskArbitration session. Asking whether a mount
+/// is a disk image is a synchronous round trip to the disk-arbitration
+/// daemon, and the session is what the round trip talks to — standing one up
+/// per volume made a shelf of eight disks pay the setup eight times, on a
+/// poll that runs every few seconds. `None` is DiskArbitration declining to
+/// give one out, which reads as "not provably an image" like every other
+/// failure here. No other platform asks the question, so its poll carries
+/// nothing.
 #[cfg(target_os = "macos")]
-fn volume_kind(root: &Path) -> VolumeKind {
+type VolumePoll = Option<diskarb::Session>;
+
+#[cfg(not(target_os = "macos"))]
+type VolumePoll = ();
+
+#[cfg(target_os = "macos")]
+fn volume_poll() -> VolumePoll {
+    diskarb::Session::new()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn volume_poll() -> VolumePoll {}
+
+/// Read the kind of the filesystem mounted at `root`, reusing the poll's
+/// DiskArbitration session for the disk-image question.
+#[cfg(target_os = "macos")]
+fn volume_kind(root: &Path, poll: &VolumePoll) -> VolumeKind {
     use std::ffi::{CStr, CString};
     let Ok(c) = CString::new(root.as_os_str().as_encoded_bytes()) else {
         return VolumeKind::default();
@@ -243,7 +268,9 @@ fn volume_kind(root: &Path) -> VolumeKind {
                 .to_string_lossy()
                 .to_ascii_lowercase(),
             read_only: stat.f_flags & libc::MNT_RDONLY as u32 != 0,
-            disk_image: diskarb::is_disk_image(&device),
+            disk_image: poll
+                .as_ref()
+                .is_some_and(|session| diskarb::is_disk_image(session, &device)),
         }
     }
 }
@@ -251,7 +278,7 @@ fn volume_kind(root: &Path) -> VolumeKind {
 /// Elsewhere on unix only the read-only half is read (`statvfs` is portable,
 /// the type name is not) — enough to keep mounted images off the shelf.
 #[cfg(all(unix, not(target_os = "macos")))]
-fn volume_kind(root: &Path) -> VolumeKind {
+fn volume_kind(root: &Path, _poll: &VolumePoll) -> VolumeKind {
     use std::ffi::CString;
     let Ok(c) = CString::new(root.as_os_str().as_encoded_bytes()) else {
         return VolumeKind::default();
@@ -271,7 +298,7 @@ fn volume_kind(root: &Path) -> VolumeKind {
 }
 
 #[cfg(not(unix))]
-fn volume_kind(_root: &Path) -> VolumeKind {
+fn volume_kind(_root: &Path, _poll: &VolumePoll) -> VolumeKind {
     VolumeKind::default()
 }
 
@@ -330,13 +357,38 @@ mod diskarb {
     /// The device model every image-backed disk reports.
     const DISK_IMAGE: &str = "Disk Image";
 
+    /// A live DiskArbitration session, held for as long as a caller keeps
+    /// asking questions of it — one per volume poll rather than one per
+    /// volume, since each description query is a synchronous round trip and
+    /// the session is the connection it rides.
+    pub(super) struct Session(*const c_void);
+
+    impl Session {
+        /// `None` when DiskArbitration won't give a session out — every
+        /// volume then answers "not an image", like every other failure here.
+        pub(super) fn new() -> Option<Self> {
+            // SAFETY: `DASessionCreate` follows the Create rule, so the
+            // non-null ref this keeps is released exactly once, in `Drop`.
+            let session = unsafe { DASessionCreate(std::ptr::null()) };
+            (!session.is_null()).then_some(Self(session))
+        }
+    }
+
+    impl Drop for Session {
+        fn drop(&mut self) {
+            // SAFETY: created by `DASessionCreate`, checked non-null there,
+            // and released here and nowhere else.
+            unsafe { CFRelease(self.0) };
+        }
+    }
+
     /// Whether the device a filesystem is mounted from (statfs's
     /// `f_mntfromname`, e.g. `/dev/disk4s1`) is backed by a disk image.
     ///
     /// Every failure — not a `/dev` node (a network share), no such disk, no
     /// description — answers `false`, which keeps the shelf's behavior for
     /// anything that is not provably an image.
-    pub(super) fn is_disk_image(mnt_from: &str) -> bool {
+    pub(super) fn is_disk_image(session: &Session, mnt_from: &str) -> bool {
         let Some(bsd) = mnt_from.strip_prefix("/dev/") else {
             return false;
         };
@@ -344,16 +396,12 @@ mod diskarb {
             return false;
         };
         // SAFETY: every created/copied ref is checked for null before use
-        // and released exactly once; the model string is read inside
+        // and released exactly once; the session outlives the call and is
+        // released by its own `Drop`; the model string is read inside
         // `device_model` while the description that owns it is still alive.
         unsafe {
-            let session = DASessionCreate(std::ptr::null());
-            if session.is_null() {
-                return false;
-            }
-            let disk = DADiskCreateFromBSDName(std::ptr::null(), session, name.as_ptr());
+            let disk = DADiskCreateFromBSDName(std::ptr::null(), session.0, name.as_ptr());
             if disk.is_null() {
-                CFRelease(session);
                 return false;
             }
             let desc = DADiskCopyDescription(disk);
@@ -362,7 +410,6 @@ mod diskarb {
                 CFRelease(desc);
             }
             CFRelease(disk);
-            CFRelease(session);
             image
         }
     }
@@ -442,6 +489,9 @@ pub fn volume_search_roots() -> Vec<PathBuf> {
 /// ([`shelf_worthy`]): mounting a DMG or an SMB share must not leave a
 /// permanent drive behind.
 pub fn volumes_at(roots: &[PathBuf]) -> Vec<Volume> {
+    // one DiskArbitration session for the whole poll (see [`VolumePoll`]),
+    // released once when it drops at the end of the call
+    let poll = volume_poll();
     let mut out: Vec<Volume> = Vec::new();
     for dir in roots {
         let Ok(entries) = fs::read_dir(dir) else { continue };
@@ -456,7 +506,7 @@ pub fn volumes_at(roots: &[PathBuf]) -> Vec<Volume> {
             if label.starts_with('.') {
                 continue;
             }
-            if !shelf_worthy(&volume_kind(&path)) {
+            if !shelf_worthy(&volume_kind(&path, &poll)) {
                 continue;
             }
             let total = volume_total(&path);
@@ -773,8 +823,13 @@ mod tests {
 
     /// End-to-end proof against a real image: create a read-write DMG, mount
     /// it exactly the way the DMG bundler mounts its scratch image, and ask
-    /// the detector. Mounting real images is not a default-test action, so
-    /// it runs only when asked: `SUBSTRATE_DMG_MOUNT_TESTS=1`.
+    /// the detector. Both directions are pinned — the image answers "image",
+    /// and the boot disk answers "not an image", because a guard that said
+    /// "image" to everything would empty the shelf of every real drive with
+    /// the suite still green. Mounting real images is not a default-test
+    /// action, so it runs only when asked: `SUBSTRATE_DMG_MOUNT_TESTS=1`
+    /// (which also keeps the boot-disk half off virtualized rigs, where the
+    /// startup disk can honestly report a virtual model).
     #[test]
     #[cfg(target_os = "macos")]
     fn a_read_write_dmg_mounted_like_the_bundler_is_not_shelf_worthy() {
@@ -800,11 +855,27 @@ mod tests {
         assert!(attach.success(), "hdiutil attach failed");
         // read everything before detaching, so a wrong answer can't strand
         // the mount
-        let kind = volume_kind(&mountpoint);
-        Command::new("hdiutil").arg("detach").arg(&mountpoint).status().unwrap();
+        let poll = volume_poll();
+        assert!(
+            poll.is_some(),
+            "DiskArbitration gave out a session — without one every volume answers \
+             \"not an image\" and the checks below prove nothing"
+        );
+        let kind = volume_kind(&mountpoint, &poll);
+        let boot = volume_kind(Path::new("/"), &poll);
+        let detach = Command::new("hdiutil").arg("detach").arg(&mountpoint).status().unwrap();
         assert!(!kind.read_only, "the bundler's scratch mount is writable — that is the bug");
         assert!(kind.disk_image, "DiskArbitration knows a disk image when asked");
         assert!(!shelf_worthy(&kind));
+        assert!(
+            !boot.disk_image,
+            "the startup disk is a physical device — a guard that calls it an image \
+             would take every real drive off the shelf"
+        );
+        // loud rather than silent: a busy detach otherwise leaves the scratch
+        // image attached and `TempDir::drop` failing quietly on a live
+        // mountpoint
+        assert!(detach.success(), "hdiutil detach failed");
     }
 
     /// The shelf's whole claim: plug a disk in, unplug it, and the catalog is

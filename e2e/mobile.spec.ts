@@ -280,3 +280,76 @@ test("SE-width Search and Calendar headers keep primary controls visible (SUB-34
   expect(calendar.week.right).toBeLessThanOrEqual(375);
   expect(calendar.grid.top).toBeGreaterThanOrEqual(calendar.tools.bottom);
 });
+
+test("the phone drawer carries the only door to Settings, and the sheet fits the screen (SUB-1483)", async ({
+  page,
+}) => {
+  await page.goto("/");
+
+  // The gear lives in the desktop-only tool row and ⌘, wants a keyboard, so
+  // without this row a phone cannot reach Settings at all.
+  await page.locator(".mobile-menu").click();
+  const row = page.locator(".sidebar .side-bottom .side-item", { hasText: /^Settings$/ });
+  await expect(row).toHaveCount(1);
+  expect((await row.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+
+  // Tapping it behaves like every other row down here: the drawer goes away.
+  // A sheet raised behind an open drawer would be unreachable.
+  await row.click();
+  await expect(page.locator(".settings-sheet")).toBeVisible();
+  await expect(page.locator(".sidebar")).toBeHidden();
+
+  const sheet = await page.locator(".settings-sheet").evaluate((el) => {
+    const rect = el.getBoundingClientRect();
+    return {
+      left: rect.left,
+      right: rect.right,
+      width: rect.width,
+      bottom: rect.bottom,
+      documentOverflow:
+        (document.scrollingElement?.scrollWidth ?? 0) -
+        (document.scrollingElement?.clientWidth ?? 0),
+    };
+  });
+  expect(sheet.left).toBeGreaterThanOrEqual(0);
+  expect(sheet.right).toBeLessThanOrEqual(390);
+  expect(sheet.bottom).toBeLessThanOrEqual(844);
+  // it is the screen here, not a 310px dialog floating in one
+  expect(sheet.width).toBeGreaterThan(340);
+  expect(sheet.documentOverflow).toBeLessThanOrEqual(0);
+
+  // Every tab, because the sideways slide comes from one row's control column
+  // being wider than the sheet — and the body scrolls on both axes, so a
+  // single wide row takes the whole sheet with it.
+  const tabs = page.locator(".settings-tabs .settings-tab");
+  const tabCount = await tabs.count();
+  expect(tabCount).toBeGreaterThan(1);
+  for (let i = 0; i < tabCount; i++) {
+    const tab = tabs.nth(i);
+    const label = (await tab.textContent())?.trim() ?? `tab ${i}`;
+    await tab.click();
+    await expect(tab).toHaveAttribute("aria-selected", "true");
+    const body = page.locator("#settings-tabpanel");
+    await expect(body).toBeVisible();
+    const overflow = await body.evaluate((el) => {
+      const box = el.getBoundingClientRect();
+      const widest = [...el.querySelectorAll(".settings-row, .settings-section")]
+        .map((node) => node.getBoundingClientRect().right - box.right)
+        .reduce((worst, over) => Math.max(worst, over), 0);
+      return { body: el.scrollWidth - el.clientWidth, widest };
+    });
+    expect(overflow.body, `${label} tab scrolls sideways`).toBeLessThanOrEqual(1);
+    expect(overflow.widest, `${label} tab has a row past the sheet's edge`).toBeLessThanOrEqual(1);
+  }
+
+  // Desktop keeps the gear in the tool row and gains no duplicate row.
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.reload();
+  await expect(page.locator(".sidebar")).toBeVisible();
+  await expect(
+    page.locator(".sidebar .side-bottom .side-item", { hasText: /^Settings$/ })
+  ).toHaveCount(0);
+  await expect(
+    page.locator(".side-tools").getByRole("button", { name: "Settings" })
+  ).toBeVisible();
+});

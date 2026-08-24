@@ -1,7 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -25,6 +34,11 @@ import { fileURLToPath } from "node:url";
 // so what is asserted is what git actually did with the commit.
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
+
+// Every hook install-git-hooks.sh puts into .git/hooks. Kept here rather than
+// inline so the installer test asserts the whole set and not just the two the
+// merge-lock rigs happen to need.
+const INSTALLED_HOOKS = ["post-checkout", "pre-commit", "pre-merge-commit"];
 
 const git = (cwd: string, ...args: string[]) =>
   execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8" }).trim();
@@ -227,16 +241,167 @@ test("never fires off main, however live the lock's holder is", () => {
   }
 });
 
-test("with-merge-lock exports the token the guard reads", () => {
-  const source = execFileSync("cat", [join(ROOT, "scripts/with-merge-lock.sh")], { encoding: "utf8" });
-  assert.match(
-    source,
-    /export SUBSTRATE_MERGE_LOCK_PID="\$\$"/,
-    "the holder's handshake token must be exported before the wrapped command runs",
-  );
+test("the override hint is offered on the commit path", () => {
+  const dir = mkdtempSync(join(tmpdir(), "substrate-lock-guard-"));
+  const holder = liveForeignHolder();
+  try {
+    const repo = makeRig(dir);
+    writeLock(repo, holder.pid);
+
+    const result = commit(repo, "rider straight onto main");
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /SUBSTRATE_ALLOW_FOREIGN_MERGE_LOCK=1/);
+  } finally {
+    holder.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
-test("the hook installer links the merge-commit hook as well", () => {
-  const source = execFileSync("cat", [join(ROOT, "scripts/install-git-hooks.sh")], { encoding: "utf8" });
-  assert.match(source, /pre-merge-commit/, "pre-merge-commit must be installed, or the merge path has no guard");
+test("a refused reset is not offered the override hint", () => {
+  const dir = mkdtempSync(join(tmpdir(), "substrate-lock-guard-"));
+  const holder = liveForeignHolder();
+  try {
+    const repo = makeRig(dir);
+    writeLock(repo, holder.pid);
+
+    // Forcing a commit is a call a session can reasonably make; forcing this
+    // is a hard reset of local main under someone else's live train, so the
+    // refusal must not read as though it comes with a sanctioned escape.
+    const result = spawnSync(
+      "bash",
+      ["-c", ". scripts/git-hooks/lib/merge-lock-guard.sh && merge_lock_guard reset"],
+      { cwd: repo, encoding: "utf8" },
+    );
+    assert.notEqual(result.status, 0, "the reset should have been refused");
+    assert.match(result.stderr, /refusing reset on main/);
+    assert.doesNotMatch(result.stderr, /SUBSTRATE_ALLOW_FOREIGN_MERGE_LOCK/);
+  } finally {
+    holder.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the override variable still lets a deliberate commit through", () => {
+  const dir = mkdtempSync(join(tmpdir(), "substrate-lock-guard-"));
+  const holder = liveForeignHolder();
+  try {
+    const repo = makeRig(dir);
+    writeLock(repo, holder.pid);
+
+    const result = commit(repo, "deliberate rider", { SUBSTRATE_ALLOW_FOREIGN_MERGE_LOCK: "1" });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stderr, /override was set/);
+    assert.equal(headSubject(repo), "deliberate rider");
+  } finally {
+    holder.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the merge-commit hook refuses a merge on a detached HEAD in the primary checkout", () => {
+  const dir = mkdtempSync(join(tmpdir(), "substrate-lock-guard-"));
+  try {
+    const repo = makeRig(dir);
+    git(repo, "checkout", "-q", "-b", "sub/topic");
+    git(repo, "commit", "-q", "--allow-empty", "-m", "topic work");
+    git(repo, "checkout", "-q", "main");
+    const before = git(repo, "rev-parse", "HEAD");
+    git(repo, "checkout", "-q", "--detach");
+
+    // No merge lock anywhere: what is under test is the OTHER half of the
+    // pre-commit hook, which `git merge --no-ff` never reaches.
+    const merged = spawnSync("git", ["-C", repo, "merge", "--no-ff", "-m", "merge topic", "sub/topic"], {
+      encoding: "utf8",
+    });
+    assert.notEqual(merged.status, 0, "the merge commit should have been refused");
+    assert.match(merged.stderr, /refusing commit on detached HEAD/);
+    assert.equal(git(repo, "rev-parse", "HEAD"), before, "HEAD must not have moved");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("with-merge-lock exports the token the guard reads, naming the pid its lock file names", () => {
+  const dir = mkdtempSync(join(tmpdir(), "substrate-lock-token-"));
+  try {
+    const repo = join(dir, "repo");
+    mkdirSync(join(repo, "scripts/lib"), { recursive: true });
+    cpSync(join(ROOT, "scripts/with-merge-lock.sh"), join(repo, "scripts/with-merge-lock.sh"));
+    cpSync(join(ROOT, "scripts/lib/checkout-guard.sh"), join(repo, "scripts/lib/checkout-guard.sh"));
+    git(repo, "init", "-q", "-b", "main");
+    git(repo, "config", "user.name", "Lock Test");
+    git(repo, "config", "user.email", "lock@example.test");
+    writeFileSync(join(repo, "file.txt"), "base\n");
+    git(repo, "add", "file.txt");
+    git(repo, "commit", "-qm", "initial");
+
+    // The wrapped command reports the token it inherited and the pid the lock
+    // file carries WHILE the lock is held. The guard's whole holder handshake
+    // is those two being the same number, so that is what is asserted — not
+    // the line of shell that happens to produce it today.
+    const result = spawnSync(
+      "bash",
+      [
+        join(repo, "scripts/with-merge-lock.sh"),
+        "bash",
+        "-c",
+        'printf "token=%s lockpid=%s\\n" "$SUBSTRATE_MERGE_LOCK_PID" "$(cat .git/substrate-merge.lock/pid)"',
+      ],
+      { cwd: repo, encoding: "utf8" },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    const seen = /token=(\d+) lockpid=(\d+)/.exec(result.stdout);
+    assert.ok(seen, `expected a token/lockpid line, got: ${result.stdout}`);
+    assert.equal(
+      seen[1],
+      seen[2],
+      "the exported token must name the pid the lock file names, or the holder's own commits get refused",
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the hook installer installs every hook, merge-commit half included", () => {
+  const dir = mkdtempSync(join(tmpdir(), "substrate-hook-install-"));
+  try {
+    const repo = join(dir, "repo");
+    mkdirSync(join(repo, "scripts/lib"), { recursive: true });
+    mkdirSync(join(repo, "scripts/git-hooks/lib"), { recursive: true });
+    cpSync(join(ROOT, "scripts/install-git-hooks.sh"), join(repo, "scripts/install-git-hooks.sh"));
+    cpSync(join(ROOT, "scripts/lib/checkout-guard.sh"), join(repo, "scripts/lib/checkout-guard.sh"));
+    for (const hook of INSTALLED_HOOKS) {
+      cpSync(join(ROOT, "scripts/git-hooks", hook), join(repo, "scripts/git-hooks", hook));
+    }
+    cpSync(
+      join(ROOT, "scripts/git-hooks/lib/merge-lock-guard.sh"),
+      join(repo, "scripts/git-hooks/lib/merge-lock-guard.sh"),
+    );
+    git(repo, "init", "-q", "-b", "main");
+
+    // Nothing is linked yet — so what the assertions below see on disk is the
+    // installer's own doing and not the rig's.
+    for (const hook of INSTALLED_HOOKS) {
+      assert.equal(existsSync(join(repo, ".git/hooks", hook)), false, `${hook} must start uninstalled`);
+    }
+
+    const result = spawnSync("bash", [join(repo, "scripts/install-git-hooks.sh")], {
+      cwd: repo,
+      encoding: "utf8",
+    });
+    assert.equal(result.status, 0, result.stderr);
+
+    for (const hook of INSTALLED_HOOKS) {
+      const installed = join(repo, ".git/hooks", hook);
+      // existsSync follows the link, so a dangling symlink fails here too.
+      assert.equal(existsSync(installed), true, `${hook} was not installed`);
+      assert.equal(
+        realpathSync(installed),
+        realpathSync(join(repo, "scripts/git-hooks", hook)),
+        `${hook} must resolve to the tree's copy of the hook`,
+      );
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

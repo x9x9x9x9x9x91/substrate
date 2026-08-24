@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 
-# pre-merge-commit — the merge-commit half of the main merge-lock guard.
+# pre-merge-commit — the merge-commit half of the main merge-lock guard, and
+# of the detached-primary-checkout refusal below it.
 # git does not run pre-commit for an automatic merge commit, so `git merge`
-# would otherwise walk straight past the check pre-commit makes.
+# would otherwise walk straight past both checks pre-commit makes.
 
 set -u
 
@@ -35,4 +36,21 @@ fi
 . "$guard_lib"
 merge_lock_guard
 
-exit 0
+# The same detached-primary-checkout refusal pre-commit carries. `git merge
+# --no-ff` in the read-mostly primary lands a merge commit through this hook,
+# not pre-commit, so without this half the primary checkout is only half
+# protected.
+git_dir_raw="$(git rev-parse --git-dir 2>/dev/null)" || exit 0
+common_dir_raw="$(git rev-parse --git-common-dir 2>/dev/null)" || exit 0
+git_dir="$(cd "$git_dir_raw" 2>/dev/null && pwd -P)" || exit 0
+common_dir="$(cd "$common_dir_raw" 2>/dev/null && pwd -P)" || exit 0
+
+[[ "$git_dir" == "$common_dir" ]] || exit 0
+git symbolic-ref --quiet HEAD >/dev/null 2>&1 && exit 0
+[[ "${SUBSTRATE_ALLOW_DETACHED:-0}" == "1" ]] && exit 0
+
+printf '%s\n' \
+  'ERROR: refusing commit on detached HEAD in the Substrate primary checkout.' \
+  'Commit in .worktrees/_main (branch main) or a sub/<topic> worktree.' \
+  'Override once with SUBSTRATE_ALLOW_DETACHED=1.' >&2
+exit 1

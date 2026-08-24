@@ -18305,6 +18305,51 @@ body.col-resizing * {
   .cal-agenda-toggle {
     display: none;
   }
+
+  /* Settings was a desktop-only sheet until the drawer grew a row for it.
+     At 620px wide with the palette's 80px inset it would draw itself 310px
+     wide on a phone — a dialog floating in a screen it could have had — so
+     it takes the same full-bleed inset the palette and history take here. */
+  .settings-sheet {
+    width: calc(100vw - 16px);
+    max-width: none;
+    height: min(620px, calc(100dvh - 32px));
+    max-height: calc(100dvh - 32px);
+    margin-top: max(8px, env(safe-area-inset-top));
+  }
+
+  /* The control column is a stack of widths chosen against that 620px sheet:
+     a 170px text box, a 230px quick-actions box, a 130px dial. Beside a label
+     they leave it a sliver at this width, and the body scrolls on both axes,
+     so anything that does not fit slides the whole sheet sideways instead of
+     wrapping. The wide controls take the line under their label — the same
+     move the many-option pickers already make on desktop. Switches, segments
+     and tone chips still fit beside their text, so they stay put. */
+  .settings-row:has(> .settings-input),
+  .settings-row:has(> .settings-slider) {
+    display: block;
+  }
+
+  .settings-row:has(> .settings-input) > .settings-input,
+  .settings-row:has(> .settings-slider) > .settings-slider {
+    width: 100%;
+    box-sizing: border-box;
+    margin-top: 8px;
+  }
+
+  /* stacked, the dial owns the row: the track takes what the number leaves */
+  .settings-row > .settings-slider .settings-range {
+    flex: 1;
+    width: auto;
+  }
+
+  /* both of these already know how to wrap; they just never had a width to
+     wrap against, because `flex: none` sizes them to their whole content */
+  .settings-chips,
+  .settings-choice {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
 }
 
 @media (max-width: 700px) and (prefers-reduced-motion: reduce) {

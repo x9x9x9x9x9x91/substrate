@@ -37,9 +37,18 @@
 #       (token/ancestry), which is exactly the sanctioned case: the stalled
 #       train unwinding a rider abort it hit itself.
 #
-# The commits being dropped are printed first, with the one-line rescue that
-# keeps them: they are somebody's work, and the reset is the only thing that
-# makes them unreachable.
+# The commits coming off main are printed first, and put on a branch named
+# rescue/riders-<UTC stamp> pointing at the old tip BEFORE the reset runs —
+# they are somebody's work, and a printed suggestion to save them is not the
+# same as saving them. A rescue branch that cannot be created refuses the
+# reset, so there is no path here that makes a commit unreachable.
+#
+# Guard (e) is asked twice: once up front, and again as the last step before
+# the reset. The fetch in guard (b) is a network-sized window in which another
+# session can take the merge lock, and a reset of main under a train that
+# started meanwhile is the case the guard exists for. The sanctioned wrapped
+# invocation holds the lock across the whole recovery instead:
+#   scripts/with-merge-lock.sh --wait bash -c 'scripts/drop-rider.sh <sha>'
 #
 # Exit codes: 0 reset (or already at the target), 1 refused.
 
@@ -191,20 +200,36 @@ fi
   || die "local main moved while the guards ran — nothing was reset; re-run."
 
 DROPPED="$(git rev-list --count "$TARGET..$LOCAL_MAIN" 2>/dev/null || printf '?')"
+
+# (e) again, as the last thing before anything is created or moved. The first
+# call ran before the fetch above, and a fetch is a network-sized window in
+# which another session can claim the lock and start a train; resetting main
+# out from under it is exactly what guard (e) exists to refuse. Everything
+# between here and the reset is local and takes milliseconds.
+merge_lock_guard "reset"
+
+# The riders are put on a branch BEFORE the reset, so this tool never makes a
+# commit unreachable — it moves main and leaves the old tip named. A branch
+# that cannot be created is a refusal, not a warning: the whole point is that
+# the reset below has nothing left to destroy.
+RESCUE="rescue/riders-$(date -u +%Y%m%dT%H%M%SZ)"
+git branch "$RESCUE" "$LOCAL_MAIN" >/dev/null 2>&1 \
+  || die "could not create the rescue branch $RESCUE at $(git rev-parse --short "$LOCAL_MAIN") — nothing was reset, so the riders are still on main."
+
 {
   printf '\n'
   printf '========================= DROPPING RIDERS FROM main ====================\n'
   printf 'drop-rider: local main %s -> %s\n' \
     "$(git rev-parse --short "$LOCAL_MAIN")" "$(git rev-parse --short "$TARGET")"
-  printf 'drop-rider: %s commit(s) become unreachable:\n' "$DROPPED"
+  printf 'drop-rider: %s commit(s) come off main:\n' "$DROPPED"
   git log --no-decorate --format='drop-rider:   %h %an  %s' "$TARGET..$LOCAL_MAIN" 2>/dev/null || true
   printf 'drop-rider:\n'
-  printf 'drop-rider: keep them on a branch before they are gone:\n'
-  printf 'drop-rider:   git branch rescue/riders %s\n' "$LOCAL_MAIN"
+  printf 'drop-rider: they are kept on a branch — nothing here becomes unreachable:\n'
+  printf 'drop-rider:   %s -> %s\n' "$RESCUE" "$(git rev-parse --short "$LOCAL_MAIN")"
   printf '========================================================================\n'
 } >&2
 
 git reset --hard "$TARGET" || die "the reset itself failed — local main is unchanged at $(git rev-parse --short "$LOCAL_MAIN")."
 
-printf 'drop-rider: local main is now %s (dropped %s commit(s); reflog still has %s).\n' \
-  "$(git rev-parse --short "$TARGET")" "$DROPPED" "$(git rev-parse --short "$LOCAL_MAIN")"
+printf 'drop-rider: local main is now %s (dropped %s commit(s); they are on %s).\n' \
+  "$(git rev-parse --short "$TARGET")" "$DROPPED" "$RESCUE"

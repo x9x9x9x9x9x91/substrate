@@ -125,7 +125,11 @@ fn land(engine: &mut Engine, envelope: &Envelope) -> Result<(), String> {
         return Err("envelope carried no value".into());
     }
     match envelope.kind.as_str() {
-        "url" if is_http(value) => land_url(engine, envelope, value),
+        // A share whose whole value is one link is a link, whatever kind the
+        // extension managed to guess: plenty of iOS apps hand a URL over as
+        // plain text with no `public.url` item attached, and that capture
+        // belongs in the same reference note a Safari share makes.
+        "url" | "text" if is_bare_http_url(value) => land_url(engine, envelope, value),
         // A `mailto:` or `shortcuts://` share is text, and the extension
         // already files it as such. Repeating the rule here means a phone
         // still running an older extension build gets its capture filed
@@ -135,11 +139,16 @@ fn land(engine: &mut Engine, envelope: &Envelope) -> Result<(), String> {
     }
 }
 
-fn is_http(value: &str) -> bool {
+/// True for a value that is nothing but one web link. The whitespace test is
+/// what keeps "a link with a sentence after it" and a multi-line note that
+/// happens to quote a URL out of the reference path; everything else about
+/// the link — scheme validation, credentials, the filename — stays
+/// `create_reference`'s business.
+fn is_bare_http_url(value: &str) -> bool {
     let head = |prefix: &str| {
         value.get(..prefix.len()).is_some_and(|h| h.eq_ignore_ascii_case(prefix))
     };
-    head("http://") || head("https://")
+    (head("http://") || head("https://")) && !value.contains(char::is_whitespace)
 }
 
 fn land_url(engine: &mut Engine, envelope: &Envelope, url: &str) -> Result<(), String> {
@@ -285,6 +294,7 @@ fn landing_dir() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vault::NoteMeta;
     use crate::vault::testutil::temp_vault;
     use std::fs;
 
@@ -460,6 +470,59 @@ mod tests {
         let filed = filed_since(&dir, &before);
         assert_eq!(filed.len(), 1, "the capture was dropped: {filed:?}");
         assert!(filed[0].contains("mailto"), "filed under an unexpected name: {filed:?}");
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&pad);
+    }
+
+    #[test]
+    fn landing_text_that_is_only_a_link_files_a_reference_note() {
+        let (mut e, dir) = temp_vault("landing-text-url");
+        let pad = landing(&dir);
+        let before = inbox_files(&dir);
+        // apps that share a link as plain text: the whole value is the link,
+        // and the padding around it does not change that
+        drop_envelope(
+            &pad,
+            "a",
+            r#"{"v":1,"kind":"text","value":"  https://example.com/lone  ",
+                "source":"ios-share","captured":"2026-08-24T21:14:03+02:00"}"#,
+        );
+        // a link quoted inside a longer note stays a note
+        drop_envelope(
+            &pad,
+            "b",
+            r#"{"v":1,"kind":"text","value":"Worth reading\nhttps://example.com/multi",
+                "source":"ios-share"}"#,
+        );
+        // and so does one with prose trailing it on the same line
+        drop_envelope(
+            &pad,
+            "c",
+            r#"{"v":1,"kind":"text","value":"https://example.com/trailing is the sampler manual",
+                "source":"ios-share"}"#,
+        );
+
+        assert_eq!(sweep_dir(&mut e, &pad), SweepReport { landed: 3, quarantined: 0 });
+
+        let filed = filed_since(&dir, &before);
+        assert_eq!(filed.len(), 3, "a capture went missing: {filed:?}");
+        let references: Vec<NoteMeta> = filed
+            .iter()
+            .filter_map(|name| e.meta(&format!("Inbox/{name}")))
+            .filter(|m| m.props.get("type").and_then(|v| v.as_str()) == Some("reference"))
+            .collect();
+        assert_eq!(references.len(), 1, "only the lone link is a reference: {filed:?}");
+        // the promoted share lands exactly like a url-provider one: the same
+        // url prop, and the capture's own props alongside it
+        assert_eq!(
+            references[0].props.get("url").and_then(|v| v.as_str()),
+            Some("https://example.com/lone")
+        );
+        assert_eq!(references[0].props.get("source").and_then(|v| v.as_str()), Some("ios-share"));
+        assert_eq!(
+            references[0].props.get("captured").and_then(|v| v.as_str()),
+            Some("2026-08-24T21:14:03+02:00")
+        );
         let _ = fs::remove_dir_all(&dir);
         let _ = fs::remove_dir_all(&pad);
     }

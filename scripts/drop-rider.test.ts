@@ -164,6 +164,25 @@ test("guard (c): refuses with an unfinished merge parked in the tree", () => {
 });
 
 /* ---------------------------------------------------------------------- *
+ * --remote takes a configured remote NAME, never a URL.
+ * ---------------------------------------------------------------------- */
+
+test("--remote refuses a raw URL", () => {
+  withRig((rig) => {
+    const before = head(rig);
+    // git itself would accept a URL here, and the published-tip comparison
+    // would then run against whatever repository the caller named instead of
+    // where main actually publishes.
+    for (const form of [["--remote", rig.remote], [`--remote=${rig.remote}`]]) {
+      const result = run(rig, ...form, rig.gated);
+      assert.notEqual(result.status, 0, `${form.join(" ")} should have been refused`);
+      assert.match(result.stderr, /is not a configured remote of this repository/);
+    }
+    assert.equal(git(rig.repo, "rev-parse", "refs/heads/main"), before, "main must not have moved");
+  });
+});
+
+/* ---------------------------------------------------------------------- *
  * Guard (b) — at or above what origin publishes, asked fresh.
  * ---------------------------------------------------------------------- */
 
@@ -221,13 +240,46 @@ test("drops exactly the riders and lands on the target sha", () => {
     // The riders are named before they go, with the branch that keeps them.
     assert.match(result.stderr, /rider one/);
     assert.match(result.stderr, /rider two/);
-    assert.match(result.stderr, /git branch rescue\/riders/);
     assert.match(result.stdout, /local main is now/);
     assert.equal(
       git(rig.repo, "rev-parse", `${riders}^{commit}`),
       riders,
       "the dropped commits stay reachable by sha until gc",
     );
+  });
+});
+
+test("the riders are kept on a rescue branch pointing at the pre-reset tip", () => {
+  withRig((rig) => {
+    const riders = head(rig);
+    const result = run(rig, rig.gated);
+    assert.equal(result.status, 0, result.stderr);
+
+    // A named ref, not just a reflog entry: this is what makes the tool
+    // non-destructive rather than merely recoverable by someone who knows to
+    // look in the reflog before gc gets there.
+    const rescued = git(rig.repo, "for-each-ref", "--format=%(refname:short)", "refs/heads/rescue")
+      .split("\n")
+      .filter(Boolean);
+    assert.equal(rescued.length, 1, `expected exactly one rescue branch, got ${JSON.stringify(rescued)}`);
+    assert.match(rescued[0], /^rescue\/riders-\d{8}T\d{6}Z$/);
+    assert.equal(git(rig.repo, "rev-parse", rescued[0]), riders, "the rescue branch must hold the old main tip");
+    assert.match(result.stderr, new RegExp(rescued[0].replace("/", "\\/")));
+    assert.match(result.stdout, new RegExp(rescued[0].replace("/", "\\/")));
+  });
+});
+
+test("refuses the reset when the rescue branch cannot be created", () => {
+  withRig((rig) => {
+    const before = head(rig);
+    // refs/heads/rescue as a FILE makes every refs/heads/rescue/* branch
+    // uncreatable (git cannot nest a ref under an existing one), which is the
+    // cheapest true "git branch failed" this side of a read-only .git.
+    writeFileSync(join(rig.repo, ".git/refs/heads/rescue"), `${before}\n`);
+    const result = run(rig, rig.gated);
+    assert.notEqual(result.status, 0, "no rescue branch means no reset");
+    assert.match(result.stderr, /could not create the rescue branch rescue\/riders-/);
+    assert.equal(git(rig.repo, "rev-parse", "refs/heads/main"), before, "main must not have moved");
   });
 });
 
@@ -272,6 +324,32 @@ test("guard (e): refuses while another live process holds the merge lock", () =>
   } finally {
     holder.kill("SIGKILL");
   }
+});
+
+test("guard (e): runs again after the fetch, not just before it", () => {
+  withRig((rig) => {
+    // The first call happens before guard (b) fetches, and a fetch is long
+    // enough for another session to claim the lock and start a train. So the
+    // guard must be asked once more with the reset actually imminent. A stub
+    // records each call and whether the fetch had happened by then.
+    const log = join(rig.repo, "guard-calls.log");
+    writeFileSync(
+      join(rig.repo, "scripts/git-hooks/lib/merge-lock-guard.sh"),
+      [
+        "merge_lock_guard() {",
+        `  fetched=no; [ -e "$(git rev-parse --git-dir)/FETCH_HEAD" ] && fetched=yes`,
+        `  printf '%s %s\\n' "\${1:-commit}" "$fetched" >> ${JSON.stringify(log)}`,
+        "  return 0",
+        "}",
+        "",
+      ].join("\n"),
+    );
+
+    const result = run(rig, rig.gated);
+    assert.equal(result.status, 0, result.stderr);
+    const calls = execFileSync("cat", [log], { encoding: "utf8" }).trim().split("\n");
+    assert.deepEqual(calls, ["reset no", "reset yes"], "the guard must run before AND after the fetch");
+  });
 });
 
 test("guard (e): a missing guard library refuses rather than falling open", () => {

@@ -15,6 +15,12 @@
 # (resetting local main back to the gated tip) is a hard reset a session may
 # not perform unattended. Refusing the commit is the cheap end of that.
 #
+# What it does NOT cover: only paths that create a commit run a commit hook, so
+# a fast-forward merge, a `git reset --hard`, a `git branch -f main`, and a
+# rebase that moves main all advance the ref with no hook firing at all — the
+# fast-forward one is a convention gap rather than a bug, since `--no-ff` is
+# the mandated merge recipe and it does produce a commit.
+#
 # The lock's own semantics are mirrored, deliberately, so the two never
 # disagree about who holds what:
 #   - the lock is the directory <common gitdir>/substrate-merge.lock, and its
@@ -96,9 +102,13 @@ merge_lock_guard() {
       "  scripts/with-merge-lock.sh --wait bash -c 'git commit -m \"docs: …\"'" \
       "Deliberate? Re-run once with SUBSTRATE_ALLOW_FOREIGN_MERGE_LOCK=1." >&2
   else
+    # No override hint off the commit path. A refused commit is a thing you can
+    # reasonably decide to force; a refused reset is a hard reset of local main
+    # under someone else's live train, and printing the escape hatch next to
+    # that refusal reads as a sanctioned recovery step. The variable still
+    # works if a human reaches for it deliberately — it just is not offered.
     printf '%s\n' \
-      "Wait for pid $holder to release the lock, then re-run." \
-      "Deliberate? Re-run once with SUBSTRATE_ALLOW_FOREIGN_MERGE_LOCK=1." >&2
+      "Wait for pid $holder to release the lock, then re-run." >&2
   fi
   exit 1
 }

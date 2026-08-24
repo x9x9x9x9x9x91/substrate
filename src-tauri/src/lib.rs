@@ -1608,7 +1608,11 @@ pub fn run() {
                 // read; the SYNC behind it walks whole disks, so it runs only
                 // when this set actually changes. Steady state — a disk that
                 // has been plugged in all day — costs one readdir every few
-                // seconds and nothing else.
+                // seconds, plus one DiskArbitration description query per
+                // mounted volume to tell a real disk from a mounted image
+                // (a synchronous round trip to the disk-arbitration daemon,
+                // over a session the poll opens once and shares). With no
+                // volumes mounted it is the readdir and nothing else.
                 let mut seen: Vec<String> = Vec::new();
                 loop {
                     let volumes = vault::volumes_at(&vault::volume_search_roots());
