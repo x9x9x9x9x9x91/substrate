@@ -31,7 +31,7 @@ import {
 } from "../lib/pendingprops";
 import { useUndo } from "../lib/undoContext";
 import { nextUndoId } from "../lib/undo";
-import { commitTrailingFilter, completeFilter, completeKey, filterCompletions, filterDeadEndHint, filterInherits, filterLabel, keyCompletions, matchesFilters, parseQuery } from "../lib/query";
+import { completeFilter, completeKey, filterCompletions, filterDeadEndHint, filterInherits, filterLabel, keyCompletions, matchesFilters, parseQuery } from "../lib/query";
 import { filterByQuery, saveViewHint } from "../lib/views";
 import { exportDbCsv, exportDbPdf } from "../lib/export";
 import { todayIso } from "../lib/dates";
@@ -80,7 +80,6 @@ import {
   MAX_COL_W,
   MIN_COL_W,
   PropVisMenu,
-  SortMenu,
   WIN_HEAD_H,
   WIN_MIN,
   WIN_OVERSCAN,
@@ -210,11 +209,6 @@ interface DatabasePaneProps {
     keyframe in styles.css — long enough to catch out of the corner of an eye,
     short enough that it is gone before the next edit. */
 const CELL_FLASH_MS = 700;
-
-/** How long "Saved" stays in the filter row after a view is written. Long
-    enough to read without looking for it, short enough that the row is back
-    to its working state before the next thing typed. */
-const SAVED_FLASH_MS = 1600;
 
 /** The empty "these notes refused the write" map, shared so a reset
     is referentially stable (same trick as EMPTY_SEL). */
@@ -522,6 +516,63 @@ export default function DatabasePane({
     }
     return lines.join("\n");
   }, [widths, wrapSet, shown]);
+  /* Grow-only column floors, windowed tables only. Under the table's auto
+     layout a column is as wide as its widest PAINTED cell, and a windowed
+     tbody paints only the scroll viewport — so a column whose widest cell
+     slides out of the slice snaps narrower mid-gesture, which moves
+     scrollWidth and drags scrollLeft along with it. The floors remember the
+     widest each column has ever been rendered and pin it as a min-width, so
+     scrolling can only ever widen a column, and one sweep of the table settles
+     them. What they settle ON is the widest each column has been SHOWN at,
+     which is not quite the widths a full render would have laid out: while the
+     table fits its pane the spare width is shared among the columns, so a
+     measurement carries some of that share, and a per-column maximum over
+     differently-shared slices can in principle exceed any one real layout. The
+     e2e sweep over a fitting table is the guard on that. Emitted BEFORE the
+     committed widths above, so at equal specificity a user's own drag —
+     including a shrink drag — outranks the floor. */
+  const colFloors = useRef(new Map<string, number>());
+  const paneW = useRef(0);
+  const [floorCss, setFloorCss] = useState("");
+  // Two jobs, deliberately separate. The SKIP is about DOM timing: dropping the
+  // map is synchronous, but the rules it produced are still in the DOM holding
+  // the columns open, so a measure taken now reads exactly the widths being
+  // dropped and pins them straight back — which is how a returning hidden
+  // column used to leave the table overflowing for good. The TICK is about
+  // re-arming, and it has to fire unconditionally: keying the re-arm off
+  // floorCss reaching "" strands the measure whenever a clear runs while it is
+  // ALREADY "" — that write is a no-op, nothing re-renders, and nothing brings
+  // the skipped pass back. The first pane resize of a fresh table is exactly
+  // that case.
+  const [floorTick, setFloorTick] = useState(0);
+  const floorClearing = useRef(0);
+  const clearFloors = () => {
+    // nothing emitted means nothing in the DOM to wait for, and the render the
+    // tick would cost is the whole pane
+    const had = colFloors.current.size > 0;
+    colFloors.current.clear();
+    setFloorCss("");
+    if (!had) return;
+    cancelAnimationFrame(floorClearing.current);
+    floorClearing.current = requestAnimationFrame(() => {
+      floorClearing.current = 0;
+      setFloorTick((n) => n + 1);
+    });
+  };
+  useEffect(
+    () => () => {
+      cancelAnimationFrame(floorClearing.current);
+      // the id has to go with the frame: a cancelled frame that leaves the ref
+      // set would have the measure standing down for a callback that will never
+      // run, and StrictMode's mount/unmount/mount rehearsal walks that path
+      floorClearing.current = 0;
+    },
+    []
+  );
+  const tableCss = useMemo(
+    () => (floorCss ? `${floorCss}\n${colCss}` : colCss),
+    [floorCss, colCss]
+  );
   /** Header drag handle: live width via a throwaway stylesheet —
       zero React re-renders while dragging — committed to the pref on mouseup.
       Double-click resets to auto (the handle's onDoubleClick). */
@@ -608,43 +659,9 @@ export default function DatabasePane({
     () => normalizedPref?.sorts ?? [],
     [normalizedPref?.sorts]
   );
-  // One write path for the whole ordered list — the header's cycle and the
-  // sort popover's toggles, reorders and removals all land here, so the two
-  // surfaces can never drift into two models of the same state.
-  const setSorts = (next: SavedViewSort[]) => {
-    patchPref({ sorts: next.length > 0 ? next : undefined });
-  };
-  // What the sort popover may add: the Name column plus the displayed
-  // properties, in column order. Any key already sorted stays on the list
-  // even if its column is hidden, so a sort you can no longer see is still a
-  // sort you can drop.
-  const sortableKeys = useMemo(() => {
-    const base = ["title", ...shown];
-    return [...base, ...sorts.map((s) => s.key).filter((k) => !base.includes(k))];
-  }, [shown, sorts]);
   // the filter bar: a query string over this database's notes
   const [query, setQuery] = useState(initialQuery ?? "");
   const [namingView, setNamingView] = useState(false);
-  /* A save leaves no trace of itself: the naming field just closes, and the
-     pin it wrote is one tab among several (or, on an update, a tab that
-     already looked like that). So the row says "Saved" for a moment — the
-     one word deviation earns, in the place the reader is already looking. */
-  const [savedFlash, setSavedFlash] = useState(false);
-  const savedTimer = useRef<number | null>(null);
-  useEffect(
-    () => () => {
-      if (savedTimer.current !== null) clearTimeout(savedTimer.current);
-    },
-    []
-  );
-  const flashSaved = useCallback(() => {
-    if (savedTimer.current !== null) clearTimeout(savedTimer.current);
-    setSavedFlash(true);
-    savedTimer.current = setTimeout(() => {
-      savedTimer.current = null;
-      setSavedFlash(false);
-    }, SAVED_FLASH_MS) as unknown as number;
-  }, []);
   // Right-click on the pane's empty space — the create menu. Rows,
   // cards, chips and the header row all preventDefault in their own handlers
   // first (bubbling), so a prevented event means "already handled here".
@@ -1111,6 +1128,74 @@ export default function DatabasePane({
     setWin(null);
   }, [layout, dbType, windowed]);
 
+  // The floors describe one table under one set of columns; a different
+  // database, a different layout, or windowing dropping out entirely leaves
+  // them measuring nothing. Declaration order matters: this has to run before
+  // the measure effect below, so that the measure sees the clear is pending
+  // and stands down rather than re-pinning the widths on their way out.
+  //
+  // The column SET counts too, and for the same reason the pane width does:
+  // hiding a column hands its width to the survivors, which then floor at the
+  // inflated size — bringing it back would leave the table overflowing for
+  // good. Membership only, order deliberately not: the floors are keyed by
+  // column, so a reorder moves them along and the width budget is unchanged.
+  // Serialised rather than joined on a separator, because property names may
+  // contain spaces — a vault with "in use" and "x" would key identically to one
+  // with "in" and "use x", and the set change would go unnoticed.
+  const shownKey = useMemo(() => JSON.stringify([...shown].sort()), [shown]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(clearFloors, [layout, dbType, windowed, shownKey]);
+
+  // Re-measure the header after every windowed paint and raise the floors.
+  // A floor only ever rises, so this converges: once every column has been
+  // measured at its widest the emitted rules stop changing. Columns carrying
+  // a committed width are left out — that width already pins them, and a
+  // floor underneath would refuse the user's next shrink drag.
+  useEffect(() => {
+    if (!windowed) {
+      if (colFloors.current.size > 0) clearFloors();
+      return;
+    }
+    if (floorClearing.current) return;
+    const ths = bodyRef.current?.querySelector("thead tr")?.children;
+    if (!ths) return;
+    // header order is the rendered column order: Name first, shown props
+    // after, the ＋ add column trailing — never floored, it is not a column of
+    // the data and carries its own fixed width
+    const keys = ["title", ...shown];
+    for (let i = 0; i < keys.length && i < ths.length; i++) {
+      const key = keys[i];
+      if ((widths[key] ?? 0) > 0) continue;
+      // Widths come back fractional and the floor is kept that way, truncated
+      // to hundredths — never rounded up. A floor above the measured width is a
+      // constraint the browser's own layout does not satisfy, so it forces a
+      // relayout by construction; the phantom scrollbar and right-edge cue on a
+      // table that fits are symptoms of that one property (measured: 3px on a
+      // six-column cut of the perf fixture). Truncating asserts something the
+      // layout already meets, so the pass that sets a floor cannot move the
+      // table at all. Truncating to WHOLE pixels would go too far the other
+      // way and hand every column up to a pixel back, which is the collapse in
+      // miniature.
+      const w = Math.floor(ths[i].getBoundingClientRect().width * 100) / 100;
+      if (w > (colFloors.current.get(key) ?? 0)) colFloors.current.set(key, w);
+    }
+    // rebuilt from the CURRENT order every pass, so hiding or reordering a
+    // column carries its floor to the new position instead of another's
+    const next = keys
+      .map((k, i) => {
+        const w = (widths[k] ?? 0) > 0 ? 0 : (colFloors.current.get(k) ?? 0);
+        return w > 0 ? `.db-table thead th:nth-child(${i + 1}) { min-width: ${w}px; }` : "";
+      })
+      .filter(Boolean)
+      .join("\n");
+    setFloorCss((cur) => (cur === next ? cur : next));
+    // floorCss is a dependency, not just an output: a reset has to rebuild the
+    // floors on the spot rather than wait for the next scroll. It terminates
+    // because a floor only rises and the emitted rules are compared before
+    // they are stored — one extra pass, then equal. floorTick is the other
+    // half of that: the pass a clear skipped comes back on the next frame.
+  }, [windowed, win, shown, widths, rows, winMetrics, floorCss, floorTick]);
+
   // measure the real row/header geometry once rows paint, then re-window.
   // Deliberately a PASSIVE effect, not a layout effect: the fallback metrics
   // make the first frame accurate to the pixel, and a layout effect's
@@ -1394,6 +1479,17 @@ export default function DatabasePane({
       setScrolledX((body?.scrollLeft ?? 0) > 0);
       setScrolledY((body?.scrollTop ?? 0) > 0);
       setMoreRight(body ? body.scrollLeft < body.scrollWidth - body.clientWidth - 1 : false);
+      // A narrower pane has to be free to reflow its columns; grow-only floors
+      // measured at the old width would hold the table overflowing it forever.
+      // Gated on the width actually changing — this observer also fires for
+      // height and for the table's own box growing, and clearing the floors on
+      // those would hand the collapse back on every scroll.
+      const w = body?.clientWidth ?? 0;
+      if (paneW.current === 0) paneW.current = w;
+      else if (w !== paneW.current) {
+        paneW.current = w;
+        clearFloors();
+      }
       // a resized scroller shows a different row band — re-window
       winSyncRef.current();
     };
@@ -1401,7 +1497,11 @@ export default function DatabasePane({
     if (!body) return;
     const ro = new ResizeObserver(sync);
     ro.observe(body);
-    if (body.firstElementChild) ro.observe(body.firstElementChild);
+    // the table, not whichever node happens to lead: the pane renders its
+    // column stylesheet inside the scroller, and a display:none <style> as the
+    // observed box is a subscription that can never fire
+    const box = body.querySelector(":scope > *:not(style)");
+    if (box) ro.observe(box);
     return () => ro.disconnect();
   }, [layout, dbType, filterEmpty]);
 
@@ -1479,7 +1579,8 @@ export default function DatabasePane({
   // plain click replaces the sort (asc → desc → none); shift-click adds or
   // cycles a secondary key — the state machine lives in lib/dbsort
   const cycleSort = (key: string, additive: boolean) => {
-    setSorts(cycleSortKeys(sorts, key, additive));
+    const next = cycleSortKeys(sorts, key, additive);
+    patchPref({ sorts: next.length > 0 ? next : undefined });
   };
 
   // A note's props AS STORED. Key resolution (foldedPropKey) has to
@@ -2368,7 +2469,7 @@ export default function DatabasePane({
   // the filter row renders only on demand: an active query, the naming flow,
   // keyboard focus, or the funnel toggle keep it on screen — an empty
   // untouched bar reclaims its vertical space
-  const showFilter = namingView || savedFlash || query.trim() !== "" || filterOpen || filterFocused;
+  const showFilter = namingView || query.trim() !== "" || filterOpen || filterFocused;
 
   // Row 2 — the Notion pattern: a view tab strip ("All" + one tab per saved
   // view, right-click = the pin's manage menu, ＋ = save-view naming) with
@@ -2469,10 +2570,6 @@ export default function DatabasePane({
             onClose={() => setGroupMenu(null)}
           />
         )}
-        {/* The sort's own surface — the same ordered key list the table
-            headers write, on every layout. A board or a gallery has no
-            headers, so this is the only place their sort is visible at all. */}
-        <SortMenu keys={sortableKeys} sorts={sorts} onChange={setSorts} />
         {(layout === "table" || layout === "list") && (
           <ColumnsMenu columns={columns} checked={curated ?? null} onToggle={toggleColumn} />
         )}
@@ -2542,9 +2639,6 @@ export default function DatabasePane({
           onCommit={(name) => {
             setNamingView(false);
             onSaveView(name, { query: query.trim(), sorts, view: layout, groupBy, tableGroupBy: tableGroup, columns: colCapture });
-            // both presses land here — the update of an open pin and the
-            // pinning of a new name — so both confirm the same way
-            flashSaved();
           }}
           onCancel={() => setNamingView(false)}
         />
@@ -2568,17 +2662,6 @@ export default function DatabasePane({
                 // same key, one rung earlier: the word becomes the operator
                 e.preventDefault();
                 setQuery(completeKey(query, keyHints[0]));
-              } else if (e.key === "Enter") {
-                // The last expression typed is a stub until its token ends,
-                // and a reader who has finished typing presses Enter, not
-                // space — so Enter finishes it. A stub with no operand
-                // (`rating:`, `due <`) commits nothing and the keystroke is
-                // left to do what it did before.
-                const committed = commitTrailingFilter(query, undefined, typeSchema);
-                if (committed) {
-                  e.preventDefault();
-                  setQuery(committed);
-                }
               } else if (e.key === "Escape") {
                 e.preventDefault();
                 if (query) setQuery("");
@@ -2618,13 +2701,6 @@ export default function DatabasePane({
           >
             <XIcon />
           </button>
-          {/* Last in the row, so the confirmation never shifts the input the
-              cursor sits in (design-principles.md 4) */}
-          {savedFlash && (
-            <span className="db-filter-saved" role="status">
-              Saved
-            </span>
-          )}
         </>
       )}
     </div>
@@ -3030,7 +3106,7 @@ export default function DatabasePane({
       draftInput={draftInput}
       bodyRef={bodyRef}
       winSyncRef={winSyncRef}
-      colCss={colCss}
+      colCss={tableCss}
       gridOn={gridOn}
       scrolledX={scrolledX}
       setScrolledX={setScrolledX}

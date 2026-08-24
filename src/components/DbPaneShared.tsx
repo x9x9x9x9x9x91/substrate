@@ -2,19 +2,18 @@ import { DEFAULT_NUMBER_LOCALE, type NumberLocale } from "../lib/numberLocale";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { AggKind, DbIcon, DbLayout, NoteMeta, PropSchema, SavedViewSort } from "../lib/types";
+import type { AggKind, DbIcon, DbLayout, NoteMeta, PropSchema } from "../lib/types";
 import { foldedPropStr } from "../lib/types";
 import { byFoldedKey } from "../lib/schemalookup";
 import type { FxResolver } from "../lib/formula";
-import { conversionNote, displayColLabel, displayValue } from "../lib/display";
+import { conversionNote, displayValue } from "../lib/display";
 import { isTauri } from "../lib/tauri";
 import { coverSource } from "../lib/assets";
 import { optionColor, OptionDot, type AnchorRect } from "./SelectMenu";
 import TypeIcon from "./TypeIcon";
-import { BoardIcon, ChevronIcon, ColumnsIcon, GalleryIcon, HelpIcon, ListIcon, SortIcon, TableIcon, XIcon } from "./Icons";
+import { BoardIcon, ChevronIcon, ColumnsIcon, GalleryIcon, HelpIcon, ListIcon, TableIcon } from "./Icons";
 import type { SubSummary } from "../lib/subitems";
 import { QUERY_SYNTAX, QUERY_SYNTAX_FOOT } from "../lib/query";
-import { MAX_SORT_KEYS } from "../lib/dbsort";
 
 /** Card/list subtitle: the notable props joined with " · ". A part whose
     value matches a colored schema option leads with that option's dot,
@@ -347,213 +346,6 @@ export function ColumnsMenu({
       )}
     </div>
   );
-}
-
-/** The sort overview: the tab row's tool that makes a multi-key sort
-    visible. Shift-clicking column headers builds an ordered key list, but
-    until this popover the only trace of it was an arrow and a small ordinal
-    on each header — a reader with three keys had to find all three to know
-    what the order was, and a reader on a board or a gallery had no headers at
-    all.
-
-    It is a VIEW of the same state the headers write: every control here hands
-    back a whole `sorts` list, the pref write is the header's own, and the cap
-    is `MAX_SORT_KEYS` on both paths. Same open/close idiom as ColumnsMenu
-    (toggle, outside click, Escape); a pick keeps the menu open, because
-    retuning a sort is several moves in one visit.
-
-    The one-line hint at the foot is the discoverability half: shift-click is
-    the fastest way in and nothing on screen said so. It rides the popover
-    rather than the pane, which keeps design-principles §5 — an explanation on
-    demand, never a legend printed on the page. */
-export function SortMenu({
-  keys,
-  sorts,
-  onChange,
-}: {
-  /** the keys a reader may sort by, in column order; "title" is the Name column */
-  keys: string[];
-  sorts: SavedViewSort[];
-  onChange: (next: SavedViewSort[]) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [adding, setAdding] = useState(false);
-  /* the reorder gesture: the key in flight and the row the pointer is over.
-     The source of truth is this state rather than the drag payload, so a
-     drag that started anywhere else passes over the panel inertly. */
-  const [dragKey, setDragKey] = useState<string | null>(null);
-  const [dropKey, setDropKey] = useState<string | null>(null);
-  const wrapRef = useRef<HTMLDivElement>(null);
-
-  // the add list is a second face of the same panel — every close puts it
-  // back on the overview, so re-opening never lands mid-gesture
-  const close = () => {
-    setAdding(false);
-    setOpen(false);
-  };
-
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (!wrapRef.current?.contains(e.target as Node)) close();
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        close();
-      }
-    };
-    window.addEventListener("mousedown", onDown);
-    window.addEventListener("keydown", onKey, true);
-    return () => {
-      window.removeEventListener("mousedown", onDown);
-      window.removeEventListener("keydown", onKey, true);
-    };
-    // the listeners re-bind with the panel; `close` only calls setters
-  }, [open]);
-
-  const atCap = sorts.length >= MAX_SORT_KEYS;
-  const unused = keys.filter((k) => !sorts.some((s) => s.key === k));
-  // an unsorted view has nothing to overview, so it opens straight on the
-  // property list rather than behind a button that is the only thing on screen
-  const showAdd = adding || sorts.length === 0;
-  const setDir = (key: string, dir: 1 | -1) =>
-    onChange(sorts.map((s) => (s.key === key ? { ...s, dir } : s)));
-  const drop = (key: string) => onChange(sorts.filter((s) => s.key !== key));
-  const add = (key: string) => {
-    if (atCap) return;
-    setAdding(false);
-    onChange([...sorts, { key, dir: 1 }]);
-  };
-
-  const endDrag = () => {
-    setDragKey(null);
-    setDropKey(null);
-  };
-  /* Drop ON a row takes that row's place: the dragged key is lifted out and
-     re-inserted at the target's index, so dragging the first key onto the
-     last makes it last and the keys it passed all move up one. Priority IS
-     position here, so the drop needs no before/after half — the sidebar's
-     insertion-line gesture would be answering a question a three-row list
-     never asks. */
-  const dropOn = (target: string) => {
-    if (!dragKey || dragKey === target) return endDrag();
-    const to = sorts.findIndex((s) => s.key === target);
-    const moved = sorts.find((s) => s.key === dragKey);
-    if (to === -1 || !moved) return endDrag();
-    const rest = sorts.filter((s) => s.key !== dragKey);
-    onChange([...rest.slice(0, to), moved, ...rest.slice(to)]);
-    endDrag();
-  };
-
-  return (
-    <div className="db-sorts" ref={wrapRef}>
-      <button
-        className={`db-sorts-btn${open ? " active" : ""}`}
-        title="Sort"
-        aria-label="Sort"
-        aria-expanded={open}
-        onClick={() => (open ? close() : setOpen(true))}
-      >
-        <SortIcon />
-        {/* the count is the resting state's whole report: a sorted view says
-            how many keys without being opened, an unsorted one stays quiet */}
-        {sorts.length > 0 && <span className="db-sorts-count">{sorts.length}</span>}
-      </button>
-      {open && (
-        <div className="dots-menu db-sorts-menu">
-          {sorts.length === 0 && (
-            <div className="db-sorts-empty">Unsorted. Pick a property to sort by:</div>
-          )}
-          {sorts.map((s, i) => (
-              <div
-                key={s.key}
-                className={`db-sorts-row${dragKey === s.key ? " dragging" : ""}${
-                  dropKey === s.key && dragKey !== s.key ? " drop-on" : ""
-                }`}
-                draggable
-                onDragStart={(e) => {
-                  e.dataTransfer.effectAllowed = "move";
-                  setDragKey(s.key);
-                }}
-                onDragEnd={endDrag}
-                onDragOver={(e) => {
-                  if (!dragKey) return;
-                  e.preventDefault();
-                  e.dataTransfer.dropEffect = "move";
-                  if (dropKey !== s.key) setDropKey(s.key);
-                }}
-                onDrop={(e) => {
-                  if (!dragKey) return;
-                  e.preventDefault();
-                  dropOn(s.key);
-                }}
-              >
-                {/* priority is the row's position; the ordinal is the same
-                    number the header badge carries, so the two read as one */}
-                <span className="db-sorts-ord">{i + 1}</span>
-                <span className="db-sorts-name" title="Drag to change priority">
-                  {sortKeyLabel(s.key)}
-                </span>
-                <button
-                  className="db-sorts-dir"
-                  title={s.dir === 1 ? "Ascending — click for descending" : "Descending — click for ascending"}
-                  aria-label={`${sortKeyLabel(s.key)}: ${s.dir === 1 ? "ascending" : "descending"}`}
-                  onClick={() => setDir(s.key, s.dir === 1 ? -1 : 1)}
-                >
-                  {s.dir === 1 ? "↑" : "↓"}
-                </button>
-                <button
-                  className="db-sorts-drop"
-                  title="Remove this sort key"
-                  aria-label={`Remove ${sortKeyLabel(s.key)}`}
-                  onClick={() => drop(s.key)}
-                >
-                  <XIcon />
-                </button>
-              </div>
-            ))}
-          {/* The add face never replaces the overview — it opens UNDER it, so
-              the keys a reader is about to add to stay on screen while they
-              pick, and closing the list leaves the same panel they opened. */}
-          {atCap ? (
-            // an off row rather than an absent one: the ColMenu rule — the
-            // control that is waiting on something says what it waits for
-            <div className="dots-item colmenu-off db-sorts-cap" aria-disabled="true" tabIndex={0}>
-              <span className="colmenu-off-text">
-                <span className="dots-label">Add a sort key</span>
-                <span className="colmenu-why">{MAX_SORT_KEYS} keys is the limit</span>
-              </span>
-            </div>
-          ) : unused.length === 0 ? (
-            <div className="db-sorts-empty">Every property is already a sort key.</div>
-          ) : showAdd ? (
-            <div className="db-sorts-add-list">
-              {unused.map((k) => (
-                <button key={k} className="dots-item db-sorts-add-item" onClick={() => add(k)}>
-                  {sortKeyLabel(k)}
-                </button>
-              ))}
-            </div>
-          ) : (
-            <button className="dots-item db-sorts-add" onClick={() => setAdding(true)}>
-              Add a sort key…
-            </button>
-          )}
-          <div className="db-sorts-hint">
-            Drag a key to change its priority. Shift-click a column header to add one.
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** A sort key as the table header spells it — the Name column sorts on
-    `title`, and calling it "Title" here would name a column that is not on
-    screen. */
-function sortKeyLabel(key: string): string {
-  return key === "title" ? "Name" : displayColLabel(key);
 }
 
 /** The filter bar's syntax reference: a quiet ? beside the query input

@@ -76,13 +76,6 @@ async function type(field: Element, value: string): Promise<void> {
   });
 }
 
-/** Commit the open naming field the way a reader does: Enter. */
-async function commit(field: Element): Promise<void> {
-  await act(async () => {
-    field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
-  });
-}
-
 test("the seeded name of an open pin says it updates that pin, not pins a new one", async (t) => {
   const { default: DatabasePane } = await import("../components/DatabasePane.tsx");
   const r = await renderComponent(
@@ -145,84 +138,4 @@ test("a pin of another database is not this database's overwrite", async (t) => 
   await type(field, "Weekly");
   assert.ok(r.one(".inline-edit"), "the field is still open");
   assert.doesNotMatch(r.text(), /Updates/);
-});
-
-test("updating an open pin confirms the write", async (t) => {
-  const { default: DatabasePane } = await import("../components/DatabasePane.tsx");
-  const saved: string[] = [];
-  const r = await renderComponent(
-    t,
-    h(
-      DatabasePane as never,
-      paneProps({
-        saveViewSeed: "Weekly",
-        activeViewId: "weekly",
-        onSaveView: (name: string) => saved.push(name),
-      }) as never
-    )
-  );
-
-  await r.click(".db-tab-add");
-  const field = r.one(".inline-edit");
-  assert.ok(field, "the naming field opened");
-  await commit(field);
-
-  assert.deepEqual(saved, ["Weekly"], "the pin was written");
-  assert.ok(r.one(".db-filter-saved"), "and the row says so");
-  assert.match(r.text(), /Saved/);
-  assert.equal(r.all(".inline-edit").length, 0, "the naming field closed behind it");
-});
-
-test("pinning a new view confirms the same way", async (t) => {
-  const { default: DatabasePane } = await import("../components/DatabasePane.tsx");
-  const saved: string[] = [];
-  const r = await renderComponent(
-    t,
-    h(DatabasePane as never, paneProps({ onSaveView: (name: string) => saved.push(name) }) as never)
-  );
-
-  await r.click(".db-tab-add");
-  const field = r.one(".inline-edit");
-  assert.ok(field, "the naming field opened");
-  await type(field, "Weekly 2");
-  await commit(field);
-
-  assert.deepEqual(saved, ["Weekly 2"], "a fresh name pins a new view");
-  assert.ok(r.one(".db-filter-saved"), "the new pin confirms like an update does");
-  assert.match(r.text(), /Saved/);
-});
-
-test("the confirmation is transient, and a cancelled name gets none", async (t) => {
-  const { default: DatabasePane } = await import("../components/DatabasePane.tsx");
-  const saved: string[] = [];
-  const r = await renderComponent(
-    t,
-    h(
-      DatabasePane as never,
-      paneProps({ saveViewSeed: "Weekly", onSaveView: (name: string) => saved.push(name) }) as never
-    )
-  );
-
-  // escaping out of the field wrote nothing, so there is nothing to confirm
-  await r.click(".db-tab-add");
-  const field = r.one(".inline-edit");
-  assert.ok(field, "the naming field opened");
-  await act(async () => {
-    field.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
-  });
-  assert.deepEqual(saved, [], "nothing was written");
-  assert.equal(r.all(".db-filter-saved").length, 0, "and nothing was confirmed");
-
-  // a real save confirms, then puts the row back on its own
-  await r.click(".db-tab-add");
-  const second = r.one(".inline-edit");
-  assert.ok(second, "the naming field reopened");
-  await commit(second);
-  assert.ok(r.one(".db-filter-saved"), "the write is confirmed");
-
-  await act(async () => {
-    await new Promise((done) => setTimeout(done, 2000));
-  });
-  assert.equal(r.all(".db-filter-saved").length, 0, "the word is gone again");
-  assert.deepEqual(saved, ["Weekly"], "and it was one save, not two");
 });
