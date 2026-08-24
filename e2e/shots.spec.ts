@@ -9,7 +9,6 @@ const OUT = "/tmp/dash-shots";
 test.skip(!process.env.SHOTS, "evidence run only — SHOTS=1 enables");
 
 const SIDEBAR: [string, string][] = [
-  ["Yield APR", "yield"],
   ["Portfolio", "metrics"],
   ["Overview", "charts"],
   ["Umbra Home", "hub"],

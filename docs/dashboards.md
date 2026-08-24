@@ -757,38 +757,27 @@ stale_days: 21
 ---
 ````
 
-### `yield-apr` — the yield/APR tracker
+### `yield-apr` — moved into the vault
 
-Owns its data: an append-only csv fence of snapshots in its own body. The pane
-computes per-interval APR and projected day/week/month/year yield, and its form
-appends rows.
+Not an app kind any more. It is a **vault-resident kind** (`docs/vault-format.md`
+§5.8): a `.vault/kinds/yield-apr/` folder holding a manifest, a module and a
+stylesheet, which `dashboard: yield-apr` mounts in a vault that carries it.
+Without the folder the name renders the unknown-kind card like any other value
+this build does not know. It was a single-purpose finance tracker carrying
+headline weight it did not earn (SUB-1407, demoted by SUB-1451); the note
+format it reads and writes is unchanged and still documented at
+`docs/vault-format.md` §5.3.
 
-````markdown
----
-type: dashboard
-dashboard: yield-apr
----
-
-```csv
-at,yield_usd,principal_usd
-2026-07-17 10:00,0,100000
-2026-07-18 10:00,26,100000
-2026-07-19 10:00,53,100000
-```
-````
-
-`dashboard: yield-apr` names this renderer outright, so a note keeps it even
-before the first fence is written. (`charts` is the other name-it-outright
-case, and it names the chart-fence dashboard rather than this one —
-`src/lib/kinds.ts` reserves it, `DashboardPane` dispatches it fence or no
-fence.)
+That leaves `charts` as the one kind that names its renderer outright:
+`src/lib/kinds.ts` reserves the name and `DashboardPane` dispatches it fence or
+no fence, so a note keeps it before the first fence is written.
 
 A note with `type: dashboard` and **no `dashboard:` key at all** falls back by
 body content: ` ```chart ` fences → charts, ` ```heatmap ` fences → the heatmap
 dashboard (beside charts they hang under them). ` ```calendar ` fences fall back
 to the month grids the same way. A body with **none** of those fences renders a
-help card naming the kinds that exist — it used to render this tracker, so a
-note saying only `type: dashboard` became a financial instrument with a live
+help card naming the kinds that exist — it used to render the yield tracker, so
+a note saying only `type: dashboard` became a financial instrument with a live
 rates request and a Claim button that wrote back into it. A key that *is*
 written but isn't a kind this build knows renders that same card naming the
 value — a typo shows you the typo, rather than quietly handing you a different

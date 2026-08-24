@@ -165,12 +165,20 @@ Undo-adjacent but not undo: TrashPane (`TrashPane.tsx:96-119`), HistoryPanel
 snapshot before schema sweeps but **exposes no UI to roll it back**, and swallows
 its own failure with `.catch(console.warn)` at `:1042`).
 
-The yield-board ⌘Z is **live** — `DashboardPane.tsx:96-131`, two ref
-stacks of `{ body, claimed }` capped at 50, covered by `e2e/yieldundo.spec.ts`.
-The `yield-apr` archive landed 2026-07-25 and was reverted the same
-day (`e88cb5a`, merged as `d64d6d5`), restoring the kind and both specs;
-`FoodDashboard.tsx:219-220` notes the food stack is a copy of this design, not
-its successor.
+The yield-board ⌘Z is **live but no longer app code**. SUB-1451 demoted
+`yield-apr` to a vault-resident bundle, and the stack moved with it: the same
+two `{ body, claimed }` arrays capped at 50, now inside the kind's own `mount`
+as a window keydown listener, writing back through the kind API's
+`ctx.writeBody`/`ctx.setProp` with the same guards. It publishes its
+availability through `ctx.setUndo`, into the same `DashUndoStore` row 4
+registers with — the gate below is what makes that mandatory rather than
+decorative, and an unpublished vault stack would take one ⌘Z and spend it
+twice. It is absent from the table above because the table is the app's own
+surfaces. The
+`yield-apr` archive landed 2026-07-25 and was reverted the same day (`e88cb5a`,
+merged as `d64d6d5`), restoring the kind and both specs — the demotion is what
+finally took it out; `FoodDashboard.tsx:219-220` notes the food stack is a copy
+of that design, not its successor.
 
 **⌘Z is not in the shortcut registry.** `src/lib/shortcuts.ts` is built to be the
 one source of truth so "the sheet cannot drift from the real bindings"

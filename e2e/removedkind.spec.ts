@@ -10,7 +10,7 @@ test("a note with a retired dashboard kind renders the unknown-kind card", async
   await expect(page.locator(".list-title")).toHaveText("Notes");
 
   await page.evaluate(() => {
-    window.__mockCloneNote?.("Dashboards/Yield APR.md", "Dashboards/Retired Kind.md");
+    window.__mockCloneNote?.("Dashboards/Calories.md", "Dashboards/Retired Kind.md");
     window.__mockEditProp?.("Dashboards/Retired Kind.md", "dashboard", "waiting");
     window.__mockEmit?.("vault:changed");
   });
@@ -31,7 +31,7 @@ test("a note kept on the retired tile-board kind renders the unknown-kind card",
   await expect(page.locator(".list-title")).toHaveText("Notes");
 
   await page.evaluate(() => {
-    window.__mockCloneNote?.("Dashboards/Yield APR.md", "Dashboards/Old Board.md");
+    window.__mockCloneNote?.("Dashboards/Calories.md", "Dashboards/Old Board.md");
     window.__mockEditProp?.("Dashboards/Old Board.md", "dashboard", "grid");
     window.__mockEmit?.("vault:changed");
   });

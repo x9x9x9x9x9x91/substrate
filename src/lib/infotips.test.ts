@@ -167,7 +167,7 @@ test("every view kind has a static tip", () => {
   }
 });
 
-test("no tip mentions the removed yield-apr dashboard kind (SUB-447)", () => {
+test("no tip mentions the yield/APR board the app no longer renders (SUB-447, SUB-1451)", () => {
   const haystack: string[] = [];
   for (const kind of VIEW_KINDS) {
     const t = infoTipForView({ kind } as View);
@@ -240,11 +240,6 @@ test("a dashboard control resolves to its own pane's tip, not the shared dashboa
   const item = new Stub({ tag: "article", classes: ["feed-item"], children: [vote] });
   new Stub({ classes: ["dash-inner"], children: [item] });
   assert.equal(infoTipForElement(vote as unknown as Element)?.title, "Rate this item");
-
-  // the claim button sits inside the snapshot form and must beat it
-  const claim = new Stub({ tag: "button", classes: ["dash-claim"] });
-  new Stub({ classes: ["dash-form"], children: [claim] });
-  assert.equal(infoTipForElement(claim as unknown as Element)?.title, "Claim balance");
 
   // a chart slot beats the chart it is plotted in
   const slot = new Stub({ classes: ["chart-line-slot"] });

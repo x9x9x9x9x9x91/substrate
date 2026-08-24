@@ -117,7 +117,7 @@ async function openKind(
 
 /** Neither of the two fallbacks the pane must never reach. */
 async function noFallback(page: Page) {
-  // the yield tracker (its hero and its snapshot form)
+  // a built-in board (its hero number and its entry form)
   await expect(page.locator(".dash-apr")).toHaveCount(0);
   await expect(page.locator(".dash-form")).toHaveCount(0);
   // and the charts renderer, though Overview's body is full of chart fences

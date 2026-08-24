@@ -1,70 +1,46 @@
 import { expect, test, type Page } from "@playwright/test";
 
-const newestYield = (page: Page) => page.locator(".dash-table tbody tr").first();
-
-async function stageYieldTwin(page: Page) {
-  await page.evaluate(() => {
-    const source = "Dashboards/Yield APR.md";
-    const twin = "Dashboards/Yield APR Twin.md";
-    window.__mockCloneNote?.(source, twin);
-    const body = window.__mockBodyOf?.(twin) ?? "";
-    window.__mockEditNote?.(
-      twin,
-      body.replace("2026-07-17 14:18,232,15700", "2026-07-17 14:18,7,15700")
-    );
-  });
-}
+// Board undo is per-note identity: leaving a board withdraws its history, so a
+// chord on the next board can never write the previous one's sheet. Vehicled on
+// the food board — it writes to a separate log note, so "did the undo land"
+// is a body comparison rather than a rendering guess.
 
 async function refreshMockVault(page: Page) {
   await page.evaluate(() => window.__mockEmit?.("vault:changed"));
 }
 
-async function addYield(page: Page, value: string) {
-  await page.locator(".dash-form input").nth(1).fill(value);
-  await page.locator(".dash-add").click();
-  await expect(newestYield(page)).toContainText(`${value},00 $`);
-}
-
-test("same-kind Yield navigation starts with empty board history (SUB-726 review)", async ({
-  page,
-}) => {
-  await page.goto("/");
-  await stageYieldTwin(page);
-  await refreshMockVault(page);
-
-  await page.locator(".side-item", { hasText: "Yield APR" }).first().click();
-  await addYield(page, "250");
-
-  await page.locator(".side-item", { hasText: "Yield APR Twin" }).click();
-  await expect(newestYield(page)).toContainText("7,00 $");
-  const before = await page.evaluate(() => window.__mockBodyOf?.("Dashboards/Yield APR Twin.md"));
-
-  await page.keyboard.press("Meta+z");
-  await expect.poll(() =>
-    page.evaluate(() => window.__mockBodyOf?.("Dashboards/Yield APR Twin.md"))
-  ).toBe(before);
-  await expect(newestYield(page)).toContainText("7,00 $");
-});
-
-test("same-kind Food navigation cannot write the previous board's log (SUB-726 review)", async ({
-  page,
-}) => {
-  await page.goto("/");
+/** A second food board with its own log, differing from the original by one
+    row so a stray write to the wrong sheet is visible. */
+async function stageCaloriesTwin(page: Page) {
   await page.evaluate(() => {
     window.__mockCloneNote?.("Dashboards/Calories.md", "Dashboards/Calories Twin.md");
     window.__mockCloneNote?.("Food Log.md", "Food Log Twin.md");
     window.__mockEditProp?.("Dashboards/Calories Twin.md", "log", "Food Log Twin");
     const body = window.__mockBodyOf?.("Food Log Twin.md") ?? "";
-    window.__mockEditNote?.("Food Log Twin.md", body.replace("Chicken bowl,650,45", "Twin Chicken bowl,650,45"));
+    window.__mockEditNote?.(
+      "Food Log Twin.md",
+      body.replace("Chicken bowl,650,45", "Twin Chicken bowl,650,45")
+    );
   });
+}
+
+async function addMeal(page: Page, name: string, kcal: string) {
+  const form = page.locator(".dash-form:not(.food-db-form)");
+  await form.locator("input[type=text]").fill(name);
+  await form.locator("label", { hasText: "kcal" }).locator("input").fill(kcal);
+  await form.locator(".dash-add").click();
+  await expect(page.locator(".food-row", { hasText: name })).toBeVisible();
+}
+
+test("same-kind Food navigation cannot write the previous board's log (SUB-726 review)", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await stageCaloriesTwin(page);
   await refreshMockVault(page);
 
   await page.locator(".side-item", { hasText: "Calories" }).first().click();
-  const form = page.locator(".dash-form:not(.food-db-form)");
-  await form.locator("input[type=text]").fill("Review meal");
-  await form.locator("label", { hasText: "kcal" }).locator("input").fill("100");
-  await form.locator(".dash-add").click();
-  await expect(page.locator(".food-row", { hasText: "Review meal" })).toBeVisible();
+  await addMeal(page, "Review meal", "100");
 
   await page.locator(".side-item", { hasText: "Calories Twin" }).click();
   await expect(page.locator(".dash-title")).toHaveText("Calories Twin");
@@ -79,36 +55,35 @@ test("workbook note-to-note board navigation withdraws outgoing history (SUB-726
   page,
 }) => {
   await page.goto("/");
-  await stageYieldTwin(page);
+  await stageCaloriesTwin(page);
   await page.evaluate(() => {
-    window.__mockCloneNote?.("Dashboards/Portfolio.md", "Dashboards/Yield Workbook.md");
-    window.__mockEditProp?.("Dashboards/Yield Workbook.md", "pages", [
-      { label: "Yield A", note: "Yield APR" },
-      { label: "Yield B", note: "Yield APR Twin" },
+    window.__mockCloneNote?.("Dashboards/Portfolio.md", "Dashboards/Food Workbook.md");
+    window.__mockEditProp?.("Dashboards/Food Workbook.md", "pages", [
+      { label: "Food A", note: "Calories" },
+      { label: "Food B", note: "Calories Twin" },
     ]);
   });
   await refreshMockVault(page);
 
-  await page.locator(".side-item", { hasText: "Yield Workbook" }).click();
-  await page.locator(".wb-tab", { hasText: "Yield A" }).click();
-  await addYield(page, "250");
+  await page.locator(".side-item", { hasText: "Food Workbook" }).click();
+  await page.locator(".wb-tab", { hasText: "Food A" }).click();
+  await addMeal(page, "Workbook meal", "100");
 
-  await page.locator(".wb-tab", { hasText: "Yield B" }).click();
-  await expect(newestYield(page)).toContainText("7,00 $");
-  const before = await page.evaluate(() => window.__mockBodyOf?.("Dashboards/Yield APR Twin.md"));
+  await page.locator(".wb-tab", { hasText: "Food B" }).click();
+  const before = await page.evaluate(() => window.__mockBodyOf?.("Food Log Twin.md"));
+  expect(before).toContain("Twin Chicken bowl");
+
   await page.keyboard.press("Meta+z");
-  await expect.poll(() =>
-    page.evaluate(() => window.__mockBodyOf?.("Dashboards/Yield APR Twin.md"))
-  ).toBe(before);
+  await expect.poll(() => page.evaluate(() => window.__mockBodyOf?.("Food Log Twin.md"))).toBe(before);
 });
 
 test("back-to-back board undo chords chain through live state (SUB-726 review)", async ({
   page,
 }) => {
   await page.goto("/");
-  await page.locator(".side-item", { hasText: "Yield APR" }).click();
-  await addYield(page, "250");
-  await addYield(page, "260");
+  await page.locator(".side-item", { hasText: "Calories" }).first().click();
+  await addMeal(page, "Chord one", "100");
+  await addMeal(page, "Chord two", "110");
 
   const probe = await page.evaluate(() => {
     const chord = (shiftKey = false) => {
@@ -133,7 +108,9 @@ test("back-to-back board undo chords chain through live state (SUB-726 review)",
     { dispatched: false, prevented: true, metaKey: true, key: "z" },
     { dispatched: false, prevented: true, metaKey: true, key: "z" },
   ]);
-  await expect.poll(() =>
-    page.evaluate(() => window.__mockBodyOf?.("Dashboards/Yield APR.md"))
-  ).toContain("2026-07-17 14:18,232,15700");
+  // both adds withdrawn, the seeded log untouched underneath them
+  await expect
+    .poll(() => page.evaluate(() => window.__mockBodyOf?.("Food Log.md")))
+    .not.toContain("Chord one");
+  await expect(page.locator(".food-row", { hasText: "Chord two" })).toHaveCount(0);
 });

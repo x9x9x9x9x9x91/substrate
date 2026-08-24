@@ -1,9 +1,9 @@
 import { expect, test } from "@playwright/test";
 
 // Evidence run only: the two notes this fallback pass separates — a note that
-// says only `type: dashboard` (which used to open the yield tracker and now
-// gets a card naming what it could say instead), and a note that asks for the
-// tracker by name (unchanged).
+// says only `type: dashboard` (which used to open whichever board sat first
+// in the dispatch chain and now gets a card naming what it could say
+// instead), and a note that asks for a board by name (unchanged).
 // The app has no runtime light theme; the light ground is the print pass, so
 // each note is shot dark and then on the print surface.
 //   SHOTS=1 npx playwright test e2e/dashfallbackshot.spec.ts
@@ -29,8 +29,8 @@ const states = [
     ready: before ? ".dash-apr" : ".dash-alert",
   },
   {
-    slug: "explicit-yield-apr",
-    open: "Yield APR",
+    slug: "explicit-food",
+    open: "Calories",
     async seed() {},
     ready: ".dash-apr",
   },

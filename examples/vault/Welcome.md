@@ -23,7 +23,7 @@ What's inside:
   callout cards and an embedded live view), [[Food]] (net-kcal tracker reading
   [[Food Log]]), [[News]] (a curated feed reading [[News Items]]), [[Tasks]] (a
   working board over the `task` notes in `Tasks/` — late work first, with
-  checkoff, inline edits and quick-add), and [[Yield]] (the APR tracker).
+  checkoff, inline edits and quick-add).
 - **Links** — wikilinks like [[Holdings]] connect notes; backlinks render at the
   bottom of each note. Follow a link to a missing note and it's created.
 

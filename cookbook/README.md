@@ -27,7 +27,6 @@ one-line prompt.
 | recipe | kind | what it does |
 | --- | --- | --- |
 | [`portfolio/`](portfolio) | metrics | stat cards over a sheet's named summaries |
-| [`yield-apr/`](yield-apr) | yield-apr | realized APR + projections from append-only snapshots |
 | [`food-log/`](food-log) | food | daily net-kcal tracker with a goal band and autocomplete |
 | [`news-feed/`](news-feed) | feed | agent-curated newsfeed; your ↑/↓ feed the curator back |
 | [`home-hub/`](home-hub) | hub | a designed home page from ordinary markdown |

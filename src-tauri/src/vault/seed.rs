@@ -104,10 +104,11 @@ const STARTER_NOTES: &[StarterNote] = &[
     StarterNote {
         rel: "Dashboards/Start Here.md",
         current:
-            "---\ntype: dashboard\ndashboard: hub\ncreated: 2026-07-17\n---\n## What a dashboard is\n\n> [!note] The property does it\n> Any note whose frontmatter carries a `dashboard:` property stops rendering as text and becomes a live surface instead. This one is `dashboard: hub` — a page whose body is ordinary markdown, laid out in sections and cards.\n> [!idea] See it with data\n> [[Reading & Travel]] is the other seeded dashboard: `metrics` cards bound to the [[Bookshelf]] sheet's totals, two charts over the trip notes and that sheet, and tabs at the bottom for the sheet itself and the trip database. Nothing outside this vault feeds it.\n> [!note] Other kinds\n> `charts` plots a database on its own, `tasks` is a working board that puts overdue and due-today work first, then what needs attention now, `food` and `feed` are small trackers, and `yield-apr` tracks a series of snapshots. The demo vault in the repo's `examples/vault/` has a working example of each.\n\n## Editing this\n\nThe source is a plain file like every other note — \"Open source note\" in the header opens it in the editor, and this note can be deleted whenever it has served its purpose.\n",
+            "---\ntype: dashboard\ndashboard: hub\ncreated: 2026-07-17\n---\n## What a dashboard is\n\n> [!note] The property does it\n> Any note whose frontmatter carries a `dashboard:` property stops rendering as text and becomes a live surface instead. This one is `dashboard: hub` — a page whose body is ordinary markdown, laid out in sections and cards.\n> [!idea] See it with data\n> [[Reading & Travel]] is the other seeded dashboard: `metrics` cards bound to the [[Bookshelf]] sheet's totals, two charts over the trip notes and that sheet, and tabs at the bottom for the sheet itself and the trip database. Nothing outside this vault feeds it.\n> [!note] Other kinds\n> `charts` plots a database on its own, `tasks` is a working board that puts overdue and due-today work first, then what needs attention now, `food` and `feed` are small trackers. The demo vault in the repo's `examples/vault/` has a working example of each.\n\n## Editing this\n\nThe source is a plain file like every other note — \"Open source note\" in the header opens it in the editor, and this note can be deleted whenever it has served its purpose.\n",
         prior: &[
             include_str!("../seed/revisions/start-here-v0.16.md"),
             include_str!("../seed/revisions/start-here-v0.19.md"),
+            include_str!("../seed/revisions/start-here-v0.27.md"),
         ],
     },
     StarterNote {
@@ -649,6 +650,7 @@ pub(crate) const SEED_FILES: &[SeedFile] = &[
             include_str!("../seed/revisions/agents-v0.25.md"),
             include_str!("../seed/revisions/agents-v0.26.md"),
             include_str!("../seed/revisions/agents-v0.26a.md"),
+            include_str!("../seed/revisions/agents-v0.27.md"),
             include_str!("../seed/AGENTS.md"),
         ],
     },
@@ -1024,6 +1026,7 @@ mod tests {
                     0x956d_fb9a_1b75_a0fc,
                     0x19c4_d188_2548_bad8,
                     0x11ea_e1b2_00bf_90e1,
+                    0x37c4_0ca2_a1b8_dc8f,
                 ],
             ),
             (CLAUDE_REL_PATH, &[0xa5e2_3bfd_dbde_1340]),
@@ -1057,7 +1060,12 @@ mod tests {
             ("Dashboards/Reading & Travel.md", &[0x5bea_63df_4730_869f]),
             (
                 "Dashboards/Start Here.md",
-                &[0x3a21_6255_4e2f_2bfe, 0xe366_87f2_af6b_7b39, 0xdc86_97f6_f368_84a7],
+                &[
+                    0x3a21_6255_4e2f_2bfe,
+                    0xe366_87f2_af6b_7b39,
+                    0xdc86_97f6_f368_84a7,
+                    0xd717_ec99_a775_0701,
+                ],
             ),
             ("Weeknight Ramen.md", &[0xe904_ad0a_a5f3_358c]),
         ];
@@ -1908,7 +1916,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// The flagship dashboard replacing the old `yield-apr` sample.
+    /// The flagship dashboard replacing the old yield-tracker sample.
     /// Its whole point is that a BRAND-NEW vault renders real numbers, so the
     /// assertions follow the bindings rather than the file's existence: every
     /// card and chart names something this same seed writes. A seed that

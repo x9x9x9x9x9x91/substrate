@@ -19,7 +19,6 @@ import HeatmapDashboard from "./HeatmapDashboard";
 import CalendarFenceDashboard from "./CalendarFenceDashboard";
 import SyncDashboard from "./SyncDashboard";
 import JobsDashboard from "./JobsDashboard";
-import YieldDashboard from "./YieldDashboard";
 import HubDashboard from "./HubDashboard";
 import FoodDashboard from "./FoodDashboard";
 import CodingDashboard from "./CodingDashboard";
@@ -156,8 +155,8 @@ function UnconfiguredDashboard(props: DashboardPaneProps) {
     so. A note carrying both charts and heatmaps leads with its charts
     and hangs the heatmaps under them, so neither fence goes unrendered for
     having been written second. Reached only by a note with NO `dashboard:`
-    prop — a named-but-unknown kind gets the error card instead, and
-    `dashboard: yield-apr` names the yield tracker outright. */
+    prop — a named kind is dispatched, and a named-but-unknown one gets the
+    error card, before either reaches here. */
 function BodyScanDashboard(props: DashboardPaneProps) {
   const body = useNoteBody(props.meta.path, props.vaultEpoch, props.meta.sealed);
   // only a cold read reaches here now — a remount paints from the seed
@@ -238,12 +237,11 @@ function DashboardBody(props: DashboardPaneProps) {
   );
 }
 
-/** The built-in dispatch chain. A plain function, not a component: the fifteen
+/** The built-in dispatch chain. A plain function, not a component: the fourteen
     panes below keep the identity they had when this chain was inline, so
     wrapping them in the notice provider costs no remount. */
 function builtInDashboard(kind: string, props: DashboardPaneProps) {
   if (kind === "metrics") return <MetricsDashboard {...props} />;
-  if (kind === "yield-apr") return <YieldDashboard {...props} />;
   if (kind === "sync") return <SyncDashboard {...props} />;
   if (kind === "jobs") return <JobsDashboard {...props} />;
   if (kind === "hub") return <HubDashboard {...props} />;

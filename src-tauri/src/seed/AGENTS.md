@@ -61,9 +61,9 @@ relation's targets.
 ## Dashboards, sheets and views
 
 A **dashboard** is a note with `type: dashboard`. A `dashboard:` prop names the
-renderer, and the public built-ins are: `metrics`, `yield-apr`, `hub` (whose
-cards can claim a double-width tile), `food`, `feed`, `music-work`,
-`tasks`, `sync`, `coding`, `jobs`, `tax`, `charts`.
+renderer, and the public built-ins are: `metrics`, `hub` (whose cards can claim
+a double-width tile), `food`, `feed`, `music-work`, `tasks`, `sync`, `coding`,
+`jobs`, `tax`, `charts`.
 `dashboard: charts` always selects the chart-fence renderer. With no
 `dashboard:` prop, the app scans the body: one or more ` ```chart ` fences
 select charts, and no fence at all shows a card naming the kinds you could
@@ -100,10 +100,10 @@ An unknown key or a malformed value shows a quiet inline error card instead of
 breaking the note — a typo says so rather than being silently ignored. Every
 fence in a body renders its own table.
 
-For the rest of the format — sheets and the formula language, the yield
-dashboard's csv snapshots, the metrics dashboard's `cards:` bindings, chart
-fences, and workbook `pages:` — see §5 of `docs/vault-format.md` in the
-Substrate repo (linked below), which is the authority.
+For the rest of the format — sheets and the formula language, the metrics
+dashboard's `cards:` bindings, chart fences, and workbook `pages:` — see §5 of
+`docs/vault-format.md` in the Substrate repo (linked below), which is the
+authority.
 
 **When none of the built-ins fits, you can write the renderer yourself** — into
 this vault, not into the app. A folder under `.vault/kinds/<id>/` holding a

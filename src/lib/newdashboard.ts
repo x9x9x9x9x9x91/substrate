@@ -56,12 +56,6 @@ export const NEW_DASHBOARD_KINDS: readonly DashboardKindOption[] = [
     body: "Charts over a database or a sheet. Each ` ```chart ` fence in this body is one plot: `source:`, an `x:` and `y:`, and `kind: bar|line`.\n",
   },
   {
-    kind: "yield-apr",
-    blurb: "APR from an append-only snapshot log",
-    title: "Yield",
-    body: "A yield tracker that owns its data: the snapshots live in a csv fence in this body, and the form appends to it. The pane computes per-interval APR and the projected day, week, month and year.\n",
-  },
-  {
     kind: "food",
     blurb: "daily net kcal from a log sheet",
     title: "Food",

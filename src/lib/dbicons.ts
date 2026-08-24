@@ -309,7 +309,6 @@ const DASHBOARD_ICONS: Record<string, DbIcon> = {
   tax: { glyph: "archive" },
   coding: { glyph: "code" },
   metrics: { glyph: "wallet" },
-  "yield-apr": { glyph: "zap" },
   hub: { glyph: "home" },
   feed: { glyph: "inbox" },
   "music-work": { glyph: "folder" },

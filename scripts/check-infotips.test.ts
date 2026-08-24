@@ -103,9 +103,11 @@ test("a moved, doubled or empty declaration throws", () => {
 test("a component is located by its own file, or by the file that declares it", () => {
   const files = ["src/components/FoodDashboard.tsx", "src/components/DashboardPane.tsx"];
   const read = (p: string) =>
-    p.endsWith("DashboardPane.tsx") ? "function YieldDashboard({\n" : "export default function FoodDashboard() {\n";
+    p.endsWith("DashboardPane.tsx")
+      ? "function BodyScanDashboard({\n"
+      : "export default function FoodDashboard() {\n";
   assert.equal(componentFile("FoodDashboard", files, read), "src/components/FoodDashboard.tsx");
-  assert.equal(componentFile("YieldDashboard", files, read), "src/components/DashboardPane.tsx");
+  assert.equal(componentFile("BodyScanDashboard", files, read), "src/components/DashboardPane.tsx");
   assert.throws(() => componentFile("GhostDashboard", files, read), /no component file declares/);
 });
 

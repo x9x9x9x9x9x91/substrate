@@ -484,7 +484,7 @@ test("dispatch: a note with no instruction gets help text, not a yield tracker",
   // …and what to write instead, the same way the unknown-kind card does
   assert.match(m, /Known kinds:/);
   assert.match(m, /tasks/);
-  assert.match(m, /yield-apr/);
+  assert.match(m, /metrics/);
   // it offers the tracker as a name to type, never as a board already drawn
   assert.doesNotMatch(m, /snapshot|claim/i);
 });

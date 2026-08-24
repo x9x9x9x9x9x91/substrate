@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { NoteContent, NoteMeta, PropValue, SchemaConfig, SetPropResult } from "../lib/types";
 import {
   vaultCreate,
@@ -13,6 +13,8 @@ import { useFxRates } from "./useFx";
 import { DashHead, DashPrintButton } from "./DashHead";
 import { KIND_API, type KindEnableRecord, type KindFileMeta, type KindState } from "../lib/kinds";
 import { ACCENT_NAMES } from "../lib/styletokens";
+import { fxRedrawNeeded, kindFx, type KindFx, type KindFxSeen } from "../lib/kindfx";
+import type { FxRatesState } from "../lib/fx";
 import {
   kindFileUrl,
   kindManifestNotice,
@@ -28,6 +30,7 @@ import KindReviewCard from "./KindReviewCard";
 import { kindsEnable } from "../lib/ipc";
 import { invalidateKindBundles } from "../hooks/useKindBundles";
 import { DashAlert } from "./DashNotice";
+import { kindUndoAvailability, useDashUndo, type DashUndoStore } from "./useDashUndo";
 import { thrownText } from "../lib/errtext";
 
 /* The host for a vault-resident dashboard kind (vault-format §5.8).
@@ -104,6 +107,10 @@ export interface CustomKindPaneProps {
   /** the files the hash covers, for the review's file list. Absent on rows
       from a build older than the review flow. */
   files?: KindFileMeta[];
+  /** where `ctx.setUndo` publishes. The same store the built-in boards
+      register with, so the app's ⌘Z gate and the shortcut HUD cannot tell a
+      vault kind's stack from a built-in's. */
+  dashUndo?: DashUndoStore;
 }
 
 /** The class names a kind may render through — the app's voice, so a kind
@@ -154,9 +161,16 @@ export default function CustomKindPane(props: CustomKindPaneProps) {
      vault change. */
   const [refusals, setRefusals] = useState<string[]>([]);
 
-  const { fx } = useFxRates();
-  const fxRef = useRef(fx);
-  fxRef.current = fx;
+  /* The whole hook result, not just the table: `ctx.fx` publishes the refresh
+     route and the last failure too, and threading them separately would be
+     three refs that can disagree about the same snapshot. */
+  const fxState = useFxRates();
+  const fxRef = useRef(fxState);
+  fxRef.current = fxState;
+  /* `ctx.setUndo`'s destination. Registered for as long as this pane is
+     mounted, exactly like a built-in board's registration, so leaving the
+     board withdraws the kind's stack whether or not its code says so. */
+  const publishUndo = useDashUndo(props.dashUndo);
   /* onChange subscribers, and the note snapshot ctx.note points at. Both live
      in refs because the kind holds the ctx object across renders: mount runs
      once, and every later vault change updates these in place and fires the
@@ -172,6 +186,25 @@ export default function CustomKindPane(props: CustomKindPaneProps) {
      effect below so a timer armed from an onChange handler is reclaimed with
      everything else. Null whenever no kind code is live. */
   const sandboxRef = useRef<KindSandbox | null>(null);
+
+  /* The one redraw signal, shared by everything that can produce one. It
+     started inside the vault-change effect, which made "the redraw arrives
+     through ctx.onChange" true of vault changes and of nothing else — fresh
+     rates re-rendered the pane and left the kind holding whatever it drew at
+     mount until an unrelated note happened to change. */
+  const notifySubs = useCallback(() => {
+    const sb = sandboxRef.current;
+    for (const cb of [...subs.current]) {
+      try {
+        // Same attribution as mount: a redraw handler that re-arms a timer
+        // is still the kind arming it.
+        if (sb) sb.run(() => cb());
+        else cb();
+      } catch (e) {
+        console.warn(`custom kind “${id}”: onChange handler threw`, e);
+      }
+    }
+  }, [id]);
 
   const runnable = state.state === "enabled";
   const entry = state.state === "invalid" ? null : state.manifest.entry;
@@ -208,6 +241,10 @@ export default function CustomKindPane(props: CustomKindPaneProps) {
        after its mount() started having effects leaves nothing running. */
     const teardown = () => {
       subs.current.clear();
+      /* Whatever stack the kind published dies with the run that published
+         it: a kind torn down mid-life must not leave the app's ⌘Z still
+         yielding to a board that is no longer there. */
+      publishUndo(false, false);
       if (stall !== undefined) window.clearTimeout(stall);
       stall = undefined;
       try {
@@ -379,8 +416,15 @@ export default function CustomKindPane(props: CustomKindPaneProps) {
         if (dead) return;
         setRefusals((prev) => (prev.includes(msg) ? prev : [...prev, msg]));
       };
+      /* Dead-guarded like the two above. A withdrawal is not: teardown has
+         already published `false, false`, and re-publishing it is a no-op. */
+      const pushUndo = (avail: { undo: boolean; redo: boolean } | null) => {
+        if (dead) return;
+        const { canUndo, canRedo } = kindUndoAvailability(avail);
+        publishUndo(canUndo, canRedo);
+      };
       const ctx = hostSurface(
-        makeCtx(drawn, id, subs.current, note, fxRef, live, pushState, pushRefusal),
+        makeCtx(drawn, id, subs.current, note, fxRef, live, pushState, pushRefusal, pushUndo),
         sandbox,
       );
       /* The whole synchronous mount, watched: single-threaded means anything
@@ -415,7 +459,7 @@ export default function CustomKindPane(props: CustomKindPaneProps) {
     };
     // The bundle hash is in the dependency list on purpose: re-enabling a kind
     // whose code an agent rewrote is a different bundle, and it re-mounts.
-  }, [id, hash, entry, style, runnable, props.meta.path]);
+  }, [id, hash, entry, style, runnable, props.meta.path, publishUndo]);
 
   /* Vault changes are a redraw signal, not a re-mount (§5.8). Refresh the
      note snapshot ctx.note points at, then let the kind decide what to do. */
@@ -434,22 +478,27 @@ export default function CustomKindPane(props: CustomKindPaneProps) {
       })
       .finally(() => {
         if (gone) return;
-        const sb = sandboxRef.current;
-        for (const cb of [...subs.current]) {
-          try {
-            // Same attribution as mount: a redraw handler that re-arms a
-            // timer is still the kind arming it.
-            if (sb) sb.run(() => cb());
-            else cb();
-          } catch (e) {
-            console.warn(`custom kind “${id}”: onChange handler threw`, e);
-          }
-        }
+        notifySubs();
       });
     return () => {
       gone = true;
     };
-  }, [props.vaultEpoch, props.meta.path, runnable, id]);
+  }, [props.vaultEpoch, props.meta.path, runnable, notifySubs]);
+
+  /* Rates are the other thing behind ctx that changes under a mounted kind.
+     `ctx.fx` is a getter, so the new table is there the moment it lands — but
+     nothing told the kind to look, and `ctx.fx.refresh()` therefore resolved
+     to a pane that never redrew. Keyed on the snapshot the store hands out
+     (a new object per load) plus the failure line, so a refresh that changes
+     neither stays silent. The first render is not a change. */
+  const fxSeen = useRef<KindFxSeen>({ table: fxState.fx, err: fxState.err });
+  useEffect(() => {
+    if (!runnable) return;
+    const next: KindFxSeen = { table: fxState.fx, err: fxState.err };
+    if (!fxRedrawNeeded(fxSeen.current, next)) return;
+    fxSeen.current = next;
+    notifySubs();
+  }, [fxState.fx, fxState.err, runnable, notifySubs]);
 
   /* The agent-iteration loop: a kind the user marked "trust updates" re-enables
      itself when its bytes change here, because a person editing their own kind
@@ -598,10 +647,11 @@ function makeCtx(
   id: string,
   subs: Set<() => void>,
   note: { current: { path: string; title: string; props: Record<string, unknown>; body: string } },
-  fx: { current: ReturnType<typeof useFxRates>["fx"] },
+  fx: { current: ReturnType<typeof useFxRates> },
   live: { current: CustomKindPaneProps },
   setState: (s: { color?: string; label: string } | null) => void,
   report: (msg: string) => void,
+  setUndo: (avail: { undo: boolean; redo: boolean } | null) => void,
 ) {
   const touched = () => live.current.onMutated();
   /* Every "the app said no" in one place, so refusing and saying so on the
@@ -628,6 +678,14 @@ function makeCtx(
     // `.push()`/`.sort()` in a kind reorder the roster `typeTint()` hashes over
     // and widen `tintVar`'s membership gate app-wide until reload.
     accents: [...ACCENT_NAMES],
+    /* Rates, read-only and already in memory. A getter, like `note`: the
+       kind holds one ctx across every redraw, so reading it has to give the
+       current table rather than whichever one was quoted at mount. The fetch
+       behind `refresh` is the app's single gated one (`useFx`) — this member
+       is the seam being finished, not a second way out. */
+    get fx() {
+      return kindFx(fx.current.fx, fx.current.err, fx.current.refresh);
+    },
 
     notes: async (filter?: (n: NoteMeta) => boolean) => {
       const all = await vaultList();
@@ -635,7 +693,7 @@ function makeCtx(
     },
     read: (path: string) => vaultRead(path),
     sheet: async (title: string) => {
-      const sheets = await dashboardSheets([title], live.current.vaultEpoch, fx.current);
+      const sheets = await dashboardSheets([title], live.current.vaultEpoch, fx.current.fx);
       const got = sheets.get(title.toLowerCase());
       if (!got) throw refuse(`no sheet named “${title}”`);
       if ("error" in got) throw refuse(got.error);
@@ -678,6 +736,16 @@ function makeCtx(
     toast: (msg: string, action?: { label: string; run: () => void }) =>
       live.current.onToast?.(msg, action),
     setState,
+    /* The board's own ⌘Z / ⌘⇧Z stack, published to the app.
+
+       Not decoration. The app's session undo is gated on no board owning the
+       chord (`shortcuts.ts`), and both listeners sit on the bubble phase with
+       App's registered first — so a kind that keeps a stack and does NOT
+       publish it gets one ⌘Z running session undo AND its own, rewriting two
+       files for one keystroke. Publishing is how a board claims the chord;
+       the HUD chip advertising it is the same fact, read out. Call it after
+       every stack mutation; `null` withdraws. */
+    setUndo,
     /* Not part of the contract — a kind that logs should say who it is. */
     kindId: id,
   };
@@ -721,6 +789,8 @@ export type KindContractPinned = [
   Expect<Equal<PropValue, SubstratePropValue>>,
   Expect<Equal<NoteContent, SubstrateNoteContent>>,
   Expect<Equal<SetPropResult, SubstrateSetPropResult>>,
+  Expect<Equal<KindFx, SubstrateFx>>,
+  Expect<Equal<FxRatesState, SubstrateFxTable>>,
   /* The sheet pair is the one deliberate subset: what `ctx.sheet` resolves to
      is the app's own parsed and evaluated sheet, and a kind has no contract
      to the formula lines, their parse errors, the ragged-row record, the

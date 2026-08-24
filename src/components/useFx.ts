@@ -87,7 +87,9 @@ function requestRefresh(force: boolean): void {
     });
 }
 
-const refreshFxRates = () => requestRefresh(true);
+/** The forced refresh, exported so the gate over it can be exercised without
+    a React render — the hook hands the same function to every consumer. */
+export const refreshFxRates = () => requestRefresh(true);
 export const ensureFxRates = () => requestRefresh(false);
 
 /** The one FX source for sheets, dashboards, databases and calc notes

@@ -171,16 +171,6 @@ const SHOTS: Shot[] = [
     },
   },
   {
-    id: "yield-apr",
-    nav: "Yield",
-    installs: [
-      { file: "Dashboards/Yield.md", target: "Dashboards/Yield.md", cloneFrom: "Dashboards/Yield APR.md" },
-    ],
-    ready: async (page) => {
-      await expect(page.locator(".dash-apr")).toBeVisible();
-    },
-  },
-  {
     id: "food-log",
     nav: "Food",
     installs: [

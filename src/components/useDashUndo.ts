@@ -75,6 +75,21 @@ export function createDashUndoStore(): DashUndoStore {
   };
 }
 
+/** What a vault-resident kind publishes through `ctx.setUndo`, translated
+    into the store's vocabulary.
+
+    Two spellings on purpose. The store's is the app's, and predates kinds;
+    the published one is the shorter pair a kind author reads in
+    `docs/kind-api.d.ts`, where `ctx.setUndo({ undo, redo })` sits next to
+    `ctx.setState` and repeating "can" in a setter's argument reads like
+    noise. `null` is the withdrawal — a kind that empties its stack and a
+    kind that stops keeping one say the same thing to the app. */
+export function kindUndoAvailability(
+  avail: { undo: boolean; redo: boolean } | null
+): DashUndoAvailability {
+  return { canUndo: !!avail?.undo, canRedo: !!avail?.redo };
+}
+
 /** App side: own the store and re-render when its answer flips. */
 export function useDashUndoState(): { store: DashUndoStore; availability: DashUndoAvailability } {
   const store = useMemo(() => createDashUndoStore(), []);

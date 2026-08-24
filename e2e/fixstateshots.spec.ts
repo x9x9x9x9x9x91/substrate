@@ -4,7 +4,7 @@ import { test, expect, type Page } from "@playwright/test";
 //   SHOTS=1 SHOT_DIR=/tmp/shots npx playwright test e2e/fixstateshots.spec.ts
 //
 // The state-truth surfaces a fix wave touched, each staged into the state the
-// audits caught it in: an empty yield board, an empty jobs board, a task
+// audits caught it in: an empty food board, an empty jobs board, a task
 // filter that matches nothing, a tax board whose source is broken while its
 // cards read fine, metric cards bound at a sheet and a format that do not
 // exist, a chart naming no database, and a view fence whose cut is empty.
@@ -50,15 +50,15 @@ test("the state-truth surfaces, both grounds", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".side-item").first()).toBeVisible();
 
-  // 1. yield: a board configured right and never logged into
+  // 1. food: a board configured right and never logged into
   await page.evaluate(() =>
     window.__mockEditNote?.(
-      "Dashboards/Yield APR.md",
-      "Nothing logged yet.\n\n```csv\nat,yield_usd,principal_usd\n```\n",
+      "Food Log.md",
+      "Nothing logged yet.\n\n```csv\ndate,food,kcal,protein_g\n```\n",
     ),
   );
-  await open(page, "Yield APR");
-  await shoot(page, "yield-empty");
+  await open(page, "Calories");
+  await shoot(page, "food-empty");
 
   // 2. jobs: prefixes no machine schedules anything under
   await page.evaluate(() =>

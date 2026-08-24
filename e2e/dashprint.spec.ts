@@ -10,7 +10,7 @@ import { expect, test, type Page } from "@playwright/test";
 // emulated — what's asserted is the surface population, the hand-off call,
 // and the print-media restyle. Fixtures (src/lib/tauri.ts): Portfolio
 // (metrics), Overview (charts), Umbra Home (hub), Label Books (metrics
-// workbook), Jobs (machine kind), Yield APR (portable, out of scope).
+// workbook), Jobs (machine kind), Calories (food, out of scope).
 
 async function openDash(page: Page, name: string) {
   await page.goto("/");
@@ -328,6 +328,6 @@ test("machine kinds and out-of-scope kinds show no print action", async ({ page 
   await openDash(page, "Jobs");
   await expect(printButton(page)).toHaveCount(0);
 
-  await openDash(page, "Yield APR");
+  await openDash(page, "Calories");
   await expect(printButton(page)).toHaveCount(0);
 });

@@ -1313,14 +1313,6 @@ export const TIPS: TipEntry[] = [
     }),
   },
   {
-    // the two-click arm sits inside the snapshot form, so it comes before it
-    selector: ".dash-claim",
-    tip: {
-      title: "Claim balance",
-      body: "Click once to arm, once more to record the balance as taken. Figures entered later add on top of it.",
-    },
-  },
-  {
     // worn by the food log, the accrual board and any vault kind that asks for
     // it, so this stays true of a headline figure in general — the boards that
     // can say something sharper have their own entry above.

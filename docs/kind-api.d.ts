@@ -94,6 +94,12 @@ interface SubstrateKindCtx {
       not CSS — a kind that names `teal` follows the theme when the theme
       moves. Added inside api 1, so feature-check it: `ctx.accents ?? []`. */
   readonly accents: SubstrateAccentName[];
+  /** Exchange rates, read-only: the table the app is already holding, the
+      last refresh failure, a resolver for any pair, and the refresh route.
+      Read it fresh on every draw — this is a getter over live state, so a
+      value stashed at mount goes stale. Added inside api 1, so feature-check
+      it (`ctx.fx?.table`). */
+  readonly fx: SubstrateFx;
 
   /** The note index. The optional filter is a plain predicate applied per
       note: `ctx.notes((n) => n.props.type === "gear")`. */
@@ -141,6 +147,20 @@ interface SubstrateKindCtx {
   /** Feed the head's state dot: `{ color, label }` shows it, `null` keeps it
       quiet. `color` is any CSS color; omit it for a label with no dot. */
   setState(s: { color?: string; label: string } | null): void;
+  /** Publish this board's own ⌘Z / ⌘⇧Z availability, `null` to withdraw.
+
+      Required of any kind that keeps its own undo stack, and not for
+      cosmetic reasons: the app's session undo runs on the same chord and
+      stands aside only while a board says it owns it. A kind that listens
+      for ⌘Z without publishing gets BOTH — one keystroke, two edits, in two
+      different files. Call it after every stack mutation (first load, push,
+      pop, and when the stack empties). The shortcut hint panel reads the
+      same publication, so a board that claims the chord also advertises it.
+
+      Withdrawal is automatic when the board goes away — leaving the note
+      unregisters whatever was published. Added inside api 1, so
+      feature-check it: `ctx.setUndo?.({ undo, redo })`. */
+  setUndo(avail: { undo: boolean; redo: boolean } | null): void;
 }
 
 // ---------- what ctx hands back ----------
@@ -182,6 +202,40 @@ interface SubstrateSetPropResult {
     sentinel both ways: as a write it removes the key, as a `prior` it means
     the key wasn't there. */
 type SubstratePropValue = string | string[] | boolean | number | null;
+
+// ---------- rates ----------
+
+/** What `ctx.fx` hands over. A kind never fetches: rates enter the app
+ *  through one call behind the `net-fx-rates` switch, and `refresh` is that
+ *  call, not a second one. With the switch off, `refresh` fetches nothing and
+ *  the cached table stands — which is what every app surface does too, so a
+ *  board should read `table.live` and say "cached" rather than treat a quiet
+ *  refresh as a failure. */
+interface SubstrateFx {
+  /** The quoted table, or null before any load ever landed. A copy — mutating
+      it changes nothing. */
+  table: SubstrateFxTable | null;
+  /** The last refresh failure, or null when the last attempt succeeded. */
+  err: string | null;
+  /** Any pair, converted through the table's base (`rate("USD", "EUR")`).
+      null when either code isn't quoted — render that as "no rate", never
+      as zero. */
+  rate(from: string, to: string): number | null;
+  /** Ask for fresh rates; the redraw arrives through `ctx.onChange`. */
+  refresh(): void;
+}
+
+/** The rate table: every rate quoted against `base`, so any pair converts
+    through it in one hop each way. `base`'s own rate is 1 and is NOT in
+    `rates` — use `SubstrateFx.rate` rather than indexing. */
+interface SubstrateFxTable {
+  base: string;
+  rates: Record<string, number>;
+  /** The day the quotes are from, `YYYY-MM-DD`. */
+  asOf: string;
+  /** False when these came from cache rather than a landed refresh. */
+  live: boolean;
+}
 
 // ---------- sheets ----------
 

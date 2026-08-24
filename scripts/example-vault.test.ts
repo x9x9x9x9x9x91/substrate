@@ -21,7 +21,6 @@ import { parseProgressBlocks } from "../src/lib/progress.ts";
 import { parseFoodRows } from "../src/lib/food.ts";
 import { parseFoodDb } from "../src/lib/fooddb.ts";
 import { isOpenableUrl, parseFeedItems } from "../src/lib/feed.ts";
-import { parseSnapshotsFromBody } from "../src/lib/dashboard.ts";
 import { buildTasksDashboard } from "../src/lib/tasksDashboard.ts";
 import type { NoteMeta, SchemaConfig } from "../src/lib/types.ts";
 import { GLYPH_IDS, ICON_TINTS } from "../src/lib/dbicons.ts";
@@ -131,7 +130,8 @@ test("the seeded agent door matches editable-view and recoverable-asset contract
   assert.doesNotMatch(seed, /view fence[^\n]*live, read-only/);
   assert.doesNotMatch(seed, /Deleting one is permanent/);
   assert.doesNotMatch(seed, /machine-specific kinds/);
-  assert.match(seed, /`tasks`, `sync`, `coding`, `jobs`, `tax`, `charts`/);
+  // the roster wraps, so the gap between kinds is any run of whitespace
+  assert.match(seed, /`tasks`, `sync`, `coding`,\s+`jobs`, `tax`, `charts`/);
   assert.match(seed, /unknown value shows an “unknown kind” card/);
   assert.doesNotMatch(seed, /dashboard: charts` is a conventional label/);
 });
@@ -209,7 +209,7 @@ test("dashboard kinds are ones the app dispatches", () => {
       .map((e) => e.name)
   );
   const dashboards = notes.filter((n) => n.props["type"] === "dashboard");
-  assert.equal(dashboards.length, 21);
+  assert.equal(dashboards.length, 20);
   for (const n of dashboards) {
     const k = n.props["dashboard"];
     assert.ok(
@@ -725,14 +725,6 @@ test("Tasks dashboard builds a board over the demo task notes (SUB-868/870)", ()
   const titles = new Set(model.sections.flatMap((s) => s.rows).map((r) => r.title));
   assert.ok(!titles.has("Send Night Circuit metadata sheet"), "a done task must stay off the board");
   assert.ok(!titles.has("Fern Static sleeve brief"), "a snoozed task must stay off the sections");
-});
-
-test("Yield snapshots parse in order", () => {
-  const n = byStem("Yield");
-  assert.ok(n, "Dashboards/Yield.md missing");
-  const { snapshots } = parseSnapshotsFromBody(n.body);
-  assert.equal(snapshots.length, 4);
-  for (const s of snapshots) assert.ok(isFinite(s.yieldUsd) && isFinite(s.principalUsd));
 });
 
 test("schema.json uses only real glyphs, tints, colors, and kinds", () => {

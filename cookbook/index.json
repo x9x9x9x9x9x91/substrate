@@ -14,16 +14,6 @@
       "shot": "shots/portfolio.png"
     },
     {
-      "id": "yield-apr",
-      "title": "Yield APR",
-      "kind": "yield-apr",
-      "blurb": "Realized APR, projected day/week/month/year yield, and a per-interval chart — computed from append-only snapshot rows the dashboard itself holds. The form appends; history never rewrites.",
-      "adapt": "Delete the sample rows and log your own snapshots — each row is a timestamp, accrued yield, and principal.",
-      "expects": { "sheets": [], "databases": [] },
-      "files": ["Dashboards/Yield.md"],
-      "shot": "shots/yield-apr.png"
-    },
-    {
       "id": "food-log",
       "title": "Food log",
       "kind": "food",

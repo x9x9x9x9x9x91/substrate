@@ -263,16 +263,6 @@ export const mockNotes: MockNote[] = [
     fmUnterminated: true,
   },
   {
-    path: "Dashboards/Yield APR.md",
-    stem: "Yield APR",
-    title: "Yield APR",
-    folder: "Dashboards",
-    props: { type: "dashboard", dashboard: "yield-apr", created: "2026-07-17" },
-    updated_ms: now - 10 * 60_000,
-    excerpt: "Yield farming APR tracker.",
-    body: "Yield farming APR tracker. Snapshots live in the csv block below — the dashboard reads and appends to it.\n\n```csv\nat,yield_usd,principal_usd\n2026-07-17 10:28,3,15600\n2026-07-17 10:35,9,15600\n2026-07-17 10:48,22,15600\n2026-07-17 11:04,38.1,15700\n2026-07-17 11:13,47.4,15600\n2026-07-17 11:57,97,15900\n2026-07-17 12:09,107,15900\n2026-07-17 12:23,122.4,15900\n2026-07-17 12:32,129.7,15900\n2026-07-17 12:33,143.6,15900\n2026-07-17 12:47,143.6,15900\n2026-07-17 13:03,160,15900\n2026-07-17 13:22,178.5,15900\n2026-07-17 14:18,232,15700\n```\n",
-  },
-  {
     path: "Holdings.md",
     stem: "Holdings",
     title: "Holdings",

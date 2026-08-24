@@ -35,6 +35,22 @@ async function release(page: Page, keys: string[]) {
   for (const k of [...keys].reverse()) await page.keyboard.up(k);
 }
 
+/** the food board: a built-in that writes to its log sheet, so it owns a
+    board-undo stack for the HUD to advertise */
+async function openCalories(page: Page) {
+  await page.locator(".side-item", { hasText: "Calories" }).first().click();
+  await expect(page.locator(".dash-title")).toHaveText("Calories");
+  await expect(page.locator(".dash-form:not(.food-db-form)")).toBeVisible();
+}
+
+async function addMeal(page: Page, name: string, kcal: string) {
+  const form = page.locator(".dash-form:not(.food-db-form)");
+  await form.locator("input[type=text]").fill(name);
+  await form.locator("label", { hasText: "kcal" }).locator("input").fill(kcal);
+  await form.locator(".dash-add").click();
+  await expect(page.locator(".food-row", { hasText: name })).toBeVisible();
+}
+
 test("a held ⌘ folds out the HUD; releasing it folds it away", async ({ page }) => {
   const hud = await hold(page, ["Meta"]);
   await expect(hud).toBeVisible();
@@ -108,8 +124,7 @@ test("the worst case still fits: an open sheet (SUB-490)", async ({ page }) => {
 });
 
 test("a board advertises only the history direction it can perform (SUB-726)", async ({ page }) => {
-  await page.locator(".side-item", { hasText: "Yield APR" }).click();
-  await expect(page.locator(".dash-form")).toBeVisible();
+  await openCalories(page);
   const undoRow = page.locator(".modkey-hud-row").filter({ hasText: "Undo board edit" });
   const redoRow = page.locator(".modkey-hud-row").filter({ hasText: "Redo board edit" });
 
@@ -120,8 +135,7 @@ test("a board advertises only the history direction it can perform (SUB-726)", a
   await release(page, ["Meta"]);
 
   // A mutation creates undo only.
-  await page.locator(".dash-form input").nth(1).fill("250");
-  await page.locator(".dash-add").click();
+  await addMeal(page, "HUD meal", "250");
   await hold(page, ["Meta"]);
   await expect(undoRow).toBeVisible();
   await expect(undoRow.locator(".key")).toHaveText(["⌘Z"]);
@@ -147,10 +161,8 @@ test("a board advertises only the history direction it can perform (SUB-726)", a
 test("board history availability does not leak across dashboards (SUB-726)", async ({ page }) => {
   const undoRow = page.locator(".modkey-hud-row").filter({ hasText: "Undo board edit" });
 
-  await page.locator(".side-item", { hasText: "Yield APR" }).click();
-  await expect(page.locator(".dash-form")).toBeVisible();
-  await page.locator(".dash-form input").nth(1).fill("250");
-  await page.locator(".dash-add").click();
+  await openCalories(page);
+  await addMeal(page, "HUD meal", "250");
   await hold(page, ["Meta"]);
   await expect(undoRow).toBeVisible();
   await release(page, ["Meta"]);
@@ -163,10 +175,9 @@ test("board history availability does not leak across dashboards (SUB-726)", asy
   await expect(undoRow).toHaveCount(0);
   await release(page, ["Meta"]);
 
-  // Back to Yield is a fresh local history even though its persisted row is
-  // still present: no inert undo is inherited from the prior mount.
-  await page.locator(".side-item", { hasText: "Yield APR" }).click();
-  await expect(page.locator(".dash-form")).toBeVisible();
+  // Back to Calories is a fresh local history even though its persisted row
+  // is still present: no inert undo is inherited from the prior mount.
+  await openCalories(page);
   await hold(page, ["Meta"]);
   await expect(page.locator(".modkey-hud")).toBeVisible();
   await expect(undoRow).toHaveCount(0);

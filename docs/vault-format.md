@@ -952,7 +952,7 @@ A dashboard is `type: dashboard` with a `dashboard` prop naming the renderer:
 ```yaml
 ---
 type: dashboard
-dashboard: yield-apr
+dashboard: metrics
 created: 2026-07-17
 ---
 ```
@@ -974,7 +974,7 @@ hidden surfaces (`Journal/`, `Dashboards/`) have no tree row to nest under, so
 those always stay section rows.
 
 Sidebar icon: each dashboard row renders a curated per-kind glyph
-(`src/lib/dbicons.ts` DASHBOARD_ICONS — `food`, `metrics`, `yield-apr`, `hub`,
+(`src/lib/dbicons.ts` DASHBOARD_ICONS — `food`, `metrics`, `hub`,
 `feed`, `music-work`, `tasks`, `sync`, `coding`, `jobs`, `tax`,
 plus any machine-specific kinds this build carries); an `icon:` prop overrides
 it (a curated glyph id, anything else treated as an emoji), and kinds without a
@@ -989,7 +989,7 @@ mark keep the generic chart glyph. The curated glyph ids (`src/lib/dbicons.ts`
 
 Dispatch (`src/components/DashboardPane.tsx` `builtInDashboard`) — a fixed key set.
 These public kinds are dispatched: `metrics` → the metrics cards renderer (§5.4);
-`yield-apr` → the yield tracker (§5.3); `hub` → the hub renderer (below);
+`hub` → the hub renderer (below);
 `food` → the food log tracker (below); `feed` → the curated newsfeed (below);
 `music-work` → the work-index board (below); `tasks` → the task attention
 board (below); `coding` → the repo-health table over the scan root its `root:`
@@ -1007,15 +1007,16 @@ this build dispatches — the note has asked for nothing in particular, and
 "nothing in particular" is not a board. It used to fall through to the yield
 tracker, so a `type: dashboard` note with nothing else in it became a
 financial instrument: a live rates request, a snapshot form, and a Claim
-button writing `claimed_usd` (§5.3) back into the note. `dashboard: yield-apr`
-names that tracker outright and is the only way to it.
+button writing `claimed_usd` back into the note. That tracker is a vault kind
+now (§5.3), so the name reaches it only in a vault that carries the bundle.
 
 **Any other value renders an error card** naming the value and listing the
 kinds this build does dispatch — the quiet inline posture a ` ```view `
 fence over an unknown database takes. A typo is never answered with a different
 dashboard: falling through to the yield tracker meant `dashboard: yeild-apr`
 silently rendered a financial tracker, snapshot form included, with no hint
-that the key was wrong.
+that the key was wrong. A vault kind's id is answered the same way when the
+bundle is absent — the card names the value it could not find a renderer for.
 
 `tasks` is a task interface over
 task notes, led by due dates. Row clicks open the source note; the board also
@@ -1468,9 +1469,15 @@ maintains the year's numbers, and the missing-evidence snapshot by an external
 exporter reading the books. **The app writes neither**
 (`src/lib/taxReadiness.ts`, `src/components/TaxDashboard.tsx`).
 
-### 5.3 Yield dashboard — ` ```csv ` snapshots
+### 5.3 Yield dashboard — a vault kind, not an app kind
 
-The yield dashboard reads and appends to a csv fence in its own note:
+The yield board is **not built into the app**. It is a vault-resident kind
+(§5.8) — a `.vault/kinds/yield-apr/` bundle — and `dashboard: yield-apr`
+mounts it only in a vault that carries that folder. It was demoted from a
+built-in by SUB-1451; the note format below is unchanged and is what the
+bundle reads and writes.
+
+The board reads and appends to a csv fence in its own note:
 
 ````markdown
 ```csv
@@ -1480,11 +1487,13 @@ at,yield_usd,principal_usd
 ```
 ````
 
-- Header exactly `at,yield_usd,principal_usd`; `at` is local `YYYY-MM-DD HH:MM`;
-  numbers parse as floats; rows are sorted by time when read.
-- Append-only: the app adds rows inside the existing fence, or creates the fence
-  at the end of the body when missing (`src/lib/dashboard.ts` `appendSnapshotToBody`).
-  External writers should do the same — append, never rewrite history rows.
+- Header exactly `at,yield_usd,principal_usd` — or no header at all, since the
+  rows are read positionally; `at` is local `YYYY-MM-DD` or
+  `YYYY-MM-DD HH:MM`; numbers parse as floats; rows are sorted by time when
+  read.
+- Append-only: the board adds rows inside the existing fence, or creates the
+  fence at the end of the body when missing. External writers should do the
+  same — append, never rewrite history rows.
 - Claims: a `claimed_usd` prop on the note holds the cumulative
   claimed total. `yield_usd` in csv rows is ALWAYS cumulative (claimed +
   current venue balance) — the Claim button sets `claimed_usd` to the last
@@ -2487,6 +2496,7 @@ or `ctx.toast`.
 | `ctx.note` | `{ path, title, props, body }` | The dashboard note the kind is mounted in: its vault path, title, frontmatter props and raw body. |
 | `ctx.css` | `Record<string, string>` | Sanctioned class names, the full api-1 roster: `dash-metrics`, `dash-metric`, `dash-metric-sub`, `dash-label`, `dash-value`, `dash-sub`, `dash-hero`, `dash-table`, `dash-card`, `dash-cards`, `dash-section-label`, `dash-link`, `dash-foot`. Rendering through these is how a kind speaks in the app's voice and follows its theme; a kind may also ship its own `style.css`. A key not in the map reads as `undefined` — interpolated straight into a template string that becomes `class="undefined"` — so look keys up defensively (`ctx.css["dash-hero"] ?? ""`) and put anything the roster doesn't cover on your own prefixed classes. |
 | `ctx.accents` | `readonly string[]` | The accent roster — `gray`, `blue`, `indigo`, `violet`, `pink`, `red`, `orange`, `yellow`, `green`, `teal`. Put one on `data-accent` on a `dash-card` and the app resolves the hue — that is the one sanctioned class wired for it; an off-roster name paints nothing. Named mood, not CSS: a kind that names `teal` follows the theme when the theme moves. Added inside api 1, so **feature-check it** (`ctx.accents ?? []`) — a build older than SUB-969 mounts the same kind with the member absent. |
+| `ctx.fx` | `{ table, err, rate(from, to), refresh() }` | Exchange rates, read-only. `table` is the quoted table (`base`, `rates`, `asOf`, `live`) or `null` before any load landed — a copy, so mutating it changes nothing; `err` is the last refresh failure; `rate("USD", "EUR")` converts any pair through the base and returns `null` when either code isn't quoted (render that as "no rate", never as zero); `refresh()` asks for fresh quotes and the redraw arrives through `ctx.onChange`. **A kind never fetches** — rates enter the app through one call behind the `net-fx-rates` switch (§13) and `refresh` is that call, so with the switch off nothing is fetched and the cached table stands, exactly as on the app's own surfaces. Read `table.live` and say "cached" rather than treating a quiet refresh as a failure. Added inside api 1, so **feature-check it** (`ctx.fx?.table`). |
 | `ctx.notes(filter?)` | `⇒ Promise<NoteMeta[]>` | The note index — path, stem, title, folder, props, `updated_ms`, excerpt, `tags` (inline `#hashtags` unioned with the `tags:` prop, deduplicated; optional, so absent on older projections) and `sealed`. **A kind that renders note bodies must read `sealed`**: it says the note is whole-file encrypted on disk, and vault code that ignores it is one more surface emitting plaintext the user sealed. The optional filter is a plain predicate, `(n) => boolean`, applied per note: `ctx.notes((n) => n.props.type === "gear")`. **`props` is `Record<string, unknown>`** — the values are whatever that note's YAML parsed to, and nothing narrows them for you, so coerce before comparing (`Number(n.props.bpm) > 128`, never `n.props.bpm > 128`, which silently becomes a string comparison when a note quoted its number). |
 | `ctx.read(path)` | `⇒ Promise<{ body, props }>` | One note's raw body and its frontmatter props — `props` unknown-typed, same coercion rule as `ctx.notes`. |
 | `ctx.sheet(title)` | `⇒ Promise<{ model, ev }>` | A sheet fence, parsed and evaluated, so a kind doesn't reimplement the sheet grammar (§5.1). **The parsed table and the evaluated one are separate members**: `model` is the raw fence (`headers`, `rows` as strings), and everything a board draws lives on `ev` — `ev.headers`, `ev.rows` (row-major `(scalar | null)[][]`, positional against `ev.headers`, *not* keyed by column name), `ev.computed` (`{ name, cells }`, one entry per formula column, `cells` parallel to `ev.rows`) and `ev.summaries` (`{ name, value, group }`). Any evaluated value may be `{ err }` instead of a scalar — render the message, or the cell prints `[object Object]`. |
@@ -2497,6 +2507,7 @@ or `ctx.toast`.
 | `ctx.openNote(path)` | `⇒ void` | Open a note in the app, the way a row click does. |
 | `ctx.toast(msg, action?)` | `⇒ void` | The app's single toast slot; the optional action is a `{ label, run }` button. |
 | `ctx.setState(s \| null)` | `⇒ void` | Feed the head's state dot — `{ color, label }` shows it, `null` keeps it quiet. `color` is any CSS color, painted as the dot's background; omit it for a label with no dot. |
+| `ctx.setUndo(avail \| null)` | `⇒ void` | Publish this board's own ⌘Z / ⌘⇧Z availability as `{ undo, redo }`; `null` withdraws. **Required of any kind that keeps an undo stack.** The app's session undo answers the same chord and stands aside only while a board says it owns it, so a kind that listens for ⌘Z without publishing gets both — one keystroke, two edits, in two files. Call it after every stack mutation (first load, push, pop, empty). The shortcut hint panel reads the same publication, so claiming the chord also advertises it, and leaving the board withdraws it without the kind doing anything. Added inside api 1, so **feature-check it** (`ctx.setUndo?.({ undo, redo })`). |
 
 **The table above is also a file.** [`kind-api.d.ts`](kind-api.d.ts) declares
 this contract — `mount`, every ctx member, and every structure ctx hands back.
