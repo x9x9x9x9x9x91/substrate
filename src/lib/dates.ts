@@ -2,7 +2,7 @@
     portable; only the display is human. All math is done on plain y/m/d
     components — no Date-object timezone pitfalls. */
 
-export const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export const MONTHS = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun",

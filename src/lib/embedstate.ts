@@ -27,6 +27,7 @@ export function classifyMissingEmbed(name: string, syncConfigured: boolean): Mis
 }
 
 let configured: Promise<boolean> | undefined;
+const listeners = new Set<() => void>();
 
 /** Cached `vault_sync_status().configured`. Read once per session — the
  * status only changes when the user saves a remote, which calls
@@ -42,10 +43,23 @@ export function syncConfigured(): Promise<boolean> {
   return configured;
 }
 
+/** Hear about every `resetSyncConfigured()`. The cache drop is the one moment
+ * the app knows the remote may have changed under it, so anything holding its
+ * own copy of the answer — `useAutoSync`'s arming gate — re-reads here rather
+ * than waiting for a reload. Returns the unsubscribe. */
+export function subscribeSyncConfigured(fn: () => void): () => void {
+  listeners.add(fn);
+  return () => {
+    listeners.delete(fn);
+  };
+}
+
 /** Drop the cached status — called after a remote is saved so existing
- * missing embeds reclassify without a reload. */
+ * missing embeds reclassify without a reload, and so the auto-sync lane arms
+ * against the remote that just landed. */
 export function resetSyncConfigured() {
   configured = undefined;
+  for (const fn of listeners) fn();
 }
 
 /** The kind to render for a missing embed, resolved against live sync state. */

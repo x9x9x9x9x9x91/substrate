@@ -96,7 +96,7 @@ export const CARD_FORMATS = ["eur", "usd", "number", "pct"];
 
 /** The lenient read of a card's `format`: nothing to say for an absent or
     known one, the fence's own sentence for a name outside the roster. */
-export function cardFormatError(format: unknown): string | undefined {
+function cardFormatError(format: unknown): string | undefined {
   if (typeof format !== "string" || CARD_FORMATS.includes(format.toLowerCase())) return undefined;
   return `unknown format "${format}" — want ${CARD_FORMATS.join(", ")}`;
 }
@@ -110,7 +110,7 @@ export function cardFormatError(format: unknown): string | undefined {
     dropped, with the card looking exactly like a card that never asked. The
     card still renders, because that is what frontmatter does; what changes is
     that the dropped option is said out loud. */
-export function cardOptionError(o: Record<string, unknown>): string | undefined {
+function cardOptionError(o: Record<string, unknown>): string | undefined {
   const said: string[] = [];
   const fmt = cardFormatError(o.format);
   if (fmt) said.push(fmt);

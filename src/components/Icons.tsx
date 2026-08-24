@@ -11,13 +11,6 @@ const base = {
   strokeLinejoin: "round" as const,
 };
 
-export const InboxIcon = () => (
-  <svg {...base}>
-    <path d="M2.5 9.5h3l1 1.8h3l1-1.8h3" />
-    <path d="M13.5 9.7V12a1.5 1.5 0 0 1-1.5 1.5H4A1.5 1.5 0 0 1 2.5 12V9.7L4.4 3.6A1.5 1.5 0 0 1 5.8 2.5h4.4a1.5 1.5 0 0 1 1.4 1.1l1.9 6.1Z" />
-  </svg>
-);
-
 export const SearchIcon = () => (
   <svg {...base}>
     <circle cx="7" cy="7" r="4.5" />
@@ -236,7 +229,7 @@ export const CopyIcon = () => (
 
 /* CopyIcon's twin with a plus in the front rect — "make a copy in place"
    (Duplicate) */
-export const DuplicateIcon = () => (
+const DuplicateIcon = () => (
   <svg {...base}>
     <rect x="5.8" y="5.8" width="7.7" height="7.7" rx="1.3" />
     <path d="M10.2 3.8a1.3 1.3 0 0 0-1.3-1.3H3.8a1.3 1.3 0 0 0-1.3 1.3v5.1a1.3 1.3 0 0 0 1.3 1.3" />

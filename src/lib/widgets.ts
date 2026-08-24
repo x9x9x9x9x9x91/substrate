@@ -2,7 +2,7 @@ import { widgetConfiguredIds, widgetSummaryWrite } from "./ipc.ts";
 import { parseCards, type MetricCard } from "./metriccards.ts";
 import { foldedPropStr, type NoteMeta } from "./types.ts";
 
-export const WIDGET_SUMMARY_SCHEMA = 2;
+const WIDGET_SUMMARY_SCHEMA = 2;
 
 /** One pickable card in the widget gallery: names only, never values. */
 export interface WidgetCardIndexEntry {

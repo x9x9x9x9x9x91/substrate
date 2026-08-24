@@ -157,11 +157,11 @@ export type EmbedResult =
 const AGE_COLUMN_RE = /^age\(\s*([^()]+?)\s*\)$/i;
 
 /** The freshness column's name for a property. */
-export const ageColumnName = (prop: string): string => `age(${prop})`;
+const ageColumnName = (prop: string): string => `age(${prop})`;
 
 /** The property a freshness column follows, or null when the name is an
     ordinary column. */
-export const ageColumnProp = (name: string): string | null =>
+const ageColumnProp = (name: string): string | null =>
   AGE_COLUMN_RE.exec(name.trim())?.[1] ?? null;
 
 /** Display caps: the title column plus the first N data columns, at most M rows. */

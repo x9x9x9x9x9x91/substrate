@@ -444,24 +444,40 @@ export default function VaultSyncPane({
   // server makes the sentence read as wrong rather than as serious.
   const localRemote = status?.remote_url?.startsWith("file://") === true;
   const checking = status === null && statusError === null;
+  // A push or a pull this pane started and is still waiting on. Ahead of every
+  // other reading below, because all of them describe an attempt that is over:
+  // a retry after a failed push left the chip reading "Error" with the old
+  // message for as long as the new push ran, so the one thing the user was
+  // looking for — that the retry took — was nowhere on the screen.
+  const syncing = busy === "push" || busy === "pull" ? busy : null;
   const statusLabel = checking
     ? "Checking"
-    : // Ahead of the last leg's error, which a vault in one of these states
-      // always has once anything has been tried: the state is the answer, and
-      // the refusal is what it looks like from a single leg. Reading "Error"
-      // sends the user looking for what broke rather than at the way out the
-      // pane names below it.
-      hasConflicts || privacyError || rewriteBlocked || replacedStore
-      ? "Needs attention"
-      : visibleStatusError
-        ? "Error"
-        : !configured
-          ? "Setup needed"
-          : busy === "push"
-            ? "Pushing"
-            : busy === "pull"
-              ? "Pulling"
+    : syncing === "push"
+      ? "Pushing"
+      : syncing === "pull"
+        ? "Pulling"
+        : // Ahead of the last leg's error, which a vault in one of these states
+          // always has once anything has been tried: the state is the answer,
+          // and the refusal is what it looks like from a single leg. Reading
+          // "Error" sends the user looking for what broke rather than at the
+          // way out the pane names below it.
+          hasConflicts || privacyError || rewriteBlocked || replacedStore
+          ? "Needs attention"
+          : visibleStatusError
+            ? "Error"
+            : !configured
+              ? "Setup needed"
               : "Ready";
+  // in flight is neither good news nor bad, and it carries the same plain
+  // tone "Checking" does — the previous attempt's red must not stand while
+  // the new one is still running
+  const stateTone = syncing
+    ? ""
+    : visibleStatusError || hasConflicts || privacyError || rewriteBlocked || replacedStore
+      ? " danger"
+      : configured && !checking
+        ? " ok"
+        : "";
 
   return (
     <div className="vault-sync">
@@ -478,19 +494,7 @@ export default function VaultSyncPane({
           <section className="vault-sync-card" aria-labelledby="vault-sync-status-title">
             <div className="vault-sync-card-head">
               <h2 id="vault-sync-status-title">Status</h2>
-              <span
-                className={`vault-sync-state${
-                  visibleStatusError ||
-                  hasConflicts ||
-                  privacyError ||
-                  rewriteBlocked ||
-                  replacedStore
-                    ? " danger"
-                    : configured && !checking
-                      ? " ok"
-                      : ""
-                }`}
-              >
+              <span className={`vault-sync-state${stateTone}`}>
                 <span className="vault-sync-state-dot" />
                 {statusLabel}
               </span>

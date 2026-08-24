@@ -22,7 +22,7 @@ export function isJoinedColumn(result: EmbedResult, column: string): boolean {
 
 /** Is this column a freshness reading — how long a value has stood — rather
     than the value itself? */
-export function isAgeColumn(result: EmbedResult, column: string): boolean {
+function isAgeColumn(result: EmbedResult, column: string): boolean {
   return !("error" in result) && result.ages?.[column] !== undefined;
 }
 

@@ -24,7 +24,7 @@ export const TIP_DELAY_MS = 350;
 /** After a tooltip closes, the next one opens instantly for this long — moving
     along a row of icon buttons reads as one continuous readout instead of
     re-paying the dwell at every step. */
-export const TIP_WARM_MS = 400;
+const TIP_WARM_MS = 400;
 
 export interface TipRect {
   left: number;

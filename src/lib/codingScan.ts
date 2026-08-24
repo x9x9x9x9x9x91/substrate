@@ -43,7 +43,7 @@ export interface CodingScan {
 }
 
 /** an unmerged lane is stale after this many seconds (4 days) */
-export const LANE_STALE_SECS = 4 * 86_400;
+const LANE_STALE_SECS = 4 * 86_400;
 
 /** rows that float to the top: broken, dirty, behind, or harbouring a lane
     untouched for 4+ days */

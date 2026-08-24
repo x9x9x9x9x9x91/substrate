@@ -1,7 +1,4 @@
-import { expect, test, type Page, type TestInfo } from "@playwright/test";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { hostname } from "node:os";
-import { join } from "node:path";
+import { expect, test, type Page } from "@playwright/test";
 
 // With the mock's opt-in async dispatch on, IPC completion is never
 // synchronous, so ordering-sensitive flows can actually race in e2e. The
@@ -12,171 +9,6 @@ import { join } from "node:path";
 
 function row(page: Page, title: string) {
   return page.locator(".list .row", { has: page.getByText(title, { exact: true }) });
-}
-
-/* Instrumentation — ON FAILURE ONLY.
-   The blur-rename spec below has failed on loaded QA rigs (3× across
-   2026-08-01/02) while passing every rerun, every local run and 40/40
-   --repeat-each=10. The open question is whether the marker died in the
-   EDITOR (real keystroke loss) or in the flush/assertion path. Nothing here
-   awaits, sleeps or settles on the happy path: the probe attaches listeners
-   at boot, records synchronous timestamps around the race window, and only
-   serializes a dump when an assertion has already thrown. The spec's own
-   assertions and timing are untouched. */
-type ProbeEvent = { ms: number; ev: string; info?: string };
-type Probe = {
-  mark: (ev: string, info?: string) => void;
-  events: ProbeEvent[];
-  console: string[];
-  pageErrors: string[];
-  t0: number;
-};
-
-function makeProbe(page: Page): Probe {
-  const t0 = Date.now();
-  const probe: Probe = {
-    t0,
-    events: [],
-    console: [],
-    pageErrors: [],
-    mark: (ev, info) => probe.events.push({ ms: Date.now() - t0, ev, info }),
-  };
-  page.on("console", (m) => probe.console.push(`${Date.now() - t0}ms [${m.type()}] ${m.text()}`));
-  page.on("pageerror", (e) => probe.pageErrors.push(`${Date.now() - t0}ms ${String(e)}`));
-  return probe;
-}
-
-/* A page-side MutationObserver trail: what the DOM did, and when, without
-   the test polling for it. Installed once, right before the race window. */
-async function watchDom(page: Page, rowTitle: string, marker: string) {
-  await page.evaluate(
-    ({ title, mk }) => {
-      const w = window as unknown as { __sub771?: { ms: number; what: string }[] };
-      const start = performance.now();
-      w.__sub771 = [];
-      const log = (what: string) => w.__sub771!.push({ ms: Math.round(performance.now() - start), what });
-      let sawRow = false;
-      let lastBody = "";
-      new MutationObserver(() => {
-        const content = document.querySelector(".cm-content");
-        const body = content ? (content as HTMLElement).innerText : "<no .cm-content>";
-        if (body !== lastBody) {
-          // how much of the marker has landed so far: the whole question is
-          // whether keystrokes stop arriving mid-marker, or the text arrives
-          // and later disappears
-          let got = 0;
-          while (got < mk.length && body.includes(mk.slice(0, got + 1))) got++;
-          lastBody = body;
-          log(`cm-content len=${body.length} marker=${got}/${mk.length} tail=${JSON.stringify(body.slice(-40))}`);
-        }
-        const premount = !!document.querySelector('.cm-editor[data-premount="1"]');
-        const cmCount = document.querySelectorAll(".cm-editor").length;
-        if (!premount || cmCount !== 1) log(`editors=${cmCount} premount=${premount}`);
-        if (!sawRow && [...document.querySelectorAll(".list .row")].some((r) => r.textContent?.includes(title))) {
-          sawRow = true;
-          log(`row "${title}" appeared`);
-        }
-      }).observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
-    },
-    { title: rowTitle, mk: marker },
-  );
-}
-
-/* Serialize everything we know at failure time into a committed artifact.
-   Never throws — a broken dump must not mask the real assertion error. */
-async function dumpFailure(page: Page, probe: Probe, testInfo: TestInfo, marker: string, err: unknown) {
-  const state = await page
-    .evaluate((mk) => {
-      const content = document.querySelector(".cm-content") as HTMLElement | null;
-      const editors = [...document.querySelectorAll(".cm-editor")] as HTMLElement[];
-      // CM6 hangs its DocView off the content DOM node (`cmTile.view` on this
-      // version) — the doc as the EDITOR STATE has it, which can differ from
-      // what the rendered DOM shows. Internal API, so fully guarded.
-      let cmDoc: string | null = null;
-      try {
-        const view = (content as unknown as { cmTile?: { view?: { state?: { doc?: unknown } } } })?.cmTile?.view;
-        if (view?.state?.doc) cmDoc = String(view.state.doc);
-        else cmDoc = "<no cmTile.view.state.doc>";
-      } catch (e) {
-        cmDoc = `<cmTile unreadable: ${String(e)}>`;
-      }
-      const w = window as unknown as {
-        __mockNotesDump?: () => { path: string; body: string }[];
-        __sub771?: { ms: number; what: string }[];
-        __mockReadCommandTrace?: () => unknown[];
-      };
-      let mockNotes: { path: string; hasMarker: boolean; bodyTail: string }[] = [];
-      try {
-        mockNotes = (w.__mockNotesDump?.() ?? []).map((n) => ({
-          path: n.path,
-          hasMarker: n.body.includes(mk),
-          bodyTail: n.body.slice(-120),
-        }));
-      } catch (e) {
-        mockNotes = [{ path: `<dump failed: ${String(e)}>`, hasMarker: false, bodyTail: "" }];
-      }
-      return {
-        cmContentInnerText: content ? content.innerText : "<no .cm-content>",
-        cmContentTextContent: content ? (content.textContent ?? "") : "<no .cm-content>",
-        cmLines: content ? [...content.querySelectorAll(".cm-line")].map((l) => l.textContent ?? "") : [],
-        cmDocState: cmDoc,
-        markerInDom: content ? (content.innerText.includes(mk) || (content.textContent ?? "").includes(mk)) : false,
-        markerInCmDoc: cmDoc === null || cmDoc.startsWith("<") ? null : cmDoc.includes(mk),
-        editorCount: editors.length,
-        premountPresent: !!document.querySelector('.cm-editor[data-premount="1"]'),
-        premountAttrs: editors.map((e) => e.dataset.premount ?? "<unset>"),
-        titleValue: (document.querySelector(".note-title") as HTMLInputElement | null)?.value ?? null,
-        rows: [...document.querySelectorAll(".list .row")].map((r) => r.textContent?.trim() ?? ""),
-        bannerText: (document.querySelector(".note-banner") as HTMLElement | null)?.innerText ?? null,
-        activeElement: document.activeElement
-          ? `${document.activeElement.tagName}.${(document.activeElement as HTMLElement).className}`
-          : null,
-        mockNotes,
-        domTrail: w.__sub771 ?? [],
-        // Round 2: the write-lane IPC trace — did the teardown flush
-        // fire at all, to which path, and how did it end?
-        commandTrace: (() => {
-          try {
-            return w.__mockReadCommandTrace?.() ?? [];
-          } catch (e) {
-            return [`<trace failed: ${String(e)}>`];
-          }
-        })(),
-      };
-    }, marker)
-    .catch((e) => ({ evaluateFailed: String(e) }));
-
-  const payload = {
-    sub: "SUB-771",
-    when: new Date().toISOString(),
-    host: hostname(),
-    project: testInfo.project.name,
-    title: testInfo.title,
-    retry: testInfo.retry,
-    repeatEachIndex: testInfo.repeatEachIndex,
-    workerIndex: testInfo.workerIndex,
-    parallelIndex: testInfo.parallelIndex,
-    durationMs: Date.now() - probe.t0,
-    marker,
-    error: String(err),
-    testEvents: probe.events,
-    consoleMessages: probe.console,
-    pageErrors: probe.pageErrors,
-    state,
-  };
-
-  const dir = join(testInfo.config.rootDir, "artifacts", "flake-771");
-  const stamp = `${new Date().toISOString().replace(/[:.]/g, "-")}-w${testInfo.workerIndex}-r${testInfo.repeatEachIndex}`;
-  try {
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, `${stamp}.json`), JSON.stringify(payload, null, 2));
-  } catch {
-    /* artifact dir unwritable — the attachment below still carries it */
-  }
-  await testInfo.attach(`sub771-${stamp}`, {
-    body: JSON.stringify(payload, null, 2),
-    contentType: "application/json",
-  });
 }
 
 // cold open lands on the Notes scratch list (Today is hidden)
@@ -272,16 +104,9 @@ test("title-commit flush-then-rename lands body and title under async dispatch (
 
 test("body typed during a title blur-rename survives — the editor never remounts (SUB-766/SUB-772)", async ({
   page,
-}, testInfo) => {
-  const probe = makeProbe(page); // Listeners only, no timing effect
+}) => {
   await boot(page);
-  probe.mark("booted");
-  await page.evaluate(() => {
-    window.__mockSetAsync?.(true);
-    // Record every write-lane IPC (cmd, path, body tail, outcome)
-    // page-side — read back only by the failure dump
-    window.__mockTraceCommands?.();
-  });
+  await page.evaluate(() => window.__mockSetAsync?.(true));
 
   // the capture flow: retitle, click straight into the body, keep typing.
   // The click blurs the title into commitTitle's flush-then-rename. The async dispatch
@@ -294,45 +119,26 @@ test("body typed during a title blur-rename survives — the editor never remoun
   await page.locator(".cm-editor").evaluate((el) => {
     (el as HTMLElement).dataset.premount = "1";
   });
-  // The DOM trail is installed BEFORE the race window and runs
-  // page-side; it observes, it never waits
-  await watchDom(page, "Renamed Blur E2E", marker);
   const title = page.locator(".note-title");
-  probe.mark("fill:title");
   await title.fill("Renamed Blur E2E");
-  probe.mark("click:cm-content");
   await page.locator(".cm-content").click();
   // NO settle beat — this types squarely inside the in-flight window
-  probe.mark("type:marker:start");
   await page.keyboard.type(marker);
-  probe.mark("type:marker:done");
 
-  try {
-    // the rename is settled only when the refreshed list shows the new row
-    await expect(row(page, "Renamed Blur E2E")).toBeVisible();
-    probe.mark("renamed:row-visible");
-    await expect(title).toHaveValue("Renamed Blur E2E");
-    probe.mark("title:value-ok");
-    // the marker never left the visible editor, and the editor is the SAME
-    // DOM node that existed before the rename — no remount happened
-    await expect(page.locator(".cm-content")).toContainText(marker);
-    probe.mark("marker:in-editor");
-    await expect(page.locator('.cm-editor[data-premount="1"]')).toBeVisible();
-    probe.mark("premount:survived");
+  // the rename is settled only when the refreshed list shows the new row
+  await expect(row(page, "Renamed Blur E2E")).toBeVisible();
+  await expect(title).toHaveValue("Renamed Blur E2E");
+  // the marker never left the visible editor, and the editor is the SAME
+  // DOM node that existed before the rename — no remount happened
+  await expect(page.locator(".cm-content")).toContainText(marker);
+  await expect(page.locator('.cm-editor[data-premount="1"]')).toBeVisible();
 
-    // disk re-read via a note switch — title and body both survived
-    await row(page, "Capture anything").click();
-    await expect(page.locator(".note-title")).toHaveValue("Capture anything");
-    probe.mark("switched:away");
-    await row(page, "Renamed Blur E2E").click();
-    await expect(page.locator(".note-title")).toHaveValue("Renamed Blur E2E");
-    probe.mark("switched:back");
-    await expect(page.locator(".cm-content")).toContainText(marker);
-    probe.mark("marker:after-reread");
-  } catch (err) {
-    await dumpFailure(page, probe, testInfo, marker, err);
-    throw err;
-  }
+  // disk re-read via a note switch — title and body both survived
+  await row(page, "Capture anything").click();
+  await expect(page.locator(".note-title")).toHaveValue("Capture anything");
+  await row(page, "Renamed Blur E2E").click();
+  await expect(page.locator(".note-title")).toHaveValue("Renamed Blur E2E");
+  await expect(page.locator(".cm-content")).toContainText(marker);
 });
 
 // The pane's rename-alias map must die when

@@ -136,7 +136,7 @@ function readsRowValue(e: Expr, rowShaped: (ref: string) => boolean): boolean {
 /** A LOOKUP call whose *key* argument is row-shaped: it evaluates
     once per row against the current row's cell, so it does not make its line a
     summary. Its key/value column arguments stay whole-column table refs. */
-export function isRowScopedLookup(e: Expr, rowShaped: (ref: string) => boolean): boolean {
+function isRowScopedLookup(e: Expr, rowShaped: (ref: string) => boolean): boolean {
   return (
     e.k === "call" && e.name === "LOOKUP" && e.args.length > 0 && readsRowValue(e.args[0], rowShaped)
   );
@@ -376,7 +376,7 @@ export function collectHistorySheetRefs(
 // continuation set so a decomposed umlaut (o + U+0308) stays one token instead
 // of erroring mid-name. Digits still can't start a name (a column called `2024`
 // stays unreferenceable — separate issue), so number literals stay unambiguous.
-export const IDENT_START_SRC = "[\\p{L}_]";
+const IDENT_START_SRC = "[\\p{L}_]";
 export const IDENT_SRC = "[\\p{L}_][\\p{L}\\p{M}\\p{N}_]*";
 const IDENT_START_RE = new RegExp(`^${IDENT_START_SRC}$`, "u");
 const IDENT_HEAD_RE = new RegExp(`^${IDENT_SRC}`, "u");

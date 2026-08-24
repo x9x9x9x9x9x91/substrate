@@ -349,7 +349,7 @@ export function anchorOptions(query: string, targets: AnchorTarget[]): AnchorTar
     which the detail says out loud, so picking one is never a silent no-op.
     The numbers are TEMPLATES: 300 is a sane starting width to edit, not a
     value the vault believes in. */
-export const EMBED_MODIFIERS: { name: string; detail: string }[] = [
+const EMBED_MODIFIERS: { name: string; detail: string }[] = [
   { name: "300", detail: "max width, px" },
   { name: "300x200", detail: "fit inside a box, px" },
   { name: "left", detail: "float hint — not honoured" },

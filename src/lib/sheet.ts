@@ -646,7 +646,7 @@ export interface TotalsRow {
     footer. Three is what a cell can show without the row outgrowing the
     scrollport it is pinned to — sum/avg/max of one column, the case the
     stacking rule was written for. */
-export const STACK_CAP = 3;
+const STACK_CAP = 3;
 
 /** Which summaries belong in the in-grid totals row, and under which column.
  *

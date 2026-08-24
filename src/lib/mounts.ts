@@ -135,7 +135,7 @@ export function missingCls(n: { props: Record<string, unknown> }): string {
 
 /** The intrinsic columns every mount has, in board order. They are read-only:
     they describe the file, and the file is the source of truth. */
-export const MOUNT_INTRINSICS = ["name", "extension", "size", "created", "modified"] as const;
+const MOUNT_INTRINSICS = ["name", "extension", "size", "created", "modified"] as const;
 
 /** Columns read out of the files themselves — duration for audio,
     page count for PDFs, tags where a file carries them. They appear on a row

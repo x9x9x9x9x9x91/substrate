@@ -38,7 +38,7 @@ export interface FactAges {
     history answers, and empty forever when history is off — a vault with no
     repository has no ages to give, and saying so quietly (a dash in the
     column) is the honest answer, not an error banner over the surface. */
-export function useFactAges(stamps: FreshStamp[]): FactAges {
+function useFactAges(stamps: FreshStamp[]): FactAges {
   const [ages, setAges] = useState<Map<string, FactFreshness>>(new Map());
   const [pending, setPending] = useState(false);
   // the effect keys on WHICH facts at WHICH stamps, so a surface that

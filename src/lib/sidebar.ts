@@ -214,7 +214,7 @@ function folderOfPath(path: string): string {
     folder IS the section's home whenever it exists, so the section's root is a
     thing the user can see and move rather than a tally they have to reverse-
     engineer. Same shape as the databases' explicit `home` key. */
-export const DASHBOARDS_HOME_FOLDER = "Dashboards";
+const DASHBOARDS_HOME_FOLDER = "Dashboards";
 
 /**
  * The dashboards' home folder. EXPLICIT FIRST: if the vault has a top-level

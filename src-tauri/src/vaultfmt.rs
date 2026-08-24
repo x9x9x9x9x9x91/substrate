@@ -51,15 +51,15 @@ pub const FORMAT_REL_PATH: &str = ".vault/format.json";
 /// Where pre-migration backups land, relative to the vault root.
 pub const BACKUP_REL_DIR: &str = ".vault/backup";
 
-/// Saved bank column mappings, relative to the vault root. The two statement
-/// paths live here with the rest of the file table rather than with the module
-/// that reads them: that module is private to this build, and the on-disk
-/// contract is not.
+/// Saved bank column mappings, relative to the vault root. Nothing in the app
+/// reads these two statement paths any more — the surface that did was
+/// removed — but vaults out there still carry the files, so the table keeps
+/// them for the version gate and vault doctor to recognise rather than report
+/// as strays.
 pub const STATEMENT_MAPPINGS_REL_PATH: &str = ".vault/statement-mappings.json";
 
 /// Transaction category rules, relative to the vault root. Never written by
-/// the app — the rules are authored in the file, which is what keeps the file
-/// the single source of truth.
+/// the app — the rules were always authored in the file.
 pub const STATEMENT_RULES_REL_PATH: &str = ".vault/statement-rules.json";
 
 /// The hidden config files that carry a format version.
@@ -73,6 +73,8 @@ pub enum VaultFile {
     TagFolders,
     Mounts,
     Reflexes,
+    StatementMappings,
+    StatementRules,
 }
 
 impl VaultFile {
@@ -87,6 +89,8 @@ impl VaultFile {
         VaultFile::TagFolders,
         VaultFile::Mounts,
         VaultFile::Reflexes,
+        VaultFile::StatementMappings,
+        VaultFile::StatementRules,
     ];
 
     /// This file's key in the sidecar.
@@ -100,6 +104,8 @@ impl VaultFile {
             VaultFile::TagFolders => "tagfolders",
             VaultFile::Mounts => "mounts",
             VaultFile::Reflexes => "reflexes",
+            VaultFile::StatementMappings => "statementmappings",
+            VaultFile::StatementRules => "statementrules",
         }
     }
 
@@ -113,6 +119,8 @@ impl VaultFile {
             VaultFile::TagFolders => crate::vault::TagFolder::REL_PATH,
             VaultFile::Mounts => crate::vault::MOUNTS_REL_PATH,
             VaultFile::Reflexes => crate::reflexes::CONFIG_REL_PATH,
+            VaultFile::StatementMappings => STATEMENT_MAPPINGS_REL_PATH,
+            VaultFile::StatementRules => STATEMENT_RULES_REL_PATH,
         }
     }
 
@@ -127,6 +135,8 @@ impl VaultFile {
             VaultFile::TagFolders => 1,
             VaultFile::Mounts => 1,
             VaultFile::Reflexes => 1,
+            VaultFile::StatementMappings => 1,
+            VaultFile::StatementRules => 1,
         }
     }
 
@@ -145,6 +155,8 @@ impl VaultFile {
             // rewritten wholesale, never migrated independently
             VaultFile::Mounts => "mounted folders",
             VaultFile::Reflexes => "reflexes",
+            VaultFile::StatementMappings => "saved bank column mappings",
+            VaultFile::StatementRules => "transaction category rules",
         }
     }
 
@@ -170,6 +182,8 @@ impl VaultFile {
             // a mapping half-understood imports money into the wrong columns
             // and a rule file half-understood files it under the wrong word:
             // both refuse loudly rather than reading as "none saved"
+            VaultFile::StatementMappings => false,
+            VaultFile::StatementRules => false,
         }
     }
 
@@ -191,6 +205,8 @@ impl VaultFile {
             VaultFile::TagFolders => &[],
             VaultFile::Mounts => &[],
             VaultFile::Reflexes => &[],
+            VaultFile::StatementMappings => &[],
+            VaultFile::StatementRules => &[],
         }
     }
 }

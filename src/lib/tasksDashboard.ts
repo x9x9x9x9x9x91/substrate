@@ -238,7 +238,7 @@ export function taskIsNow(value: unknown): boolean {
     typed by hand. Anything else — including a typo and including `true` — is
     ignored and the task ages normally: an unreadable value must never error,
     and must never be the thing that silently hides rot. */
-export function taskStaleExempt(value: unknown): boolean {
+function taskStaleExempt(value: unknown): boolean {
   if (value === false) return true;
   const v = clean(value)?.toLowerCase();
   return v === "never" || v === "false";

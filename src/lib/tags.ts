@@ -226,7 +226,7 @@ export function tagQuery(textBefore: string): { from: number; query: string } | 
   return { from, query: m[1] ?? "" };
 }
 
-export const MAX_TAG_OPTIONS = 100;
+const MAX_TAG_OPTIONS = 100;
 
 /** Completion candidates for a `#` query: prefix matches first, then
     substring matches, each block already in most-used order. */

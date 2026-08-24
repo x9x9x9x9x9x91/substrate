@@ -3064,7 +3064,15 @@ function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<unknow
   if (mockFailOnce.get(cmd)) {
     mockFailOnce.set(cmd, mockFailOnce.get(cmd)! - 1);
     const wait = mockLatency.get(cmd);
-    const fail = () => Promise.reject(new Error(`mock failure: ${cmd}`));
+    const fail = () => {
+      // engine parity: a sync leg that fails writes the reason into the status
+      // record, where it stays until a later leg succeeds — without it the mock
+      // forgets a failed push the moment the pane re-reads the status, and a
+      // retry after a failure cannot be told from a first attempt
+      if (cmd === "vault_sync_push" || cmd === "vault_sync_pull")
+        mockVaultSyncStatus = { ...mockVaultSyncStatus, last_error: `mock failure: ${cmd}` };
+      return Promise.reject(new Error(`mock failure: ${cmd}`));
+    };
     return wait ? mockDelay(wait).then(fail) : fail();
   }
   // instrumentation: an opt-in ring of write-lane commands plus the

@@ -818,7 +818,7 @@ test("dashgroups lane: applyOrder sorts group HEADERS by folder (SUB-698)", () =
     { folder: "Dashboards", path: "Dashboards/Home.md" },
     { folder: "Dashboards/Money", path: "Dashboards/Money/Book.md" },
     { folder: "Dashboards/Music", path: "Dashboards/Music/Label.md" },
-    { folder: "Dashboards/Rigs", path: "Dashboards/Rigs/Fleet.md" },
+    { folder: "Dashboards/Rigs", path: "Dashboards/Rigs/Uptime.md" },
   ];
   const { groups } = splitDashboards(dashes);
   // the split hands them over alphabetically…
@@ -838,7 +838,7 @@ test("dashgroups lane: applyOrder sorts group HEADERS by folder (SUB-698)", () =
     "Dashboards/Music",
   ]);
   // a header's own dashboards ride along untouched
-  assert.deepEqual(paths(seated[0].items), ["Dashboards/Rigs/Fleet.md"]);
+  assert.deepEqual(paths(seated[0].items), ["Dashboards/Rigs/Uptime.md"]);
 
   // a retired group's stale id is ignored rather than leaving a hole
   assert.deepEqual(
@@ -876,7 +876,7 @@ test("dashgroups lane: migrateOrderId keeps a renamed group in place (SUB-698)",
   const dashes = [
     { folder: "Dashboards/Finance", path: "Dashboards/Finance/Book.md" },
     { folder: "Dashboards/Music", path: "Dashboards/Music/Label.md" },
-    { folder: "Dashboards/Rigs", path: "Dashboards/Rigs/Fleet.md" },
+    { folder: "Dashboards/Rigs", path: "Dashboards/Rigs/Uptime.md" },
   ];
   const { groups } = splitDashboards(dashes);
   assert.deepEqual(applyOrder(groups, renamed, (g) => g.folder).map((g) => g.folder), renamed);

@@ -238,6 +238,7 @@ test("dashboardIcon: icon prop wins, then the per-kind mark, else undefined (SUB
     "food",
     "sync",
     "jobs",
+    "tax",
     "coding",
     "metrics",
     "yield-apr",

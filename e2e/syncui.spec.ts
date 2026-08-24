@@ -1,5 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
+const SHOT_DIR = process.env.SHOT_DIR || "/tmp/sync-busy-shots";
+
 async function openVaultSync(page: Page, phone = false) {
   if (phone) await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
@@ -362,4 +364,41 @@ test("remote command errors stay inline and preserve the token draft", async ({ 
   );
   await expect(page.locator(".vault-sync-state")).toContainText("Setup needed");
   await expect(page.getByLabel("Access token")).toHaveValue("retry-this-token");
+});
+
+/** A retry after a failed push has to say it is running. The failure is
+    recorded and outlives the attempt — that is the point of the slot — but the
+    chip kept reading "Error" with the previous message for the whole of the
+    next push, so a leg that ran for minutes was invisible and pressing Push
+    again looked like it had done nothing.
+
+    Shots for the change ride this test: SHOTS=1 SHOT_DIR=… npx playwright
+    test e2e/syncui.spec.ts -g "retry". */
+test("a retry after a failed push reads as pushing, not as the old error", async ({ page }) => {
+  await openVaultSync(page);
+  await configure(page);
+
+  // The failure the user is retrying from.
+  await page.evaluate(() => window.__mockFailOnce?.("vault_sync_push"));
+  await page.getByRole("button", { name: "Push", exact: true }).click();
+  await expect(page.locator(".vault-sync-state")).toContainText("Error");
+  await expect(page.locator(".dash-alert")).toContainText("mock failure: vault_sync_push");
+
+  // The retry, parked mid-flight — the state the pane could not describe.
+  await page.evaluate(() => window.__mockHoldCommand?.("vault_sync_push"));
+  await page.getByRole("button", { name: "Push", exact: true }).click();
+  const chip = page.locator(".vault-sync-state");
+  await expect(chip).toContainText("Pushing");
+  await expect(chip).not.toContainText("Error");
+  await expect(chip).not.toHaveClass(/danger/);
+  if (process.env.SHOTS)
+    await page.screenshot({ path: `${SHOT_DIR}/pushing-in-flight.png`, fullPage: true });
+
+  // And when it lands, the old error is gone with it.
+  await page.evaluate(() => window.__mockReleaseCommand?.("vault_sync_push"));
+  await expect(chip).toContainText("Ready");
+  await expect(page.locator(".vault-sync-summary")).toHaveText("Pushed 2 · Pulled 0");
+  await expect(page.locator(".dash-alert")).toHaveCount(0);
+  if (process.env.SHOTS)
+    await page.screenshot({ path: `${SHOT_DIR}/after-success.png`, fullPage: true });
 });

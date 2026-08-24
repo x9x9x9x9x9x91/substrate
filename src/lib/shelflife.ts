@@ -20,7 +20,7 @@ import type { FactFreshness } from "./types.ts";
     rule of thumb ("check phone numbers about once a year"), not a calendar
     contract, and a fact that came due on the 29th of February would be a
     worse lie than one that came due a day early. */
-export const REVIEW_UNIT_DAYS: Record<string, number> = {
+const REVIEW_UNIT_DAYS: Record<string, number> = {
   d: 1,
   w: 7,
   m: 30,
@@ -88,7 +88,7 @@ const DAY_MS = 86_400_000;
 /** Where the tint turns: a value is `aging` once it has used up this much of
     its window. Three quarters is late enough to be worth noticing and early
     enough to still be true. */
-export const AGING_AT = 0.75;
+const AGING_AT = 0.75;
 
 /** Read one fact against its prop's window. `now` is passed in rather than
     read, so a test and a render both say what "now" means. */

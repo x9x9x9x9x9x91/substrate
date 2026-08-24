@@ -293,7 +293,9 @@
   out-of-range lead time no longer silently stopping the reminder scheduler.
 - Edge-case markdown now survives everywhere it renders: link URLs containing
   parentheses stay intact, notes saved with Windows line endings show their views and
-  charts, and numbered lists that follow bullet lists keep their numbering in print.
+  charts, and numbered lists that follow bullet lists keep their numbering in print. The
+  food dashboard likewise reads better — under-floor days in light green instead of
+  warning yellow, and the weight overlay clear against the bars.
 
 ## 0.21.0 — 2026-08-03 — Send a note as a link, and a tasks board that knows what's urgent
 

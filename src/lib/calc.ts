@@ -310,9 +310,9 @@ class Evaluator {
   }
 }
 
-/** Evaluate one expression against a scope. Exported for tests and for any
-    caller that already knows it holds an expression (no `=`, no binding). */
-export function evalExpression(src: string, scope: CalcScope, fx: FxResolver): Quantity | FErr {
+/** Evaluate one expression against a scope, for a caller that already knows
+    it holds an expression (no `=`, no binding). */
+function evalExpression(src: string, scope: CalcScope, fx: FxResolver): Quantity | FErr {
   const toks = tokenize(src);
   if (isErr(toks)) return toks;
   if (toks.length === 0) return ferr("nothing to compute");

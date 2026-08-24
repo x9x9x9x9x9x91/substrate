@@ -16,7 +16,7 @@ export function canonicalColumn(columns: string[], key: string): string | undefi
 /** Normalize known persisted column identities without admitting unknown
     names into the rendered union. Unknown keys stay byte-for-byte intact so
     a typo remains stale instead of gaining meaning. */
-export function canonicalColumnKeys(columns: string[], keys: string[]): string[] {
+function canonicalColumnKeys(columns: string[], keys: string[]): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
   for (const key of keys) {

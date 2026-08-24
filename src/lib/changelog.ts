@@ -65,7 +65,7 @@ export interface ChangelogRelease {
 }
 
 /** Group order and labels shared by the pane and the Markdown render. */
-export const KIND_ORDER: ChangelogKind[] = ["new", "improved", "fixed"];
+const KIND_ORDER: ChangelogKind[] = ["new", "improved", "fixed"];
 export const KIND_LABEL: Record<ChangelogKind, string> = {
   new: "New",
   improved: "Improved",
@@ -398,7 +398,7 @@ export const CHANGELOG: ChangelogRelease[] = [
         kind: "fixed",
       },
       {
-        text: "Edge-case markdown now survives everywhere it renders: link URLs containing parentheses stay intact, notes saved with Windows line endings show their views and charts, and numbered lists that follow bullet lists keep their numbering in print.",
+        text: "Edge-case markdown now survives everywhere it renders: link URLs containing parentheses stay intact, notes saved with Windows line endings show their views and charts, and numbered lists that follow bullet lists keep their numbering in print. The food dashboard likewise reads better — under-floor days in light green instead of warning yellow, and the weight overlay clear against the bars.",
         kind: "fixed",
       },
     ],

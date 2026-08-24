@@ -165,7 +165,7 @@ export function tableWithColumn(source: string): TableEdit {
 /** Where a table's body starts: line 0 is the header, line 1 the delimiter
  * markdown requires, and both are the table's shape rather than its data —
  * deleting either stops it parsing as a table at all. */
-export const FIRST_BODY_LINE = 2;
+const FIRST_BODY_LINE = 2;
 
 /** A body row lifted out. Refuses the header and the delimiter (see
  * `FIRST_BODY_LINE`), and refuses a line index the table doesn't have, so a

@@ -9,7 +9,6 @@ import {
 import { makeHistorySheetValue } from "../lib/sheet";
 import type { FxResolver, HistoryRef, HistoryResolver } from "../lib/formula";
 import type { FactLane, NoteMeta } from "../lib/types";
-import { errText } from "../lib/errtext";
 
 /** The prefetch half of time-travel queries (docs/time-travel-spec.md
     §3.1). The formula engine is synchronous — a cell cannot await a git
@@ -33,7 +32,6 @@ type Snapshot = {
   lanes: readonly FactLane[];
   /** whole sheet trees at the days `AT(date, Sheet.member)` names (§3.2) */
   snaps: readonly HistorySheetSnapshot[];
-  err: string | null;
 };
 
 const EMPTY: Snapshot = {
@@ -42,7 +40,6 @@ const EMPTY: Snapshot = {
   notes: [],
   lanes: [],
   snaps: [],
-  err: null,
 };
 
 /** Every fact is pending until the vault listing lands. */
@@ -52,7 +49,7 @@ let snapshot: Snapshot = EMPTY;
 const listeners = new Set<() => void>();
 /** facts already asked for at the current epoch — asked once, not once per
     render, and not retried on failure (a failed revwalk fails the same way
-    every time; `err` says so instead of hammering the backend). */
+    every time; asking again would only hammer the backend). */
 const asked = new Set<string>();
 let pending: { path: string; key: string }[] = [];
 /** days whose whole sheet tree is wanted, same ask-once discipline as facts */
@@ -102,10 +99,10 @@ function run(epoch: number): void {
         notes: notes ?? snapshot.notes,
         lanes: lanes.length ? [...snapshot.lanes, ...lanes] : snapshot.lanes,
         snaps: snaps.length ? [...snapshot.snaps, ...snaps] : snapshot.snaps,
-        err: null,
       });
-    } catch (e: unknown) {
-      if (epoch === snapshot.epoch) publish({ ...snapshot, err: errText(e) });
+    } catch {
+      // a failed revwalk is final — `asked` already blocks the retry, and no
+      // surface consumes the error (the stale-history readout never shipped)
     } finally {
       inFlight = null;
       // `!notesAsked` matters on its own: an epoch bump during this run reset
@@ -206,11 +203,4 @@ export function useHistoryLanes(
     spinner. Same ask-once store, so a prefetch a peek then repeats is free. */
 export function prefetchFact(path: string, key: string, vaultEpoch: number): void {
   ensureHistory([{ path, key }], [], vaultEpoch);
-}
-
-/** Last prefetch failure, for a surface that wants to say history is stale
-    rather than quietly showing "not loaded yet" cells forever (the same
-    lesson, one subsystem over). */
-export function useHistoryError(): string | null {
-  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot).err;
 }

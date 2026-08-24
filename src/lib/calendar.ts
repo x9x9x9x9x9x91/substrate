@@ -255,7 +255,7 @@ export function droppedRangeStart(
 /** Shortest event a resize can leave behind — one snap step of the
     canvas grid, so a drag or a typed end that lands at or before the start
     settles on the next grid line. */
-export const MIN_RANGE_MIN = 15;
+const MIN_RANGE_MIN = 15;
 
 /** The end a resize commits, never before its start. Dragging an
     event's bottom edge up past its own top — or typing an earlier end in the
@@ -348,14 +348,6 @@ export function addMonths(d: Date, n: number): Date {
   // keep the day of month where it exists (Jan 31 + 1mo → Feb 28)
   out.setDate(Math.min(d.getDate(), daysInMonth(out.getFullYear(), out.getMonth() + 1)));
   return out;
-}
-
-export function sameDay(a: Date, b: Date): boolean {
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  );
 }
 
 /** Weeks start Monday. */

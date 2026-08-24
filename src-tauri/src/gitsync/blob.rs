@@ -28,6 +28,7 @@ use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 const OBJECT_MAGIC: &[u8; 4] = b"SBO1";
@@ -60,6 +61,25 @@ const MAX_PENDING_EDGES: usize = 4 * MAX_LIST_OBJECTS;
 /// history-rewrite marker in the vault's git directory.
 const LISTING_CACHE_FILE: &str = "substrate-sync-blob-listing";
 const LISTING_CACHE_HEADER: &str = "substrate hosted-sync listing cache v1";
+/// How the client answers a store that says "not now" (429/503) on an
+/// idempotent data-plane request.
+///
+/// The numbers are sized against the shape of a real push: one HTTP request
+/// per object, thousands of objects, and a reverse proxy in front counting
+/// requests per minute. A per-minute limiter refills within a minute, so the
+/// first wait is a second, the ceiling is half a minute, and the budget is
+/// three minutes — long enough to ride out a refill window, short enough that
+/// a store which is throttling permanently still ends in the same error text
+/// it produced before any of this existed.
+const RETRY_FIRST_DELAY: Duration = Duration::from_secs(1);
+const RETRY_MAX_DELAY: Duration = Duration::from_secs(30);
+const RETRY_BUDGET: Duration = Duration::from_secs(180);
+/// `Retry-After` is the server's own number and is preferred over the client's
+/// backoff, but it is still remote input: a proxy asking for an hour would
+/// otherwise hang a push behind a wall nobody can see. Past this, the client
+/// uses its own schedule and lets the budget end the attempt.
+const RETRY_AFTER_CEILING: Duration = Duration::from_secs(60);
+
 const ARGON_MEMORY_KIB: u32 = 65_536;
 const ARGON_ITERATIONS: u32 = 3;
 const ARGON_LANES: u32 = 1;
@@ -383,6 +403,29 @@ pub(crate) struct HttpBlobStore {
     agent: ureq::Agent,
     base: String,
     token: String,
+    retry: RetryPolicy,
+}
+
+/// The waiting schedule [`HttpBlobStore::call_retrying`] runs. A field rather
+/// than the constants inlined so tests can put a millisecond-scale version of
+/// the same policy in front of a throttling stub.
+#[derive(Clone, Copy, Debug)]
+struct RetryPolicy {
+    first_delay: Duration,
+    max_delay: Duration,
+    budget: Duration,
+    retry_after_ceiling: Duration,
+}
+
+impl Default for RetryPolicy {
+    fn default() -> Self {
+        Self {
+            first_delay: RETRY_FIRST_DELAY,
+            max_delay: RETRY_MAX_DELAY,
+            budget: RETRY_BUDGET,
+            retry_after_ceiling: RETRY_AFTER_CEILING,
+        }
+    }
 }
 
 /// Same treatment as [`MasterKey`]: the bearer token is live credential
@@ -426,7 +469,58 @@ impl HttpBlobStore {
                 .build(),
             base,
             token: token.to_string(),
+            retry: RetryPolicy::default(),
         })
+    }
+
+    /// The same store on a millisecond-scale schedule, so a test can prove the
+    /// backoff and the budget without spending three minutes doing it.
+    #[cfg(test)]
+    fn with_retry_policy(mut self, retry: RetryPolicy) -> Self {
+        self.retry = retry;
+        self
+    }
+
+    /// Run one idempotent data-plane request, waiting out a store that answers
+    /// "not now" instead of failing the whole push on the first refusal.
+    ///
+    /// Only 429 and 503 come back here: both say the request was understood and
+    /// the store declined to serve it *this moment*, which is the one refusal a
+    /// client can answer by asking again. Everything else — including a
+    /// transport failure — is returned untouched, so callers keep branching on
+    /// exactly the statuses they always did and the final error text is
+    /// unchanged. The retry happens before that error, never instead of it.
+    ///
+    /// The caller passes a closure rather than a built request because a `ureq`
+    /// request is consumed by sending it, so each attempt builds its own.
+    ///
+    /// Nothing here needs to survive the process. Objects are content-addressed
+    /// and the server holds whatever already landed, so a push killed mid-wait
+    /// loses only the attempt: the next push lists the store, skips every name
+    /// it already has, and resumes from there.
+    fn call_retrying(
+        &self,
+        mut send: impl FnMut() -> Result<ureq::Response, ureq::Error>,
+    ) -> Result<ureq::Response, ureq::Error> {
+        let started = Instant::now();
+        let mut delay = self.retry.first_delay;
+        loop {
+            let result = send();
+            let Err(ureq::Error::Status(status @ (429 | 503), refusal)) = result else {
+                return result;
+            };
+            let wait = retry_after(&refusal)
+                .filter(|asked| *asked <= self.retry.retry_after_ceiling)
+                .unwrap_or(delay);
+            // Checked against the elapsed time *plus* the wait, so the budget
+            // is a bound on how long the caller is held rather than on when the
+            // last attempt started.
+            if started.elapsed() + wait > self.retry.budget {
+                return Err(ureq::Error::Status(status, refusal));
+            }
+            std::thread::sleep(wait);
+            delay = (delay * 2).min(self.retry.max_delay);
+        }
     }
 
     fn authorization(&self) -> String {
@@ -474,6 +568,18 @@ fn http_status(
             Err(format!("hosted sync {label} failed: {transport}"))
         }
     }
+}
+
+/// How long a refusal asked the client to wait, in the integer-seconds form.
+///
+/// The HTTP-date form is the other half of the header and is deliberately not
+/// read: it needs a clock the client and the proxy agree on, and the client's
+/// own backoff is a better answer than a wait computed from a skewed one. A
+/// header that is absent, a date, negative, or not a number all mean the same
+/// thing here — no instruction — and the caller falls back to its schedule.
+fn retry_after(response: &ureq::Response) -> Option<Duration> {
+    let seconds: u64 = response.header("Retry-After")?.trim().parse().ok()?;
+    Some(Duration::from_secs(seconds))
 }
 
 /// Auth and shape failures the caller cannot fix by retrying are worth naming;
@@ -534,8 +640,10 @@ impl BlobTransport for HttpBlobStore {
 
     fn get_object(&self, name: &str, max_bytes: usize) -> Result<Vec<u8>, String> {
         let url = self.object_url(name)?;
-        let request = self.agent.get(&url).set("Authorization", &self.authorization());
-        let (status, response) = http_status(request.call(), "object download")?;
+        let sent = self.call_retrying(|| {
+            self.agent.get(&url).set("Authorization", &self.authorization()).call()
+        });
+        let (status, response) = http_status(sent, "object download")?;
         let Some(response) = response else {
             // Distinct from a transport failure on purpose: `fetch_reachable_graph`
             // turns this into "the remote graph is missing an object", which is a
@@ -553,12 +661,14 @@ impl BlobTransport for HttpBlobStore {
             return Err(format!("hosted sync object {name} exceeds the prototype size limit"));
         }
         let url = self.object_url(name)?;
-        let request = self
-            .agent
-            .put(&url)
-            .set("Authorization", &self.authorization())
-            .set("Content-Type", "application/octet-stream");
-        let (status, _) = http_status(request.send_bytes(bytes), "object upload")?;
+        let sent = self.call_retrying(|| {
+            self.agent
+                .put(&url)
+                .set("Authorization", &self.authorization())
+                .set("Content-Type", "application/octet-stream")
+                .send_bytes(bytes)
+        });
+        let (status, _) = http_status(sent, "object upload")?;
         // 201 stored, 200 already present. Both are success: objects are
         // immutable, so "someone got there first" is the same outcome.
         if status == 200 || status == 201 {
@@ -635,9 +745,10 @@ impl HttpBlobStore {
             Some(cursor) => format!("{}/v1/objects?since={cursor}", self.base),
             None => format!("{}/v1/objects", self.base),
         };
-        let request = self.agent.get(&url).set("Authorization", &self.authorization());
+        let sent = self
+            .call_retrying(|| self.agent.get(&url).set("Authorization", &self.authorization()).call());
         let (status, response) =
-            http_status(request.call(), "listing").map_err(ListingRefusal::Failed)?;
+            http_status(sent, "listing").map_err(ListingRefusal::Failed)?;
         let Some(response) = response else {
             // A server that predates the cursor route has no handler for a
             // query on this path and answers from its object route: 404 for
@@ -4950,56 +5061,302 @@ mod tests {
     /// this client would otherwise fall back to is the same scan again, only
     /// larger, ending in the same 500. So all three stop here, and the next
     /// push asks incrementally again.
+    ///
+    /// "Stop here" now means "after the backoff has been spent": 429 and 503
+    /// are the two statuses `call_retrying` waits out, so the cursor request is
+    /// asked again on the client's own schedule until the budget ends it. What
+    /// must never happen either way is the *bigger* listing — a store already
+    /// saying it is over a limit is not answered by asking it to scan more.
     #[test]
     fn a_store_that_could_not_serve_the_cursor_is_not_asked_for_the_bigger_listing() {
         for status in
             ["429 Too Many Requests", "500 Internal Server Error", "503 Service Unavailable"]
         {
             use std::net::TcpListener;
-            use std::sync::atomic::{AtomicUsize, Ordering};
+            use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
             use std::sync::Arc;
 
             let listener = TcpListener::bind("127.0.0.1:0").unwrap();
             let address = listener.local_addr().unwrap();
-            let requests = Arc::new(AtomicUsize::new(0));
-            let counted = Arc::clone(&requests);
+            let cursor_requests = Arc::new(AtomicUsize::new(0));
+            let plain_requests = Arc::new(AtomicUsize::new(0));
+            let done = Arc::new(AtomicBool::new(false));
+            let counted = (Arc::clone(&cursor_requests), Arc::clone(&plain_requests));
+            let stop = Arc::clone(&done);
             let refusal =
                 format!("HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
-            // Two connections offered, so a second request would be served
-            // rather than hang — the count below is what proves it never came.
+            // Every connection is served, so a fallback listing would be
+            // answered rather than hang — the counts below are what prove it
+            // never came.
             let served = std::thread::spawn(move || {
-                for stream in listener.incoming().take(2) {
-                    let mut stream = stream.unwrap();
-                    let mut head = Vec::new();
-                    let mut byte = [0u8; 1];
-                    while stream.read(&mut byte).unwrap_or(0) == 1 {
-                        head.push(byte[0]);
-                        if head.ends_with(b"\r\n\r\n") {
-                            break;
-                        }
+                for stream in listener.incoming() {
+                    if stop.load(Ordering::SeqCst) {
+                        break;
                     }
-                    counted.fetch_add(1, Ordering::SeqCst);
+                    let mut stream = stream.unwrap();
+                    let head = read_request_head(&mut stream);
+                    if head.contains("?since=") {
+                        counted.0.fetch_add(1, Ordering::SeqCst);
+                    } else {
+                        counted.1.fetch_add(1, Ordering::SeqCst);
+                    }
                     let _ = stream.write_all(refusal.as_bytes());
                 }
             });
 
-            let transport = HttpBlobStore::new(&format!("http://{address}"), "token").unwrap();
+            let transport = HttpBlobStore::new(&format!("http://{address}"), "token")
+                .unwrap()
+                .with_retry_policy(brisk_retry());
             let error = transport
                 .list_objects_since(Some("epoch-one.4"), MAX_LIST_OBJECTS)
                 .unwrap_err();
-            let expected = status_error("listing", status[..3].parse().unwrap());
-            assert_eq!(error, expected, "{status}: the refusal was not reported as itself");
+            let code: u16 = status[..3].parse().unwrap();
+            assert_eq!(error, status_error("listing", code), "{status}: not reported as itself");
             assert_eq!(
-                requests.load(Ordering::SeqCst),
-                1,
+                plain_requests.load(Ordering::SeqCst),
+                0,
                 "{status}: the store that could not serve the cursor was asked for the \
                  complete listing too"
             );
-            // The stub is still waiting on a second connection that must not
-            // exist; one throwaway dial lets its loop end so the join returns.
+            let asked = cursor_requests.load(Ordering::SeqCst);
+            // 500 is not a "not now", so it is never re-asked; the two that are
+            // must have been.
+            if code == 500 {
+                assert_eq!(asked, 1, "a broken scan was retried");
+            } else {
+                assert!(asked > 1, "{status}: the refusal was not waited out at all");
+            }
+            // The stub is still blocked in accept; one throwaway dial after the
+            // flag is set lets its loop end so the join returns.
+            done.store(true, Ordering::SeqCst);
             drop(std::net::TcpStream::connect(address));
             served.join().unwrap();
         }
+    }
+
+    // --- throttling in front of the real server ----------------------------
+
+    use std::net::TcpListener;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    /// Read one request head off a socket, up to and including the blank line.
+    /// The stubs below all speak one request per connection, same as the real
+    /// server does.
+    fn read_request_head(stream: &mut std::net::TcpStream) -> String {
+        let mut head = Vec::new();
+        let mut byte = [0u8; 1];
+        while stream.read(&mut byte).unwrap_or(0) == 1 {
+            head.push(byte[0]);
+            if head.ends_with(b"\r\n\r\n") {
+                break;
+            }
+        }
+        String::from_utf8_lossy(&head).into_owned()
+    }
+
+    /// The shipping policy on a millisecond scale. Same shape — first wait,
+    /// doubling, ceiling, budget — so what the tests exercise is the schedule
+    /// and not a second implementation of it. The `Retry-After` ceiling stays
+    /// in whole seconds because the header's unit is seconds: a test that
+    /// wanted a sub-second instruction could not express one.
+    fn brisk_retry() -> RetryPolicy {
+        RetryPolicy {
+            first_delay: Duration::from_millis(5),
+            max_delay: Duration::from_millis(20),
+            budget: Duration::from_millis(120),
+            retry_after_ceiling: Duration::from_secs(3),
+        }
+    }
+
+    /// The same schedule with room to actually honor a `Retry-After` — whose
+    /// smallest expressible wait is a whole second, so a budget in milliseconds
+    /// would refuse every instruction a server can give and never take one.
+    fn patient_retry() -> RetryPolicy {
+        RetryPolicy { budget: Duration::from_secs(20), ..brisk_retry() }
+    }
+
+    /// A middleman that speaks HTTP well enough to be a reverse proxy: it
+    /// forwards every request to the real server verbatim, except that object
+    /// PUTs are turned away with a 429 until it has refused its quota. This is
+    /// the shape the live failure had — the store was fine, the thing counting
+    /// requests in front of it was not — and the only way to put it in front
+    /// of the real server without teaching the server to throttle.
+    struct ThrottlingProxy {
+        address: std::net::SocketAddr,
+        /// Object PUTs that reached the proxy, retries included.
+        put_attempts: Arc<AtomicUsize>,
+        /// Of those, the ones answered 429 rather than forwarded.
+        refusals: Arc<AtomicUsize>,
+        done: Arc<AtomicBool>,
+    }
+
+    impl ThrottlingProxy {
+        /// `refuse` object PUTs are answered 429 before any is let through.
+        /// Every `retry_after_every`th refusal carries `Retry-After: 1`, so one
+        /// run covers both halves of the contract: the wait the server names
+        /// and the wait the client picks for itself.
+        fn start(upstream: std::net::SocketAddr, refuse: usize, retry_after_every: usize) -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let put_attempts = Arc::new(AtomicUsize::new(0));
+            let refusals = Arc::new(AtomicUsize::new(0));
+            let done = Arc::new(AtomicBool::new(false));
+            let (attempts, refused, stop) =
+                (Arc::clone(&put_attempts), Arc::clone(&refusals), Arc::clone(&done));
+            std::thread::spawn(move || {
+                for stream in listener.incoming() {
+                    if stop.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    let Ok(mut client) = stream else { continue };
+                    let head = read_request_head(&mut client);
+                    let length: usize = head
+                        .lines()
+                        .find_map(|line| {
+                            let (name, value) = line.split_once(':')?;
+                            name.trim()
+                                .eq_ignore_ascii_case("content-length")
+                                .then(|| value.trim().parse().ok())?
+                        })
+                        .unwrap_or(0);
+                    let mut body = vec![0u8; length];
+                    if client.read_exact(&mut body).is_err() {
+                        continue;
+                    }
+                    if head.starts_with("PUT /v1/objects/") {
+                        let attempt = attempts.fetch_add(1, Ordering::SeqCst) + 1;
+                        if attempt <= refuse {
+                            let count = refused.fetch_add(1, Ordering::SeqCst) + 1;
+                            let asked = if count % retry_after_every == 0 {
+                                "Retry-After: 1\r\n"
+                            } else {
+                                ""
+                            };
+                            let _ = client.write_all(
+                                format!(
+                                    "HTTP/1.1 429 Too Many Requests\r\nContent-Length: 0\r\n\
+                                     {asked}Connection: close\r\n\r\n"
+                                )
+                                .as_bytes(),
+                            );
+                            continue;
+                        }
+                    }
+                    // Everything else is the real store's business.
+                    let Ok(mut server) = std::net::TcpStream::connect(upstream) else { continue };
+                    let _ = server.write_all(head.as_bytes());
+                    let _ = server.write_all(&body);
+                    let mut answer = Vec::new();
+                    let _ = server.read_to_end(&mut answer);
+                    let _ = client.write_all(&answer);
+                }
+            });
+            Self { address, put_attempts, refusals, done }
+        }
+
+        fn store(&self, retry: RetryPolicy) -> HttpBlobStore {
+            HttpBlobStore::new(&format!("http://{}", self.address), TEST_TOKEN)
+                .unwrap()
+                .with_retry_policy(retry)
+        }
+    }
+
+    impl Drop for ThrottlingProxy {
+        fn drop(&mut self) {
+            // The accept loop is blocked on a connection that will never come
+            // otherwise, and a test process that leaves one behind per case
+            // accumulates threads for the rest of the run.
+            self.done.store(true, Ordering::SeqCst);
+            drop(std::net::TcpStream::connect(self.address));
+        }
+    }
+
+    /// The backoff contract, end to end: a throttling proxy turns the first
+    /// object uploads away and the push has to arrive anyway, with every
+    /// object in the store and the waits actually taken.
+    #[test]
+    fn a_push_through_a_throttling_proxy_backs_off_and_still_lands_every_object() {
+        let scratch = TempDir::new().unwrap();
+        let storage = scratch.path().join("server-storage");
+        let server = serve(&storage);
+        // Four refusals, every second one naming its own wait — so this run
+        // covers `Retry-After` and the client's own schedule at once.
+        let proxy = ThrottlingProxy::start(server.address(), 4, 2);
+        let transport = proxy.store(patient_retry());
+
+        let a = scratch.path().join("vault-a");
+        let b = scratch.path().join("vault-b");
+        let history_a = vault(&a);
+        let _history_b = vault(&b);
+        let key = MasterKey::from_bytes([48; 32]);
+
+        write_note(&a, "Throttled.md", "written while the proxy was saying no\n");
+        write_note(&a, "Projects/Second.md", "second\n");
+        history_a.snapshot("a1").unwrap();
+
+        let started = Instant::now();
+        push(&a, &key, &transport, || ()).unwrap();
+        let elapsed = started.elapsed();
+
+        assert_eq!(proxy.refusals.load(Ordering::SeqCst), 4, "the proxy never throttled");
+        assert!(
+            proxy.put_attempts.load(Ordering::SeqCst) > 4,
+            "no upload was ever retried past the refusals"
+        );
+
+        // Two of the four refusals said `Retry-After: 1`, and the client is
+        // told to honor that, so the push cannot have taken less than the two
+        // seconds it was asked to wait. The upper bound is loose on purpose —
+        // it is here to catch a runaway loop, not to time a machine.
+        assert!(
+            elapsed >= Duration::from_secs(2),
+            "the push did not honor Retry-After: took {elapsed:?}"
+        );
+        assert!(elapsed < Duration::from_secs(30), "the backoff ran away: took {elapsed:?}");
+
+        // Every object landed: a second vault reconstructs the first from what
+        // the store holds, which is only true if nothing was dropped mid-push.
+        let pulled = pull(&b, &key, &transport, || ()).unwrap();
+        assert!(pulled.pulled >= 1, "vault B pulled nothing: {pulled:?}");
+        let source = vault_contents(&a);
+        for (path, bytes) in &source {
+            assert_eq!(
+                vault_contents(&b).get(path).map(Vec::as_slice),
+                Some(bytes.as_slice()),
+                "vault B differs from vault A at {path}"
+            );
+        }
+    }
+
+    /// The other end of the policy: retrying is bounded, so a proxy that is
+    /// throttling permanently still fails the push — with exactly the message
+    /// the pane copy already asserts elsewhere. The backoff moved that error
+    /// from first response to last resort; it did not replace it.
+    #[test]
+    fn a_permanently_throttling_proxy_still_fails_the_push_with_the_busy_message() {
+        let scratch = TempDir::new().unwrap();
+        let server = serve(&scratch.path().join("server-storage"));
+        // Never lets an object PUT through, and never names a wait — the
+        // client's own schedule and budget are what end this.
+        let proxy = ThrottlingProxy::start(server.address(), usize::MAX, usize::MAX);
+        let transport = proxy.store(brisk_retry());
+
+        let a = scratch.path().join("vault-a");
+        let history_a = vault(&a);
+        let key = MasterKey::from_bytes([49; 32]);
+        write_note(&a, "Never.md", "this one is not going anywhere\n");
+        history_a.snapshot("a1").unwrap();
+
+        let error = push(&a, &key, &transport, || ()).unwrap_err();
+        assert!(
+            error.contains(&status_error("object upload", 429)),
+            "the budget did not end in today's message: {error}"
+        );
+        assert!(
+            proxy.put_attempts.load(Ordering::SeqCst) > 1,
+            "the push gave up on the first refusal instead of backing off"
+        );
     }
 
     #[test]

@@ -135,7 +135,7 @@ const orphanedEdits = new Map<string, string>();
     otherwise adopt the past text and save it over the live file. Losing a
     genuinely-live orphan here is the safe trade: leaving the past already
     reloads every pane from disk. */
-export function dropOrphanedEdits() {
+function dropOrphanedEdits() {
   orphanedEdits.clear();
 }
 onHistoryLeave(dropOrphanedEdits);

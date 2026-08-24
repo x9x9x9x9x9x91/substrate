@@ -49,13 +49,13 @@ export const FRESH_CHUNK_FACTS = 60;
     exceed this would spend minutes walking git for a single screen; the
     surface says how many it left unread rather than pretending the report is
     complete (`FactAges.unread`). */
-export const FRESH_MAX_FACTS = 600;
+const FRESH_MAX_FACTS = 600;
 
 /** How many answers the module-level cache holds. Bounded because the app's
     instance lives for the session and a long day of browsing a big vault
     would otherwise grow it without limit; oldest-inserted goes first, which
     for this access pattern is the surface the reader has left. */
-export const FRESH_CACHE_MAX = 5000;
+const FRESH_CACHE_MAX = 5000;
 
 /** The facts a surface will actually ask about, and the ones it had to leave
     out. Order is the caller's own, so what gets dropped is the tail of the
@@ -70,7 +70,7 @@ export function capStamps(
 
 /** Split a set of misses into calls, each small enough that the history lock
     it takes is held for a bounded walk. */
-export function chunkStamps(
+function chunkStamps(
   stamps: FreshStamp[],
   size: number = FRESH_CHUNK_FACTS
 ): FreshStamp[][] {

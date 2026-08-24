@@ -143,9 +143,8 @@ test("the sync pane toggle switches the lane off and back on", async ({ page }) 
 });
 
 /* The switch is only worth its pixel if the lane obeys it, which the card's
-   own state cannot show. This boots an already-configured vault — a remote
-   saved mid-session arms the lane only after a reload — and reads the mock's
-   command log across the flip. */
+   own state cannot show. This boots an already-configured vault and reads the
+   mock's command log across the flip. */
 test("the toggle stops the lane firing, and back on resumes it", async ({ page }) => {
   await bootSyncingApp(page, { conflicted: false, changed: [] });
   await expect.poll(() => syncCalls(page)).toEqual(["vault_sync_pull"]);
@@ -166,4 +165,42 @@ test("the toggle stops the lane firing, and back on resumes it", async ({ page }
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-checked", "true");
   await expect.poll(async () => (await syncCalls(page)).length).toBeGreaterThan(parked);
+});
+
+/* Enrolling from a running app used to leave every automatic trigger dead
+   until a restart, with the pane reading Ready and the manual buttons working
+   — the dead lane was invisible. The save arms the lane in place now. What it
+   still must not do is pull: the first pull after enrollment belongs to the
+   pane's button, not to the act of saving. */
+test("a remote saved mid-session arms the lane, without a pull of its own", async ({
+  page,
+}) => {
+  // interval parked far away so any pull here is one the save is answerable for
+  await page.addInitScript((timings) => {
+    window.__mockAutoSync = timings;
+  }, { ...FAST, pullIntervalMs: 600_000 });
+  await page.goto("/");
+  // no remote: the lane boots with its gate shut and the open pull refused
+  expect(await syncCalls(page)).toEqual([]);
+
+  await page
+    .locator(".sidebar")
+    .getByRole("button", { name: "Vault sync", exact: true })
+    .click();
+  await page.getByLabel("Remote URL").fill("https://sync.example.com/ada/vault.git");
+  await page.getByLabel("Access token").fill("vault-token-371");
+  await page.getByRole("button", { name: "Save remote" }).click();
+  await expect(page.locator(".vault-sync-state")).toContainText("Ready");
+
+  // past the debounce and then some: saving pulls nothing on its own
+  await page.waitForTimeout(700);
+  expect(await syncCalls(page)).toEqual([]);
+
+  // …and the lane is live, on this same run: an edit settles into a push
+  await openWelcome(page);
+  await page.locator(".cm-content").click();
+  await page.keyboard.type("enrolled mid-session");
+  await expect
+    .poll(() => syncCalls(page), { timeout: 5_000 })
+    .toEqual(["vault_sync_push"]);
 });

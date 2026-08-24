@@ -99,10 +99,10 @@ function showTip(el: HTMLElement, text: string, instant: boolean) {
   }, wait);
 }
 
-/** Close whatever is showing (and cancel anything pending). Exported for the
-    rare caller that changes the world under its own trigger — a menu opening
-    from an icon button, say. */
-export function hideTip() {
+/** Close whatever is showing (and cancel anything pending) — for the rare
+    caller that changes the world under its own trigger, a menu opening from
+    an icon button, say. */
+function hideTip() {
   clearTimer();
   if (!current) return;
   current = null;

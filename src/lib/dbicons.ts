@@ -3,7 +3,7 @@ import { byFoldedKey } from "./schemalookup.ts";
 
 /** Reserved key inside a type's `.vault/schema.json` entry holding the
     database's icon. Prop names are user data; this one is reserved. */
-export const ICON_KEY = "icon";
+const ICON_KEY = "icon";
 
 /** Curated outline glyph set for database icons — no network fetch, no icon
     dependency. Geometry is hand-adapted from Lucide (ISC-licensed) to the

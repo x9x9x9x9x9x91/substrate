@@ -97,7 +97,7 @@ export function anchorFrom(el: Element): AnchorRect {
     moment its scroller moves, the menu is pointing at empty space. Events are
     scoped to the pane that owns that scroller: another database or surface
     must never close this menu. */
-export const ANCHOR_STALE_EVENT = "substrate:anchor-stale";
+const ANCHOR_STALE_EVENT = "substrate:anchor-stale";
 
 export function anchorsWentStale(scope: string) {
   window.dispatchEvent(new CustomEvent(ANCHOR_STALE_EVENT, { detail: { scope } }));
@@ -275,7 +275,7 @@ const AGG_LABELS: [AggKind, string][] = [
     fraction rounds to whole days (never silently below the 1-day minimum),
     and anything past a year clamps to 365. The caller writes the result back
     into the field, so the UI never shows a number the vault does not hold. */
-export function leadDaysFor(raw: string): number {
+function leadDaysFor(raw: string): number {
   const n = Number(raw.trim());
   if (!raw.trim() || !Number.isFinite(n) || n <= 0) return 0;
   return Math.min(365, Math.max(1, Math.round(n)));

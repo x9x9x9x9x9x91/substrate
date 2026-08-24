@@ -786,14 +786,6 @@ const FIELDS: Field[] = [
     defaultOn: true,
   },
   {
-    key: "net-letterbox",
-    tab: "sharing",
-    label: "Letterbox",
-    hint: "polls your drop-box relay for sealed drops and lets you make new links; off parks both — boxes already handed out stay live on the relay until you revoke them",
-    kind: "bool",
-    defaultOn: true,
-  },
-  {
     key: "share-relay-url",
     tab: "sharing",
     label: "Share relay URL",

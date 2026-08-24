@@ -235,7 +235,7 @@ export function useCardValues(
     half of `useCardValues`, with the loading handled by the caller. Shared
     with the headless widget-snapshot path so a home-screen tile can never
     disagree with the card the app shows for the same vault state. */
-export function cardValueFrom(
+function cardValueFrom(
   card: MetricCard,
   sheets: Map<string, SheetState>,
   mounts: Map<string, DashboardMountState>,

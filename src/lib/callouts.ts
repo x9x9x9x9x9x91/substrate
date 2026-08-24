@@ -14,7 +14,7 @@ import { ACCENT_NAMES } from "./styletokens.ts";
 /** The three callout kinds, in the order the Turn-into menu lists them —
     one source for what a kind may be, mirroring CALLOUT_HEADER_RE in
     Editor.tsx and the same list hub.ts parses. */
-export const CALLOUT_KINDS: { name: string; detail: string }[] = [
+const CALLOUT_KINDS: { name: string; detail: string }[] = [
   { name: "note", detail: "an aside" },
   { name: "warn", detail: "a caution" },
   { name: "idea", detail: "a suggestion" },

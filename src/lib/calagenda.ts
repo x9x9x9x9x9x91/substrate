@@ -17,7 +17,7 @@
 /** bottom strip, or a column beside the last weekday */
 export type AgendaPlacement = "bottom" | "right";
 
-export const DEFAULT_AGENDA_PLACEMENT: AgendaPlacement = "bottom";
+const DEFAULT_AGENDA_PLACEMENT: AgendaPlacement = "bottom";
 
 /** the height cap the panel shipped with before it could be dragged
     (`max-height: 168px`), so an untouched profile looks exactly as it did —
@@ -86,7 +86,7 @@ export const AGENDA_PREFS_DEFAULT: AgendaPrefs = {
   width: AGENDA_WIDTH_DEFAULT,
 };
 
-export const AGENDA_KEY = "substrate.calAgenda";
+const AGENDA_KEY = "substrate.calAgenda";
 
 /** the pane is mounted while the settings sheet writes the placement, and a
     same-window localStorage write fires no `storage` event — so the write

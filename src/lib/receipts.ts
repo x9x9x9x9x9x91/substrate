@@ -81,7 +81,7 @@ export function relativeTime(ms: number, now: number = Date.now()): string {
 /** The date the footer states as a boundary — a day, not a moment: the footer
     answers "how far back does this go", which is a coarser question than a
     row's. */
-export function boundaryDate(ms: number): string {
+function boundaryDate(ms: number): string {
   return new Intl.DateTimeFormat(dateLocale(), { year: "numeric", month: "short", day: "numeric" }).format(ms);
 }
 

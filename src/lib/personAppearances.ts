@@ -13,7 +13,7 @@ import { foldedPropKey, foldedTypeName, FUNCTIONAL_TYPES } from "./types.ts";
 
 /** The frontmatter key a person note carries: the identifiers that person
     answers to — emails, phone numbers, @names — typed once, by hand. */
-export const HANDLES_KEY = "handles";
+const HANDLES_KEY = "handles";
 
 /** Props that never count as an appearance, however handle-shaped their value:
     `handles` itself is the other person note's identity list (two people
