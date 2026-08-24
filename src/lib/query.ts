@@ -3,7 +3,7 @@ import { splitDateRange } from "./calendar.ts";
 import { parseStrictNumber } from "./aggregate.ts";
 import { foldedPropKey } from "./types.ts";
 import { byFoldedKey } from "./schemalookup.ts";
-import type { NoteMeta, PropSchema } from "./types.ts";
+import type { NoteMeta, PropKind, PropSchema } from "./types.ts";
 
 /** The schema a query is read against, when the caller has one — a database
     pane knows its type's props, the cross-database search pane doesn't.
@@ -55,6 +55,13 @@ export interface ParsedQuery {
       one after) from `status:in review mixer` — the dead-end hint reads it to
       probe only the words that actually FOLLOW a filter. */
   filterWordOffsets: number[];
+  /** Parallel to `filters`: the `[start, end)` character span each filter
+      occupies in the query it was parsed from — including a `-` prefix and,
+      for a comparison, every token the expression is spelled across. The chip
+      row rewrites one filter by replacing its span, which is what keeps the
+      query string the single source of truth: there is no second filter model
+      to drift, only the same text edited in a different place. */
+  filterSpans: { start: number; end: number }[];
   /** an operator token still being typed at the end ("type:", "type:rel",
       "due <", "due < 7"). For a multi-value stub ("type:a,b…"), `values`
       holds the comma-committed segments and `partial` the one being typed.
@@ -86,9 +93,15 @@ const URI_RE = /^[\p{L}][\p{L}\p{N}+.-]*:\/\//u;
 const DRIVE_RE = /^[A-Za-z]:[\\/]/;
 
 /** Split on whitespace, keeping quoted sections glued to their token, so
-    both `key:"quoted value"` and a multi-value `key:"a b",c` stay whole. */
-function tokenize(q: string): string[] {
-  return q.match(/(?:[^\s"]+|"[^"]*")+/g) ?? [];
+    both `key:"quoted value"` and a multi-value `key:"a b",c` stay whole. Each
+    token keeps its character span: a filter's span is built from the spans of
+    the tokens it was spelled across. */
+function tokenize(q: string): IndexedQueryToken[] {
+  return [...q.matchAll(/(?:[^\s"]+|"[^"]*")+/g)].map((m) => ({
+    raw: m[0],
+    start: m.index,
+    end: m.index + m[0].length,
+  }));
 }
 
 /** The bare-word side of a parsed query as matchable words: quoted phrases
@@ -225,9 +238,7 @@ export function remapSavedQueryProperty(
   newName: string | null,
   numberKind: boolean
 ): string | null {
-  const tokens: IndexedQueryToken[] = [...query.matchAll(/(?:[^\s"]+|"[^"]*")+/g)].map(
-    (match) => ({ raw: match[0], start: match.index, end: match.index + match[0].length })
-  );
+  const tokens = tokenize(query);
   const folded = oldName.toLowerCase();
   const ranges = tokens
     .map((_, index) => savedQueryFilterKeyRange(tokens, index, numberKind))
@@ -305,19 +316,26 @@ function compareDates(actual: string, op: CmpOp, target: string): boolean {
 
 export function parseQuery(q: string, today = todayIso(), schema?: QuerySchema): ParsedQuery {
   const tokens = tokenize(q);
+  // readComparison walks raw token text; the spans stay beside it
+  const raws = tokens.map((t) => t.raw);
   const filters: QueryFilter[] = [];
   const filterWordOffsets: number[] = [];
+  const filterSpans: { start: number; end: number }[] = [];
   const words: string[] = [];
-  const pushFilter = (f: QueryFilter) => {
+  const pushFilter = (f: QueryFilter, from: number, to: number) => {
     filters.push(f);
     filterWordOffsets.push(words.length);
+    filterSpans.push({ start: tokens[from].start, end: tokens[to].end });
   };
   const phrases: string[] = [];
   let trailing: ParsedQuery["trailing"] = null;
   const cursorInLastToken = !/\s$/.test(q);
 
   for (let i = 0; i < tokens.length; i++) {
-    const tok = tokens[i];
+    // where this expression opened — a spaced value moves `i` on below, and
+    // the filter's span has to reach back to the token the reader started
+    const opensAt = i;
+    const tok = tokens[i].raw;
     // a pasted URI or path matches the operator shape ("file:" + rest) but
     // is never a filter (widening the old http(s)-only exemption)
     if (URI_RE.test(tok) || DRIVE_RE.test(tok)) {
@@ -349,7 +367,7 @@ export function parseQuery(q: string, today = todayIso(), schema?: QuerySchema):
       // "Status: mastering" — a space after the colon splits the value into
       // the next token; consume it unless it's an operator/URL of its own
       if (segs.length === 0 && i + 1 < tokens.length) {
-        const next = tokens[i + 1];
+        const next = tokens[i + 1].raw;
         // a `-`-prefixed operator is an operator, not a value
         const nbody = next.length > 1 && next.startsWith("-") ? next.slice(1) : next;
         if (!OP_RE.test(nbody) && !CMP_WHOLE_RE.test(nbody) && !CMP_HEAD_RE.test(nbody) && !URI_RE.test(nbody) && !DRIVE_RE.test(nbody)) {
@@ -372,10 +390,10 @@ export function parseQuery(q: string, today = todayIso(), schema?: QuerySchema):
         continue;
       }
       const values = lower.map((s) => s.value).filter(Boolean);
-      if (values.length) pushFilter({ key, values, ...(neg ? { neg: true } : {}) });
+      if (values.length) pushFilter({ key, values, ...(neg ? { neg: true } : {}) }, opensAt, i);
       continue;
     }
-    const cmp = readComparison(tokens, i);
+    const cmp = readComparison(raws, i);
     if (cmp) {
       const key = cmp.key.toLowerCase();
       const operand = cmp.operand.toLowerCase();
@@ -387,7 +405,7 @@ export function parseQuery(q: string, today = todayIso(), schema?: QuerySchema):
         continue;
       }
       if (operand && resolveCompare(key, operand, today, schema) !== null) {
-        pushFilter({ key, values: [operand], op: cmp.op, ...(cmp.neg ? { neg: true } : {}) });
+        pushFilter({ key, values: [operand], op: cmp.op, ...(cmp.neg ? { neg: true } : {}) }, opensAt, endsAt);
         i = endsAt;
         continue;
       }
@@ -399,7 +417,7 @@ export function parseQuery(q: string, today = todayIso(), schema?: QuerySchema):
     words.push(tok);
   }
 
-  return { text: words.join(" "), phrases, filters, filterWordOffsets, trailing };
+  return { text: words.join(" "), phrases, filters, filterWordOffsets, filterSpans, trailing };
 }
 
 /** Case-insensitive match: exact or prefix, so `status:master` hits "mastering". */
@@ -624,6 +642,194 @@ export function filterLabel(key: string, op: FilterOp, values: string[], neg = f
   return neg ? `not ${label}` : label;
 }
 
+/** One operator a filter chip can wear, as the reader reads it. The set is
+    the grammar's own — `:` positive, `:` negated, and the four comparisons —
+    so picking one only ever REWRITES the query into syntax that already
+    parsed. Nothing here adds an operator the typed query cannot spell. */
+export interface ChipOp {
+  /** stable handle for the menu and the tests */
+  id: string;
+  /** what the chip says between the property and the value */
+  label: string;
+  op: FilterOp;
+  neg: boolean;
+}
+
+const IS_OPS: ChipOp[] = [
+  { id: "is", label: "is", op: ":", neg: false },
+  { id: "isNot", label: "is not", op: ":", neg: true },
+];
+
+/* The comparisons read as words, not symbols: the chip row exists to be
+   readable without the grammar in your head, and `<` is the grammar. Days and
+   numbers want different words for the same four operators — "before 2026-01-01"
+   and "under 500" are the same relation and neither sentence works for the
+   other's operand. */
+const DAY_CMP_OPS: ChipOp[] = [
+  { id: "before", label: "before", op: "<", neg: false },
+  { id: "onOrBefore", label: "on or before", op: "<=", neg: false },
+  { id: "after", label: "after", op: ">", neg: false },
+  { id: "onOrAfter", label: "on or after", op: ">=", neg: false },
+];
+
+const NUM_CMP_OPS: ChipOp[] = [
+  { id: "under", label: "under", op: "<", neg: false },
+  { id: "atMost", label: "at most", op: "<=", neg: false },
+  { id: "over", label: "over", op: ">", neg: false },
+  { id: "atLeast", label: "at least", op: ">=", neg: false },
+];
+
+/** The operators a chip may offer, given what the filter is on. A property the
+    schema calls a number or a date can compare, so its chip offers the four
+    comparisons under `is`/`is not`; everything else has only the value match
+    the grammar gives it. A filter already spelled as a comparison keeps the
+    comparisons on offer whatever the schema says — the reader typed one, so it
+    is one, and the menu must be able to take them back to `is`.
+
+    An OR list (`status:live,mixing`) drops the comparisons: a comparison
+    carries exactly one operand, and silently throwing the reader's other
+    values away is not a flip.
+
+    A key the schema does not know never GAINS the comparisons, even when its
+    value looks numeric: the parse only accepts a numeric comparison on a
+    number-kind key, so `foo >= 5` on a schema-less `foo` stops being a filter
+    and the chip's rewrite must never produce text the parse then refuses. An
+    EXISTING comparison on such a key is a date one (the only way it parsed)
+    and reads back as the day words. */
+export function chipOps(filter: QueryFilter, kind?: PropKind): ChipOp[] {
+  const comparison = (filter.op ?? ":") !== ":";
+  const compares = comparison || kind === "number" || kind === "date";
+  if (!compares || filter.values.length > 1) return IS_OPS;
+  return [...IS_OPS, ...(kind === "number" ? NUM_CMP_OPS : DAY_CMP_OPS)];
+}
+
+/** The operators a chip's MENU may actually offer: `chipOps`, minus any
+    choice whose rewrite the parse then refuses. The kind says what the
+    property could compare; only the operand says what this filter CAN — a
+    date-kind `due:2026` wears a prefix value no comparison resolves, so
+    "before" would write `due < 2026`, which stops being a filter: the chip
+    vanishes and the table silently unfilters. Probing the rewrite itself is
+    the whole guard — whatever the menu offers is, by construction, text the
+    parse takes back. */
+export function chipOpsFor(
+  q: string,
+  parsed: ParsedQuery,
+  index: number,
+  kind?: PropKind,
+  today = todayIso(),
+  schema?: QuerySchema
+): ChipOp[] {
+  const filter = parsed.filters[index];
+  if (!filter) return [];
+  return chipOps(filter, kind).filter((choice) => {
+    if (choice.op === ":") return true;
+    const back = parseQuery(rewriteFilter(q, parsed, index, { op: choice.op, neg: choice.neg }), today, schema);
+    return back.filters.length === parsed.filters.length && back.filters[index]?.key === filter.key;
+  });
+}
+
+/** The operator this filter currently wears, out of the set above. A negated
+    comparison is not in the set (the menu cannot reach it), so it reads as its
+    positive word with `not` in front rather than falling back to a symbol. */
+export function chipOpLabel(filter: QueryFilter, kind?: PropKind): string {
+  const op = filter.op ?? ":";
+  const neg = filter.neg ?? false;
+  const offered = chipOps(filter, kind);
+  const hit = offered.find((c) => c.op === op && c.neg === neg);
+  if (hit) return hit.label;
+  const positive = offered.find((c) => c.op === op && !c.neg);
+  return positive ? `not ${positive.label}` : op;
+}
+
+/** What a chip edit changes about one filter. Everything left out keeps what
+    the query already said — including the value's SPELLING, which the parse
+    lowercases but the reader's text should not lose to an operator flip. */
+export interface FilterPatch {
+  op?: FilterOp;
+  neg?: boolean;
+  /** replacement values, in the casing they should be written back in */
+  values?: string[];
+}
+
+const quoteValue = (v: string) => (/[\s,]/.test(v) ? `"${v}"` : v);
+
+/** Split one filter's span back into the three parts a chip shows: the `-`,
+    the key as the reader spelled it, and the raw value text. The span came
+    from the same parse that produced the filter, so this never has to guess
+    at the shape — it only has to find where the operator sits. */
+function readSpan(text: string, op: FilterOp): { neg: boolean; key: string; rawValue: string } {
+  const neg = text.length > 1 && text.startsWith("-");
+  const body = neg ? text.slice(1) : text;
+  if (op === ":") {
+    const cut = body.indexOf(":");
+    return { neg, key: body.slice(0, cut), rawValue: body.slice(cut + 1).trim() };
+  }
+  const at = body.indexOf(op);
+  return { neg, key: body.slice(0, at).trim(), rawValue: body.slice(at + op.length).trim() };
+}
+
+/** Rewrite ONE active filter inside the query string, in place — the whole of
+    what a chip edit does. `patch` null removes the filter.
+
+    In place is the point: everything the query says that this filter does not
+    — bare words, quoted phrases, the other filters, a half-typed expression at
+    the cursor — is untouched text on either side of the span, so a chip can
+    never reorder or drop what the reader typed. The result is a query string,
+    which the caller parses exactly as it parses a typed one; there is no
+    second filter model to keep in step. */
+export function rewriteFilter(
+  q: string,
+  parsed: ParsedQuery,
+  index: number,
+  patch: FilterPatch | null
+): string {
+  const span = parsed.filterSpans[index];
+  const filter = parsed.filters[index];
+  if (!span || !filter) return q;
+  const before = q.slice(0, span.start);
+  const after = q.slice(span.end);
+  if (patch === null) {
+    // the filter's own separator goes with it, so removing the middle
+    // expression of three does not leave a double space behind
+    const joined = `${before.replace(/\s+$/, before && after ? " " : "")}${after.replace(/^\s+/, "")}`;
+    return joined.trim() === "" ? "" : joined;
+  }
+  const source = readSpan(q.slice(span.start, span.end), filter.op ?? ":");
+  const op = patch.op ?? filter.op ?? ":";
+  const neg = patch.neg ?? (op === (filter.op ?? ":") ? source.neg : false);
+  const lead = neg ? "-" : "";
+  // no new values means the reader's own spelling stays on screen; the parse
+  // reads it back case-insensitively either way
+  const values = patch.values?.map(quoteValue);
+  if (op === ":") {
+    const raw = values ? values.join(",") : source.rawValue;
+    return `${before}${lead}${source.key}:${raw}${after}`;
+  }
+  // a comparison carries one operand — and the same value the `:` form held,
+  // so flipping `rating:9` to "at least" reads `rating >= 9`. Quotes come
+  // off: a comparison operand is a bare day or number, and `rating < "8"`
+  // is text the parse refuses, which a chip edit must never write. The
+  // first value is read with the quote-aware split, so a comma INSIDE
+  // quotes is the value's own, not an OR separator to truncate at.
+  const operand = values
+    ? values[0]?.replace(/^"(.*)"$/, "$1")
+    : splitValues(source.rawValue)[0]?.value;
+  return `${before}${lead}${source.key} ${op} ${operand ?? ""}${after}`;
+}
+
+/** One filter's values AS THE READER SPELLED THEM. `filters[].values` is the
+    parse's lowercased working copy; a chip edit that rebuilds the value list
+    from it would flatten the reader's casing on values it never touched. The
+    span still holds the original text, so this reads the spellings back out
+    of it — the list a value toggle should start from. */
+export function filterRawValues(q: string, parsed: ParsedQuery, index: number): string[] {
+  const span = parsed.filterSpans[index];
+  const filter = parsed.filters[index];
+  if (!span || !filter) return [];
+  const source = readSpan(q.slice(span.start, span.end), filter.op ?? ":");
+  return splitValues(source.rawValue).map((seg) => seg.value);
+}
+
 /** Rebuild the query with the trailing operator token completed to `value`.
     Classic filters complete to `key:value`; a multi-value stub keeps its
     comma-committed prefix verbatim (`category:Label,Fes` → `category:Label,Festival `).
@@ -643,6 +849,21 @@ export function completeFilter(q: string, key: string, value: string, op: Filter
       return spacedKey !== undefined ? `${neg}${key}:${head}${v}` : `${neg}${head}${v}`;
     }) + " ";
   return q.replace(/\p{L}[\p{L}\p{N}_#-]*\s*(?:<=|>=|<|>)\s*\S*$/u, `${key} ${op} ${v}`) + " ";
+}
+
+/** Enter on a still-typed filter: the committed spelling of `q`, or null
+    when there is nothing to commit. A trailing stub only becomes a filter
+    once the token is finished, which until now meant typing a space — so the
+    last expression a reader typed narrowed nothing. Committing IS that space:
+    the same parse decides, so `rating:` and `due <` (no operand yet) and an
+    operand that resolves to neither a day nor a number all return null rather
+    than push an empty filter. */
+export function commitTrailingFilter(q: string, today = todayIso(), schema?: QuerySchema): string | null {
+  const parsed = parseQuery(q, today, schema);
+  if (!parsed.trailing) return null;
+  const committed = `${q.trimEnd()} `;
+  if (parseQuery(committed, today, schema).filters.length <= parsed.filters.length) return null;
+  return committed;
 }
 
 /** A dead-end hint under a filter bar's zero rows: `text` is the

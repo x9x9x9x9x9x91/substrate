@@ -2,12 +2,17 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { NoteMeta, PropSchema } from "./types.ts";
 import {
+  chipOpLabel,
+  chipOps,
+  chipOpsFor,
   compareTarget,
+  commitTrailingFilter,
   completeFilter,
   completeKey,
   filterCompletions,
   filterDeadEndHint,
   filterInherits,
+  filterRawValues,
   filterLabel,
   keyCompletions,
   matchesFilters,
@@ -15,6 +20,7 @@ import {
   QUERY_SYNTAX,
   remapSavedQueryProperty,
   resolveCompare,
+  rewriteFilter,
   textWords,
 } from "./query.ts";
 /* the syntax panel's two text rows claim where a match is looked for, and
@@ -1168,4 +1174,219 @@ test("filterDeadEndHint: a folder's name typed bare suggests folder: (SUB-1187)"
     text: "did you mean category:mixer?",
     fixedQuery: "category:mixer",
   });
+});
+
+test("commitTrailingFilter finishes the expression Enter was pressed on", () => {
+  const num: Record<string, PropSchema> = { rating: { options: [], kind: "number" } };
+  assert.equal(commitTrailingFilter("status:mixing"), "status:mixing ");
+  assert.equal(commitTrailingFilter("slow status:mas"), "slow status:mas ");
+  assert.equal(commitTrailingFilter("-status:live"), "-status:live ");
+  assert.equal(commitTrailingFilter("category:Label,Fes"), "category:Label,Fes ");
+  assert.equal(commitTrailingFilter("Status: mastering"), "Status: mastering ");
+  assert.equal(commitTrailingFilter("due < 2026-08-01"), "due < 2026-08-01 ");
+  assert.equal(commitTrailingFilter("rating >= 8", undefined, num), "rating >= 8 ");
+  // nothing to commit: no stub, no operand, or an operand that resolves to
+  // neither a day nor a number — none of them may push an empty filter
+  assert.equal(commitTrailingFilter(""), null);
+  assert.equal(commitTrailingFilter("status:live "), null);
+  assert.equal(commitTrailingFilter("slow bloom"), null);
+  assert.equal(commitTrailingFilter("status:"), null);
+  assert.equal(commitTrailingFilter("due <"), null);
+  assert.equal(commitTrailingFilter("rating >= 8"), null);
+});
+
+/* The filter chips are a VIEW over the query string: every edit they offer is
+   a rewrite of the same text, read back by the same parse. These pin the two
+   halves that makes possible — where each filter sits in the source, and what
+   an edited span comes back as. */
+
+test("parseQuery reports where each filter sits in the query", () => {
+  const num: Record<string, PropSchema> = { rating: { options: [], kind: "number" } };
+  const q = 'slow status:live -type:synth rating >= 8 "night drive" ';
+  const parsed = parseQuery(q, TODAY, num);
+  assert.deepEqual(
+    parsed.filterSpans.map((s) => q.slice(s.start, s.end)),
+    ["status:live", "-type:synth", "rating >= 8"],
+    "a span covers the whole expression, negation and spaced comparison included"
+  );
+  assert.equal(parsed.filterSpans.length, parsed.filters.length, "one span per filter");
+  // a value the reader spaced after the colon spans both its tokens
+  assert.deepEqual(
+    parseQuery("Status: mastering ", TODAY).filterSpans.map((s) =>
+      "Status: mastering ".slice(s.start, s.end)
+    ),
+    ["Status: mastering"]
+  );
+});
+
+test("chipOps offers the grammar's own operators, and no others", () => {
+  const value = { key: "status", values: ["live"] };
+  assert.deepEqual(
+    chipOps(value).map((c) => c.id),
+    ["is", "isNot"],
+    "a text property has only the value match the grammar gives it"
+  );
+  assert.deepEqual(
+    chipOps({ key: "rating", values: ["8"] }, "number").map((c) => c.label),
+    ["is", "is not", "under", "at most", "over", "at least"]
+  );
+  assert.deepEqual(
+    chipOps({ key: "due", values: ["7d"], op: "<" }, "date").map((c) => c.label),
+    ["is", "is not", "before", "on or before", "after", "on or after"]
+  );
+  // an OR list cannot become a comparison: a comparison holds one operand
+  assert.deepEqual(
+    chipOps({ key: "rating", values: ["8", "9"] }, "number").map((c) => c.id),
+    ["is", "isNot"]
+  );
+  // a key the schema does not know never gains the comparisons, numeric-looking
+  // value or not: the parse refuses `foo >= 5` on a schema-less `foo`, and a
+  // chip flip must never rewrite a filter into text that stops being one
+  assert.deepEqual(
+    chipOps({ key: "foo", values: ["5"] }).map((c) => c.id),
+    ["is", "isNot"]
+  );
+  assert.equal(chipOpLabel(value), "is");
+  assert.equal(chipOpLabel({ ...value, neg: true }), "is not");
+  assert.equal(chipOpLabel({ key: "due", values: ["7d"], op: "<" }, "date"), "before");
+  assert.equal(
+    chipOpLabel({ key: "due", values: ["7d"], op: "<", neg: true }, "date"),
+    "not before",
+    "the menu cannot reach a negated comparison, but the reader can type one"
+  );
+});
+
+test("rewriteFilter edits one filter in place and leaves the rest byte-identical", () => {
+  const num: Record<string, PropSchema> = { rating: { options: [], kind: "number" } };
+  const q = 'slow status:Live -type:synth rating >= 8 "night drive" ';
+  const parsed = parseQuery(q, TODAY, num);
+
+  assert.equal(
+    rewriteFilter(q, parsed, 0, { neg: true }),
+    'slow -status:Live -type:synth rating >= 8 "night drive" ',
+    "an operator flip keeps the reader's own spelling of key and value"
+  );
+  assert.equal(
+    rewriteFilter(q, parsed, 1, { neg: false }),
+    'slow status:Live type:synth rating >= 8 "night drive" '
+  );
+  assert.equal(
+    rewriteFilter(q, parsed, 2, { op: "<" }),
+    'slow status:Live -type:synth rating < 8 "night drive" '
+  );
+  assert.equal(
+    rewriteFilter(q, parsed, 2, { op: ":" }),
+    'slow status:Live -type:synth rating:8 "night drive" ',
+    "a comparison flips back to the value match on the same operand"
+  );
+  assert.equal(
+    rewriteFilter(q, parsed, 0, { values: ["in review"] }),
+    'slow status:"in review" -type:synth rating >= 8 "night drive" ',
+    "a picked value carrying a space is re-quoted"
+  );
+  assert.equal(
+    rewriteFilter(q, parsed, 0, { values: ["live", "mixing"] }),
+    'slow status:live,mixing -type:synth rating >= 8 "night drive" '
+  );
+  assert.equal(
+    rewriteFilter(q, parsed, 1, null),
+    'slow status:Live rating >= 8 "night drive" ',
+    "removing a filter takes its separator with it"
+  );
+  assert.equal(rewriteFilter("status:live", parseQuery("status:live ", TODAY), 0, null), "");
+  // a flip on a value the reader spaced after the colon closes the space up
+  const spaced = "Status: mastering ";
+  assert.equal(
+    rewriteFilter(spaced, parseQuery(spaced, TODAY), 0, { neg: true }),
+    "-Status:mastering "
+  );
+  // a quoted value loses its quotes on the way to a comparison: the operand
+  // is a bare number or day, and `rating < "8"` is text the parse refuses
+  const numberSchema = { rating: { options: [], kind: "number" as const } };
+  const quoted = 'rating:"8" ';
+  const flipped = rewriteFilter(quoted, parseQuery(quoted, TODAY, numberSchema), 0, { op: "<" });
+  assert.equal(flipped, "rating < 8 ");
+  assert.deepEqual(
+    parseQuery(flipped, TODAY, numberSchema).filters,
+    [{ key: "rating", values: ["8"], op: "<" }],
+    "the rewritten text is still a filter under the same parse"
+  );
+});
+
+test("a chip edit round-trips: parse, edit, reparse, same filter", () => {
+  const num: Record<string, PropSchema> = { rating: { options: [], kind: "number" } };
+  const q = "status:live -type:synth rating >= 8 ";
+  const parsed = parseQuery(q, TODAY, num);
+  for (const [index, patch] of [
+    [0, { neg: true }],
+    [0, { values: ["in review"] }],
+    [1, { neg: false }],
+    [2, { op: "<" as const }],
+    [2, { op: ":" as const }],
+  ] as [number, { neg?: boolean; op?: "<" | ":"; values?: string[] }][]) {
+    const next = rewriteFilter(q, parsed, index, patch);
+    const back = parseQuery(next, TODAY, num);
+    assert.equal(back.filters.length, 3, `${next} still parses to three filters`);
+    const edited = back.filters[index];
+    assert.equal(edited.key, parsed.filters[index].key, "the property is unchanged");
+    if (patch.op) assert.equal(edited.op ?? ":", patch.op);
+    if (patch.neg !== undefined) assert.equal(edited.neg ?? false, patch.neg);
+    if (patch.values) assert.deepEqual(edited.values, patch.values.map((v) => v.toLowerCase()));
+    // and the chip the edit produced is the chip the menu would draw
+    assert.equal(
+      chipOps(edited, index === 2 ? "number" : undefined).some(
+        (c) => c.op === (edited.op ?? ":") && c.neg === (edited.neg ?? false)
+      ),
+      true,
+      "the rewritten filter wears an operator the menu can show"
+    );
+  }
+});
+
+test("chipOpsFor offers only flips the parse takes back (review: kind is not enough)", () => {
+  const schema: Record<string, PropSchema> = {
+    due: { options: [], kind: "date" },
+    rating: { options: [], kind: "number" },
+  };
+  const ids = (q: string, index = 0, kind?: "date" | "number") =>
+    chipOpsFor(q, parseQuery(q, TODAY, schema), index, kind, TODAY, schema).map((c) => c.id);
+  // a date-kind prop wearing a prefix value: no comparison resolves `2026`,
+  // so none is offered — the old kind-only gate wrote `due < 2026` and the
+  // filter silently stopped being one
+  assert.deepEqual(ids("due:2026 ", 0, "date"), ["is", "isNot"]);
+  assert.deepEqual(ids("rating:5k ", 0, "number"), ["is", "isNot"]);
+  // a resolvable operand keeps the full set
+  assert.deepEqual(ids("due:2026-08-01 ", 0, "date"), [
+    "is",
+    "isNot",
+    "before",
+    "onOrBefore",
+    "after",
+    "onOrAfter",
+  ]);
+  assert.deepEqual(ids("rating:8 ", 0, "number"), [
+    "is",
+    "isNot",
+    "under",
+    "atMost",
+    "over",
+    "atLeast",
+  ]);
+  // an existing comparison parsed, so its flips (incl. back to `:`) all offer
+  assert.equal(ids("rating >= 8 ", 0, "number").length, 6);
+});
+
+test("a comparison flip reads its operand with the quote-aware split", () => {
+  const schema: Record<string, PropSchema> = { rating: { options: [], kind: "number" } };
+  const q = 'rating:"1,5" ';
+  // the comma is the value's own: no truncation to `"1`, no dangling quote
+  assert.equal(
+    rewriteFilter(q, parseQuery(q, TODAY, schema), 0, { op: ">=" }),
+    "rating >= 1,5 "
+  );
+});
+
+test("filterRawValues reads the spellings back out of the span", () => {
+  const q = 'Status:Live,"In Review" slow ';
+  assert.deepEqual(filterRawValues(q, parseQuery(q, TODAY), 0), ["Live", "In Review"]);
 });

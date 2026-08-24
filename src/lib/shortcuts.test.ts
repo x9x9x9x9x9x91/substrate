@@ -624,7 +624,7 @@ test("cal-move keeps its hands off ↑/↓ — those are the time cursor (SUB-45
 test("hintEntries: database views yield the grid surface (SUB-396)", () => {
   for (const view of [{ kind: "db", type: "book" } as const, { kind: "saved", id: "v1" } as const]) {
     const ids = hintEntries(ctx({ view })).map((s) => s.id);
-    for (const id of ["db-move", "db-open", "db-clear", "db-trash"]) {
+    for (const id of ["db-move", "db-open", "db-clear", "db-filter", "db-trash"]) {
       assert.ok(ids.includes(id), `${view.kind}: ${id}`);
     }
     for (const id of ["cal-move", "sheet-move", "list-down"]) {

@@ -195,6 +195,29 @@ test("dates in sheets: Days-Held column, shifted-date column, AVG summary (SUB-7
   assert.deepEqual(ev2.computed.find((c) => c.name === "days_held")!.cells, [198, 31]);
 });
 
+test("a row of blanks derives nothing, so a stray empty row can't error a card", () => {
+  // The shape the finance dashboards read: a per-row age off a date column,
+  // then a numeric criteria over that age. A row of empty cells used to read
+  // `verified` as a 0-day count, so `age_days` became TODAY's date STRING and
+  // the criteria below then met text and hard-errored — one untouched row at
+  // the bottom of a sheet took the "stale balances" card down.
+  const body =
+    "```csv\nasset,balance_eur,verified\nBTC,1000,2026-08-20\nETH,500,2026-08-22\n,,\n```\n\n" +
+    '```formulas\nage_days = TODAY() - verified\nstale = COUNTIF(age_days, ">=3")\n' +
+    'counted = COUNTIF(age_days, ">=0")\nfresh = SUMIF(age_days, "<3", balance_eur)\n```\n';
+  const ev = evaluateSheet(parseSheet(body), fx, undefined, () => "2026-08-24");
+  assert.equal(ev.rows.length, 3, "the empty row is still a row");
+  const age = ev.computed.find((c) => c.name === "age_days")!;
+  assert.deepEqual(age.cells, [4, 2, null], "blank in, blank out — never today's date");
+  assert.equal(findSummary(ev, "stale"), 1, "BTC alone is three days old or more");
+  assert.equal(findSummary(ev, "counted"), 2, "the empty row is invisible to the criteria");
+  assert.equal(findSummary(ev, "fresh"), 500, "and contributes nothing to a SUMIF");
+  // one filled cell is enough to make the row derive again
+  const filled = body.replace("\n,,\n", "\nSOL,,2026-08-23\n");
+  const evFilled = evaluateSheet(parseSheet(filled), fx, undefined, () => "2026-08-24");
+  assert.deepEqual(evFilled.computed.find((c) => c.name === "age_days")!.cells, [4, 2, 1]);
+});
+
 test("typed cells: numeric strings become numbers, blanks are null", () => {
   const ev = evaluateSheet(parseSheet(BODY), fx);
   assert.equal(ev.rows[0][2], 1200);
@@ -226,7 +249,9 @@ test("addSheetRow appends an empty row; aggregates ignore blanks", () => {
   assert.equal(m.rows.length, 3);
   assert.deepEqual(m.rows[2], ["", "", "", ""]);
   const ev = evaluateSheet(m, fx);
-  assert.equal(ev.computed[0].cells[2], 0); // null * null = 0, Excel-style
+  // blank in, blank out — a row with nothing typed in it derives nothing,
+  // rather than the 0 that Excel-style coercion of its empty cells would give
+  assert.equal(ev.computed[0].cells[2], null);
   near(findSummary(ev, "crypto"), (4.1 * 64200 * 0.8721) as number);
 });
 

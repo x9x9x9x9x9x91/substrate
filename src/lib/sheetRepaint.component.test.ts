@@ -11,7 +11,7 @@
     scrollport is not left permanently transformed. */
 
 import assert from "node:assert/strict";
-import { before, test } from "node:test";
+import { after, before, test } from "node:test";
 import { act, createElement as h } from "react";
 import { mockBackend, renderComponent } from "./componentHarness.ts";
 import type { MockWindow } from "./componentHarness.ts";
@@ -32,15 +32,41 @@ const meta: NoteMeta = {
 };
 
 let win: MockWindow;
+
+/* FRAMES ARE DRIVEN HERE, NOT WAITED ON. jsdom schedules rAF on a ~16ms timer,
+   while the harness settles a render with zero-length macrotask turns — so on a
+   loaded machine both frames fire before the first assertion and the class the
+   mount just added has already come back off. Nothing can wait that back into
+   existence, so the queue is owned instead: the component's frames run when
+   this file says they do, and "on at mount, off after two frames" is a fact
+   about the component rather than a race against the host. `invalidatePaint` is
+   the only rAF caller in this tree — React 19 schedules on MessageChannel. */
+const frameHost = globalThis as unknown as {
+  requestAnimationFrame: (cb: () => void) => number;
+};
+const realRaf = frameHost.requestAnimationFrame;
+let queued: Array<() => void> = [];
+
 before(async () => {
   win = await mockBackend();
+  frameHost.requestAnimationFrame = (cb) => queued.push(cb);
+});
+after(() => {
+  frameHost.requestAnimationFrame = realRaf;
 });
 
+/** run one generation of frames — a frame queued BY a frame waits for the
+    next generation, exactly as the browser would run it */
+function frame() {
+  const due = queued;
+  queued = [];
+  for (const cb of due) cb();
+}
+
 /** two frames: the class is dropped inside a rAF nested in a rAF */
-async function twoFrames() {
-  const raf = (globalThis as unknown as { requestAnimationFrame: (cb: () => void) => void })
-    .requestAnimationFrame;
-  await new Promise<void>((done) => raf(() => raf(() => done())));
+function twoFrames() {
+  frame();
+  frame();
 }
 
 test("an adopted body nudges the scrollport, then leaves it alone", async (t) => {
@@ -66,7 +92,7 @@ test("an adopted body nudges the scrollport, then leaves it alone", async (t) =>
     true,
     "mount asks for the repaint before the frames run"
   );
-  await twoFrames();
+  twoFrames();
   assert.equal(scroll.classList.contains("sheet-scroll-repaint"), false, "settled after mount");
 
   assert.ok(docRef.current, "the grid published its adoption hook");
@@ -81,7 +107,7 @@ test("an adopted body nudges the scrollport, then leaves it alone", async (t) =>
   );
 
   await r.settle();
-  await twoFrames();
+  twoFrames();
   assert.equal(
     scroll.classList.contains("sheet-scroll-repaint"),
     false,

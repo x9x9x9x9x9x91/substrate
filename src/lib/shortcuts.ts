@@ -814,6 +814,17 @@ export const SHORTCUTS: Shortcut[] = [
     hint: (ctx) => ctx.view.kind === "db" || ctx.view.kind === "saved",
   }),
   define({
+    id: "db-filter",
+    description: "Filter rows",
+    group: "Database",
+    scopes: ["pane"],
+    // Plain ⌘F, the same chord CodeMirror's find owns inside a note: the two
+    // never meet, since the editor renders outside the pane's subtree and the
+    // pane answers only for focus inside its own. ⌘⇧F stays global search.
+    combos: [{ key: "f", mod: true, shift: false }],
+    hint: (ctx) => ctx.view.kind === "db" || ctx.view.kind === "saved",
+  }),
+  define({
     id: "db-trash",
     description: "Trash selected rows",
     group: "Database",

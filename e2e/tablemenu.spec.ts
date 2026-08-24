@@ -27,6 +27,15 @@ async function typeTable(page: Page) {
 
 const body = (page: Page) => page.evaluate((p) => window.__mockBodyOf!(p), NOTE);
 
+/** The body once the editor's debounced write has landed. A bare read can catch
+    the note as it still was BEFORE the typed table was saved; the save then
+    arrives during the menu work and the closing comparison reads it as a
+    mutation the menu made — the table appearing, not the edit under test. */
+async function settledBody(page: Page, typed: string) {
+  await expect.poll(() => body(page)).toContain(typed);
+  return body(page);
+}
+
 /** Right-click a cell of the rendered table and wait for the menu. */
 async function openOn(page: Page, text: string) {
   await page.locator(".cm-md-table td, .cm-md-table th").filter({ hasText: text }).first().click({
@@ -152,7 +161,7 @@ test("pasting two lines into a cell keeps it one line", async ({ page }) => {
 
 test("right-clicking the table's chrome opens no menu at all", async ({ page }) => {
   await typeTable(page);
-  const before = await body(page);
+  const before = await settledBody(page, "| Nod | 5:01 |");
   // the grow "+" and the frame around the grid are not cells: a menu opened
   // there used to aim at the header's first column, so "Delete column" took a
   // column the pointer never touched
@@ -178,7 +187,7 @@ test("a quoted table shows the menu and refuses it, quote intact", async ({ page
   await page.keyboard.type("> | Track | Length |\n| --- | --- |\n| Nod | 5:01 |");
   for (let i = 0; i < 5; i++) await page.keyboard.press("ArrowUp");
   await expect(page.locator(".cm-md-table")).toBeVisible();
-  const before = await body(page);
+  const before = await settledBody(page, "> | Nod | 5:01 |");
 
   await openOn(page, "5:01");
   for (const label of ["Edit cell", "Add row", "Delete row", "Delete column", "Align right"]) {

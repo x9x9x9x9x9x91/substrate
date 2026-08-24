@@ -12,6 +12,7 @@ import {
   type HopDir,
   type HopGrid,
 } from "../lib/cellhop";
+import { comboMatches, shortcutById, type KeyEventLike } from "../lib/shortcuts";
 import { cycleSortKeys } from "../lib/dbsort";
 import { anchoredToggle, rangePaths } from "../lib/bulkselect";
 import { buildBulkActions, registerBulkSelection, type BulkActionHandlers } from "../lib/bulkactions";
@@ -32,7 +33,7 @@ import {
 } from "../lib/pendingprops";
 import { useUndo } from "../lib/undoContext";
 import { nextUndoId } from "../lib/undo";
-import { completeFilter, completeKey, filterCompletions, filterDeadEndHint, filterInherits, filterLabel, keyCompletions, matchesFilters, parseQuery } from "../lib/query";
+import { commitTrailingFilter, completeFilter, completeKey, filterCompletions, filterDeadEndHint, filterInherits, filterLabel, keyCompletions, matchesFilters, parseQuery } from "../lib/query";
 import { filterByQuery, saveViewHint } from "../lib/views";
 import { exportDbCsv, exportDbPdf } from "../lib/export";
 import { todayIso } from "../lib/dates";
@@ -70,6 +71,7 @@ import DbBoardLayout from "./DbBoardLayout";
 import DbGalleryLayout from "./DbGalleryLayout";
 import DbListLayout from "./DbListLayout";
 import DbTableLayout from "./DbTableLayout";
+import DbFilterChips from "./DbFilterChips";
 import SwitchGroup from "./SwitchGroup";
 import {
   AGG_OPTIONS,
@@ -83,6 +85,7 @@ import {
   MAX_COL_W,
   MIN_COL_W,
   PropVisMenu,
+  SortMenu,
   WIN_HEAD_H,
   WIN_MIN,
   WIN_OVERSCAN,
@@ -212,6 +215,19 @@ interface DatabasePaneProps {
     keyframe in styles.css — long enough to catch out of the corner of an eye,
     short enough that it is gone before the next edit. */
 const CELL_FLASH_MS = 700;
+
+/** How long "Saved" stays in the filter row after a view is written. Long
+    enough to read without looking for it, short enough that the row is back
+    to its working state before the next thing typed. */
+const SAVED_FLASH_MS = 1600;
+
+/** The filter chord, read off its registry row rather than re-typed here:
+    the pane still owns the handler (scope "pane" is never dispatched), but the
+    combo the cheat sheet advertises and the combo this surface answers stay
+    one thing. Same idiom as the calendar's trash chord. */
+const filterCombos = shortcutById("db-filter")?.combos ?? [];
+const isFilterChord = (e: KeyEventLike): boolean =>
+  filterCombos.some((c) => comboMatches(c, e));
 
 /** The empty "these notes refused the write" map, shared so a reset
     is referentially stable (same trick as EMPTY_SEL). */
@@ -678,9 +694,43 @@ export default function DatabasePane({
     () => normalizedPref?.sorts ?? [],
     [normalizedPref?.sorts]
   );
+  // One write path for the whole ordered list — the header's cycle and the
+  // sort popover's toggles, reorders and removals all land here, so the two
+  // surfaces can never drift into two models of the same state.
+  const setSorts = (next: SavedViewSort[]) => {
+    patchPref({ sorts: next.length > 0 ? next : undefined });
+  };
+  // What the sort popover may add: the Name column plus the displayed
+  // properties, in column order. Any key already sorted stays on the list
+  // even if its column is hidden, so a sort you can no longer see is still a
+  // sort you can drop.
+  const sortableKeys = useMemo(() => {
+    const base = ["title", ...shown];
+    return [...base, ...sorts.map((s) => s.key).filter((k) => !base.includes(k))];
+  }, [shown, sorts]);
   // the filter bar: a query string over this database's notes
   const [query, setQuery] = useState(initialQuery ?? "");
   const [namingView, setNamingView] = useState(false);
+  /* A save leaves no trace of itself: the naming field just closes, and the
+     pin it wrote is one tab among several (or, on an update, a tab that
+     already looked like that). So the row says "Saved" for a moment — the
+     one word deviation earns, in the place the reader is already looking. */
+  const [savedFlash, setSavedFlash] = useState(false);
+  const savedTimer = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (savedTimer.current !== null) clearTimeout(savedTimer.current);
+    },
+    []
+  );
+  const flashSaved = useCallback(() => {
+    if (savedTimer.current !== null) clearTimeout(savedTimer.current);
+    setSavedFlash(true);
+    savedTimer.current = setTimeout(() => {
+      savedTimer.current = null;
+      setSavedFlash(false);
+    }, SAVED_FLASH_MS) as unknown as number;
+  }, []);
   // Right-click on the pane's empty space — the create menu. Rows,
   // cards, chips and the header row all preventDefault in their own handlers
   // first (bubbling), so a prevented event means "already handled here".
@@ -845,11 +895,47 @@ export default function DatabasePane({
   const dotsWrapRef = useRef<HTMLSpanElement>(null);
   const filterInputRef = useRef<HTMLInputElement>(null);
   const tabsRef = useRef<HTMLDivElement>(null);
+  /** The tab row, which every layout renders — the handle this pane's own
+      root is reached through (`closest(".db")`), since the four layout
+      components own the root element itself. */
+  const tabRowRef = useRef<HTMLDivElement>(null);
 
   // opening the filter via the funnel lands the caret in the input
   useEffect(() => {
     if (filterOpen) filterInputRef.current?.focus();
   }, [filterOpen]);
+
+  // ⌘F opens the filter row and lands the caret in it — the pane's own find,
+  // over the rows it is showing. Deliberately NOT an app-global binding: ⌘F
+  // inside a note is CodeMirror's find, and a window-wide handler would take
+  // it away from every other surface. So the pane claims the chord only for
+  // focus that is already inside its own subtree (the side note's editor is a
+  // sibling of this root, never inside it). With focus parked on the body —
+  // nothing claiming it, the ordinary case after a view opens — the first
+  // pane in the document answers, so two panes on screen never both open.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!isFilterChord(e)) return;
+      const root = tabRowRef.current?.closest(".db");
+      if (!root) return;
+      // a menu or dialog over the pane owns its keys while it is up
+      if (document.querySelector(".overlay, .selmenu, .colmenu, .dots-menu")) return;
+      const active = document.activeElement;
+      const parked = !active || active === document.body;
+      if (parked ? document.querySelector(".db") !== root : !root.contains(active)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setFilterOpen(true);
+      // Already on screen (a live query, or the funnel toggled open): the
+      // effect above won't re-run, so the caret is placed here instead. The
+      // existing query is selected, the way a find field opens everywhere —
+      // the next keystroke starts a new search rather than extending the old.
+      filterInputRef.current?.focus();
+      filterInputRef.current?.select();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, []);
 
   // Hold the bulk bar for one fade after the selection empties (the
   // Palette's closing idiom, same 90ms). A new selection during the fade wins
@@ -1666,8 +1752,7 @@ export default function DatabasePane({
   // plain click replaces the sort (asc → desc → none); shift-click adds or
   // cycles a secondary key — the state machine lives in lib/dbsort
   const cycleSort = (key: string, additive: boolean) => {
-    const next = cycleSortKeys(sorts, key, additive);
-    patchPref({ sorts: next.length > 0 ? next : undefined });
+    setSorts(cycleSortKeys(sorts, key, additive));
   };
 
   // A note's props AS STORED. Key resolution (foldedPropKey) has to
@@ -2671,13 +2756,13 @@ export default function DatabasePane({
   // the filter row renders only on demand: an active query, the naming flow,
   // keyboard focus, or the funnel toggle keep it on screen — an empty
   // untouched bar reclaims its vertical space
-  const showFilter = namingView || query.trim() !== "" || filterOpen || filterFocused;
+  const showFilter = namingView || savedFlash || query.trim() !== "" || filterOpen || filterFocused;
 
   // Row 2 — the Notion pattern: a view tab strip ("All" + one tab per saved
   // view, right-click = the pin's manage menu, ＋ = save-view naming) with
   // the consolidated icon-first tools right-aligned on the same row
   const tabRow = (
-    <div className="db-tabrow">
+    <div className="db-tabrow" ref={tabRowRef}>
       <div
         className={`db-tabs${tabsMore ? " db-more-x" : ""}`}
         ref={tabsRef}
@@ -2785,6 +2870,10 @@ export default function DatabasePane({
             onClose={() => setGroupMenu(null)}
           />
         )}
+        {/* The sort's own surface — the same ordered key list the table
+            headers write, on every layout. A board or a gallery has no
+            headers, so this is the only place their sort is visible at all. */}
+        <SortMenu keys={sortableKeys} sorts={sorts} onChange={setSorts} />
         {(layout === "table" || layout === "list") && (
           <ColumnsMenu columns={columns} checked={curated ?? null} onToggle={toggleColumn} />
         )}
@@ -2854,6 +2943,9 @@ export default function DatabasePane({
           onCommit={(name) => {
             setNamingView(false);
             onSaveView(name, { query: query.trim(), sorts, view: layout, groupBy, tableGroupBy: tableGroup, columns: colCapture });
+            // both presses land here — the update of an open pin and the
+            // pinning of a new name — so both confirm the same way
+            flashSaved();
           }}
           onCancel={() => setNamingView(false)}
         />
@@ -2877,6 +2969,17 @@ export default function DatabasePane({
                 // same key, one rung earlier: the word becomes the operator
                 e.preventDefault();
                 setQuery(completeKey(query, keyHints[0]));
+              } else if (e.key === "Enter") {
+                // The last expression typed is a stub until its token ends,
+                // and a reader who has finished typing presses Enter, not
+                // space — so Enter finishes it. A stub with no operand
+                // (`rating:`, `due <`) commits nothing and the keystroke is
+                // left to do what it did before.
+                const committed = commitTrailingFilter(query, undefined, typeSchema);
+                if (committed) {
+                  e.preventDefault();
+                  setQuery(committed);
+                }
               } else if (e.key === "Escape") {
                 e.preventDefault();
                 if (query) setQuery("");
@@ -2916,6 +3019,13 @@ export default function DatabasePane({
           >
             <XIcon />
           </button>
+          {/* Last in the row, so the confirmation never shifts the input the
+              cursor sits in (design-principles.md 4) */}
+          {savedFlash && (
+            <span className="db-filter-saved" role="status">
+              Saved
+            </span>
+          )}
         </>
       )}
     </div>
@@ -2961,10 +3071,30 @@ export default function DatabasePane({
   // The completion chips hang off the filter row instead of sitting
   // in the column flow — a band that opens and closes as you type used to
   // push the whole table down under the cursor (design-principles.md 4)
+  /* The active filters, read back as chips. They sit UNDER the input, never
+     beside it: a chip appearing beside the query would shove the input
+     sideways under the cursor, which is the shift design-principles.md 4 and
+     the fade-in Save/Clear buttons already exist to avoid. Under it, a
+     committed filter grows the block downward — the table moves, and the table
+     was re-filtering on that keystroke anyway, while the row the cursor is in
+     stays exactly where it was. */
   const bar = showFilter ? (
     <div className="db-filter-wrap">
-      {filterBar}
-      {completionRow}
+      {/* the completion chips overlay THIS row, so they stay anchored to the
+          input whether or not any filters have been committed below */}
+      <div className="db-filter-head">
+        {filterBar}
+        {completionRow}
+      </div>
+      {!namingView && (
+        <DbFilterChips
+          query={query}
+          parsed={parsedQuery}
+          typeSchema={typeSchema}
+          notes={dispNotes}
+          onQuery={setQuery}
+        />
+      )}
     </div>
   ) : null;
 

@@ -169,6 +169,15 @@ export const ColumnsIcon = () => (
 
 /* the note's heading rail — indented rules, a nesting list rather than the
    flush lines of ListIcon */
+/* Sort keys: three rules shortening downward beside a down arrow — the
+   ordered-list gesture, distinct from ColumnsIcon's grid. */
+export const SortIcon = () => (
+  <svg {...base}>
+    <path d="M2.5 4.5h6M2.5 8h4.5M2.5 11.5h3" />
+    <path d="M11.5 3.8v8.4M13.5 10.2 11.5 12.4 9.5 10.2" />
+  </svg>
+);
+
 export const OutlineIcon = () => (
   <svg {...base}>
     <path d="M2.5 4h11M5 7.3h8.5M5 10.6h8.5M2.5 7.3h.1M2.5 10.6h.1" />

@@ -7649,11 +7649,19 @@ body.agenda-window .palette:focus-visible {
   z-index: 4;
 }
 
-.db-filter-wrap .search-completions {
+/* the input row and its overlay. The completion chips hang off THIS box, not
+   off the whole block, so committing a filter — which grows the chip row
+   below — never slides the overlay out from under the pointer */
+.db-filter-head {
+  position: relative;
+}
+
+.db-filter-head .search-completions {
   position: absolute;
   left: 0;
   right: 0;
   top: 100%;
+  z-index: 5;
   background: var(--bg-elevated);
 }
 
@@ -7830,6 +7838,146 @@ body.agenda-window .palette:focus-visible {
   border-top: 1px solid var(--border-soft);
   font-size: 11.5px;
   color: var(--text-3);
+}
+
+/* The save confirmation, in the sync pane's voice (.vault-sync-saved): the
+   one green word a written view earns, at the row's right edge where it
+   displaces nothing the cursor is in. */
+.db-filter-saved {
+  flex: none;
+  color: var(--ok);
+  font-size: 11px;
+  font-weight: 530;
+  white-space: nowrap;
+}
+
+/* The active filters, read back. One row of chips under the query input —
+   never beside it, which would shove the input sideways as filters land
+   (design-principles.md 4). Chips wrap rather than scroll: the row is an
+   overview, and an overview you have to scroll to finish reading is not one.
+   Same gap and padding as the completion chips it sits beneath, so the two
+   rows read as one block. */
+.db-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+/* The chip is the .search-completion shape — same hairline, same radius —
+   divided into its three readable parts. Nothing in it is sharp: the sharp
+   values on a database pane are the rows, and a chip is how you got to them
+   (design-principles.md 1.3). */
+.db-chip {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: none;
+  height: 22px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 12px;
+}
+
+.db-chip-key {
+  padding-left: 8px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.db-chip-op,
+.db-chip-val {
+  height: 100%;
+  padding: 0 4px;
+  border: none;
+  background: transparent;
+  font-family: var(--font);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* the operator is the caption between two nouns, so it sits a step back from
+   the value it qualifies */
+.db-chip-op {
+  color: var(--text-3);
+}
+
+.db-chip-val {
+  color: var(--text-2);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.db-chip-op:hover,
+.db-chip-val:hover,
+.db-chip-op.active,
+.db-chip-val.active {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+/* a comparison's operand is a day or a number — no roster to pick from, so it
+   is text the input owns rather than a control that opens on nothing */
+.db-chip-val.is-plain {
+  color: var(--text-2);
+  cursor: default;
+}
+
+/* Removal reveals on hover/focus-within and keeps its cell either way, so a
+   pointer crossing the row never re-lays it out (design-principles.md 5) */
+.db-chip-x {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 100%;
+  padding: 0;
+  margin-right: 2px;
+  border: none;
+  border-radius: 0 9px 9px 0;
+  background: transparent;
+  color: var(--text-3);
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+
+.db-chip:hover .db-chip-x,
+.db-chip:focus-within .db-chip-x {
+  opacity: 1;
+}
+
+.db-chip-x:hover {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .db-chip-x {
+    transition: none;
+  }
+}
+
+/* the operator and value menus: the app's .dots-menu card, hung under the
+   part of the chip it edits */
+.db-chip-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 60;
+  min-width: 140px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.db-chip-value-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 /* Nothing to save or clear yet — the buttons hold their space and
@@ -9551,6 +9699,13 @@ tr.db-draft-tr,
 
 .sheet-cell {
   padding: 7px 10px;
+  /* A row whose cells are ALL empty has no text to give it height and
+     collapses to its padding — the row the "+ row" placeholder is, and any
+     row a sheet holds while someone fills it in. The floor is one line of the
+     table's 13px text (16px) plus the padding above, which counts toward it
+     under the app's border-box — exactly what a row of text measures, so no
+     row moves. A row with any text in it is sized by that text as before. */
+  min-height: 30px;
   min-width: 72px;
   max-width: 320px;
   overflow: hidden;
@@ -16234,6 +16389,165 @@ body.col-resizing * {
   text-overflow: ellipsis;
   white-space: nowrap;
   text-align: left;
+}
+
+/* ---- sort overview ----
+   The tab row's sort popover: the same icon-only trigger idiom as the
+   columns curator, over a .dots-menu panel. Rows are the sort's own
+   priority order — ordinal, name, direction, remove — so the panel is a
+   reading of the key list before it is a control for it. */
+
+.db-sorts {
+  position: relative;
+  display: flex;
+}
+
+.db-sorts-btn {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 24px;
+  padding: 0 5px;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+}
+
+.db-sorts-btn:hover {
+  color: var(--text-2);
+}
+
+.db-sorts-btn.active {
+  background: var(--active);
+  color: var(--text-1);
+}
+
+/* how many keys are live, in the header badge's voice — quiet until
+   there is something to report */
+.db-sorts-count {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-3);
+}
+
+.db-sorts-menu {
+  min-width: 240px;
+}
+
+.db-sorts-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+.db-sorts-row:hover {
+  background: var(--active);
+}
+
+/* the reorder gesture: the grabbed row fades; the row under the pointer
+   lights up whole (below) */
+.db-sorts-row.dragging {
+  opacity: 0.4;
+}
+
+/* the whole row lights up, not an edge line: the gesture is "take this
+   row's place", and a top-edge marker would promise insert-before — one
+   slot off for a downward drag */
+.db-sorts-row.drop-on {
+  background: var(--hover);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.db-sorts-ord {
+  flex: none;
+  width: 12px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-4);
+  text-align: right;
+}
+
+.db-sorts-name {
+  flex: 1;
+  min-width: 0;
+  cursor: grab;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.db-sorts-dir,
+.db-sorts-drop {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-3);
+  font-family: var(--font);
+  font-size: 12px;
+}
+
+.db-sorts-dir:hover,
+.db-sorts-drop:hover {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+.db-sorts-drop svg {
+  width: 11px;
+  height: 11px;
+}
+
+.db-sorts-empty {
+  padding: 6px 8px;
+  color: var(--text-4);
+  font-size: 12px;
+}
+
+/* the way in reads quieter than the keys it adds to — it is an offer, not
+   part of the list */
+.db-sorts-add {
+  color: var(--text-3);
+}
+
+/* one property per row, nothing but its name */
+.db-sorts-add-item {
+  color: var(--text-2);
+}
+
+/* at the cap the offer stays put and says what it waits on */
+.db-sorts-cap {
+  cursor: default;
+}
+
+/* the add face sits under the key list, hairline-separated, so the keys it
+   is adding to stay on screen while a property is picked */
+.db-sorts-add-list {
+  max-height: 220px;
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border-soft);
+  overflow-y: auto;
+}
+
+/* the one line that teaches the gesture — on demand inside the popover,
+   never printed on the pane (design-principles.md 5) */
+.db-sorts-hint {
+  margin-top: 4px;
+  padding: 6px 8px 2px;
+  border-top: 1px solid var(--border-soft);
+  color: var(--text-4);
+  font-size: 11px;
 }
 
 /* ---- food dashboard ---- */

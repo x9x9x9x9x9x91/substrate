@@ -83,7 +83,10 @@ export interface SheetModel {
 export interface SheetEval {
   headers: string[];
   rows: Cell[][]; // typed data cells
-  computed: { name: string; cells: Value[] }[];
+  /** `null` is a blank cell, exactly as in a data row: a computed column can
+      hold one because a reference to an empty cell reads through, and because
+      an all-blank row derives nothing (see the row loop in evalSheetInner). */
+  computed: { name: string; cells: ScopedValue[] }[];
   /** `group` is the formula line's block in the fence (FormulaLine.group) —
       the summary bar's hierarchy, carried here so a reader doesn't have to
       re-parse the note. */
@@ -507,7 +510,9 @@ function evalSheetInner(
   hist?: HistoryResolver
 ): SheetEval {
   const rows: Cell[][] = model.rows.map((r) => r.map(typedCell));
-  const computed: { name: string; cells: Value[] }[] = [];
+  // A row with nothing typed in it derives nothing — see the row loop below.
+  const blankRow = rows.map((r) => r.every((c) => c === null));
+  const computed: { name: string; cells: ScopedValue[] }[] = [];
   const summaries: { name: string; value: Value; group: number }[] = [];
 
   // Names two things fold onto. Bound over every scope below, after
@@ -572,7 +577,7 @@ function evalSheetInner(
     // A line whose own name is ambiguous can't be addressed at all, so its
     // cells carry the collision rather than a value nothing can read.
     const own = collisionOf(f.name);
-    const cells: Value[] = [];
+    const cells: ScopedValue[] = [];
     for (let i = 0; i < rows.length; i++) {
       if (own) {
         cells.push(own);
@@ -580,6 +585,17 @@ function evalSheetInner(
       }
       if (isErr(f.expr)) {
         cells.push(f.expr);
+        continue;
+      }
+      // A row with nothing typed in it stays blank all the way across.
+      // Evaluating it anyway reads every empty cell as 0, so
+      // `age = TODAY() - verified` on an empty row manufactures TODAY's date
+      // string, and a numeric criteria over that column then meets text and
+      // hard-errors — one untouched row takes a dashboard card down.
+      // Aggregates already skip blanks, so leaving the derived cells blank
+      // makes an empty row invisible end to end rather than load-bearing.
+      if (blankRow[i]) {
+        cells.push(null);
         continue;
       }
       const scope: Scope = new Map();
@@ -592,7 +608,7 @@ function evalSheetInner(
       bindCross(scope);
       bindCollisions(scope);
       const v = evaluate(f.expr, scope, fxResolver, today, hist);
-      cells.push(Array.isArray(v) ? ferr(COL_AS_VALUE) : (v as Value));
+      cells.push(Array.isArray(v) ? ferr(COL_AS_VALUE) : v);
     }
     computed.push({ name: f.name, cells });
     rowColumns.set(ROW_COLUMNS_PREFIX + f.name.toLowerCase(), cells);

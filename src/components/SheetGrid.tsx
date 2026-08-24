@@ -160,6 +160,11 @@ export default function SheetGrid({
   const [anchor, setAnchor] = useState<CellPos | null>(null);
   const [sumEdit, setSumEdit] = useState<SummaryEdit | null>(null);
   const [editing, setEditing] = useState<(CellPos & { draft: string }) | null>(null);
+  /** "+ row" showing an empty row below the data that the note does not carry
+      yet. It becomes a real row the moment a cell is committed into it, and
+      never before: a row of empty cells written on the tap outlives the tap
+      forever, and every per-row formula then derives over its blanks. */
+  const [draftRow, setDraftRow] = useState(false);
   const [addingCol, setAddingCol] = useState(false);
   const [gridMenu, setGridMenu] = useState<GridMenu | null>(null);
   const [colDraft, setColDraft] = useState("");
@@ -183,6 +188,8 @@ export default function SheetGrid({
   const pendingFocus = useRef(false);
   const editingRef = useRef(editing);
   editingRef.current = editing;
+  const draftRowRef = useRef(draftRow);
+  draftRowRef.current = draftRow;
   const editColRef = useRef(editCol);
   editColRef.current = editCol;
   const sumEditRef = useRef(sumEdit);
@@ -272,7 +279,12 @@ export default function SheetGrid({
 
   const dataCols = model.headers.length;
   const cols = dataCols + ev.computed.length;
-  const rowCount = ev.rows.length;
+  /** Rows the note carries. */
+  const dataRows = ev.rows.length;
+  /** Rows the grid navigates — the note's, plus the uncommitted "+ row". */
+  const rowCount = dataRows + (draftRow ? 1 : 0);
+  /** Row index of the "+ row" placeholder while it is showing. */
+  const isDraftRow = (r: number) => draftRow && r === dataRows;
 
   /* Each chip in the grammar of the column it aggregates — a
      headerless chip fell back to the per-value rules removed from
@@ -502,7 +514,9 @@ export default function SheetGrid({
       const ed = editingRef.current;
       if (ed) {
         const m = parseSheet(next);
-        if (ed.r >= m.rows.length || ed.c >= m.headers.length) setEditing(null);
+        // the "+ row" placeholder sits one past the note's last row on purpose
+        const rows = m.rows.length + (draftRowRef.current ? 1 : 0);
+        if (ed.r >= rows || ed.c >= m.headers.length) setEditing(null);
       }
       setBody(next);
       invalidatePaint();
@@ -540,7 +554,7 @@ export default function SheetGrid({
     if (c >= dataCols) return; // computed columns are read-only
     setAnchor(null);
     pendingFocus.current = true;
-    setEditing({ r, c, draft: model.rows[r][c] });
+    setEditing({ r, c, draft: model.rows[r]?.[c] ?? "" });
   };
 
   const commitEdit = useCallback(
@@ -557,7 +571,15 @@ export default function SheetGrid({
       const draft = columnTakesNumberInput(model, ed.c, ed.r)
         ? normalizeNumberInput(ed.draft)
         : ed.draft;
-      applyBody(setSheetCell(body, ed.r, ed.c, draft));
+      // The placeholder row buys itself a place in the note here, with the
+      // first cell anyone actually fills — an empty draft leaves it a
+      // placeholder, so tapping "+ row" and walking away writes nothing.
+      // Moving on across it works the same either way.
+      const placeholder = ed.r >= model.rows.length;
+      if (!placeholder || draft.trim() !== "") {
+        if (placeholder) setDraftRow(false);
+        applyBody(setSheetCell(placeholder ? addSheetRow(body) : body, ed.r, ed.c, draft));
+      }
       pendingFocus.current = true;
       if (moveDir === "down") setFocus({ r: Math.min(ed.r + 1, rowCount - 1), c: ed.c });
       else if (moveDir === "right")
@@ -573,9 +595,12 @@ export default function SheetGrid({
     setFocus((f) => f);
   };
 
+  /* The row appears and takes focus; the note learns about it at the first
+     commit (see commitEdit). Tapping again while one is open just goes back to
+     it — an empty row is not worth a second empty row. */
   const onAddRow = () => {
     if (readOnly) return;
-    applyBody(addSheetRow(body));
+    setDraftRow(true);
     pendingFocus.current = true;
     setFocus({ r: model.rows.length, c: 0 });
   };
@@ -706,7 +731,7 @@ export default function SheetGrid({
   /** Every value in a grid column, data or computed — the evidence the Count
       quick-pick reads. */
   const columnValues = (c: number) =>
-    Array.from({ length: rowCount }, (_, r) => cellValue(r, c));
+    Array.from({ length: dataRows }, (_, r) => cellValue(r, c));
 
   /** The formula a quick-pick prefills for a column. All of them are
       `FN(column)`, except Count when the column has non-blank, non-error values
@@ -738,15 +763,18 @@ export default function SheetGrid({
       if (next !== body) applyBody(next);
     };
     if (m.kind === "row") {
+      // The "+ row" placeholder is not in the note, so it has nothing to
+      // reorder against and deleting it is simply dropping the placeholder.
+      const draft = isDraftRow(m.r);
       return [
         {
           label: "Move up",
-          disabled: m.r === 0,
+          disabled: draft || m.r === 0,
           onSelect: () => apply(moveSheetRow(body, m.r, -1)),
         },
         {
           label: "Move down",
-          disabled: m.r >= model.rows.length - 1,
+          disabled: draft || m.r >= model.rows.length - 1,
           onSelect: () => apply(moveSheetRow(body, m.r, 1)),
         },
         {
@@ -755,7 +783,8 @@ export default function SheetGrid({
           separatorAbove: true,
           onSelect: () => {
             setFocus(null);
-            apply(deleteSheetRow(body, m.r));
+            if (draft) setDraftRow(false);
+            else apply(deleteSheetRow(body, m.r));
           },
         },
       ];
@@ -952,7 +981,9 @@ export default function SheetGrid({
     const key = `${r}-${c}`;
     const isFocused = focus?.r === r && focus?.c === c;
     const isEditing = editing?.r === r && editing?.c === c;
-    const numeric = typeof ev.rows[r][c] === "number";
+    // the "+ row" placeholder has no row in `ev` behind it yet
+    const cell = ev.rows[r]?.[c] ?? null;
+    const numeric = typeof cell === "number";
     return (
       <td key={c} className={numeric ? "sheet-num" : ""}>
         {isEditing ? (
@@ -994,14 +1025,14 @@ export default function SheetGrid({
               setGridMenu({ kind: "row", r, x: e.clientX, y: e.clientY });
             }}
           >
-            {formatValue(ev.rows[r][c], model.headers[c], colFmts.data[c])}
+            {formatValue(cell, model.headers[c], colFmts.data[c])}
           </div>
         )}
       </td>
     );
   };
 
-  const computedCell = (r: number, c: number, v: Value) => {
+  const computedCell = (r: number, c: number, v: Value | Cell) => {
     const key = `${r}-${c}`;
     const isFocused = focus?.r === r && focus?.c === c;
     const err = errMessage(v);
@@ -1336,6 +1367,17 @@ export default function SheetGrid({
                 <td className="sheet-spacer" />
               </tr>
             ))}
+            {/* The "+ row" placeholder: an ordinary-looking row the note does
+                not carry yet. Its computed cells are blank because an empty
+                row derives nothing — the same thing the evaluator does with a
+                row of blanks that IS in the note. */}
+            {!readOnly && draftRow && (
+              <tr key="draft">
+                {model.headers.map((_, c) => dataCell(dataRows, c))}
+                {ev.computed.map((_, c) => computedCell(dataRows, dataCols + c, null))}
+                <td className="sheet-spacer" />
+              </tr>
+            )}
             {!readOnly && (
               <tr className="sheet-addrow">
                 <td colSpan={cols + 1}>

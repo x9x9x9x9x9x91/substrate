@@ -272,8 +272,11 @@ interface SubstrateSheetEval {
   /** Row-major and POSITIONAL against `headers` — not keyed by column name.
       `null` is an empty cell. */
   rows: SubstrateCell[][];
-  /** One entry per formula column; `cells` is parallel to `rows`. */
-  computed: { name: string; cells: SubstrateValue[] }[];
+  /** One entry per formula column; `cells` is parallel to `rows`. A cell is
+      `null` when the formula derived nothing there — a reference that read an
+      empty cell through, or a row with nothing typed in it, which derives
+      nothing at all. */
+  computed: { name: string; cells: SubstrateScopedValue[] }[];
   /** The aggregate lines; `group` is the block of the fence they came from. */
   summaries: { name: string; value: SubstrateValue; group: number }[];
 }
@@ -284,6 +287,9 @@ type SubstrateCell = SubstrateScalar | null;
 /** An evaluated value: a scalar, or an error to render as its message —
     print the object and the cell reads `[object Object]`. */
 type SubstrateValue = SubstrateScalar | SubstrateFormulaError;
+
+/** An evaluated value that may also be blank — what a computed column holds. */
+type SubstrateScopedValue = SubstrateCell | SubstrateFormulaError;
 
 type SubstrateScalar = number | string | boolean;
 

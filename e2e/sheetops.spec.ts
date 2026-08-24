@@ -69,3 +69,30 @@ test("computed header menu: delete removes the formula column", async ({ page })
   await expect(computed).toHaveCount(1);
   await expect(computed.nth(0)).toHaveText("value_usd");
 });
+
+// "+ row" opens a row the note does not carry yet: nothing is written until a
+// cell is filled, so tapping it and walking away can no longer leave a row of
+// blanks behind — the shape that made per-row formulas derive over empty
+// cells and took a dashboard card down. The row still has to LOOK like a row:
+// with every cell empty there is no text to give it height.
+test("+ row: a placeholder row, full height, written only once a cell is filled", async ({
+  page,
+}) => {
+  await openSheet(page);
+  const rows = page.locator(".sheet-table tbody tr");
+  const dataRow = rows.nth(3); // ETH, the last row the note carries
+  const dataHeight = (await dataRow.boundingBox())!.height;
+
+  await page.locator(".sheet-addrow button", { hasText: "+ row" }).click();
+  const placeholder = rows.nth(4);
+  await expect(placeholder.locator(".sheet-cell").first()).toHaveText("");
+  // the derived columns stay blank rather than deriving over the empty cells
+  await expect(placeholder.locator(".sheet-cell.sheet-computed").first()).toHaveText("");
+  const placeholderHeight = (await placeholder.boundingBox())!.height;
+  expect(Math.abs(placeholderHeight - dataHeight)).toBeLessThanOrEqual(1);
+
+  // nothing was written: the source still ends at the row the note carries
+  await page.locator(".sheet-toolbar .sheet-tool[title='View note source']").click();
+  await expect(page.locator(".sheet-src")).toContainText("ETH,crypto,9,3050");
+  await expect(page.locator(".sheet-src .cm-content")).not.toContainText("\n,,,\n");
+});
