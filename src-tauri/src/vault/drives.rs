@@ -183,8 +183,13 @@ pub(crate) struct VolumeKind {
     /// Filesystem type as the platform names it, lowercased (`apfs`,
     /// `smbfs`, `msdos`); empty where the platform wouldn't say.
     pub fstype: String,
-    /// Mounted read-only — which on a Mac is what a disk image is.
+    /// Mounted read-only — a double-clicked installer image, a
+    /// write-protected disk.
     pub read_only: bool,
+    /// Backed by a disk image rather than a physical device — asked of
+    /// DiskArbitration on macOS (`diskarb::is_disk_image`), always `false`
+    /// where the platform can't say.
+    pub disk_image: bool,
 }
 
 /// Filesystem types that are somebody else's disk, not one of yours.
@@ -194,18 +199,23 @@ const NETWORK_FSTYPES: [&str; 7] =
 /// Whether a mounted filesystem is the kind of thing the shelf is for.
 ///
 /// The shelf's promise is "the disks you own, browsable while they sit in a
-/// drawer" — so the two families that must never become permanent rows are
-/// the ones that aren't disks in drawers at all:
+/// drawer" — so the families that must never become permanent rows are the
+/// ones that aren't disks in drawers at all:
 ///
 /// * **network filesystems** — a server share is not yours to catalog, and it
 ///   comes and goes with the network rather than with a cable.
-/// * **read-only mounts** — on a Mac that is overwhelmingly a mounted disk
-///   image: double-clicking `Firefox.dmg` would otherwise leave an eternal
-///   "Firefox" drive behind. A genuinely write-protected physical disk is
-///   swept up with them, which is the honest cost of not needing to ask the
-///   OS what a mount point is attached to.
+/// * **disk images** — on macOS the mount's backing device is asked directly
+///   (`diskarb::is_disk_image`): double-clicking `Firefox.dmg` mounts
+///   read-only, but the bundler assembling this app's own installer mounts
+///   its scratch image READ-WRITE under `/Volumes` while styling it, and a
+///   poll that catches one mid-build would otherwise leave an eternal junk
+///   drive behind. Both are images, not disks.
+/// * **read-only mounts** — what a disk image is on platforms that can't
+///   answer the backing-device question. A genuinely write-protected
+///   physical disk is swept up with them, which is the honest cost of a
+///   test this cheap.
 pub(crate) fn shelf_worthy(kind: &VolumeKind) -> bool {
-    if kind.read_only {
+    if kind.read_only || kind.disk_image {
         return false;
     }
     let fs = kind.fstype.trim().to_ascii_lowercase();
@@ -220,17 +230,20 @@ fn volume_kind(root: &Path) -> VolumeKind {
         return VolumeKind::default();
     };
     // SAFETY: `stat` is written by the call and only read when it returns 0;
-    // `c` outlives the call, and `f_fstypename` is a NUL-terminated field.
+    // `c` outlives the call, and `f_fstypename` / `f_mntfromname` are
+    // NUL-terminated fields.
     unsafe {
         let mut stat: libc::statfs = std::mem::zeroed();
         if libc::statfs(c.as_ptr(), &mut stat) != 0 {
             return VolumeKind::default();
         }
+        let device = CStr::from_ptr(stat.f_mntfromname.as_ptr()).to_string_lossy();
         VolumeKind {
             fstype: CStr::from_ptr(stat.f_fstypename.as_ptr())
                 .to_string_lossy()
                 .to_ascii_lowercase(),
             read_only: stat.f_flags & libc::MNT_RDONLY as u32 != 0,
+            disk_image: diskarb::is_disk_image(&device),
         }
     }
 }
@@ -252,6 +265,7 @@ fn volume_kind(root: &Path) -> VolumeKind {
         VolumeKind {
             fstype: String::new(),
             read_only: stat.f_flag & libc::ST_RDONLY as u64 != 0,
+            disk_image: false,
         }
     }
 }
@@ -259,6 +273,122 @@ fn volume_kind(root: &Path) -> VolumeKind {
 #[cfg(not(unix))]
 fn volume_kind(_root: &Path) -> VolumeKind {
     VolumeKind::default()
+}
+
+/// Ask DiskArbitration what backs a BSD disk device.
+///
+/// The one question `statfs` cannot answer — "is this mount a disk image?"
+/// — matters because an image mounted READ-WRITE looks exactly like a
+/// plugged-in disk from the filesystem side: ordinary `hfs`/`apfs`,
+/// writable. DiskArbitration's description carries the device model, which
+/// is `"Disk Image"` for every image-backed disk, including the synthesized
+/// container an APFS image mounts through (verified against a mounted
+/// installer DMG, an APFS simulator-runtime image, and the internal SSD,
+/// which reports its hardware model).
+#[cfg(target_os = "macos")]
+mod diskarb {
+    use std::ffi::{c_char, c_void, CStr, CString};
+
+    #[link(name = "DiskArbitration", kind = "framework")]
+    extern "C" {
+        fn DASessionCreate(allocator: *const c_void) -> *const c_void;
+        fn DADiskCreateFromBSDName(
+            allocator: *const c_void,
+            session: *const c_void,
+            name: *const c_char,
+        ) -> *const c_void;
+        fn DADiskCopyDescription(disk: *const c_void) -> *const c_void;
+    }
+
+    #[link(name = "CoreFoundation", kind = "framework")]
+    extern "C" {
+        // `CFRelease` matches the OCR and context-snapshot declarations —
+        // two externs for one symbol that disagree warn on every build
+        fn CFRelease(cf: *const c_void);
+        fn CFStringCreateWithCString(
+            alloc: *const c_void,
+            c_str: *const c_char,
+            encoding: u32,
+        ) -> *const c_void;
+        fn CFDictionaryGetValue(dict: *const c_void, key: *const c_void) -> *const c_void;
+        fn CFStringGetCString(
+            s: *const c_void,
+            buffer: *mut c_char,
+            size: isize,
+            encoding: u32,
+        ) -> bool;
+    }
+
+    /// `kCFStringEncodingUTF8`.
+    const UTF8: u32 = 0x0800_0100;
+
+    /// `kDADiskDescriptionDeviceModelKey`'s value, spelled out rather than
+    /// linking the exported constant — the same trade the accessibility
+    /// module makes with its attribute names.
+    const DEVICE_MODEL_KEY: &str = "DADeviceModel";
+
+    /// The device model every image-backed disk reports.
+    const DISK_IMAGE: &str = "Disk Image";
+
+    /// Whether the device a filesystem is mounted from (statfs's
+    /// `f_mntfromname`, e.g. `/dev/disk4s1`) is backed by a disk image.
+    ///
+    /// Every failure — not a `/dev` node (a network share), no such disk, no
+    /// description — answers `false`, which keeps the shelf's behavior for
+    /// anything that is not provably an image.
+    pub(super) fn is_disk_image(mnt_from: &str) -> bool {
+        let Some(bsd) = mnt_from.strip_prefix("/dev/") else {
+            return false;
+        };
+        let Ok(name) = CString::new(bsd) else {
+            return false;
+        };
+        // SAFETY: every created/copied ref is checked for null before use
+        // and released exactly once; the model string is read inside
+        // `device_model` while the description that owns it is still alive.
+        unsafe {
+            let session = DASessionCreate(std::ptr::null());
+            if session.is_null() {
+                return false;
+            }
+            let disk = DADiskCreateFromBSDName(std::ptr::null(), session, name.as_ptr());
+            if disk.is_null() {
+                CFRelease(session);
+                return false;
+            }
+            let desc = DADiskCopyDescription(disk);
+            let image = !desc.is_null() && device_model(desc).as_deref() == Some(DISK_IMAGE);
+            if !desc.is_null() {
+                CFRelease(desc);
+            }
+            CFRelease(disk);
+            CFRelease(session);
+            image
+        }
+    }
+
+    /// The description's device model, `None` for every way it can't be
+    /// read. The value from `CFDictionaryGetValue` is borrowed from the
+    /// dictionary and never released here.
+    unsafe fn device_model(desc: *const c_void) -> Option<String> {
+        let key_c = CString::new(DEVICE_MODEL_KEY).ok()?;
+        let key = CFStringCreateWithCString(std::ptr::null(), key_c.as_ptr(), UTF8);
+        if key.is_null() {
+            return None;
+        }
+        let model = CFDictionaryGetValue(desc, key);
+        CFRelease(key);
+        if model.is_null() {
+            return None;
+        }
+        // 64 bytes holds any real device model; one that doesn't fit fails
+        // the read and answers `None`, which reads as "not an image"
+        let mut buf = [0 as c_char; 64];
+        if !CFStringGetCString(model, buf.as_mut_ptr(), buf.len() as isize, UTF8) {
+            return None;
+        }
+        Some(CStr::from_ptr(buf.as_ptr()).to_string_lossy().into_owned())
+    }
 }
 
 /// The identity two sightings of the same disk share.
@@ -308,8 +438,9 @@ pub fn volume_search_roots() -> Vec<PathBuf> {
 /// exactly that reason, and a root that doesn't exist is simply no volumes —
 /// a machine without removable media is an ordinary machine.
 ///
-/// Network shares and read-only mounts are skipped too ([`shelf_worthy`]):
-/// mounting a DMG or an SMB share must not leave a permanent drive behind.
+/// Network shares, disk images and read-only mounts are skipped too
+/// ([`shelf_worthy`]): mounting a DMG or an SMB share must not leave a
+/// permanent drive behind.
 pub fn volumes_at(roots: &[PathBuf]) -> Vec<Volume> {
     let mut out: Vec<Volume> = Vec::new();
     for dir in roots {
@@ -604,30 +735,76 @@ mod tests {
 
     /// A share and a mounted DMG are not disks in drawers, so they never
     /// become shelf rows. The predicate is tested directly: no environment
-    /// variable can make a temp directory report itself as SMB.
+    /// variable can make a temp directory report itself as SMB, and no test
+    /// should mount a real disk image to prove a point.
     #[test]
-    fn network_shares_and_read_only_mounts_are_not_shelf_worthy() {
-        let kind = |fstype: &str, read_only: bool| VolumeKind {
+    fn shares_disk_images_and_read_only_mounts_are_not_shelf_worthy() {
+        let kind = |fstype: &str, read_only: bool, disk_image: bool| VolumeKind {
             fstype: fstype.into(),
             read_only,
+            disk_image,
         };
         // the disks the shelf exists for
-        assert!(shelf_worthy(&kind("apfs", false)));
-        assert!(shelf_worthy(&kind("exfat", false)));
-        assert!(shelf_worthy(&kind("hfs", false)));
-        assert!(shelf_worthy(&kind("", false)), "a platform that won't say is not a reason to skip");
+        assert!(shelf_worthy(&kind("apfs", false, false)));
+        assert!(shelf_worthy(&kind("exfat", false, false)));
+        assert!(shelf_worthy(&kind("hfs", false, false)));
+        assert!(
+            shelf_worthy(&kind("", false, false)),
+            "a platform that won't say is not a reason to skip"
+        );
         // somebody else's disk
         for fs in ["smbfs", "afpfs", "nfs", "nfsv4", "webdav", "autofs", "cifs", "SMBFS"] {
-            assert!(!shelf_worthy(&kind(fs, false)), "{fs} is a network filesystem");
+            assert!(!shelf_worthy(&kind(fs, false, false)), "{fs} is a network filesystem");
         }
         // a mounted disk image: read-only, whatever it calls itself
-        assert!(!shelf_worthy(&kind("hfs", true)));
-        assert!(!shelf_worthy(&kind("udf", true)));
+        assert!(!shelf_worthy(&kind("hfs", true, false)));
+        assert!(!shelf_worthy(&kind("udf", true, false)));
+        // an image mounted READ-WRITE — the DMG bundler's scratch mount while
+        // it styles an installer — is still an image, however ordinary its
+        // filesystem looks
+        assert!(!shelf_worthy(&kind("hfs", false, true)));
+        assert!(!shelf_worthy(&kind("apfs", false, true)));
     }
 
     #[test]
     fn missing_volume_root_is_no_volumes_not_an_error() {
         assert!(volumes_at(&[PathBuf::from("/nope/not/here")]).is_empty());
+    }
+
+    /// End-to-end proof against a real image: create a read-write DMG, mount
+    /// it exactly the way the DMG bundler mounts its scratch image, and ask
+    /// the detector. Mounting real images is not a default-test action, so
+    /// it runs only when asked: `SUBSTRATE_DMG_MOUNT_TESTS=1`.
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn a_read_write_dmg_mounted_like_the_bundler_is_not_shelf_worthy() {
+        use std::process::Command;
+        if std::env::var_os("SUBSTRATE_DMG_MOUNT_TESTS").is_none() {
+            return;
+        }
+        let dir = tempfile::TempDir::new().unwrap();
+        let image = dir.path().join("scratch.dmg");
+        let mountpoint = dir.path().join("dmg.scratch");
+        let create = Command::new("hdiutil")
+            .args(["create", "-size", "8m", "-fs", "HFS+", "-volname", "Scratch", "-quiet"])
+            .arg(&image)
+            .status()
+            .unwrap();
+        assert!(create.success(), "hdiutil create failed");
+        let attach = Command::new("hdiutil")
+            .args(["attach", "-readwrite", "-noverify", "-noautoopen", "-quiet", "-mountpoint"])
+            .arg(&mountpoint)
+            .arg(&image)
+            .status()
+            .unwrap();
+        assert!(attach.success(), "hdiutil attach failed");
+        // read everything before detaching, so a wrong answer can't strand
+        // the mount
+        let kind = volume_kind(&mountpoint);
+        Command::new("hdiutil").arg("detach").arg(&mountpoint).status().unwrap();
+        assert!(!kind.read_only, "the bundler's scratch mount is writable — that is the bug");
+        assert!(kind.disk_image, "DiskArbitration knows a disk image when asked");
+        assert!(!shelf_worthy(&kind));
     }
 
     /// The shelf's whole claim: plug a disk in, unplug it, and the catalog is

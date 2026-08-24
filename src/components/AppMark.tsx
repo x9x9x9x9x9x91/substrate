@@ -1,6 +1,7 @@
 /* The product mark, inline. Vector rendering of `design/icon.svg` — the
-   backlit monolith: a rooted asterisk cut THROUGH a dark slab and lit from
-   behind, with the escaping light spilling onto the slab face.
+   carved knockout star: six spokes cut THROUGH a dark slab and lit from
+   behind, knocked back from the centre so a hexagonal void sits where they
+   would meet, with a tight spill of the escaping light on the slab face.
 
    Inline rather than an <img> to the packaged `src-tauri/icons/*.png`: those
    are rasters sized for docks and trays, and the mark is drawn here at
@@ -18,21 +19,22 @@
 const IDS = {
   tile: "appmark-tile",
   under: "appmark-under",
-  edge: "appmark-edge",
   cut: "appmark-cut",
   clip: "appmark-tileclip",
-  bleed: "appmark-bleed",
+  spill: "appmark-spill",
 } as const;
 
-/** The rooted asterisk, drawn twice: once as the mask that cuts it out of the
-    slab, once as the light bleeding back onto the face. */
-const RUNE = (
+/** The six half-spokes, drawn twice: once as the mask that cuts them out of
+    the slab, once as the light spilling back onto the face. Every 60° from
+    centre, inner radius 80 (the void), outer radius 315. */
+const STAR = (
   <>
-    <line x1="512" y1="248" x2="512" y2="636" />
-    <line x1="327" y1="323" x2="697" y2="541" />
-    <line x1="697" y1="323" x2="327" y2="541" />
-    <line x1="276" y1="636" x2="748" y2="636" />
-    <line x1="512" y1="636" x2="512" y2="768" />
+    <line x1="512.0" y1="432.0" x2="512.0" y2="197.0" />
+    <line x1="581.3" y1="472.0" x2="784.8" y2="354.5" />
+    <line x1="581.3" y1="552.0" x2="784.8" y2="669.5" />
+    <line x1="512.0" y1="592.0" x2="512.0" y2="827.0" />
+    <line x1="442.7" y1="552.0" x2="239.2" y2="669.5" />
+    <line x1="442.7" y1="472.0" x2="239.2" y2="354.5" />
   </>
 );
 
@@ -56,30 +58,25 @@ export default function AppMark({ size = 56, className }: AppMarkProps) {
     >
       <defs>
         <linearGradient id={IDS.tile} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#1E2026" />
-          <stop offset="0.45" stopColor="#14151A" />
+          <stop offset="0" stopColor="#1B1D23" />
           <stop offset="1" stopColor="#0B0C0F" />
         </linearGradient>
-        <radialGradient id={IDS.under} cx="0.5" cy="0.45" r="0.62">
+        <radialGradient id={IDS.under} cx="0.5" cy="0.5" r="0.55">
           <stop offset="0" stopColor="#FFFFFF" />
-          <stop offset="0.5" stopColor="#D9DCE4" />
-          <stop offset="1" stopColor="#7E848F" />
+          <stop offset="0.7" stopColor="#EEF0F6" />
+          <stop offset="1" stopColor="#C3C8D2" />
         </radialGradient>
-        <linearGradient id={IDS.edge} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#ffffff" stopOpacity="0.20" />
-          <stop offset="1" stopColor="#ffffff" stopOpacity="0.03" />
-        </linearGradient>
         <mask id={IDS.cut}>
           <rect width="1024" height="1024" fill="white" />
-          <g stroke="black" strokeWidth="56" strokeLinecap="butt" fill="none">
-            {RUNE}
+          <g stroke="black" strokeWidth="88" strokeLinecap="butt" fill="none">
+            {STAR}
           </g>
         </mask>
         <clipPath id={IDS.clip}>
           <rect x="100" y="100" width="824" height="824" rx="185" />
         </clipPath>
-        <filter id={IDS.bleed} x="-60%" y="-60%" width="220%" height="220%">
-          <feGaussianBlur stdDeviation="30" />
+        <filter id={IDS.spill} x="-60%" y="-60%" width="220%" height="220%">
+          <feGaussianBlur stdDeviation="11" />
         </filter>
       </defs>
 
@@ -95,28 +92,12 @@ export default function AppMark({ size = 56, className }: AppMarkProps) {
       />
 
       <g clipPath={`url(#${IDS.clip})`}>
-        <g
-          stroke="#EAF0FF"
-          strokeWidth="56"
-          strokeLinecap="butt"
-          fill="none"
-          opacity="0.38"
-          filter={`url(#${IDS.bleed})`}
-        >
-          {RUNE}
+        <g opacity="0.16" filter={`url(#${IDS.spill})`}>
+          <g stroke="#EAF0FF" strokeWidth="88" strokeLinecap="butt" fill="none">
+            {STAR}
+          </g>
         </g>
       </g>
-
-      <rect
-        x="103"
-        y="103"
-        width="818"
-        height="818"
-        rx="182"
-        fill="none"
-        stroke={`url(#${IDS.edge})`}
-        strokeWidth="5"
-      />
     </svg>
   );
 }

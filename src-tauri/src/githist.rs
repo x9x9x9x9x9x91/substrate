@@ -434,7 +434,7 @@ fn fact_lanes_grouped(
         .collect())
 }
 
-/// When each of a set of facts was last set by a person (shelf-life spec §2):
+/// When each of a set of facts was last set by a person:
 /// the lanes, with every change point that was a sweep skipped. Breadth is
 /// measured once per commit however many facts point at it — a sweep is broad
 /// for all of them — and only for the commits that are actually somebody's

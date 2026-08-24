@@ -1,55 +1,44 @@
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
-  <!-- Backlit cutout: the rooted asterisk is cut THROUGH the slab (mask id="cut")
-       and lit from behind, with the escaping light spilling onto the slab face.
-       One ink for the whole mark, butt caps, no drop shadow and no glow pass —
-       the stacked shadow+glow+round-cap strokes of the earlier version read as a
-       soft sparkle rather than a carved rune. -->
   <defs>
     <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#1E2026"/>
-      <stop offset="0.45" stop-color="#14151A"/>
+      <stop offset="0" stop-color="#1B1D23"/>
       <stop offset="1" stop-color="#0B0C0F"/>
     </linearGradient>
-    <radialGradient id="under" cx="0.5" cy="0.45" r="0.62">
+    <radialGradient id="under" cx="0.5" cy="0.5" r="0.55">
       <stop offset="0" stop-color="#FFFFFF"/>
-      <stop offset="0.5" stop-color="#D9DCE4"/>
-      <stop offset="1" stop-color="#7E848F"/>
+      <stop offset="0.7" stop-color="#EEF0F6"/>
+      <stop offset="1" stop-color="#C3C8D2"/>
     </radialGradient>
-    <linearGradient id="edge" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ffffff" stop-opacity="0.20"/>
-      <stop offset="1" stop-color="#ffffff" stop-opacity="0.03"/>
-    </linearGradient>
     <mask id="cut">
       <rect width="1024" height="1024" fill="white"/>
-      <g stroke="black" stroke-width="56" stroke-linecap="butt" fill="none">
-        <line x1="512" y1="248" x2="512" y2="636"/>
-        <line x1="327" y1="323" x2="697" y2="541"/>
-        <line x1="697" y1="323" x2="327" y2="541"/>
-        <line x1="276" y1="636" x2="748" y2="636"/>
-        <line x1="512" y1="636" x2="512" y2="768"/>
-      </g>
+    <g stroke="black" stroke-width="88" stroke-linecap="butt" fill="none">
+      <line x1="512.0" y1="432.0" x2="512.0" y2="197.0"/>
+      <line x1="581.3" y1="472.0" x2="784.8" y2="354.5"/>
+      <line x1="581.3" y1="552.0" x2="784.8" y2="669.5"/>
+      <line x1="512.0" y1="592.0" x2="512.0" y2="827.0"/>
+      <line x1="442.7" y1="552.0" x2="239.2" y2="669.5"/>
+      <line x1="442.7" y1="472.0" x2="239.2" y2="354.5"/>
+    </g>
     </mask>
     <clipPath id="tileclip">
       <rect x="100" y="100" width="824" height="824" rx="185"/>
     </clipPath>
-    <filter id="bleed" x="-60%" y="-60%" width="220%" height="220%">
-      <feGaussianBlur stdDeviation="30"/>
+    <filter id="spill" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="11"/>
     </filter>
   </defs>
-
   <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#under)"/>
   <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#tile)" mask="url(#cut)"/>
-
-  <!-- light bleeding out of the cuts onto the slab face -->
   <g clip-path="url(#tileclip)">
-    <g stroke="#EAF0FF" stroke-width="56" stroke-linecap="butt" fill="none" opacity="0.38" filter="url(#bleed)">
-      <line x1="512" y1="248" x2="512" y2="636"/>
-      <line x1="327" y1="323" x2="697" y2="541"/>
-      <line x1="697" y1="323" x2="327" y2="541"/>
-      <line x1="276" y1="636" x2="748" y2="636"/>
-      <line x1="512" y1="636" x2="512" y2="768"/>
+    <g opacity="0.16" filter="url(#spill)">
+    <g stroke="#EAF0FF" stroke-width="88" stroke-linecap="butt" fill="none">
+      <line x1="512.0" y1="432.0" x2="512.0" y2="197.0"/>
+      <line x1="581.3" y1="472.0" x2="784.8" y2="354.5"/>
+      <line x1="581.3" y1="552.0" x2="784.8" y2="669.5"/>
+      <line x1="512.0" y1="592.0" x2="512.0" y2="827.0"/>
+      <line x1="442.7" y1="552.0" x2="239.2" y2="669.5"/>
+      <line x1="442.7" y1="472.0" x2="239.2" y2="354.5"/>
+    </g>
     </g>
   </g>
-
-  <rect x="103" y="103" width="818" height="818" rx="182" fill="none" stroke="url(#edge)" stroke-width="5"/>
 </svg>

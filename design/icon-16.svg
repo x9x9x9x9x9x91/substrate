@@ -1,0 +1,27 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- Size-specific redraw of design/icon.svg for the 16px icns slot. The mark
+       does not downscale cleanly below ~48px: the hexagonal void fills in and the
+       spokes drop under 2 device px. At 16px the void is dropped entirely: three through-lines at stroke 128
+       (2.0 device px) read as a solid bold asterisk instead of grey mush. -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1B1D23"/>
+      <stop offset="1" stop-color="#0B0C0F"/>
+    </linearGradient>
+    <radialGradient id="under" cx="0.5" cy="0.5" r="0.55">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="0.7" stop-color="#EEF0F6"/>
+      <stop offset="1" stop-color="#C3C8D2"/>
+    </radialGradient>
+    <mask id="cut">
+      <rect width="1024" height="1024" fill="white"/>
+      <g stroke="black" stroke-width="128" stroke-linecap="butt" fill="none">
+        <line x1="512.0" y1="827.0" x2="512.0" y2="197.0"/>
+        <line x1="239.2" y1="669.5" x2="784.8" y2="354.5"/>
+        <line x1="239.2" y1="354.5" x2="784.8" y2="669.5"/>
+      </g>
+    </mask>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#under)"/>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#tile)" mask="url(#cut)"/>
+</svg>

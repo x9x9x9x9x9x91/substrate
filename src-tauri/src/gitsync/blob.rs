@@ -598,6 +598,33 @@ fn status_error(label: &str, code: u16) -> String {
     }
 }
 
+/// A 404 from a document or object route is not "no such document": the read
+/// path answers that with `Ok(None)` long before this, and a missing object has
+/// its own message. It means the request reached something that does not serve
+/// the hosted sync routes at all — a mistyped host, a dropped or extra path
+/// segment, or a server built before the route existed. (A trailing slash
+/// cannot be the cause: [`HttpBlobStore::new`] trims those before any request.)
+/// So the address is the fix, and naming it is the whole message: the
+/// internal operation label plus a bare `404` reads like a server fault and
+/// sends the user looking in the wrong place.
+///
+/// The base URL is safe to echo — [`HttpBlobStore::new`] refuses one carrying
+/// userinfo or a query string, so no credential can be hiding in it.
+fn missing_route_error(base: &str) -> String {
+    format!(
+        "no hosted sync server at {base} — check the vault sync URL, including its path; a \
+         server older than this client answers the same way"
+    )
+}
+
+/// [`status_error`] for the routes where a 404 means the URL, not the document.
+fn status_error_at(label: &str, code: u16, base: &str) -> String {
+    match code {
+        404 => missing_route_error(base),
+        _ => status_error(label, code),
+    }
+}
+
 impl BlobTransport for HttpBlobStore {
     fn store_identity(&self) -> String {
         format!("http:{}", self.base)
@@ -674,7 +701,7 @@ impl BlobTransport for HttpBlobStore {
         if status == 200 || status == 201 {
             return Ok(());
         }
-        Err(status_error("object upload", status))
+        Err(status_error_at("object upload", status, &self.base))
     }
 
     fn read_ref(&self, max_bytes: usize) -> Result<Option<VersionedRef>, String> {
@@ -867,7 +894,7 @@ impl HttpBlobStore {
             return Ok(CasResult::Mismatch);
         }
         let Some(response) = response else {
-            return Err(status_error(&label, status));
+            return Err(status_error_at(&label, status, &self.base));
         };
         let version = response
             .header("ETag")
@@ -2141,6 +2168,21 @@ pub(crate) fn enroll(
                     the store and push again from a device that still syncs"
             .into());
     }
+    // Nothing here can tell "I expected to join an existing vault" from "I
+    // expect to be this vault's first device", and it is not an oversight this
+    // side of the boundary: the pane's setup form is one form for both — URL,
+    // token, passphrase twice — with no declared intent to pass down, and a
+    // store that answers every read with "nothing there" looks the same
+    // whether it is empty or is not a hosted sync store at all. Probing harder
+    // does not close it either: a wrong-but-accepting endpoint that does speak
+    // the protocol answers exactly as the right one would. So a device pointed
+    // at the wrong URL with a join in mind mints a fresh key here rather than
+    // joining. What is done instead, deliberately, is to make it loud rather
+    // than preventable — a 404 now names the URL (`missing_route_error`), and
+    // the pane reports `Enrollment::Created` as its own panel ("This device
+    // just set the vault passphrase") instead of a quiet "saved", so the
+    // outcome the user did not expect is the one that shouts. Asking the user
+    // to declare the intent up front is a product change, not this function's.
     let key = MasterKey::generate();
     let envelope = wrap_master_key(&key, passphrase)?;
     match transport.compare_and_swap_key(None, &envelope)? {
@@ -3637,6 +3679,17 @@ mod tests {
         assert!(MasterKey::from_hex(&"A".repeat(64)).is_err(), "uppercase is not our form");
     }
 
+    /// Only 404 changes meaning on these routes; every other refusal keeps the
+    /// operation's own wording.
+    #[test]
+    fn only_a_404_is_read_as_the_wrong_url() {
+        let base = "https://drop.example/blob";
+        assert_eq!(status_error_at("key update", 404, base), missing_route_error(base));
+        for code in [401, 403, 409, 413, 429, 503, 500] {
+            assert_eq!(status_error_at("key update", code, base), status_error("key update", code));
+        }
+    }
+
     #[test]
     fn enrollment_creates_once_then_joins_and_rejects_a_wrong_passphrase() {
         let scratch = TempDir::new().unwrap();
@@ -4695,6 +4748,48 @@ mod tests {
         assert!(enroll(&transport, b"wrong")
             .unwrap_err()
             .contains("passphrase is wrong — mistyped"));
+    }
+
+    /// The live shape of a mistyped remote: the host is real and answers, the
+    /// hosted sync routes are not under the path that was typed. Every read
+    /// 404s, enrollment reads that as an empty store and mints, and the create
+    /// PUT 404s too. What the user must be told is the URL — not the internal
+    /// operation label and a bare status, which reads like the server broke.
+    #[test]
+    fn enrollment_against_a_url_that_serves_no_hosted_sync_names_the_url() {
+        let scratch = TempDir::new().unwrap();
+        let server = serve(&scratch.path().join("server-storage"));
+        let mistyped = format!("{}/not-the-blob-path", server.base_url());
+        let transport = HttpBlobStore::new(&mistyped, TEST_TOKEN).unwrap();
+
+        let error = enroll(&transport, b"correct horse battery staple").unwrap_err();
+        assert!(error.contains("no hosted sync server at"), "{error}");
+        assert!(error.contains(&mistyped), "the message must name the URL to check: {error}");
+        assert!(error.contains("check the vault sync URL"), "{error}");
+        assert!(!error.contains("status 404"), "the raw status must not be what surfaces: {error}");
+        assert!(!error.contains("key update"), "the internal label must not leak: {error}");
+    }
+
+    /// The same 404, read as itself on both document routes and the object
+    /// upload — and NOT on the read path, where a missing document is still
+    /// the first-enrollment answer rather than an error.
+    #[test]
+    fn a_url_that_serves_no_hosted_sync_reports_the_url_without_disturbing_reads() {
+        let scratch = TempDir::new().unwrap();
+        let server = serve(&scratch.path().join("server-storage"));
+        let mistyped = format!("{}/not-the-blob-path", server.base_url());
+        let transport = HttpBlobStore::new(&mistyped, TEST_TOKEN).unwrap();
+
+        assert!(transport.read_key(MAX_REF_ENVELOPE_BYTES).unwrap().is_none());
+        assert!(transport.read_ref(MAX_REF_ENVELOPE_BYTES).unwrap().is_none());
+
+        for error in [
+            transport.compare_and_swap_key(None, b"envelope").unwrap_err(),
+            transport.compare_and_swap_ref(None, b"envelope").unwrap_err(),
+            transport.put_object(&"a".repeat(64), b"object").unwrap_err(),
+        ] {
+            assert_eq!(error, missing_route_error(&mistyped), "{error}");
+        }
     }
 
     #[test]

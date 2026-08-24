@@ -2419,7 +2419,7 @@ export default function App() {
     [createEntry, notes, undoApi, refresh, reportCreateFailure]
   );
 
-  // The same write path, handed to the live ```view tables a hub, grid or
+  // The same write path, handed to the live ```view tables a hub or
   // workbook page renders. Dashboards were the one place a fence was
   // read-only purely because nobody passed the handlers down; the handlers
   // themselves are the editor fence's (undoable write, its failure toast).

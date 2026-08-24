@@ -42,7 +42,7 @@ export default function KindReviewCard(props: {
         trust !== review.trustUpdates
           ? kindsSetTrust(review.id, trust).catch((e) =>
               setError(
-                `Enabled — but the standing permission could not be saved: ${errText(e)}. Set it in Settings → Kinds.`,
+                `Enabled — but the standing permission could not be saved: ${errText(e)}. Set it in Settings → Vault.`,
               ),
             )
           : undefined,
@@ -114,7 +114,7 @@ export default function KindReviewCard(props: {
           yes to once. Offering it on a first enable would let one interaction
           both admit code nobody has read and pre-approve every future version
           of it, which is what §5.8, the Rust comment on `set_trust_updates`
-          and Settings → Kinds all say cannot happen.
+          and Settings → Vault all say cannot happen.
 
           And nothing is written from the tick: the box only carries a value
           into the enable press below. Writing it here would land

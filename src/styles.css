@@ -18576,7 +18576,7 @@ body.termhud-resizing-ew .termhud {
   color: var(--text-2);
 }
 
-/* Settings → Kinds: the consent list. A section of rows rather than
+/* Settings → Vault: the consent list. A section of rows rather than
    a control per key — each line is a thing the vault contains, not a
    preference — so the list carries no bullets and leans on the row idiom. */
 .settings-kinds-lead {

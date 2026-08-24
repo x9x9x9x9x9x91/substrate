@@ -13,7 +13,11 @@ import SendLinkDialog from "./SendLinkDialog";
 
 export type ShareMode = "link" | "lens" | "letterbox" | "publish";
 
-const MODES: { id: ShareMode; label: string; hint: string }[] = [
+/* `whole` marks a mode that acts on the note's whole folder rather than the
+   note. The door's title says what it is about to share, and a mode that
+   publishes a folder while the title names one note reads as an offer to
+   share that note. */
+const MODES: { id: ShareMode; label: string; hint: string; whole?: "folder" }[] = [
   { id: "link", label: "Send as link", hint: "one sealed copy, expires" },
 ];
 
@@ -45,6 +49,7 @@ export default function ShareDialog({
   }, [onClose]);
 
   const picked = MODES.find((m) => m.id === mode) ?? MODES[0];
+  const target = picked.whole === "folder" ? meta.folder || "the vault root" : meta.title;
 
   /* Letterbox is the one mode with two columns of settings to show, so it asks
      for a wider door. Only builds that carry that mode carry the class, which
@@ -63,7 +68,7 @@ export default function ShareDialog({
         role="dialog"
         aria-label="Share"
       >
-        <div className="dbform-title">Share “{meta.title}”</div>
+        <div className="dbform-title">Share “{target}”</div>
         {MODES.length > 1 && (
           <div className="sendlink-expiry" role="radiogroup" aria-label="How to share">
             {MODES.map((m) => (

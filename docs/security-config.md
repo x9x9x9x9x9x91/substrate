@@ -83,7 +83,8 @@ frame-src 'none'; frame-ancestors 'none'; form-action 'none'
   channel; the asset origins are there because waveform peaks `fetch()` the
   asset URL (`src/lib/assets.ts:153`). No remote origin is allowed: every
   outbound HTTP request the app makes goes through Rust (`src-tauri/src/net.rs`),
-  where the SSRF guard can see it. Four do: link capture reads a page's title
+  where the SSRF guard can see it. Four of them are the everyday feature
+  calls: link capture reads a page's title
   (`fetch_url_meta`); the finance surfaces read one USD→EUR rate from
   frankfurter (`fetch_usd_eur`, command `fx_usd_eur`); "Send as
   link" POSTs a sealed handoff payload to the user-configured relay
@@ -96,7 +97,21 @@ frame-src 'none'; frame-ancestors 'none'; form-action 'none'
   the webview first, and the key exists nowhere but the share link's
   `#fragment` (`src/lib/handoff.ts`, `scripts/handoff-relay/`).
 
-  Three of those four have an off switch in `Settings.md`, all default on:
+  **Model downloads are the other outbound path in this list**, and they are
+  not feature traffic. A model is fetched once, from a URL pinned in the
+  source under a pinned SHA-256 and an expected byte count, with every redirect
+  hop walked back through `guard_url` by hand rather than followed by the HTTP
+  client; the request sends no payload, and no model download has a
+  `Settings.md` switch — pressing its download button in Settings is the
+  consent, and nothing downloads a model on its own. Voice capture's speech
+  model arrives that way (`src-tauri/src/voice/whisper.rs:115`); asking for a
+  transcript without it is refused ("no speech model installed"), never
+  answered with a download. Voice is a public surface, so that is a shipped
+  feature with a network call behind it, and it belongs in any honest answer
+  to "what does this app talk to?".
+
+  Three of those four feature calls have an off switch in `Settings.md`, all
+  default on:
   `net-link-titles`, `net-fx-rates`, `net-share-relay` — joined by
   `net-letterbox` for the drop-box lane, `net-lens` for the shared-page lane
   and `net-lens-subscribe` for reading somebody else's shared page (all

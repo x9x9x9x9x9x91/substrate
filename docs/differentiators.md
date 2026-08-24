@@ -382,7 +382,7 @@ Capacities, Affine).*
   consent is pinned to those exact bytes, per vault and per device. Change a
   byte and it stops and asks again; a standing "trust updates to this kind"
   rider can only ever be granted after the first yes, never as part of it.
-  Settings → Kinds lists everything this vault has been told to run and takes
+  Settings → Vault lists everything this vault has been told to run and takes
   it back without deleting anything. Obsidian plugins are global to the app,
   installed from a store, and unsandboxed with no per-file consent; Notion and
   Anytype have no local code path at all. Rides the public release line:

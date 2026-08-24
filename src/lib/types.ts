@@ -1011,7 +1011,7 @@ export interface FactLane {
 }
 
 /** How long one fact has stood: the last time a person set it, with sweeps
-    skipped (shelf-life spec §2). `reviewed_ts_ms` is null in two different
+    skipped. `reviewed_ts_ms` is null in two different
     situations, which `only_bulk` tells apart — the fact has changed, but only
     ever inside a sweep (an import, a format migration, a mass rewrite), so its
     real age is unknown; versus a fact with no history at all. Dating a fact

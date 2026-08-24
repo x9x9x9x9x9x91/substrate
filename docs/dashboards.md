@@ -1400,7 +1400,7 @@ pre-approve every later version of it. Ticking it writes nothing on its own;
 it rides the enable press next to it, so the change in front of you is still
 consented to by hand.
 
-**Settings → Kinds** is the standing view: every bundle this vault has,
+**Settings → Vault** is the standing view: every bundle this vault has,
 what state it is in here, the rider (editable for a kind that is currently
 running), and *disable*. Disabling withdraws consent only — the folder, its
 files and its history stay exactly where they were, and re-enabling is the

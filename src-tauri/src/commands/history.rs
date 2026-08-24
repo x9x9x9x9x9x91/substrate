@@ -234,7 +234,7 @@ pub(crate) async fn history_facts(
 }
 
 /// How long each fact has stood — the last time a person set it, sweeps
-/// skipped (shelf-life spec §2). Batched and async for the same reasons
+/// skipped. Batched and async for the same reasons
 /// `history_facts` is; it shares that call's walk, so a surface showing both
 /// receipts and freshness pays one pass over the note.
 #[tauri::command]

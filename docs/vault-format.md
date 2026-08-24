@@ -2381,7 +2381,7 @@ for a kind the user is editing themselves, which is the agent-iteration loop.
 It re-enables at the new hash; it is not a standing exemption from hashing,
 and it never covers a first enable.
 
-Consent is also reviewable after the fact, in **Settings → Kinds**: what this
+Consent is also reviewable after the fact, in **Settings → Vault**: what this
 vault has, each one's state, the rider, and a disable verb. **Disabling never
 deletes** — the record goes, the folder stays.
 
@@ -4372,40 +4372,31 @@ no rules, which is the normal case.
 **No app surface implements this section any more.** The import assistant it
 was written for was removed in 2026-08; what stays here is the file contract,
 because vaults that already imported still hold the files, the vault still
-version-gates them (§5b), and an external tool that writes a `type:
-transaction` database has one shape to write to rather than an invented one.
-Two housekeeping paths still know the files exist without opening them as a
-surface: the version gate above, and the vault doctor (§15), which reports
+version-gates them (§5b, key `statementmappings`), and an external tool that
+writes a `type: transaction` database has one shape to write to rather than an
+invented one. Two housekeeping paths still know the files exist without opening
+them as a surface: that version gate, and the vault doctor (§15), which reports
 `.vault/statement-mappings.json` as corrupt config when it is not valid JSON.
-Read every "the app does X" below as the shape the files have, not as a
-surface you can open — in particular, nothing writes
-`statement-mappings.json` today.
+Nothing writes `statement-mappings.json` today; read what follows as the shape
+the files have, not as a surface you can open.
 
-A bank or broker CSV becomes ordinary notes in one database, `type:
-transaction`, so money sits in the same queryable substrate as everything
-else: filterable, joinable to a project or a client note, and readable by any
-tool that reads markdown.
-
-**System of record, never the fetcher.** Nothing in this feature opens a
-socket. There is no bank API, no credential, no scraping and no background
-fetch — the input is a file the account holder downloaded. That absence is
-deliberate and permanent: there is nothing to revoke because there is nothing
-to grant.
+Nothing in this section opens a socket. There is no bank API, no credential and
+no fetch — the input was always a file the account holder downloaded.
 
 ### The transaction schema
 
-Created (or extended) on first import through the same `vault_create_type`
-path as any other database:
+An ordinary database, created through the same `vault_create_type` path as any
+other:
 
 | prop | kind | notes |
 | --- | --- | --- |
-| `date` | date | ISO, resolved from the export's declared order |
+| `date` | date | ISO |
 | `amount` | number | **unit column**: the value carries its currency (`-1234.56 EUR`) |
 | `counterparty` | text | payee/payer as the bank wrote it |
 | `account` | text | which account the row came from |
 | `reference` | text | the bank's reference/purpose text |
 | `category` | text | filled by a rule (§8e) when one matches, else empty |
-| `signature` | text | the dedupe key, written so the next import can use it |
+| `signature` | text | the dedupe key (below) |
 
 `amount` is a number prop whose `format` is a currency code (§6), so rows keep
 their own currency: a dollar row in a euro-formatted column renders converted
@@ -4414,12 +4405,18 @@ canonically — integers bare (`2500 EUR`), everything else with exactly two
 decimals — so a value is never re-read as a grouped number under a different
 number dial.
 
+`signature` is `date | canonical amount with currency | folded account |
+folded reference`, where folding lowercases and drops everything that is not
+alphanumeric. Rows imported from a typed statement (`camt.053`) instead carry
+`servicing reference | folded account | folded entry reference | date |
+canonical amount with currency`. Both forms are recorded because existing notes
+hold them; nothing re-keys itself.
+
 ### `.vault/statement-mappings.json` — saved column mappings
 
-Which column is which, answered once per bank and then never again.
-Hand-editable, diffable, syncable — and, since the import surface came out,
-hand-written or tool-written only. Missing file = no mappings yet, which is
-the normal state of a vault that has not imported a statement.
+Which column is which, answered once per bank. Hand-editable, diffable,
+syncable — and, since the import surface came out, hand-written or tool-written
+only. Missing file = no mappings, which is the normal state of a vault.
 
 ```json
 {
@@ -4453,228 +4450,24 @@ the normal state of a vault that has not imported a statement.
 }
 ```
 
-- `id` — a slug derived from `bank`; replace-or-append by id, so saving twice
-  under one bank leaves one entry.
-- `delimiter` — `,`, `;` or a tab. Non-English exports are routinely
-  semicolon-separated, and reading one of those with a comma yields a single
-  column of intact-looking garbage.
+- `id` — a slug derived from `bank`; unique in the file, replace-or-append by
+  id.
+- `delimiter` — `,`, `;` or a tab.
+- `headers` — whether the export carries a header row. With `false`, columns
+  are named `Column 1`…`Column n`.
 - `dateOrder` — `iso`, `dmy` or `mdy`. Declared, never guessed per row:
-  `03.04.2026` is genuinely ambiguous and a per-row guess is how importers
-  silently move money between months. An impossible date (`31.02.2026`) is
-  reported as an unreadable row, not rolled forward. A booking time on the
-  cell (`04.03.2026 12:00`) is read in the declared order and the time
-  discarded; a cell in any other shape — `March 4 2026` — is an unreadable
-  row rather than a date parsed by guesswork under some other calendar
-  convention.
+  `03.04.2026` is genuinely ambiguous.
 - `numberLocale` — one of the number locales in §6, and it is the **bank's**
-  dialect, not the reader's: changing the app's number display does not change
-  how an export parses.
+  dialect, not the reader's.
 - `currency` — a fixed code for exports that don't carry one per row; `null`
   when the file has a currency column. `account` likewise fixes the account
   name for files that don't name it.
 - `columns` — statement field → column name. Either a signed `amount` column,
-  or a `debit`/`credit` pair which is folded to a signed amount (money out
-  negative). A row with both non-empty is reported, not guessed.
+  or a `debit`/`credit` pair meaning money out negative. Unmapped fields are
+  simply absent.
 - `headerSet` — optional, the export's whole header row as this mapping last
-  saw it. It is what tells one bank's export from another's: `Date`, `Amount`
-  and `Currency` are named the same at half the banks in the world, so a
-  mapping is only applied unasked when the header sets agree exactly. A
-  mapping written before this field existed (or hand-written without it) falls
-  back to the older, looser test — every mapped column name present. For an
-  export with `headers: false` there is no header row to compare: the columns
-  are named `Column 1`…`Column n`, so the exact-agreement test is a check that
-  the two files are the same width, and two headerless exports of equal width
-  are not told apart.
-- Unmapped fields are simply absent. A column the assistant cannot recognise
-  is left for the human to map rather than being attached to a plausible
-  field.
-
-### Dedupe — overlapping export windows
-
-Bank exports have no Message-ID, and downloading January and Q1 means the same
-row arrives twice. The heuristic is deliberately narrow and its failures are
-visible:
-
-- **Signature** (the strong key, stored on the note): `date | canonical amount
-  with currency | folded account | folded reference`. Folding lowercases and
-  drops everything that is not alphanumeric, so a bank that re-punctuates its
-  own reference text still matches.
-- **Where the file carries an identifier the bank assigned** (a typed
-  statement — see below — never a CSV export), the signature is that
-  identifier instead: `ref | folded account | folded entry reference | date |
-  canonical amount with currency`. Scoped to the account because a servicing
-  reference is unique per account, not per bank; scoped to the day and the
-  amount because an identifier is only as unique as the bank that wrote it
-  made it, and a reused one must not be able to swallow a different
-  transaction. Only the servicing bank's own `AcctSvcrRef` counts as an
-  identifier — the payer-set ids do not, and the reason is below. Rows written
-  before an identifier existed carry the composite key and keep matching on
-  it — nothing re-keys itself.
-  Read back off a note, the entry reference is recovered from the stored
-  signature's third field, so it round-trips only in its **folded** form:
-  lowercase, alphanumerics only. That is enough to key on and not enough to
-  show as the bank wrote it.
-- **Weak key**: the same minus the reference.
-- Counterparty is in **neither** key. Banks rewrite payee strings between
-  exports; a name change is not a different payment. It is shown in the review
-  step instead, where a human can read it.
-- Matching is **multiset** counting, not set membership: an export carrying a
-  row more often than the vault holds it does not collapse the surplus away —
-  but nor does it write it. The surplus copy goes to the review step below as
-  `surplus-identical`, where a human says whether the day really carried two
-  identical charges. A repeated export window and a genuinely doubled charge
-  look the same on paper, and only the account holder knows which it was.
-
-Every incoming row lands in exactly one of three buckets, and the third is the
-point:
-
-1. **already here** — signature matches an unconsumed existing row. Collapsed.
-2. **new** — no match. Imported.
-3. **to decide** — surfaced in a review step, unticked, never resolved
-   silently:
-   - `reference-differs` — same date, amount and account, different reference
-     text.
-   - `surplus-identical` — the export carries this exact row more often than
-     the vault holds it.
-
-   `reference-differs` is skipped where **both** sides carry a bank-assigned
-   identifier and the identifiers differ: the file has then said outright that
-   these are two entries, and two card payments of the same amount on one day
-   are an ordinary Tuesday. A collision with any row that carries no
-   identifier — every CSV row, every hand-written one — goes to review as
-   before.
-
-Nothing in bucket 3 is imported unless the human ticks it — the default for a
-row nobody read is therefore **not written**. The design cost is a review step
-and the risk of a real second charge going unticked; the design refusal is a
-silent merge or a silent double.
-
-### CAMT.053 — the typed statement
-
-ISO 20022 bank statements (`camt.053`, the XML export every German bank offers
-next to its CSV) import into the **same** `transaction` database, through the
-same dedupe, the same category rules and the same review step. Nothing
-downstream knows there are two formats.
-
-What changes is everything the CSV path has to ask about:
-
-| the CSV path asks | the typed statement answers |
-| --- | --- |
-| which column is the amount | `Ntry/Amt` |
-| which dialect the numbers are in | one: dot-decimal, no grouping |
-| which currency | the `Ccy` attribute on the amount, per entry |
-| which order the dates are in | `BookgDt`/`ValDt`, ISO, unambiguous |
-| how the sign is written | `CdtDbtInd` (`DBIT`/`CRDT`), with `RvslInd` flipping a reversal |
-| whether this row is that row | `AcctSvcrRef` — and only that |
-
-**Detection is by content, not extension.** A file is read as a typed
-statement when its head carries a `Document` element (with or without a
-namespace prefix) and names the `camt.053` message family. `.xml` is a
-filename, not a format; the picker offers it, the content decides. The picker
-offers exactly `csv` and `xml` for this flow, and nothing about the choice
-there decides which reader runs.
-
-Two limits of that test, both deliberate:
-
-- **`camt.053` only.** `camt.052` is the intraday report — provisional entries
-  the day's real statement re-books — and importing those would post money the
-  bank has not booked yet.
-- **The head is the first 4096 bytes.** The markers sit in the first two lines
-  of every statement a bank writes, and reading only the head keeps detection
-  off the length of the file. A file that buries its document element behind a
-  longer preamble than that is not recognised as typed and falls through to the
-  CSV path's questions — the mapping assistant, asked to name the columns of an
-  XML file. That is visibly wrong to the reader rather than quietly wrong in the
-  ledger, but it is a limit worth knowing.
-
-**No mapping step.** Because nothing is ambiguous, there is nothing to ask:
-the assistant opens directly on the review step, and no mapping is written to
-`statement-mappings.json` — a mapping describes columns, and this file has
-none.
-
-Reading rules, all of them refusals rather than guesses:
-
-- **Date** is the booking date; the value date is read only where an entry's
-  booking date cannot be read — either because it is absent, or because what is
-  there is not a day (a `2026-02-31` is refused, not rounded into March). An
-  entry with neither readable date is reported, not dated by guess. Booking day
-  is what a bank's CSV export writes in
-  its `Buchungstag` column, so the two formats of one transaction land on the
-  same day rather than a day apart.
-- **Amount** is `Amt` read as dot-decimal, signed from `CdtDbtInd` — money out
-  negative — and flipped again by `RvslInd`, so a reversal is not posted as a
-  second charge.
-- **Currency** is the entry's `Ccy` attribute, falling back to the statement's
-  `Acct/Ccy`. A code the vault's unit registry does not know stops the row
-  with a reason; it is never replaced with a default.
-- **Counterparty** follows the direction: money out names `RltdPties/Cdtr`,
-  money in names `Dbtr`, and the other side is read only when the expected one
-  is absent.
-- **Reference** is every `RmtInf/Ustrd` line joined in file order, falling back
-  to `AddtlNtryInf` and then to the payer-set id (`Refs/EndToEndId`, else
-  `Refs/TxId`) as plain text — text a reader can recognise a card payment by,
-  never a key.
-- **A batched booking** (one `Ntry` carrying several `TxDtls`, or a
-  `Btch/NbOfTxs` above one — the German bank's *Sammelbuchung*) posts as the
-  batch, not as its first member: the counterparty column says `batched entry,
-  N transactions`, the reference is only what the booking itself carries, and
-  the key is the booking's own `AcctSvcrRef`. Borrowing the first member's
-  payee and identifier would put the batch TOTAL under one member's name, and a
-  later single-entry export of that member would then dedupe against it and
-  vanish. One honest edge: a batch the bank left nameless — no entry-level
-  `AcctSvcrRef` and no `AddtlNtryInf` — keys on day, amount and account with
-  an empty reference, so two such batches of the same total on the same day
-  are indistinguishable. Imported in one file the second lands in the review
-  step as surplus-identical; split across two imports it reads as the
-  overlapping-window duplicate and is dropped. A bank that puts `AcctSvcrRef`
-  on its batches keeps them apart; a differing `AddtlNtryInf` only downgrades
-  the silent drop to a review row.
-- **Account** is the statement's own `Acct/Id/IBAN`, then `Acct/Id/Othr/Id`,
-  then the owner name. Every entry in a statement belongs to the account it was
-  cut for.
-- **Entry reference** is `AcctSvcrRef` and nothing else — the account
-  servicer's own reference, the one value the servicing bank assigns per entry
-  and the one that survives a re-export. The payer-set ids are deliberately
-  **not** identifiers: an `EndToEndId` belongs to the payment order rather than
-  to the booking, so a SEPA standing order repeats the same one every month,
-  and keying on it would make February's rent a duplicate of January's and drop
-  it in silence. `TxId` is the payer's bank's, with the same freedom. Both are
-  read as reference text instead. Placeholder text (`NOTPROVIDED` and friends)
-  counts as no identifier at all, because a statement whose every entry keyed
-  on `NOTPROVIDED` would collapse into one row.
-- **A reversal indicator** is read as the XSD boolean it is — `true`/`1`,
-  `false`/`0`, absent means false. Any other spelling stops the entry with a
-  reason: read as "probably not reversed", it would put a refund on the wrong
-  side of the ledger.
-- **Element lookup ignores namespaces.** `camt.053.001.02` through `.08` are
-  all in the field and banks send whichever their core system speaks; binding
-  to one namespace URI would reject next year's file for a reason that has
-  nothing to do with its contents.
-
-An entry that cannot be read is reported by its position in the file (there
-are no lines to point at) and not imported — the same rule the CSV path
-follows.
-
-**The fence is the same one.** No bank API, no credential, no EBICS, no
-scraping, no socket: the input is a file the account holder downloaded by
-hand. The typed format is a better file, not a connection.
-
-A CSV export and a typed statement of the *same* transaction do not dedupe
-against each other exactly — the CSV row carries no identifier, so the two
-meet on the weak key and land in the review step, where a human decides.
-That is the honest outcome of importing one bank through two formats; the
-answer is to pick one format per account.
-
-**And they only meet at all when the account labels agree.** The weak key
-carries the folded account, and the two formats do not name the account the
-same way by default: a typed statement's account is the statement's own IBAN,
-while a CSV import's is whatever the mapping's `account` field says — free
-text, often a nickname like `Giro EUR`. Different labels mean different weak
-keys, so the CSV row and the typed row never collide at all and both import:
-one transaction, twice in the ledger, with nothing surfaced to review. Where a
-bank really has to be read through both formats, the mapping's `account` must
-be set to the same IBAN the statement carries. This is the second reason to
-pick one format per account, and the sharper one.
+  saw it. It is what tells one bank's export from another's, since `Date`,
+  `Amount` and `Currency` are named the same at half the banks in the world.
 
 ## 8e. `.vault/statement-rules.json` — transaction category rules
 

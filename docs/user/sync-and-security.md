@@ -57,6 +57,18 @@ needs encryption at rest. The fuller threat model is in
   gates uploads.
 - **Currency conversion:** opening a sheet or a dashboard requests the one public
   USD→EUR reference rate from `api.frankfurter.dev`. No note content is included.
+- **A subscribed calendar:** a calendar you add by URL is re-read from that
+  address on a schedule, so the events stay current. The request goes only to
+  the address you entered (and checked public redirects); no note content is
+  included.
+- **The speech model, once:** pressing the download button in Settings fetches
+  the offline speech model Substrate transcribes with — about 574 MB, from a
+  fixed address baked into the app, checked against a fixed checksum before it
+  is installed. Asking for a transcript before that just tells you the model
+  is missing; nothing downloads on its own. Nothing is uploaded, and there is
+  no other moment at which voice capture touches the network: recording and
+  transcription both run on your Mac. If you never press it, the download
+  never happens.
 
 Opening an ordinary note or database makes none of those requests. Links you
 choose to open behave like links in any other desktop app and open in the
