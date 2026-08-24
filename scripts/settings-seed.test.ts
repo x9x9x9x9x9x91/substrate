@@ -33,6 +33,13 @@ const shared = pane.replace(new RegExp(`${MARK}-start[\\s\\S]*?${MARK}-end`, "g"
 /** Every settings key the ⌘, form manages (the FIELDS array). */
 const paneKeys = [...shared.matchAll(/^\s*key: "([^"]+)"/gm)].map((m) => m[1]);
 
+/** Every key the FIELDS array carries, fenced rows included. */
+const allKeys = [...pane.matchAll(/^\s*key: "([^"]+)"/gm)].map((m) => m[1]);
+
+/** The keys only the private build shows: a fenced row is stripped out of the
+    public build, so its switch has no field there and no code that reads it. */
+const fencedKeys = allKeys.filter((k) => !paneKeys.includes(k));
+
 /** The seeded Settings.md body: the SETTINGS_BODY literal (split off
     the frontmatter so the body can be refreshed in existing vaults). */
 const seedFn = /pub\(crate\) const SETTINGS_BODY: &str = "([\s\S]*?)";/.exec(seed);
@@ -46,4 +53,27 @@ test("every ⌘, pane key is documented in the seeded Settings.md body", () => {
   const body = seedFn![1];
   const missing = paneKeys.filter((k) => !body.includes("- `" + k + "`"));
   assert.deepEqual(missing, [], `keys missing a bullet in seed.rs seed_settings: ${missing.join(", ")}`);
+});
+
+test("the fenced settings keys are the ones this suite expects", () => {
+  // The public mirror ships this file with the fenced rows and the markers both
+  // stripped, so there is no fence set to assert on there; the private tree is
+  // where the fence set is enforced.
+  if (!pane.includes(MARK)) return;
+  // the seeded body must document neither, and a promotion that takes a fence
+  // off is exactly when its bullet is owed — so name them rather than trust
+  // the strip regex alone
+  for (const k of ["net-letterbox", "net-lens"]) {
+    assert.ok(fencedKeys.includes(k), `${k} is no longer a fenced pane key — if it was promoted, give it a bullet in seed.rs SETTINGS_BODY and drop it from this list`);
+  }
+});
+
+test("no fenced pane key is documented in the seeded Settings.md body", () => {
+  // The public mirror ships this file with the fenced rows and the markers both
+  // stripped, so there is no fence set to assert on there; the private tree is
+  // where the fence set is enforced.
+  if (!pane.includes(MARK)) return;
+  const body = seedFn![1];
+  const leaked = fencedKeys.filter((k) => body.includes("- `" + k + "`"));
+  assert.deepEqual(leaked, [], `seed.rs seed_settings documents keys the public build has no field for: ${leaked.join(", ")}`);
 });
