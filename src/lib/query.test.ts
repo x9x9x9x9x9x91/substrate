@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import type { NoteMeta, PropSchema } from "./types.ts";
 import {
   compareTarget,
+  commitTrailingFilter,
   completeFilter,
   completeKey,
   filterCompletions,
@@ -1168,4 +1169,23 @@ test("filterDeadEndHint: a folder's name typed bare suggests folder: (SUB-1187)"
     text: "did you mean category:mixer?",
     fixedQuery: "category:mixer",
   });
+});
+
+test("commitTrailingFilter finishes the expression Enter was pressed on", () => {
+  const num: Record<string, PropSchema> = { rating: { options: [], kind: "number" } };
+  assert.equal(commitTrailingFilter("status:mixing"), "status:mixing ");
+  assert.equal(commitTrailingFilter("slow status:mas"), "slow status:mas ");
+  assert.equal(commitTrailingFilter("-status:live"), "-status:live ");
+  assert.equal(commitTrailingFilter("category:Label,Fes"), "category:Label,Fes ");
+  assert.equal(commitTrailingFilter("Status: mastering"), "Status: mastering ");
+  assert.equal(commitTrailingFilter("due < 2026-08-01"), "due < 2026-08-01 ");
+  assert.equal(commitTrailingFilter("rating >= 8", undefined, num), "rating >= 8 ");
+  // nothing to commit: no stub, no operand, or an operand that resolves to
+  // neither a day nor a number — none of them may push an empty filter
+  assert.equal(commitTrailingFilter(""), null);
+  assert.equal(commitTrailingFilter("status:live "), null);
+  assert.equal(commitTrailingFilter("slow bloom"), null);
+  assert.equal(commitTrailingFilter("status:"), null);
+  assert.equal(commitTrailingFilter("due <"), null);
+  assert.equal(commitTrailingFilter("rating >= 8"), null);
 });

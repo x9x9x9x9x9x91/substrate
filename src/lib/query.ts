@@ -645,6 +645,21 @@ export function completeFilter(q: string, key: string, value: string, op: Filter
   return q.replace(/\p{L}[\p{L}\p{N}_#-]*\s*(?:<=|>=|<|>)\s*\S*$/u, `${key} ${op} ${v}`) + " ";
 }
 
+/** Enter on a still-typed filter: the committed spelling of `q`, or null
+    when there is nothing to commit. A trailing stub only becomes a filter
+    once the token is finished, which until now meant typing a space — so the
+    last expression a reader typed narrowed nothing. Committing IS that space:
+    the same parse decides, so `rating:` and `due <` (no operand yet) and an
+    operand that resolves to neither a day nor a number all return null rather
+    than push an empty filter. */
+export function commitTrailingFilter(q: string, today = todayIso(), schema?: QuerySchema): string | null {
+  const parsed = parseQuery(q, today, schema);
+  if (!parsed.trailing) return null;
+  const committed = `${q.trimEnd()} `;
+  if (parseQuery(committed, today, schema).filters.length <= parsed.filters.length) return null;
+  return committed;
+}
+
 /** A dead-end hint under a filter bar's zero rows: `text` is the
     one-line muted hint; `fixedQuery`, when present, is the corrected query a
     click applies. */

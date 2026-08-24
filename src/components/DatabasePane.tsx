@@ -31,7 +31,7 @@ import {
 } from "../lib/pendingprops";
 import { useUndo } from "../lib/undoContext";
 import { nextUndoId } from "../lib/undo";
-import { completeFilter, completeKey, filterCompletions, filterDeadEndHint, filterInherits, filterLabel, keyCompletions, matchesFilters, parseQuery } from "../lib/query";
+import { commitTrailingFilter, completeFilter, completeKey, filterCompletions, filterDeadEndHint, filterInherits, filterLabel, keyCompletions, matchesFilters, parseQuery } from "../lib/query";
 import { filterByQuery, saveViewHint } from "../lib/views";
 import { exportDbCsv, exportDbPdf } from "../lib/export";
 import { todayIso } from "../lib/dates";
@@ -80,6 +80,7 @@ import {
   MAX_COL_W,
   MIN_COL_W,
   PropVisMenu,
+  SortMenu,
   WIN_HEAD_H,
   WIN_MIN,
   WIN_OVERSCAN,
@@ -209,6 +210,11 @@ interface DatabasePaneProps {
     keyframe in styles.css — long enough to catch out of the corner of an eye,
     short enough that it is gone before the next edit. */
 const CELL_FLASH_MS = 700;
+
+/** How long "Saved" stays in the filter row after a view is written. Long
+    enough to read without looking for it, short enough that the row is back
+    to its working state before the next thing typed. */
+const SAVED_FLASH_MS = 1600;
 
 /** The empty "these notes refused the write" map, shared so a reset
     is referentially stable (same trick as EMPTY_SEL). */
@@ -602,9 +608,43 @@ export default function DatabasePane({
     () => normalizedPref?.sorts ?? [],
     [normalizedPref?.sorts]
   );
+  // One write path for the whole ordered list — the header's cycle and the
+  // sort popover's toggles, reorders and removals all land here, so the two
+  // surfaces can never drift into two models of the same state.
+  const setSorts = (next: SavedViewSort[]) => {
+    patchPref({ sorts: next.length > 0 ? next : undefined });
+  };
+  // What the sort popover may add: the Name column plus the displayed
+  // properties, in column order. Any key already sorted stays on the list
+  // even if its column is hidden, so a sort you can no longer see is still a
+  // sort you can drop.
+  const sortableKeys = useMemo(() => {
+    const base = ["title", ...shown];
+    return [...base, ...sorts.map((s) => s.key).filter((k) => !base.includes(k))];
+  }, [shown, sorts]);
   // the filter bar: a query string over this database's notes
   const [query, setQuery] = useState(initialQuery ?? "");
   const [namingView, setNamingView] = useState(false);
+  /* A save leaves no trace of itself: the naming field just closes, and the
+     pin it wrote is one tab among several (or, on an update, a tab that
+     already looked like that). So the row says "Saved" for a moment — the
+     one word deviation earns, in the place the reader is already looking. */
+  const [savedFlash, setSavedFlash] = useState(false);
+  const savedTimer = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (savedTimer.current !== null) clearTimeout(savedTimer.current);
+    },
+    []
+  );
+  const flashSaved = useCallback(() => {
+    if (savedTimer.current !== null) clearTimeout(savedTimer.current);
+    setSavedFlash(true);
+    savedTimer.current = setTimeout(() => {
+      savedTimer.current = null;
+      setSavedFlash(false);
+    }, SAVED_FLASH_MS) as unknown as number;
+  }, []);
   // Right-click on the pane's empty space — the create menu. Rows,
   // cards, chips and the header row all preventDefault in their own handlers
   // first (bubbling), so a prevented event means "already handled here".
@@ -1439,8 +1479,7 @@ export default function DatabasePane({
   // plain click replaces the sort (asc → desc → none); shift-click adds or
   // cycles a secondary key — the state machine lives in lib/dbsort
   const cycleSort = (key: string, additive: boolean) => {
-    const next = cycleSortKeys(sorts, key, additive);
-    patchPref({ sorts: next.length > 0 ? next : undefined });
+    setSorts(cycleSortKeys(sorts, key, additive));
   };
 
   // A note's props AS STORED. Key resolution (foldedPropKey) has to
@@ -2329,7 +2368,7 @@ export default function DatabasePane({
   // the filter row renders only on demand: an active query, the naming flow,
   // keyboard focus, or the funnel toggle keep it on screen — an empty
   // untouched bar reclaims its vertical space
-  const showFilter = namingView || query.trim() !== "" || filterOpen || filterFocused;
+  const showFilter = namingView || savedFlash || query.trim() !== "" || filterOpen || filterFocused;
 
   // Row 2 — the Notion pattern: a view tab strip ("All" + one tab per saved
   // view, right-click = the pin's manage menu, ＋ = save-view naming) with
@@ -2430,6 +2469,10 @@ export default function DatabasePane({
             onClose={() => setGroupMenu(null)}
           />
         )}
+        {/* The sort's own surface — the same ordered key list the table
+            headers write, on every layout. A board or a gallery has no
+            headers, so this is the only place their sort is visible at all. */}
+        <SortMenu keys={sortableKeys} sorts={sorts} onChange={setSorts} />
         {(layout === "table" || layout === "list") && (
           <ColumnsMenu columns={columns} checked={curated ?? null} onToggle={toggleColumn} />
         )}
@@ -2499,6 +2542,9 @@ export default function DatabasePane({
           onCommit={(name) => {
             setNamingView(false);
             onSaveView(name, { query: query.trim(), sorts, view: layout, groupBy, tableGroupBy: tableGroup, columns: colCapture });
+            // both presses land here — the update of an open pin and the
+            // pinning of a new name — so both confirm the same way
+            flashSaved();
           }}
           onCancel={() => setNamingView(false)}
         />
@@ -2522,6 +2568,17 @@ export default function DatabasePane({
                 // same key, one rung earlier: the word becomes the operator
                 e.preventDefault();
                 setQuery(completeKey(query, keyHints[0]));
+              } else if (e.key === "Enter") {
+                // The last expression typed is a stub until its token ends,
+                // and a reader who has finished typing presses Enter, not
+                // space — so Enter finishes it. A stub with no operand
+                // (`rating:`, `due <`) commits nothing and the keystroke is
+                // left to do what it did before.
+                const committed = commitTrailingFilter(query, undefined, typeSchema);
+                if (committed) {
+                  e.preventDefault();
+                  setQuery(committed);
+                }
               } else if (e.key === "Escape") {
                 e.preventDefault();
                 if (query) setQuery("");
@@ -2561,6 +2618,13 @@ export default function DatabasePane({
           >
             <XIcon />
           </button>
+          {/* Last in the row, so the confirmation never shifts the input the
+              cursor sits in (design-principles.md 4) */}
+          {savedFlash && (
+            <span className="db-filter-saved" role="status">
+              Saved
+            </span>
+          )}
         </>
       )}
     </div>
