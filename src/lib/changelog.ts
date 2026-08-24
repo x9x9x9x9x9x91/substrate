@@ -110,6 +110,42 @@ export function splitLead(text: string): { lead: string; rest: string } | null {
 
 export const CHANGELOG: ChangelogRelease[] = [
   {
+    version: "0.28.0",
+    date: "2026-08-24",
+    title: "The palette leaves the house, and a board moves into the vault",
+    items: [
+      {
+        text: "Summon Substrate from anywhere: the everywhere palette ships for everyone — ⌥Space floats quick capture over whatever you're doing without stealing focus, and ⌘K inside pivots to the palette: search the vault, jump the main window to a note, or file a line to the Inbox carrying what you typed. A chord straight to the palette is yours to set in Settings.",
+        kind: "new",
+        headline: true,
+      },
+      {
+        text: "The Yield APR built-in left the app — boards like it now live in the vault: a `.vault/kinds/` bundle (a manifest, a module and a stylesheet) renders a board the app mounts, and the kind API grew ctx.fx (the app's FX table) and ctx.setUndo (a board owns the undo chord for its own edits). A note still saying `dashboard: yield-apr` without a bundle shows the unknown-kind card.",
+        kind: "new",
+      },
+      {
+        text: "A new mark: the app icon is a carved knockout star.",
+        kind: "improved",
+      },
+      {
+        text: "On the phone, Settings opens from the drawer, and sheets fill the screen instead of floating in a desktop-sized frame.",
+        kind: "improved",
+      },
+      {
+        text: "On iPhone, sharing a bare link into Substrate lands it as a reference note instead of a one-line text note.",
+        kind: "improved",
+      },
+      {
+        text: "On iPhone, focusing a text field no longer leaves the page zoomed — the webview holds 1:1.",
+        kind: "fixed",
+      },
+      {
+        text: "Joining a hosted vault adopts the vault's format sidecar on first join instead of parking it as a conflict.",
+        kind: "fixed",
+      },
+    ],
+  },
+  {
     version: "0.27.0",
     date: "2026-08-23",
     title: "The day gets a spine, and every exit is one door",
