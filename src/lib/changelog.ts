@@ -231,7 +231,7 @@ export const CHANGELOG: ChangelogRelease[] = [
         kind: "new",
       },
       {
-        text: "The dashboard family goes public: cards, charts, progress thermometers, calendar grids, heatmaps and timelines are documented kinds with slash commands, joined by boards for scheduled jobs, repo health, folder sync, and tax season. ⌘K creates a dashboard by name with a starter note, and the cookbook comes to you — browse and install recipes inside the app, a ready personal-finance workbook included.",
+        text: "The dashboard family goes public: cards, charts, progress thermometers, calendar grids, heatmaps and timelines are documented kinds with slash commands, joined by a board for tax season. ⌘K creates a dashboard by name with a starter note, and the cookbook comes to you — browse and install recipes inside the app, a ready personal-finance workbook included.",
         kind: "new",
       },
       {
@@ -617,10 +617,6 @@ export const CHANGELOG: ChangelogRelease[] = [
         kind: "new",
       },
       {
-        text: "The sync dashboard reads as sentences — each backup leg states its finding in plain words, with hairline rows and ticks that stay put at any window width.",
-        kind: "improved",
-      },
-      {
         text: "The news feed has a refresh button that sends your curator out for a fresh sweep instead of waiting for the next scheduled one.",
         kind: "new",
       },
@@ -686,10 +682,6 @@ export const CHANGELOG: ChangelogRelease[] = [
       {
         text: "The sidebar de-nests saved views, wears curated folder and dashboard icons, and drops the Sketchpad entry — Notes now lists only untyped, unfiled notes.",
         kind: "improved",
-      },
-      {
-        text: "The coding dashboard aligns lane age, behind-count, and commit age to shared rails.",
-        kind: "fixed",
       },
     ],
   },
@@ -769,10 +761,6 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         text: "A calorie surface: log meals against a daily band, with undo, a day strip, and a seven-day average.",
-        kind: "new",
-      },
-      {
-        text: "A coding dashboard listing your repositories sorted by what needs attention.",
         kind: "new",
       },
       {
@@ -910,14 +898,6 @@ export const CHANGELOG: ChangelogRelease[] = [
         text: "Today is a day-agenda decision surface — what is scheduled, due, overdue, and picked, in one place.",
         kind: "new",
         headline: true,
-      },
-      {
-        text: "The sync dashboard became a control surface: start, inspect, and hold your backup jobs from the app.",
-        kind: "new",
-      },
-      {
-        text: "Sync refuses to start a run while a sweep is already in flight.",
-        kind: "fixed",
       },
       {
         text: "Restoring an old version of a note now lands in the open editor instead of being overwritten.",

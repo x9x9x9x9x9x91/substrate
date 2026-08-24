@@ -1110,20 +1110,6 @@ export const TIPS: TipEntry[] = [
     },
   },
   {
-    selector: ".sync-run-all, .sync-run, .sync-verify, .coding-refresh",
-    tip: (element) => ({
-      title: elementLabel(element, "Run now"),
-      body: "Start this job immediately instead of waiting for its schedule.",
-    }),
-  },
-  {
-    selector: ".sync-pause, .sync-resume",
-    tip: (element) => ({
-      title: elementLabel(element, "Pause job"),
-      body: "Stop this sync leg from running on its schedule, or let it resume.",
-    }),
-  },
-  {
     selector: ".proxy-quota-bar",
     tip: {
       title: "Quota used",
@@ -1131,14 +1117,7 @@ export const TIPS: TipEntry[] = [
     },
   },
   {
-    selector: ".sync-row, .sync-leg",
-    tip: (element) => ({
-      title: elementLabel(element.querySelector(".sync-dir-title") ?? element, "Sync leg"),
-      body: "One source-to-destination copy. The line shows its last result and next run.",
-    }),
-  },
-  {
-    selector: ".sync-errlog, .coding-err, .sync-action-err",
+    selector: ".sync-action-err",
     tip: {
       title: "Last error",
       body: "The tail of the failing run's output, kept so you can see why it stopped.",
@@ -1156,20 +1135,6 @@ export const TIPS: TipEntry[] = [
     tip: (element) => ({
       title: elementLabel(element.querySelector(".tax-name") ?? element, "Incomplete entry"),
       body: "A booked line the export could not complete. The words at the end name the fields still missing.",
-    }),
-  },
-  {
-    selector: ".jobs-chip",
-    tip: (element) => ({
-      title: elementLabel(element, "Job state"),
-      body: "The agent's last exit status, its recent runs by outcome, or a freshness probe on what it writes.",
-    }),
-  },
-  {
-    selector: ".jobs-row",
-    tip: (element) => ({
-      title: elementLabel(element.querySelector(".jobs-name") ?? element, "Scheduled agent"),
-      body: "One launchd agent, with its schedule and last result. Only the labels this note lists get buttons; the rest are read-only.",
     }),
   },
   {

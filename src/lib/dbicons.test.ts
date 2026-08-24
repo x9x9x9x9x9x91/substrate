@@ -236,10 +236,7 @@ test("dashboardIcon: icon prop wins, then the per-kind mark, else undefined (SUB
   // per-kind curated marks — every mapped kind resolves to a real glyph
   for (const kind of [
     "food",
-    "sync",
-    "jobs",
     "tax",
-    "coding",
     "metrics",
     "hub",
     "feed",

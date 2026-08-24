@@ -478,62 +478,6 @@ export const mockNotes: MockNote[] = [
       "```progress\nlabel: Broken goal\nvalue: count\ntarget: 5\n```\n",
   },
   {
-    // sync dashboard seed: `dashboard: sync` — the SyncDashboard reads the
-    // machine's sync state over IPC (the sync_state_read mock lane below), so
-    // the body is prose only. Old updated_ms keeps it out of the Today
-    // recency grid. This is the note syncmanager.spec navigates to.
-    path: "Dashboards/Sync.md",
-    stem: "Sync",
-    title: "Sync",
-    folder: "Dashboards",
-    props: { type: "dashboard", dashboard: "sync", created: "2026-07-17" },
-    updated_ms: now - 9 * 86_400_000,
-    excerpt: "sync control surface — legs, remotes, launchd automation.",
-    body: "Backup-sync control surface. The dashboard reads the machine's live sync state — per-leg status, direction sweeps, launchd automation — so there is nothing to edit in this prose.\n",
-  },
-  {
-    // jobs dashboard seed: `dashboard: jobs` — vault-as-config.
-    // `prefixes` narrows the launchd allowlist, `control` opts individual
-    // labels into pause/run buttons (everything else stays read-only), and
-    // `freshness` maps a job to the artifact it is supposed to keep fresh.
-    // Old updated_ms keeps it out of the Today recency grid.
-    path: "Dashboards/Jobs.md",
-    stem: "Jobs",
-    title: "Jobs",
-    folder: "Dashboards",
-    props: {
-      type: "dashboard",
-      dashboard: "jobs",
-      created: "2026-07-31",
-      prefixes: "com.example., com.substrate.",
-      control: "com.example.digest, com.example.index, com.example.verify",
-      freshness: "com.example.digest | Dashboards/News.md | curated | 26h",
-    },
-    updated_ms: now - 9 * 86_400_000,
-    excerpt: "launchd jobs on this machine — schedule, state, freshness.",
-    body: "Scheduled jobs on this machine. launchd owns the clock — this is only a window onto it, so pausing a job here pauses it for the machine, not just for the app. Jobs without a plist on disk render read-only.\n",
-  },
-  {
-    // coding dashboard seed: `dashboard: coding` — the CodingDashboard reads
-    // the scan root's per-repo git health over IPC (the coding_scan mock lane
-    // below), so the body is prose only. `root` is spelled out at its default
-    // so the seed doubles as the example of the prop. Old updated_ms keeps it
-    // out of the Today recency grid.
-    path: "Dashboards/Coding.md",
-    stem: "Coding",
-    title: "Coding",
-    folder: "Dashboards",
-    props: {
-      type: "dashboard",
-      dashboard: "coding",
-      created: "2026-07-21",
-      root: "~/Coding",
-    },
-    updated_ms: now - 9 * 86_400_000,
-    excerpt: "Per-repo git health for ~/Coding — dirty, lanes, ahead/behind.",
-    body: "Per-repo git health for every project under ~/Coding. Point `root:` at another folder to scan it instead. The dashboard shells out to git over IPC, so there is nothing to edit in this prose.\n",
-  },
-  {
     // tasks dashboard seed: a read-only cut of task notes. Areas is
     // an allowlist (YAML lists and comma text both work); stale_days controls
     // when age raises a row out of the quiet layer.

@@ -3,7 +3,7 @@
  * Dashboard-kind inventory drift check.
  *
  * The set of `dashboard:` values the app renders is written out by hand in
- * five places, and until this script existed only one of them was guarded:
+ * six places, and until this script existed only one of them was guarded:
  *
  *   1. `BUILT_IN_KINDS`  — src/lib/kinds.ts. The SOURCE OF TRUTH here, and
  *      the set a vault bundle may not shadow (§5.8): a built-in missing from
@@ -18,6 +18,10 @@
  *   5. src-tauri/src/seed/AGENTS.md — the orientation file the app seeds into
  *      a new vault (and examples/vault/AGENTS.md, held byte-identical to it by
  *      scripts/example-vault.test.ts).
+ *   6. `NEW_DASHBOARD_KINDS` — src/lib/newdashboard.ts. The ⌘K "New dashboard…"
+ *      roster: a kind missing here is dispatched but uncreatable, and a kind
+ *      whose fences disagree with the registry's makes the picker offer a row
+ *      that writes a note the build cannot render.
  *
  * Same shape as scripts/check-ipc.ts: re-derive every inventory
  * mechanically from the checked-in tree, compare, and fail `npm test` on any
@@ -35,7 +39,7 @@
  *     (a reserved name owns no sidebar row of its own).
  *   - PRIVACY. Some kinds are machine-specific and sit between share-mirror
  *     strip markers (see STRIP_START/STRIP_END below) so the public mirror
- *     never carries them. A kind's privacy has to MATCH across all five:
+ *     never carries them. A kind's privacy has to MATCH across all six:
  *     a kind private in one file and public in another leaves the stripped
  *     snapshot either broken or leaking, so the flag is compared like a name.
  */
@@ -256,6 +260,33 @@ export function parseGlyphIds(src: string, label = "src/lib/dbicons.ts"): Set<st
   return out;
 }
 
+/* ── 6. the "New dashboard…" picker roster ──────────────────────────────── */
+
+/**
+ * `NEW_DASHBOARD_KINDS` in src/lib/newdashboard.ts — an array of objects
+ * rather than a flat list, so only the `kind:` line of each entry names an
+ * inventory member. The other four line shapes (the braces and the three
+ * text fields) are enumerated and skipped by name; anything else throws,
+ * because a field this parser has never seen may be a second way to declare
+ * a kind.
+ */
+export function parseNewDashboardKinds(src: string, label = "src/lib/newdashboard.ts"): KindMap {
+  const [from, to] = blockAfter(src, /\bNEW_DASHBOARD_KINDS\b[^=]*=\s*/, "[", label);
+  const priv = stripFlags(src, label);
+  const out: KindMap = new Map();
+  for (const { text, at } of codeLines(src, from, to)) {
+    const m = /^kind: "([a-z0-9][a-z0-9-]*)",$/.exec(text);
+    if (!m) {
+      if (/^[{}],?$/.test(text) || /^(blurb|title|body):/.test(text)) continue;
+      throw new Error(`${label}: unparseable NEW_DASHBOARD_KINDS line ${JSON.stringify(text)}`);
+    }
+    if (out.has(m[1])) throw new Error(`${label}: "${m[1]}" offered twice by the picker`);
+    out.set(m[1], priv[at]);
+  }
+  if (out.size === 0) throw new Error(`${label}: NEW_DASHBOARD_KINDS parsed as empty`);
+  return out;
+}
+
 /* ── 4+5. the prose lists ───────────────────────────────────────────────── */
 
 /**
@@ -372,6 +403,7 @@ export interface Inventories {
   formatIcons: KindMap;
   formatGlyphRoster: string[];
   seedAgents: KindMap;
+  newDashboard: KindMap;
   excludedVaultJsons: string[];
   formatExcludedVaultJsons: string[];
   localJsonCounts: { label: string; words: string[] }[];
@@ -540,6 +572,17 @@ export function crossCheck(inv: Inventories): string[] {
     }
   }
 
+  // The picker offers every creatable built-in: the dispatched set plus
+  // `charts`, which is reserved in the dispatch chain (the chart-fence
+  // fallback renders it) but is a real `dashboard:` value with a real
+  // renderer, so it is creatable like any other.
+  const creatable: KindMap = new Map(
+    [...builtIn].filter(([k]) => k === "charts" || !RESERVED_KINDS.has(k))
+  );
+  compare(problems, "src/lib/newdashboard.ts", creatable, inv.newDashboard,
+    "it is the \"New dashboard…\" roster — a kind missing here is dispatched but uncreatable, " +
+      "and a fence that disagrees with the registry's offers a row the build cannot render");
+
   // The seeded orientation file is written into every new vault, public and
   // private builds alike, and carries no strip regions — so it lists exactly
   // the PUBLIC half of the documented set and stays silent about the rest.
@@ -577,6 +620,7 @@ export function collect(): Inventories {
     builtIn: parseBuiltInKinds(read("src/lib/kinds.ts")),
     dispatch: parseDispatch(read("src/components/DashboardPane.tsx")),
     icons: parseIcons(dbicons),
+    newDashboard: parseNewDashboardKinds(read("src/lib/newdashboard.ts")),
     glyphIds: parseGlyphIds(dbicons),
     formatDispatch: parseDocKinds(vaultFormat, {
       label: "docs/vault-format.md §5.2 dispatch table",

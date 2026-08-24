@@ -6,7 +6,6 @@ mod deeplink;
 mod denyscope;
 #[cfg(target_os = "macos")]
 mod dragfix;
-mod coding;
 mod context_snapshot;
 mod curator;
 mod factlane;
@@ -14,7 +13,6 @@ mod githist;
 mod gitsync;
 mod history;
 mod kinds;
-mod jobs;
 mod landing;
 mod mcpdoor;
 mod net;
@@ -23,7 +21,6 @@ mod notify;
 mod panel;
 mod reflexes;
 mod smoke;
-mod sync;
 mod term;
 #[cfg(test)]
 mod testenv;
@@ -353,7 +350,6 @@ mod commands;
 use commands::app::*;
 use commands::assets::*;
 use commands::calendarfeeds::*;
-use commands::coding::*;
 use commands::cookbook::*;
 use commands::curator::*;
 use commands::drives::*;
@@ -361,7 +357,6 @@ use commands::files::*;
 use commands::fx::*;
 use commands::history::*;
 use commands::recall::*;
-use commands::jobsdash::*;
 use commands::kinds::*;
 use commands::mcp::*;
 use commands::mounts::*;
@@ -370,7 +365,6 @@ use commands::reflexes::*;
 use commands::schema::*;
 use commands::search::*;
 use commands::share::*;
-use commands::syncdash::*;
 use commands::tags::*;
 use commands::trash::*;
 use commands::vaultsync::*;
@@ -1821,17 +1815,6 @@ pub fn run() {
             fx_usd_eur,
             fx_rates,
             share_upload,
-            coding_scan,
-            sync_state_read,
-            sync_launchd_read,
-            sync_control,
-            sync_runs,
-            sync_sleep_read,
-            sync_sleep_set,
-            jobs_available,
-            jobs_read,
-            jobs_control,
-            jobs_freshness,
             curator_refresh,
             curator_runs,
             curator_cancel,

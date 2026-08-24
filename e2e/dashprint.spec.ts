@@ -324,10 +324,8 @@ test("workbook: the ACTIVE page prints — sheet/view pages offer no action, tab
   await expect(printButton(page)).toHaveCount(0);
 });
 
-test("machine kinds and out-of-scope kinds show no print action", async ({ page }) => {
-  await openDash(page, "Jobs");
-  await expect(printButton(page)).toHaveCount(0);
 
+test("out-of-scope kinds show no print action", async ({ page }) => {
   await openDash(page, "Calories");
   await expect(printButton(page)).toHaveCount(0);
 });

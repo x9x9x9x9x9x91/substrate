@@ -60,12 +60,6 @@ test("the state-truth surfaces, both grounds", async ({ page }) => {
   await open(page, "Calories");
   await shoot(page, "food-empty");
 
-  // 2. jobs: prefixes no machine schedules anything under
-  await page.evaluate(() =>
-    window.__mockEditProp?.("Dashboards/Jobs.md", "prefixes", "com.nothing.here."),
-  );
-  await open(page, "Jobs");
-  await shoot(page, "jobs-empty");
 
   // 3. tasks: an areas allowlist that matches none of the open work
   await page.evaluate(() => {

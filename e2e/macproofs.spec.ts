@@ -88,10 +88,6 @@ test("proof: dashboard portfolio charts", async ({ page }) => {
   await shot(page, "dash-portfolio");
 });
 
-test("proof: dashboard sync manager", async ({ page }) => {
-  await openDash(page, "Sync");
-  await shot(page, "dash-sync");
-});
 
 test("proof: calendar month grid", async ({ page }) => {
   await boot(page);

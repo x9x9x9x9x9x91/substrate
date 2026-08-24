@@ -59,7 +59,7 @@ pub(crate) const SENTINEL: &str = ".git/substrate-owned";
 /// thread without the engine lock, so leaving it visible to git let it dirty
 /// the tree at any moment, including the middle of a sync resolve.
 /// `.vault/jobs-exit.json` is the same shape: device-local launchd
-/// run history, written from the `jobs_read` poll outside the engine lock.
+/// run history, written from a dashboard poll outside the engine lock.
 /// `.vault/seal-trust.json` is device-local *by security requirement* rather
 /// than by convenience: it records which seal markers this device
 /// confirmed, and a marker is only enforced — and only ever triggers a history

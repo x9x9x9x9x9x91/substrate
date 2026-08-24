@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ageMs, ago, findingSentence, fmtAge } from "./syncstory.ts";
+import { ageMs, ago, fmtAge } from "./syncstory.ts";
 
 const NOW = Date.parse("2026-07-29T12:00:00.000Z");
 const iso = (msAgo: number) => new Date(NOW - msAgo).toISOString();
@@ -11,7 +11,7 @@ test("ageMs: null on absent or unparseable input", () => {
   assert.equal(ageMs(iso(60_000), NOW), 60_000);
 });
 
-test("fmtAge: the sync surface's age voice", () => {
+test("fmtAge: the compact age voice", () => {
   assert.equal(fmtAge(undefined, NOW), "never");
   assert.equal(fmtAge(iso(0), NOW), "0m");
   assert.equal(fmtAge(iso(35 * 60_000), NOW), "35m");
@@ -39,25 +39,3 @@ test("ago: wraps the age, passes 'never' through bare", () => {
   assert.equal(ago(undefined, NOW), "never");
 });
 
-test("findingSentence: the full problem-row story", () => {
-  assert.equal(
-    findingSentence("failed", 2, iso(35 * 60_000), NOW),
-    "failed · 2 errors · tried 35m ago"
-  );
-  // singular error count
-  assert.equal(
-    findingSentence("failed", 1, iso(35 * 60_000), NOW),
-    "failed · 1 error · tried 35m ago"
-  );
-});
-
-test("findingSentence: parts drop out when the state file doesn't carry them", () => {
-  // zero/absent errors are not a finding detail
-  assert.equal(findingSentence("failed", 0, iso(35 * 60_000), NOW), "failed · tried 35m ago");
-  assert.equal(findingSentence("failed", undefined, iso(35 * 60_000), NOW), "failed · tried 35m ago");
-  // no attempt on record: no "tried never ago" — the clause drops
-  assert.equal(findingSentence("failed", 2), "failed · 2 errors");
-  // a bare status is still a story (e.g. blocked-mass-delete with no fields)
-  assert.equal(findingSentence("blocked-mass-delete"), "blocked-mass-delete");
-  assert.equal(findingSentence("missing-local", 3), "missing-local · 3 errors");
-});

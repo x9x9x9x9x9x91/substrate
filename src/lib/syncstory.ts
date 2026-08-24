@@ -1,8 +1,7 @@
-/* Sync dashboard row copy: the surface's age voice ("35m", "2h 14m", "1d 2h",
-   "never") and, the problem leg's finding as one sentence.
-   Pure and now-injectable so the strip rows and their tests share the words.
-   fmtDur is the bare-duration half — the feed dashboard's staleness label
-   reuses it so both surfaces spell ages the same way. */
+/* Shared age voice for status rows: "35m", "2h 14m", "1d 2h", "never". Pure
+   and now-injectable so a surface and its tests share the words. fmtDur is the
+   bare-duration half — the feed dashboard's staleness label and the shelf's
+   row ages reuse it so every surface spells ages the same way. */
 
 /** ms since an ISO timestamp, null when absent/unparseable */
 export function ageMs(iso: string | undefined, now = Date.now()): number | null {
@@ -38,20 +37,3 @@ export const ago = (iso: string | undefined, now = Date.now()): string => {
   return a === "never" ? "never" : `${a} ago`;
 };
 
-/** A problem leg's whole story as one sentence fragment — "failed · 2 errors
-    · tried 35m ago" (findings-as-sentence: it sits next to the leg
-    name instead of being split between the strip's cells and the right-edge
-    fact). The status word always stays; the error count and the attempt age
-    drop out when the state file doesn't carry them. */
-export function findingSentence(
-  status: string,
-  errors?: number,
-  lastAttempt?: string,
-  now = Date.now(),
-): string {
-  const parts = [status];
-  if (errors !== undefined && errors > 0)
-    parts.push(`${errors} ${errors === 1 ? "error" : "errors"}`);
-  if (ageMs(lastAttempt, now) !== null) parts.push(`tried ${fmtAge(lastAttempt, now)} ago`);
-  return parts.join(" · ");
-}

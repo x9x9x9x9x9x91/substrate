@@ -12,8 +12,6 @@ const SIDEBAR: [string, string][] = [
   ["Portfolio", "metrics"],
   ["Overview", "charts"],
   ["Umbra Home", "hub"],
-  ["Sync", "sync"],
-  ["Coding", "coding"],
   ["Calories", "food"],
   ["News", "feed"],
   ["Music Work", "music-work"],

@@ -17,11 +17,8 @@ import MetricsDashboard from "./MetricsDashboard";
 import ChartsDashboard from "./ChartsDashboard";
 import HeatmapDashboard from "./HeatmapDashboard";
 import CalendarFenceDashboard from "./CalendarFenceDashboard";
-import SyncDashboard from "./SyncDashboard";
-import JobsDashboard from "./JobsDashboard";
 import HubDashboard from "./HubDashboard";
 import FoodDashboard from "./FoodDashboard";
-import CodingDashboard from "./CodingDashboard";
 import FeedDashboard from "./FeedDashboard";
 import MusicWorkDashboard from "./MusicWorkDashboard";
 import TasksDashboard from "./TasksDashboard";
@@ -237,16 +234,13 @@ function DashboardBody(props: DashboardPaneProps) {
   );
 }
 
-/** The built-in dispatch chain. A plain function, not a component: the fourteen
-    panes below keep the identity they had when this chain was inline, so
+/** The built-in dispatch chain. A plain function, not a component: the panes
+    below keep the identity they had when this chain was inline, so
     wrapping them in the notice provider costs no remount. */
 function builtInDashboard(kind: string, props: DashboardPaneProps) {
   if (kind === "metrics") return <MetricsDashboard {...props} />;
-  if (kind === "sync") return <SyncDashboard {...props} />;
-  if (kind === "jobs") return <JobsDashboard {...props} />;
   if (kind === "hub") return <HubDashboard {...props} />;
   if (kind === "food") return <FoodDashboard {...props} />;
-  if (kind === "coding") return <CodingDashboard {...props} />;
   if (kind === "feed") return <FeedDashboard {...props} />;
   if (kind === "music-work") return <MusicWorkDashboard {...props} />;
   if (kind === "tasks") return <TasksDashboard {...props} />;

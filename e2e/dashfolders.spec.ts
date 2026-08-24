@@ -301,14 +301,14 @@ test("the Dashboards header refuses a database drag (SUB-605 review)", async ({ 
 test("a section row moves past an interleaved tree row (SUB-605 review)", async ({ page }) => {
   // the section's Move lane must be the rows the section RENDERS, not the whole
   // persisted list. The seeded tree dashboard "Sketch Metrics" (Ideas/) sorts
-  // immediately before the section row "Sync", so it sits interleaved in that
+  // immediately before the section's last row, so it sits interleaved in that
   // list on boot: a Move DOWN that lands on it used to swap against the tree
   // row — an id the section never draws — and nothing moved on screen.
   //
   // The section's rows are the seeded ones, and builds that strip a dashboard
   // seed have one fewer — so the walk below is derived from this list rather
   // than written out per step, and both trees pin the same thing.
-  const section = ["Overview", "Portfolio", "Sync"];
+  const section = ["Overview", "Portfolio"];
   const sectionOrder = async () => {
     const texts = await page
       .locator(".side-item:not(.side-dash-nested) .side-label-text")
@@ -323,8 +323,8 @@ test("a section row moves past an interleaved tree row (SUB-605 review)", async 
 
   // walk Portfolio to the end one row at a time. Every step has to be a plain
   // swap with the section row below it, and the LAST one is the case this test
-  // exists for: the row Portfolio has to pass is Sync, with the tree row
-  // interleaved between the two in the persisted list.
+  // exists for: the row Portfolio has to pass is the section's last, with the
+  // tree row interleaved between the two in the persisted list.
   const walked = [...section];
   for (let i = walked.indexOf("Portfolio"); i < walked.length - 1; i++) {
     [walked[i], walked[i + 1]] = [walked[i + 1]!, walked[i]!];

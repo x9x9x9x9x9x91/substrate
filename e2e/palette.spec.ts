@@ -77,30 +77,7 @@ test("query 'create a note' still offers New note (SUB-805)", async ({ page }) =
 // as its "Dashboard: X" command — both rows open the same rendered surface,
 // so the pair reads as a duplicate.
 
-test("query 'coding' lists the Coding dashboard once", async ({ page }) => {
-  await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
-  await page.keyboard.press("Meta+k");
-  await page.locator(".palette-input").fill("coding");
 
-  const noteRow = page.locator(".palette-item-label", { hasText: /^Coding$/ });
-  await expect(noteRow).toBeVisible();
-  await expect(
-    page.locator(".palette-item-label", { hasText: "Dashboard: Coding" })
-  ).toHaveCount(0);
-});
-
-test("empty palette still catalogs every dashboard command", async ({ page }) => {
-  await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
-  await page.keyboard.press("Meta+k");
-
-  // browse mode (no query): Recent is recency, Commands is the catalog —
-  // the dashboard command stays even if its note sits in Recent
-  await expect(
-    page.locator(".palette-item-label", { hasText: "Dashboard: Coding" })
-  ).toHaveCount(1);
-});
 
 // MacOS autocorrect draws a candidate bubble under the input and
 // captures ↑↓ while visible — query inputs must opt out entirely

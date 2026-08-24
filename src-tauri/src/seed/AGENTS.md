@@ -62,8 +62,7 @@ relation's targets.
 
 A **dashboard** is a note with `type: dashboard`. A `dashboard:` prop names the
 renderer, and the public built-ins are: `metrics`, `hub` (whose cards can claim
-a double-width tile), `food`, `feed`, `music-work`, `tasks`, `sync`, `coding`,
-`jobs`, `tax`, `charts`.
+a double-width tile), `food`, `feed`, `music-work`, `tasks`, `tax`, `charts`.
 `dashboard: charts` always selects the chart-fence renderer. With no
 `dashboard:` prop, the app scans the body: one or more ` ```chart ` fences
 select charts, and no fence at all shows a card naming the kinds you could

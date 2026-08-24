@@ -223,14 +223,8 @@ still look like numbers. The stamp is what makes the difference readable: each
 run rewrites `exported:` on [[Upcoming]], [[Forecast Cashflow]] and
 [[Forecast Net Worth]], so the sheets carry the age of their own contents.
 
-The **jobs** recipe in this cookbook is the surface that reads it: point its
-`prefixes:` at `com.example.`, and give it a freshness probe against the stamp —
-
-```
-freshness:
-  - com.example.finance-refresh | Finance/Upcoming.md | exported | 26h
-```
-
-— so a green row that has produced nothing for three days says so. Loaded and
-last-exit-0 is not the same as fresh: a job that runs, throws early and exits
-clean looks perfect from launchd's side and leaves the stamp untouched.
+Read that age rather than the scheduler's verdict: loaded and last-exit-0 is
+not the same as fresh — a job that runs, throws early and exits clean looks
+perfect from the scheduler's side and leaves the stamp untouched. On a daily
+refresh, a stamp older than about a day is the signal to go looking, whether
+you check it by eye or wire it into whatever watches your machine's jobs.

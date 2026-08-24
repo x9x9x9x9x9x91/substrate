@@ -4,7 +4,6 @@ import { freshCache } from "./freshcache.ts";
 import { forgetFreshnessFailures } from "./agefill.ts";
 import type { KindBundleInfo } from "./kinds.ts";
 import type { ReflexReceipt, ReflexStatus } from "./reflexes.ts";
-import type { CodingScan } from "./codingScan.ts";
 import type { OnboardingStatus, VaultCandidate } from "./onboarding.ts";
 import type { WidgetSummary } from "./widgets.ts";
 import type {
@@ -44,10 +43,6 @@ import type {
   HistoryEntry,
   HistoryStatus,
   HistoryVaultSnapshot,
-  Freshness,
-  Job,
-  JobRun,
-  LaunchdJob,
   NewTypeProp,
   NoteContent,
   NoteMeta,
@@ -68,10 +63,7 @@ import type {
   SelectOption,
   SetPropResult,
   SidebarOrder,
-  SyncConfig,
   SyncReport,
-  SyncRun,
-  SyncStateFile,
   TagFolder,
   TrashEntry,
   VaultSyncStatus,
@@ -786,52 +778,6 @@ export const vaultSchemaHomeSet = (dbType: string, home: string | null) =>
 export const vaultSchemaParentSet = (dbType: string, prop: string | null) =>
   invoke<SchemaConfig>("vault_schema_parent_set", { dbType, prop });
 export const pathExists = (path: string) => invoke<boolean>("path_exists", { path });
-/** Read-only health of an external backup-sync system (sync dashboard): its
-    state file and the recent errors of its log, under the note's bindings. */
-export const syncStateRead = (cfg: SyncConfig) =>
-  invoke<SyncStateFile>("sync_state_read", { cfg });
-/** Health of the launchd agents under the note's label prefix. */
-export const syncLaunchdRead = (cfg: SyncConfig) =>
-  invoke<LaunchdJob[]>("sync_launchd_read", { cfg });
-/** Allowlisted sync control: run takes a direction (a remote the state file
-    names) + optional leg, pause/resume take the job's short name as
-    `direction`. Returns the started registry entry — completion is polled
-    via syncRuns. */
-export const syncControl = (
-  action: "run" | "pause" | "resume",
-  direction: string,
-  leg: string | undefined,
-  cfg: SyncConfig
-) => invoke<SyncRun>("sync_control", { action, direction, leg: leg ?? null, cfg });
-/** Poll the sync manager's in-flight + finished runs. */
-export const syncRuns = () => invoke<SyncRun[]>("sync_runs");
-/** Machine-wide keep-awake flag: true = lid-close sleep disabled, null =
-    pmset doesn't report it on this hardware. */
-export const syncSleepRead = () => invoke<boolean | null>("sync_sleep_read");
-/** Flip keep-awake (sudo -n pmset -a disablesleep); resolves to the
-    read-back-verified state. */
-export const syncSleepSet = (on: boolean) => invoke<boolean>("sync_sleep_set", { on });
-/** Is there a launchd on this machine at all? Gates the jobs
-    dashboard's control verbs — false off macOS, where the pane says so
-    instead of offering buttons whose only outcome is an error. */
-export const jobsAvailable = () => invoke<boolean>("jobs_available");
-/** Health of every launchd agent under the jobs dashboard's prefix allowlist
-    An empty list means the backend defaults. */
-export const jobsRead = (prefixes: string[]) => invoke<Job[]>("jobs_read", { prefixes });
-/** pause | resume | run one job. The label is validated against the jobs
-    actually present under an allowed prefix before launchctl sees it, so an
-    absent job is refused rather than acted on. */
-export const jobsControl = (label: string, action: "pause" | "resume" | "run", prefixes: string[]) =>
-  invoke<JobRun>("jobs_control", { label, action, prefixes });
-/** Artifact-freshness probes ("label | note.md | prop | 26h"): is what this
-    job produces still recent? Malformed specs are dropped, not errors. */
-export const jobsFreshness = (specs: string[]) =>
-  invoke<Freshness[]>("jobs_freshness", { specs });
-/** Per-repo git health under a scan root (coding dashboard). `root` is the
-    note's `root:` prop — null scans the default ~/Coding. force=true bypasses
-    the backend's 1h scan cache (the refresh button). */
-export const codingScan = (force: boolean, root?: string | null) =>
-  invoke<CodingScan>("coding_scan", { force, root: root ?? null });
 /** Run the vault's configured `feed-curator` command (feed
     dashboard) — one headless curation of the items sheet, cwd'd at
     the vault root. The caller passes the Settings.md command AFTER the

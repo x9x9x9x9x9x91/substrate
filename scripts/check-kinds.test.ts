@@ -12,6 +12,7 @@ import {
   parseExcludedVaultJsons,
   parseGlyphIds,
   parseIcons,
+  parseNewDashboardKinds,
   stripFlags,
   STRIP_START,
   STRIP_END,
@@ -251,7 +252,7 @@ test("parseDocLocalJsonCounts finds every by-size summary of that list", () => {
 
 /* ── cross-check ────────────────────────────────────────────────────────── */
 
-/** A tiny five-inventory tree that agrees with itself. */
+/** A tiny six-inventory tree that agrees with itself. */
 function agreeing(): Inventories {
   return {
     builtIn: new Map([["metrics", false], ["ledger", true], ["charts", false]]),
@@ -272,6 +273,8 @@ function agreeing(): Inventories {
     formatIcons: new Map([["metrics", false], ["ledger", true]]),
     formatGlyphRoster: ["wallet", "refresh"],
     seedAgents: new Map([["metrics", false], ["charts", false]]),
+    // the picker offers every creatable built-in — the dispatched pair plus `charts`
+    newDashboard: new Map([["metrics", false], ["ledger", true], ["charts", false]]),
     excludedVaultJsons: [".vault/notifications.json", ".vault/seal-trust.json"],
     formatExcludedVaultJsons: [".vault/notifications.json", ".vault/seal-trust.json"],
     localJsonCounts: [{ label: "docs/vault-format.md", words: ["two"] }],
@@ -412,6 +415,51 @@ test("crossCheck: the seeded AGENTS.md is held to the PUBLIC kinds, and only tho
   assert.match(problemsOf((inv) => inv.seedAgents.delete("metrics")), /AGENTS\.md: missing "metrics"/);
 });
 
+test("parseNewDashboardKinds reads the picker roster, fences included", () => {
+  const src = [
+    "export const NEW_DASHBOARD_KINDS: readonly DashboardKindOption[] = [",
+    "  {",
+    '    kind: "tasks",',
+    '    blurb: "b",',
+    '    title: "Tasks",',
+    '    body: "x\\n",',
+    "  },",
+    `  // ${STRIP_START}`,
+    "  {",
+    '    kind: "ledger",',
+    '    blurb: "b",',
+    '    title: "Ledger",',
+    '    body: "x\\n",',
+    "  },",
+    `  // ${STRIP_END}`,
+    "];",
+  ].join("\n");
+  assert.deepEqual([...parseNewDashboardKinds(src, "t")], [["tasks", false], ["ledger", true]]);
+  // a field shape the parser has never seen is thrown, not skipped
+  assert.throws(
+    () => parseNewDashboardKinds(src.replace('    blurb: "b",', '    alias: "t2",'), "t"),
+    /unparseable NEW_DASHBOARD_KINDS line/
+  );
+});
+
+test("crossCheck: the picker roster is held to the creatable built-ins", () => {
+  // dispatched but uncreatable — nobody can make one
+  assert.match(
+    problemsOf((inv) => inv.newDashboard.delete("ledger")),
+    /newdashboard\.ts: missing "ledger"/
+  );
+  // a row for a kind this build cannot render
+  assert.match(
+    problemsOf((inv) => inv.newDashboard.set("gear-log", false)),
+    /newdashboard\.ts: lists "gear-log"/
+  );
+  // and a fence that disagrees with the registry's is drift like a name
+  assert.match(
+    problemsOf((inv) => inv.newDashboard.set("ledger", false)),
+    /"ledger" is outside a share-mirror strip region here but private/
+  );
+});
+
 test("crossCheck: ICON_EXEMPT is itself checked, so a stale opt-out cannot linger", () => {
   // nothing is exempt today; the machinery is verified against a stand-in
   assert.equal(ICON_EXEMPT.size, 0);
@@ -422,7 +470,7 @@ test("crossCheck: ICON_EXEMPT is itself checked, so a stale opt-out cannot linge
 // This is how the check reaches CI: `npm test` already runs scripts/*.test.ts,
 // so the drift check rides the existing unit-tests job with no CI edit.
 
-test("the checked-in tree parses and its five kind inventories agree", () => {
+test("the checked-in tree parses and its six kind inventories agree", () => {
   const inv = collect();
   assert.ok(inv.builtIn.size >= 7, "BUILT_IN_KINDS parsed");
   assert.ok(inv.dispatch.kinds.size >= 6, "the dispatch chain parsed");

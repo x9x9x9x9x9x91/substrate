@@ -1,11 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// Evidence run only: the two dialects this pass corrects — the sync manager's
-// failure, which spoke a red line of its own where every board speaks the
-// ruled banner, and a charts-keyed board hosting heatmap fences, which headed
-// and footed itself as an empty chart board over a page of rendered squares.
+// Evidence run only: the two dialects this pass corrects — the Vault sync
+// pane's failure, which spoke a red line of its own where every board speaks
+// the ruled banner, and a charts-keyed board hosting heatmap fences, which
+// headed and footed itself as an empty chart board over a page of rendered
+// squares.
 // The app has no runtime light theme; the light ground is the print pass, and
-// the sync manager has no print surface, so it is shot dark only.
+// the Vault sync pane has no print surface, so it is shot dark only.
 //   SHOTS=1 npx playwright test e2e/dialectresidualshots.spec.ts
 test.skip(!process.env.SHOTS, "evidence run only");
 

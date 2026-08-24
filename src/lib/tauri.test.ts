@@ -1226,17 +1226,6 @@ test("mock history_facts binds the prop key case-folded, like the engine", async
   assert.equal(cased.key, "CREATED");
 });
 
-test("mock jobs_freshness drops a max-age whose count overflows", async () => {
-  // the digit run is unbounded: "1e999"-scale counts pass `ms > 0` as Infinity
-  // and every age derived from them reads fresh forever
-  const specs = [
-    `over | n.md | checked | ${"9".repeat(30)}h`,
-    "sane | n.md | checked | 26h",
-  ];
-  const rows = await invoke<{ label: string; max_age_ms: number }[]>("jobs_freshness", { specs });
-  assert.deepEqual(rows.map((r) => r.label), ["sane"]);
-  assert.equal(rows[0].max_age_ms, 26 * 3_600_000);
-});
 
 test("mock parent mark follows the engine: self-relation only, canonical, swept", async () => {
   const db = "ParentMock1300";

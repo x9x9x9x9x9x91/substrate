@@ -212,9 +212,6 @@ Capacities, Affine).*
   sort switch — urgency/priority/due/age), news feed with a pluggable agent
   curator (its ↻ runs whatever `feed-curator` command you plug in — trust-gated
   per machine, one-click setup card, agents can wire themselves in),
-  repo health (every git repo under a folder you name, ranked by what needs
-  doing — dirty files, stale unmerged lanes, ahead/behind — read-only and
-  never networked),
   tax-year readiness (two sheets an external exporter owns become category
   totals, a checklist of the documents still owed, and a plain
   fit-to-hand-over verdict — read-only, and printable as the sheet you hand to
@@ -229,27 +226,6 @@ Capacities, Affine).*
   vault in a click, copying plain markdown and never overwriting a note that
   is already there. No store, no account, no network — a ready-made board is
   as far away as a copy.
-- **A control surface over the sync you already run** — the `sync` kind is a
-  window onto an external file-sync system (a runner on a schedule, writing a
-  JSON state file): per-remote freshness and free space, a run-history strip
-  per leg, whether the schedule is still loaded, the log's recent errors, and
-  Run / Pause / Resume. Every binding — state file, log, launchd label prefix,
-  runner, per-remote staleness windows — is the note's own frontmatter, so the
-  same kind fits any estate, and a missing runner disables the buttons with
-  the reason instead of offering a verb that could only fail. Careful claim:
-  the app copies nothing itself; the differentiator is that the *notes* are
-  the configuration and the surface is one copyable file (`cookbook/sync/`).
-- **A window onto the machine's scheduler** — the `jobs` kind renders every
-  launchd agent under label prefixes the note names: schedule, live pid, last
-  exit, a ring of recent run outcomes (launchd reports only the latest, so one
-  lucky success would otherwise paint a failing week green), and per-job
-  *freshness* probes that read a stamp out of another note's frontmatter — the
-  check that catches a job which is green, loaded, and quietly producing
-  nothing. Pause / Resume / Run now are opt-in per label and doubly gated (the
-  note must list it AND the machine must hold its plist), and a machine with no
-  launchd at all gets one calm line instead of buttons that could only fail.
-  Careful claim: the app schedules nothing itself — launchd owns the clock, and
-  the notes are the configuration (`cookbook/jobs/`).
 - **Global capture** — ⌥Space from any app, menu-bar tray, zero-decision
   Inbox.
 - **A palette that reaches the vault from anywhere** — the same ⌥Space that

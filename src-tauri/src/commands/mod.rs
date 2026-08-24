@@ -9,7 +9,6 @@
 pub(crate) mod app;
 pub(crate) mod assets;
 pub(crate) mod calendarfeeds;
-pub(crate) mod coding;
 pub(crate) mod context;
 pub(crate) mod cookbook;
 pub(crate) mod curator;
@@ -18,7 +17,6 @@ pub(crate) mod deeplink;
 pub(crate) mod files;
 pub(crate) mod fx;
 pub(crate) mod history;
-pub(crate) mod jobsdash;
 pub(crate) mod kinds;
 pub(crate) mod mcp;
 // `mounts` is public: its module file, its `use` in lib.rs and its handler
@@ -33,7 +31,6 @@ pub(crate) mod schema;
 pub(crate) mod search;
 pub(crate) mod share;
 pub(crate) mod sharetoken;
-pub(crate) mod syncdash;
 pub(crate) mod tags;
 pub(crate) mod trash;
 pub(crate) mod vaultsync;

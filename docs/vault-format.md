@@ -215,7 +215,6 @@ type: release
 | `cards` | card list for the metrics dashboard and the tax board (§5.4) |
 | `claimed_usd` | yield dashboard: cumulative claimed total, set by the Claim button (§5.3) |
 | `log`, `db`, `weight`, `floor`, `ceiling` | food dashboard config: log-sheet, food-DB and weight-sheet names, net-kcal band (§5.2) |
-| `root` | coding dashboard: the folder of projects to scan, one level deep — `~/…` expands, an absolute path is taken as given, a bare name reads against your home folder (and can't climb out of it), and absent means `~/Coding`. Denied stores render the empty state (§5.2) |
 | `items`, `curated` | feed dashboard config: items-sheet name, and the curator's own last-run stamp, rendered verbatim (§5.2) |
 | `index`, `scanned` | music-work dashboard config: work-index sheet name, and the scanner's own last-run stamp, rendered verbatim (§5.2) |
 | `sheet`, `missing`, `stale_hours` | tax dashboard config: aggregates-sheet and missing-evidence-snapshot names (by title/stem, defaulting to `Tax 2026` and `Tax Missing`), and the age past which the snapshot stops being trusted — a positive number of hours, default 240. Its cards come from `cards:` like any other board (§5.2) |
@@ -975,7 +974,7 @@ those always stay section rows.
 
 Sidebar icon: each dashboard row renders a curated per-kind glyph
 (`src/lib/dbicons.ts` DASHBOARD_ICONS — `food`, `metrics`, `hub`,
-`feed`, `music-work`, `tasks`, `sync`, `coding`, `jobs`, `tax`,
+`feed`, `music-work`, `tasks`, `tax`,
 plus any machine-specific kinds this build carries); an `icon:` prop overrides
 it (a curated glyph id, anything else treated as an emoji), and kinds without a
 mark keep the generic chart glyph. The curated glyph ids (`src/lib/dbicons.ts`
@@ -992,11 +991,9 @@ These public kinds are dispatched: `metrics` → the metrics cards renderer (§5
 `hub` → the hub renderer (below);
 `food` → the food log tracker (below); `feed` → the curated newsfeed (below);
 `music-work` → the work-index board (below); `tasks` → the task attention
-board (below); `coding` → the repo-health table over the scan root its `root:`
-prop names (default `~/Coding`); `tax` → the tax-year readiness board (below);
+board (below); `tax` → the tax-year readiness board (below);
 `charts` → the chart-fence dashboard (§5.5), whether or not the body actually
-holds a fence; `sync` → the sync control surface (below); `jobs` → the launchd
-jobs pane (below).
+holds a fence.
 **A missing `dashboard` prop looks at the body** — one or more ` ```chart `
 fences makes it a charts dashboard (§5.5). So a charts dashboard needs no
 specific key, just the fences; `dashboard: charts` says the same thing by name.
@@ -1326,56 +1323,6 @@ state, not an error.
 **The app never writes this sheet** — the pane is read-only, so a scanner
 re-write between reads costs nothing (`src/lib/musicwork.ts`,
 `src/components/MusicWorkDashboard.tsx`).
-
-`jobs` (SUB-705) is a read + control surface over the machine's launchd agents.
-launchd owns the clock — the app has no auto-start, so an in-app scheduler would
-die silently; this pane only reports and (opt-in) nudges. The note holds config
-props only; the rows come from `~/Library/LaunchAgents` plus `launchctl list`.
-
-```yaml
----
-type: dashboard
-dashboard: jobs
-prefixes: com.example., com.substrate.   # label allowlist
-control:                                 # labels that get buttons
-  - com.example.digest
-  - com.example.verify
-freshness:                               # label | note | prop | max-age
-  - com.example.digest | Dashboards/News.md | curated | 26h
----
-```
-
-`prefixes` is comma-separated or a YAML list; entries of 4 characters or fewer
-(a stray stub, or a bare `com.` that would match every agent on the machine)
-are dropped, and an empty or junk-only value falls back to the built-in default
-(`com.substrate.`) rather than blanking the pane. A
-label matches its **longest** listed prefix, which becomes the row's group key;
-what remains is the short name the row shows.
-
-`control` opts individual labels into Pause (`launchctl bootout`), Resume
-(`bootstrap` from the plist) and Run now (`kickstart -k`). Everything else is
-read-only. The gate is doubled by design: a label is only actionable when it is
-listed in `control` **and** the machine has a plist for it — so a job listed by
-`launchctl` but not registered here can be read and never poked, and a machine
-with none of these agents renders a calm empty state with no verbs. Verbs are
-idempotent: pausing an already-paused job or resuming a loaded one reports the
-existing state rather than failing.
-
-Each `freshness` entry is four `|`-separated fields — the label, a vault-relative
-note path (absolute, `~` and `..` paths are refused), a frontmatter prop on that
-note, and a max-age (`26h`, `90m`, `3d`, `45s`; a bare number reads as hours).
-The stamp is parsed leniently (RFC 3339, `YYYY-MM-DD HH:MM[:SS]`, or a bare
-`YYYY-MM-DD` = local midnight); missing, unreadable or older-than-max-age all
-warn on the row and on the header state dot, never error. A future stamp is
-clamped to age zero rather than flagged. Malformed entries drop that one probe.
-
-The surface is macOS-only and checks before it speaks (SUB-1045): the pane asks
-the backend whether a `launchctl` is actually present, and where there is none
-it renders one line saying so and no control verbs at all, rather than buttons
-whose only possible outcome is an error.
-
-**The app never writes the note** — this dashboard is config-in, status-out
-(`src-tauri/src/jobs.rs`, `src/components/JobsDashboard.tsx`).
 
 
 `tax` (SUB-736) is a read-only readiness board for one tax year: what is
@@ -3382,39 +3329,6 @@ one also shows up as `corrupt-config` in the doctor, §15).
   than the app knows makes the file read-only — the scheduler still honours
   what's on disk, it just stops persisting changes.
 
-### `.vault/jobs-exit.json` — launchd exit-status rings
-
-Recent run outcomes for the jobs dashboard (`src-tauri/src/jobs.rs`):
-the machine-local history that turns "the job's last exit was fine" into
-"3 of the last 5 runs failed". App-owned — external writers should leave it
-alone; a missing or corrupt file reads as empty state and the rings simply
-rebuild from observation.
-
-```json
-{
-  "jobs": {
-    "com.example.news-selfheal": { "pid": null, "exit": 1, "ring": [0, 1, 1, 0, 1] }
-  }
-}
-```
-
-- One entry per launchd label: `pid`/`exit` are the previous poll's picture
-  (the dedupe key), `ring` the recent exit statuses, oldest first, capped at
-  10. A label whose picture is entirely empty (paused, never ran) is never
-  persisted.
-- Sampling rides the dashboard's 60s `jobs_read` poll — no new launchd
-  verbs, and the file is only rewritten when a picture actually changed.
-  **Polls are not runs:** the poll sees only the latest run, so a run that
-  starts and ends between polls leaves no trace — ring counts are
-  approximate, a floor on how often the job ran. A new run is recorded on an
-  exit-status flip or a pid turnover/end; the identical picture twice is one
-  run.
-- Device-local and **excluded from vault history** (§11) like
-  `notifications.json` — it is written from the IPC poll outside the engine
-  lock. Unknown top-level keys are preserved across app writes.
-- Deliberately NOT versioned in `.vault/format.json` (§5b): the state is
-  disposable and self-healing, so there is nothing to migrate and nothing a
-  newer app could destroy that observation won't rebuild.
 
 ## 7. `.vault/views.json` — layout preferences, sidebar order, saved views
 

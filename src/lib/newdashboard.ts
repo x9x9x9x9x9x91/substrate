@@ -79,24 +79,6 @@ export const NEW_DASHBOARD_KINDS: readonly DashboardKindOption[] = [
     title: "Music Work",
     body: "A read-only board over a work-index sheet an external scanner writes (`category,client,job,year,last_active,files,size_mb,flags`), pivoted into the axes the folder tree cannot answer.\n",
   },
-  {
-    kind: "sync",
-    blurb: "a window onto an external sync runner",
-    title: "Sync",
-    body: "A control surface over a sync system this app does not run: what each remote and leg last did, whether the schedule is loaded, recent errors, and buttons to sweep or pause. Every binding is this note's own frontmatter.\n",
-  },
-  {
-    kind: "coding",
-    blurb: "per-repo git health under one folder",
-    title: "Coding",
-    body: "One row per repository under the folder this note's `root:` names: branch, last commit, and chips for dirty files, unmerged branches, extra worktrees and ahead/behind.\n",
-  },
-  {
-    kind: "jobs",
-    blurb: "the scheduled jobs on this machine",
-    title: "Jobs",
-    body: "A window onto the machine's own scheduler (launchd, macOS only): one row per agent under the `prefixes:` this note lists, with schedule, last exit and freshness probes.\n",
-  },
 ];
 
 /** Kinds the picker offers, as a set — the drift test's left-hand side. */

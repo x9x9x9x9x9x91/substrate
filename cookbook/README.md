@@ -35,11 +35,8 @@ one-line prompt.
 | [`finance-hub/`](finance-hub) | hub | a personal-finance workbook, with the daily refresh job written out |
 | [`music-work/`](music-work) | music-work | years of work pivoted from one scanner-written sheet |
 | [`annual-report/`](annual-report) | metrics | the year in cards + charts, printable as a designed PDF |
-| [`sync/`](sync) | sync | a control surface over whatever already syncs your files |
-| [`coding/`](coding) | coding | every repo under one folder, sorted by what needs doing |
 | [`studio-year/`](studio-year) | hub | a year of days as squares, shaded from one log sheet |
 | [`release-arc/`](release-arc) | hub | start-to-ship bars per release, lanes grouped by status |
-| [`jobs/`](jobs) | jobs | every launchd job on the machine: schedule, exit history, freshness |
 | [`tax/`](tax) | tax | tax-year readiness: totals, documents still owed, printable |
 | [`tasks/`](tasks) | tasks | a working board over your task notes, late work first |
 | [`week-numbers/`](week-numbers) | week-numbers | a renderer you own, shipped in the vault beside the board |

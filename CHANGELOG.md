@@ -110,10 +110,10 @@
   seen — and a mounted folder of Ableton projects puts tempo, key, track count, and Live
   version on the board.
 - The dashboard family goes public: cards, charts, progress thermometers, calendar
-  grids, heatmaps and timelines are documented kinds with slash commands, joined by
-  boards for scheduled jobs, repo health, folder sync, and tax season. ⌘K creates a
-  dashboard by name with a starter note, and the cookbook comes to you — browse and
-  install recipes inside the app, a ready personal-finance workbook included.
+  grids, heatmaps and timelines are documented kinds with slash commands, joined by a
+  board for tax season. ⌘K creates a dashboard by name with a starter note, and the
+  cookbook comes to you — browse and install recipes inside the app, a ready
+  personal-finance workbook included.
 - Speak a note: voice capture ships for everyone, started by hotkey or button, with the
   microphone prompt naming every way a recording can begin — and quick capture can show
   what you were doing as a chip on the capture window, off by default behind a new
@@ -478,11 +478,6 @@
 - The news feed has a refresh button that sends your curator out for a fresh sweep
   instead of waiting for the next scheduled one.
 
-### Improved
-
-- The sync dashboard reads as sentences — each backup leg states its finding in plain
-  words, with hairline rows and ticks that stay put at any window width.
-
 ### Fixed
 
 - Background git maintenance could repack a vault's history store; sidebar pins under a
@@ -527,10 +522,6 @@
 
 - The sidebar de-nests saved views, wears curated folder and dashboard icons, and drops
   the Sketchpad entry — Notes now lists only untyped, unfiled notes.
-
-### Fixed
-
-- The coding dashboard aligns lane age, behind-count, and commit age to shared rails.
 
 ## 0.13.0 — 2026-07-23 — New sheet, collapsible sidebar
 
@@ -584,7 +575,6 @@
 
 - A calorie surface: log meals against a daily band, with undo, a day strip, and a
   seven-day average.
-- A coding dashboard listing your repositories sorted by what needs attention.
 - Databases remember per-database column visibility and sort order.
 - The yield board gains a two-click Claim with full undo history.
 
@@ -673,14 +663,8 @@
 - Today is a day-agenda decision surface — what is scheduled, due, overdue, and picked,
   in one place.
 
-### New
-
-- The sync dashboard became a control surface: start, inspect, and hold your backup jobs
-  from the app.
-
 ### Fixed
 
-- Sync refuses to start a run while a sweep is already in flight.
 - Restoring an old version of a note now lands in the open editor instead of being
   overwritten.
 

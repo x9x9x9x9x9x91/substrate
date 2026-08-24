@@ -342,29 +342,6 @@ const SHOTS: Shot[] = [
     },
   },
   {
-    id: "sync",
-    nav: "Sync",
-    installs: [{ file: "Dashboards/Sync.md", target: "Dashboards/Sync.md" }],
-    ready: async (page) => {
-      // the state comes from the mock sync lane, not the note — what the
-      // recipe contributes is the bindings, so the proof is that the pane
-      // renders its directions instead of the no-state empty card
-      await expect(page.locator(".sync-dir")).toHaveCount(2);
-      await expect(page.locator(".sync-empty")).toHaveCount(0);
-    },
-  },
-  {
-    id: "coding",
-    nav: "Coding",
-    // the table is the scan, so the recipe binds no sheets — only the
-    // dashboard note, whose `root:` the mock scan lane echoes back
-    installs: [{ file: "Dashboards/Coding.md", target: "Dashboards/Coding.md" }],
-    ready: async (page) => {
-      await expect(page.locator(".coding2-row")).toHaveCount(4);
-      await expect(page.locator(".coding2-row").first()).not.toHaveClass(/quiet/);
-    },
-  },
-  {
     id: "studio-year",
     nav: "Studio Year",
     installs: [
@@ -416,18 +393,6 @@ const SHOTS: Shot[] = [
         w.__mockEmit("vault:changed");
       });
       await expect(page.locator(".hub-timeline-head", { hasText: "skipped" })).toHaveCount(0);
-    },
-  },
-  {
-    id: "jobs",
-    nav: "Jobs",
-    installs: [{ file: "Dashboards/Jobs.md", target: "Dashboards/Jobs.md" }],
-    ready: async (page) => {
-      // the roster comes from the mock launchd lane, not the note — what the
-      // recipe contributes is the allowlist and the probes, so the proof is
-      // rows under its prefixes plus a freshness chip the note configured
-      await expect(page.locator(".jobs-row").first()).toBeVisible();
-      await expect(page.locator(".jobs-chip")).not.toHaveCount(0);
     },
   },
   {
