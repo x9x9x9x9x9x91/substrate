@@ -222,7 +222,6 @@ import ShortcutOverlay from "./components/ShortcutOverlay";
 import KeyHints, { type HoldHudCtx } from "./components/KeyHints";
 import KeyAssignHud from "./components/KeyAssignHud";
 import InfoView from "./components/InfoView";
-import DonationNag from "./components/DonationNag";
 import TooltipHost from "./components/Tooltip";
 import TimeTravelBar from "./components/TimeTravelBar";
 import ReceiptsPeek from "./components/ReceiptsPeek";
@@ -5921,9 +5920,6 @@ export default function App() {
           onClose={() => setDbIconMenu(null)}
         />
       )}
-      {/* dormant unless NAG_ENABLED (src/lib/donate.ts) — renders nothing and
-          touches no storage while the master switch is off */}
-      <DonationNag />
       {/* One bubble for every `tooltip()` in the tree — mounted here
           so any pane can adopt it without mounting anything of its own */}
       <TooltipHost />
