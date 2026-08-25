@@ -1,5 +1,13 @@
-import type { DbLayout, NoteMeta, PropSchema, SavedView, ViewPref } from "./types.ts";
+import type {
+  DbLayout,
+  NoteMeta,
+  PropSchema,
+  SavedView,
+  SavedViewSort,
+  ViewPref,
+} from "./types.ts";
 import { byFoldedKey } from "./schemalookup.ts";
+import { MAX_SORT_KEYS } from "./dbsort.ts";
 
 /** Props that lead every table regardless of alphabet — the release-shaped
     columns people scan first. */
@@ -62,6 +70,34 @@ export function canonicalColumnRecord<T>(
   return out;
 }
 
+/** The sort list a pane can actually render: keys canonicalized, then one
+    entry per key and never more than the ordinal badges promise. A
+    hand-edited pref can name the same column twice in different casing —
+    `Status` and `status` canonicalize to one spelling, and two rows for one
+    key toggle and remove together — or carry more keys than the cap, which
+    would print a fourth ordinal against a three-key invariant. The first
+    entry for a key wins, so the earliest stated priority is the one kept.
+    Header clicks and the sort popover already guard both, so this is the
+    boundary that covers the persisted path they cannot reach. */
+function canonicalSortKeys(columns: string[], sorts: SavedViewSort[]): SavedViewSort[] {
+  const out: SavedViewSort[] = [];
+  const seen = new Set<string>();
+  for (const sort of sorts) {
+    // `title` is the name column, not a database prop: it never appears in
+    // `columns`, so it is canonical by itself. Unknown keys stay
+    // byte-for-byte, and so keep distinct spellings distinct — a typo stays
+    // one stale key instead of collapsing into a real one.
+    const canonical = sort.key === "title" ? "title" : canonicalColumn(columns, sort.key);
+    const key = canonical ?? sort.key;
+    const identity = canonical === undefined ? `exact:${key}` : key.toLowerCase();
+    if (seen.has(identity)) continue;
+    seen.add(identity);
+    out.push({ ...sort, key });
+    if (out.length === MAX_SORT_KEYS) break;
+  }
+  return out;
+}
+
 /** Canonicalize every persisted column-bearing field before a write. */
 export function canonicalViewPref(pref: ViewPref, columns: string[]): ViewPref {
   const column = (key: string | undefined) =>
@@ -80,10 +116,7 @@ export function canonicalViewPref(pref: ViewPref, columns: string[]): ViewPref {
       pref.aggregations === undefined
         ? undefined
         : canonicalColumnRecord(columns, pref.aggregations),
-    sorts: pref.sorts?.map((sort) => ({
-      ...sort,
-      key: sort.key === "title" ? "title" : (canonicalColumn(columns, sort.key) ?? sort.key),
-    })),
+    sorts: pref.sorts === undefined ? undefined : canonicalSortKeys(columns, pref.sorts),
     col_order: lists(pref.col_order),
     hidden: lists(pref.hidden),
     hidden_per_layout:

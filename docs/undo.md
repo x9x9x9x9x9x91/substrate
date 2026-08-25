@@ -862,6 +862,49 @@ in the design — they land last only because they're the least-felt.
 
 Bulk schema sweeps never join (§4).
 
+**Landed ahead of the rest: "Add “x” to options".** One schema action could not
+wait for this slice, because it is not a schema action the user takes on its
+own — picking that row on a value picker writes an option AND the value that
+goes into it. As two independent writes the pair came apart both ways: a
+refused option still let the value land as an extra the column knew nothing
+about, and one ⌘Z took the value back while the option stayed for good.
+`src/lib/undoschema.ts` sequences them — option first, value only if it stored,
+and a value the vault refuses takes the option back out with it — and folds
+both inverses into a single entry. The option leaves on undo only while the
+property still holds exactly what the action wrote; a schema edit since then
+owns the list, and undo reverts the value alone. Every other single-prop schema
+edit still lands in this slice.
+
+The option list travels with the kind it sits under, in both directions. A
+`select` is spelled as the *absence* of a kind, so promoting a text or number
+column to a select stores its options kindless — and putting the old list back
+without the old kind would leave the property empty AND kindless, which is how
+the vault spells "no such property" (`schema.rs`, the demote-and-remove branch).
+On a column that had no options at all that ⌘Z deleted the column, and the whole
+database entry with it when nothing else was left. Both writes now carry their
+own kind: `OptionState` in `src/lib/undoschema.ts` pairs the two so a caller
+cannot hand back one without the other.
+
+Three limitations are accepted rather than fixed:
+
+- **The undo guard is a check-then-act.** Undo reads the stored options, compares
+  them to what the action wrote, and only then writes. A schema writer landing
+  in that gap loses its edit. The window is one IPC round-trip and the losing
+  writer is always a *concurrent* one, so the user-visible cost is bounded by
+  what someone else changed in the same second; closing it needs a
+  compare-and-set at the engine door, which is a schema-command change, not an
+  undo one.
+- **Redo after the schema moved re-manufactures an unschema'd value.** If undo
+  declined to remove the option (because the list had moved on) and the column
+  is then edited further, redo still writes the value back into the note. The
+  note can end up holding a value the column no longer offers — the same state
+  a hand-typed extra produces, and the picker already renders it.
+- **Facets beyond the kind do not survive the round-trip.** `vault_schema_set`
+  carries kind and options; a column's `format` or relation `target` is not
+  re-sent by the promote, so promoting a currency-formatted number column loses
+  the format going in, and undo restores the kind without it. This is a
+  forward-lossy property of the promote itself, not of undo.
+
 ---
 
 ## 7. Rejected alternatives

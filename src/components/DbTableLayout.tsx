@@ -20,6 +20,7 @@ import type { SubSummary } from "../lib/subitems";
 import { byFoldedKey, isBuiltinDateName } from "../lib/schemalookup";
 import type { HopDir } from "../lib/cellhop";
 import type { BulkAction } from "../lib/bulkactions";
+import type { UndoRecorder } from "../lib/undoprops";
 
 /** the open cell editor (two ways it can open pre-filled:
     `seed` = the keystroke that opened it, `caretAtEnd` = F2's edit-in-place) */
@@ -217,6 +218,7 @@ export default function DbTableLayout({
   fileOk,
   usedValues,
   onSaveSchema,
+  onPromoteOption,
   rollupRelations,
   rollupPropsFor,
   relationCandidates,
@@ -380,8 +382,13 @@ export default function DbTableLayout({
       is the Name column; `row` is where the editor sat, for the rename whose
       own commit moved the note's path. */
   hopEdit: (from: { path: string; key: string | null; row?: number }, dir: HopDir) => void;
-  commitCell: (value: string | null) => void;
-  commitListCell: (path: string, key: string, values: string[]) => void;
+  commitCell: (value: string | null, record?: UndoRecorder) => Promise<boolean>;
+  commitListCell: (
+    path: string,
+    key: string,
+    values: string[],
+    record?: UndoRecorder
+  ) => Promise<boolean>;
   toggleCheckboxCell: (path: string, key: string) => void;
   fileOk: Record<string, boolean>;
   usedValues: (key: string) => string[];
@@ -398,6 +405,22 @@ export default function DbTableLayout({
     /** any kind: how long a value stays believable (`90d`, `1y`); an empty
         string clears a stored window, undefined leaves it alone */
     review?: string
+  ) => void;
+  /** "Add “x” to options": stores the option and runs `writeValue` as ONE
+      undoable action — the value only lands if the option did, and one ⌘Z
+      takes back both. Absent leaves the promote row off the pickers. */
+  onPromoteOption?: (
+    prop: string,
+    add: {
+      before: SelectOption[];
+      after: SelectOption[];
+      kind: PropKind | null;
+      /** the kind the property held before — restored beside the options, so
+          undo cannot demote an optionless explicit kind out of the schema */
+      priorKind: PropKind | null;
+      description?: string;
+    },
+    writeValue: (record: UndoRecorder) => Promise<void>
   ) => void;
   /** the rollup schema editor's pickers: followable relation props
       of this database, and the props of a relation's target database */
@@ -431,10 +454,34 @@ export default function DbTableLayout({
   setBulkEdit: (v: { key: string; anchor: AnchorRect } | null) => void;
   bulkVals: string[];
   setBulkVals: (v: string[]) => void;
-  bulkCommit: (key: string, value: string | string[] | boolean | null) => void;
-  bulkWriteLive: (key: string, value: string | string[] | boolean | null) => void;
+  bulkCommit: (
+    key: string,
+    value: string | string[] | boolean | null,
+    record?: UndoRecorder
+  ) => Promise<void>;
+  bulkWriteLive: (
+    key: string,
+    value: string | string[] | boolean | null,
+    record?: UndoRecorder
+  ) => Promise<void>;
   pickBulkCol: (key: string, anchor: AnchorRect) => void;
 }) {
+  // A promote writes the value only AFTER the schema round-trip resolves, and
+  // a multi keeps its menu open across it — so a ✓ the user toggles meanwhile
+  // has already moved on from the lists this render closed over. These mirrors
+  // are read at write time instead, so the promote adds its value to what the
+  // picker shows now rather than replacing it with a stale list.
+  const notesRef = useRef(notes);
+  notesRef.current = notes;
+  const bulkValsRef = useRef(bulkVals);
+  bulkValsRef.current = bulkVals;
+  /** a note's values for a multi column as they stand NOW, not as the render
+      that opened the picker saw them */
+  const liveMultiVals = (path: string, col: string) => {
+    const live = notesRef.current.find((x) => x.path === path)?.props ?? {};
+    return propList(live, foldedPropKey(live, col));
+  };
+
   // arrow for any active key; with 2+ keys a muted ordinal marks each key's
   // place in the lexicographic order
   const sortArrow = (key: string) => {
@@ -1155,6 +1202,29 @@ export default function DbTableLayout({
                             onCommit={(v) => commitCell(v)}
                             onClear={() => commitCell(null)}
                             onSaveSchema={(o, nk, nf, nb, t, f, d, r, rv) => onSaveSchema(c, o, nk, nf, nb, t, f, d, r, rv)}
+                            onPromote={
+                              onPromoteOption &&
+                              ((add) => {
+                                // the editor leaves on the pick, as it does for
+                                // every other row — the writes below run off
+                                // this render's cell, not the open editor. A
+                                // multi keeps its menu, exactly like a toggle.
+                                if (ckind !== "multi") closeCell();
+                                onPromoteOption(c, add, (record) =>
+                                  // the value goes in the same way picking an
+                                  // existing option would, so the option and
+                                  // the value it lands in are one ⌘Z
+                                  ckind === "multi"
+                                    ? commitListCell(
+                                        n.path,
+                                        c,
+                                        toggleValue(liveMultiVals(n.path, c), add.value),
+                                        record
+                                      ).then(() => undefined)
+                                    : commitCell(add.value, record).then(() => undefined)
+                                );
+                              })
+                            }
                             onClose={closeCell}
                           />
                         )
@@ -1390,6 +1460,23 @@ export default function DbTableLayout({
             onCommit={(v) => bulkCommit(bulkKey, v)}
             onClear={() => bulkCommit(bulkKey, null)}
             onSaveSchema={(o, nk, nf, nb, t, f, d, r, rv) => onSaveSchema(bulkKey, o, nk, nf, nb, t, f, d, r, rv)}
+            onPromote={
+              onPromoteOption &&
+              ((add) => {
+                // the editor leaves on the pick, as it does for every other
+                // row; a multi keeps its menu, exactly like a toggle
+                if (bulkKind !== "multi") closeBulkEdit();
+                onPromoteOption(bulkKey, add, (record) => {
+                  // the same two doors the bulk bar's own picks use: a multi
+                  // toggles live and keeps the menu, everything else commits
+                  // the selection and closes
+                  if (bulkKind !== "multi") return bulkCommit(bulkKey, add.value, record);
+                  const next = toggleValue(bulkValsRef.current, add.value);
+                  setBulkVals(next);
+                  return bulkWriteLive(bulkKey, propListValue(next), record);
+                });
+              })
+            }
             onClose={closeBulkEdit}
           />
         ))}

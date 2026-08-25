@@ -116,6 +116,22 @@ interface DatabasePaneProps {
   onSaveIcon: (icon: DbIcon | null) => void;
   usedValues: (key: string) => string[];
   onSaveSchema: (prop: string, options: SelectOption[], kind: PropKind | null, notify?: boolean, notifyBefore?: number, target?: string, format?: NumberFormat, description?: string, rollup?: RollupConfig | null, review?: string) => void;
+  /** "Add “x” to options": stores the option and runs `writeValue` as ONE
+      undoable action — the value only lands if the option did, and one ⌘Z
+      takes back both. Absent leaves the promote row off the pickers. */
+  onPromoteOption?: (
+    prop: string,
+    add: {
+      before: SelectOption[];
+      after: SelectOption[];
+      kind: PropKind | null;
+      /** the kind the property held before — restored beside the options, so
+          undo cannot demote an optionless explicit kind out of the schema */
+      priorKind: PropKind | null;
+      description?: string;
+    },
+    writeValue: (record: UndoRecorder) => Promise<void>
+  ) => void;
   /** entries of a relation column's target database (picker source) */
   relationCandidates: (dbType: string) => RelationCandidate[];
   /** create a new entry of a database inline from the relation picker */
@@ -252,6 +268,7 @@ export default function DatabasePane({
   onSaveIcon,
   usedValues,
   onSaveSchema,
+  onPromoteOption,
   relationCandidates,
   onCreateEntry,
   onRenameNote,
@@ -1829,7 +1846,10 @@ export default function DatabasePane({
     key: string,
     value: string | string[] | boolean | null,
     // pre-minted id when the caller wants to point a toast at this exact entry
-    id?: number
+    id?: number,
+    // where the inverse goes. The promote path takes it instead of the stack
+    // so the option it added and this value ride ONE entry.
+    record: UndoRecorder = undo.record
   ): Promise<boolean> => {
     // The note's OWN spelling comes off DISK, never the composite.
     // A pending clear deletes the key from the overlay, so resolving there
@@ -1844,7 +1864,7 @@ export default function DatabasePane({
     const optimistic: PendingWrite[] = [{ path, key: actualKey, value }];
     setPending((cur) => addPending(cur, optimistic));
     // Through the undoable helper, so a mis-typed cell is one ⌘Z away
-    return setPropUndoable({ path, key: actualKey, value, id, record: undo.record, keyLabel: displayColLabel(key), write: writeProp })
+    return setPropUndoable({ path, key: actualKey, value, id, record, keyLabel: displayColLabel(key), write: writeProp })
       .then(() => {
         setPending((cur) => settlePending(cur, optimistic));
         onMutated();
@@ -1878,8 +1898,8 @@ export default function DatabasePane({
   const commitText = (key: string, value: string): string =>
     byFoldedKey(typeSchema, key)?.kind === "number" ? normalizeNumberInput(value) : value;
 
-  const commitCell = (raw: string | null) => {
-    if (!editCell) return;
+  const commitCell = (raw: string | null, record?: UndoRecorder): Promise<boolean> => {
+    if (!editCell) return Promise.resolve(false);
     const { path, key } = editCell;
     const value = raw === null ? null : commitText(key, raw);
     setEditCell(null);
@@ -1889,13 +1909,19 @@ export default function DatabasePane({
     const props = notes.find((n) => n.path === path)?.props ?? {};
     const actualKey = foldedPropKey(diskPropsOf(path), key);
     const cur = foldedPropStr(props, key) ?? "";
-    if ((value ?? "") === cur) return;
+    if ((value ?? "") === cur) return Promise.resolve(false);
     // a column with no list-shaped kind falls back to this raw text editor,
     // but the prop underneath may still hold a YAML list — the editor seeds
     // from propStr, which joins it to "Vinyl, Digital". Writing that text
     // back as a scalar collapsed the list on a save that reported success
     // (the table half of the chip fix). null still clears.
-    writeCell(path, key, value === null ? null : chipCommitValue(props[actualKey], value));
+    return writeCell(
+      path,
+      key,
+      value === null ? null : chipCommitValue(props[actualKey], value),
+      undefined,
+      record
+    );
   };
 
   // read by the scroll handlers, which run far more often than any of these
@@ -1955,9 +1981,12 @@ export default function DatabasePane({
   // list-valued cells (relation, multi) commit live as the picker
   // toggles (menu stays open); current values re-read from the latest notes
   // each commit
-  const commitListCell = (path: string, key: string, values: string[]) => {
-    writeCell(path, key, propListValue(values));
-  };
+  const commitListCell = (
+    path: string,
+    key: string,
+    values: string[],
+    record?: UndoRecorder
+  ): Promise<boolean> => writeCell(path, key, propListValue(values), undefined, record);
 
   // The grid the hop arithmetic walks — the columns the view SHOWS,
   // the rows it currently lists, and each column's kind so derived (rollup)
@@ -2234,21 +2263,25 @@ export default function DatabasePane({
     setPendingFocus(first);
   };
 
-  const bulkWriteLive = (key: string, value: string | string[] | boolean | null) => {
+  const bulkWriteLive = (
+    key: string,
+    value: string | string[] | boolean | null,
+    record: UndoRecorder = undo.record
+  ): Promise<void> => {
     const paths = [...sel];
-    if (paths.length === 0) return;
+    if (paths.length === 0) return Promise.resolve();
     const label = displayColLabel(key);
     const optimistic = bulkPending(paths, key, value);
     // These rows are being written again — no stale "didn't save"
     // mark may sit on a row while its retry is in flight
     setWriteFailed(EMPTY_FAILED);
     setPending((cur) => addPending(cur, optimistic));
-    setPropUndoableBulk({
+    return setPropUndoableBulk({
       paths,
       key,
       keysByPath: bulkKeysByPath(paths, key),
       value,
-      record: undo.record,
+      record,
       keyLabel: label,
       write: writeProp,
     }).then((res) => {
@@ -2275,13 +2308,14 @@ export default function DatabasePane({
   const writePropOn = (
     paths: string[],
     key: string,
-    value: string | string[] | boolean | null
-  ) => {
-    if (paths.length === 0) return;
+    value: string | string[] | boolean | null,
+    record: UndoRecorder = undo.record
+  ): Promise<void> => {
+    if (paths.length === 0) return Promise.resolve();
     const label = displayColLabel(key);
     const optimistic = bulkPending(paths, key, value);
     setPending((cur) => addPending(cur, optimistic));
-    setPropUndoableBulk({ paths, key, keysByPath: bulkKeysByPath(paths, key), value, record: undo.record, keyLabel: label, write: writeProp }).then((res) => {
+    return setPropUndoableBulk({ paths, key, keysByPath: bulkKeysByPath(paths, key), value, record, keyLabel: label, write: writeProp }).then((res) => {
       const ok = res.ok.length;
       reconcileBulk(optimistic, res);
       settleBulkFailures(res);
@@ -2296,7 +2330,11 @@ export default function DatabasePane({
     });
   };
 
-  const bulkCommit = (key: string, raw: string | string[] | boolean | null) => {
+  const bulkCommit = (
+    key: string,
+    raw: string | string[] | boolean | null,
+    record: UndoRecorder = undo.record
+  ): Promise<void> => {
     // same number-kind normalization as the single-cell path: the
     // bulk editor is the same free-text SelectMenu over the same column
     const value = typeof raw === "string" ? commitText(key, raw) : raw;
@@ -2304,7 +2342,7 @@ export default function DatabasePane({
     setBulkEdit(null);
     setBulkCheck(null);
     clearSel();
-    writePropOn(paths, key, value);
+    return writePropOn(paths, key, value, record);
   };
 
   /* Rows dropped on a section header join that section — the drag gesture
@@ -3518,6 +3556,7 @@ export default function DatabasePane({
       fileOk={fileOk}
       usedValues={usedValues}
       onSaveSchema={onSaveSchema}
+      onPromoteOption={onPromoteOption}
       rollupRelations={rollupRelations}
       rollupPropsFor={rollupPropsFor}
       relationCandidates={relationCandidates}

@@ -186,6 +186,25 @@ interface SelectMenuProps {
   onToggle?: (v: string) => void;
   onClear?: () => void;
   onSaveSchema: (opts: SelectOption[], kind: PropKind | null, notify?: boolean, notifyBefore?: number, target?: string, format?: NumberFormat, description?: string, rollup?: RollupConfig | null, review?: string) => void;
+  /** "Add “x” to options": storing the option and putting the value into it
+      are ONE action, so the owner sequences both writes and folds them into a
+      single undo entry. Without it the row is not offered at all — a menu that
+      only edits the schema (the ＋ property form, a column's schema editor)
+      has no value write to pair the option with. */
+  onPromote?: (add: {
+    value: string;
+    /** the options the property holds now — where undo puts it back */
+    before: SelectOption[];
+    /** the options this action stores */
+    after: SelectOption[];
+    /** the kind this action stores the options under */
+    kind: PropKind | null;
+    /** the kind the property holds now — undo restores it beside the options,
+        or an optionless explicit kind would come back kindless and optionless,
+        which is the vault's signal to drop the property altogether */
+    priorKind: PropKind | null;
+    description?: string;
+  }) => void;
   /** rollup kind only: relation props of THIS database the rollup
       can follow — absent means the rollup kind can't be configured here */
   rollupRelations?: string[];
@@ -325,6 +344,7 @@ export default function SelectMenu({
   onToggle,
   onClear,
   onSaveSchema,
+  onPromote,
   rollupRelations,
   rollupPropsFor,
   rollup,
@@ -441,11 +461,13 @@ export default function SelectMenu({
       optVals.has(fq) || used.some((v) => v.toLowerCase() === fq);
     if (fq && !exact) {
       out.push({ kind: "use", value: query.trim() });
-      if (canEditSchema) out.push({ kind: "promote", value: query.trim() });
+      // no promote door means no value write to pair the option with, and an
+      // option stored on its own is not what picking the row promises
+      if (canEditSchema && onPromote) out.push({ kind: "promote", value: query.trim() });
     }
     if (canEditSchema) out.push({ kind: "edit" });
     return out;
-  }, [options, used, fq, query, value, onClear, canEditSchema]);
+  }, [options, used, fq, query, value, onClear, canEditSchema, onPromote]);
 
   // highlight the current value on open, first row once typing starts; a
   // free-text cell's input owns Enter (sel -1) until ↓ hands it to the list
@@ -516,10 +538,16 @@ export default function SelectMenu({
       case "promote":
         // adding the typed value to the schema keeps the prop's kind — a
         // multi stays a multi; the description rides along or an
-        // inline promote would silently clear it
-        onSaveSchema([...options, { value: row.value }], isMulti ? "multi" : null, undefined, undefined, undefined, undefined, description);
-        if (isMulti) onToggle?.(row.value);
-        else onCommit(row.value);
+        // inline promote would silently clear it. The owner writes the option
+        // AND the value as one action; the row is only offered when it can.
+        onPromote?.({
+          value: row.value,
+          before: options,
+          after: [...options, { value: row.value }],
+          kind: isMulti ? "multi" : null,
+          priorKind: kind ?? null,
+          description,
+        });
         break;
       case "edit": {
         // no options yet → prefill from values in use: promote-in-place

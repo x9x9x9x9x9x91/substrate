@@ -77,23 +77,25 @@ function paneProps(over: Record<string, unknown> = {}): Record<string, unknown> 
 function livePane(
   Pane: unknown,
   seed: ViewPref,
-  seen: { pref: ViewPref }
+  seen: { pref: ViewPref },
+  over: Record<string, unknown> = {}
 ): () => unknown {
   return function Live() {
     const [pref, setPref] = useState<ViewPref>(seed);
     seen.pref = pref;
-    return h(Pane as never, paneProps({ pref, onPrefChange: setPref }) as never);
+    return h(Pane as never, paneProps({ ...over, pref, onPrefChange: setPref }) as never);
   };
 }
 
 async function openSortMenu(
   t: Parameters<typeof renderComponent>[0],
-  sorts?: SavedViewSort[]
+  sorts?: SavedViewSort[],
+  over: Record<string, unknown> = {}
 ) {
   const { default: DatabasePane } = await import("../components/DatabasePane.tsx");
   const seen = { pref: { view: "table" } as ViewPref };
   const seed: ViewPref = { view: "table", ...(sorts ? { sorts } : {}) };
-  const r = await renderComponent(t, h(livePane(DatabasePane, seed, seen) as never));
+  const r = await renderComponent(t, h(livePane(DatabasePane, seed, seen, over) as never));
   await r.click(".db-sorts-btn");
   return { r, seen };
 }
@@ -299,5 +301,49 @@ test("the add list opens under the keys, not over them", async (t) => {
   assert.deepEqual(
     r.all(".db-sorts-add-item").map((el) => el.textContent),
     ["Name", "Rating"]
+  );
+});
+
+/* ---- dirty persisted lists ----
+
+   Header clicks and the popover both refuse a duplicate key and both stop at
+   the cap, so neither of these lists can be written from inside the app. A
+   hand-edited vault pref can carry them, and the pane has to survive one:
+   the pref is normalized where it enters, so the popover below sees a list
+   that already holds one row per key, capped. */
+
+test("a persisted list naming one column twice sorts on it once", async (t) => {
+  const { r } = await openSortMenu(t, [
+    { key: "Status", dir: 1 },
+    { key: "status", dir: -1 },
+  ]);
+  assert.deepEqual(listed(r), ["1 Status ↑"], "the first spelling's direction is the one kept");
+  assert.equal(r.one(".db-sorts-count")?.textContent, "1");
+  await r.click(".db-sorts-add");
+  assert.deepEqual(
+    r.all(".db-sorts-add-item").map((el) => el.textContent),
+    ["Name", "Rating"],
+    "and the one key it is already sorting on is not offered again"
+  );
+});
+
+test("a persisted list past the cap arrives trimmed to three keys", async (t) => {
+  const schema: Record<string, PropSchema> = { ...SCHEMA, label: { options: [] } };
+  const { r } = await openSortMenu(
+    t,
+    [
+      { key: "title", dir: 1 },
+      { key: "status", dir: 1 },
+      { key: "rating", dir: -1 },
+      { key: "label", dir: 1 },
+    ],
+    { typeSchema: schema, schema: { Release: schema } }
+  );
+  assert.deepEqual(listed(r), ["1 Name ↑", "2 Status ↑", "3 Rating ↓"], "the fourth key is dropped");
+  assert.match(r.text(), /3 keys is the limit/, "and the list reads as full, not overfull");
+  assert.deepEqual(
+    r.all(".db-sort-ord").map((el) => el.textContent),
+    ["1", "2", "3"],
+    "the header badges count no further than the cap"
   );
 });

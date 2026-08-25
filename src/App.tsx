@@ -47,7 +47,8 @@ import {
   unassignKey,
 } from "./lib/keyassign";
 import { pinKeyLabels } from "./lib/shortcuts";
-import { addTagsUndoable, setPropUndoable, type PropWriter } from "./lib/undoprops";
+import { addTagsUndoable, setPropUndoable, type PropWriter, type UndoRecorder } from "./lib/undoprops";
+import { addOptionAndWriteUndoable } from "./lib/undoschema";
 import {
   isIntrinsic,
   MOUNT_SCHEME,
@@ -1436,6 +1437,64 @@ export default function App() {
         .catch((e) => showToast(errText(e)));
     },
     [schemaDbKey, schemaPropKey, showToast]
+  );
+
+  /** "Add “x” to options" on any value picker. The option is stored first and
+      the value follows only if it landed; a value the vault refuses takes the
+      option back out with it, and both inverses ride ONE undo entry, so a
+      single ⌘Z never leaves an orphan option behind. The surface supplies its
+      own value write — it alone knows which cells, notes or selection the
+      value goes into — and hands its inverse to the recorder it is given. */
+  const promoteSchemaOption = useCallback(
+    (
+      dbType: string,
+      prop: string,
+      add: {
+        before: SelectOption[];
+        after: SelectOption[];
+        kind: PropKind | null;
+        priorKind: PropKind | null;
+        description?: string;
+      },
+      writeValue: (record: UndoRecorder) => Promise<void>
+    ) => {
+      const storedDb = schemaDbKey(dbType);
+      const storedProp = schemaPropKey(dbType, prop);
+      // the kind rides every write, each direction its own: putting the prior
+      // options back under this action's kind would leave a column that had
+      // none at all empty AND kindless, which the vault reads as "remove this
+      // property" — a ⌘Z that deletes the column instead of restoring it
+      const write = (state: { options: SelectOption[]; kind: PropKind | null }) =>
+        vaultSchemaSet(
+          storedDb,
+          storedProp,
+          state.options,
+          state.kind ?? undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          add.description
+        ).then((s) => {
+          setSchema(s);
+        });
+      addOptionAndWriteUndoable({
+        store: {
+          before: { options: add.before, kind: add.priorKind },
+          after: { options: add.after, kind: add.kind },
+          write,
+          // read from the vault, not from this render's schema state: undo
+          // runs long after, and its guard has to see what is stored NOW
+          read: () =>
+            vaultSchemaRead().then(
+              (s) => byFoldedKey(typeSchemaFor(s, storedDb) ?? {}, storedProp)?.options ?? []
+            ),
+        },
+        writeValue,
+        record: undoApi.record,
+      }).catch((e) => showToast(errText(e)));
+    },
+    [schemaDbKey, schemaPropKey, showToast, undoApi]
   );
 
   // per-type database icons ride the same schema.json, under the
@@ -5251,6 +5310,7 @@ export default function App() {
                 onSaveIcon={(ic) => saveSchemaIcon(activeMount.name, ic)}
                 usedValues={(key) => usedValues(activeMount.name, key)}
                 onSaveSchema={(prop, opts, kind, notify, notifyBefore, target, format, description, rollup, review) => saveSchemaProp(activeMount.name, prop, opts, kind, notify, notifyBefore, target, format, description, rollup, review)}
+                onPromoteOption={(prop, add, writeValue) => promoteSchemaOption(activeMount.name, prop, add, writeValue)}
                 relationCandidates={relCandidates}
                 onCreateEntry={createEntry}
                 dbTypes={dbTypes}
@@ -5318,6 +5378,7 @@ export default function App() {
               onSaveIcon={(ic) => saveSchemaIcon(view.type, ic)}
               usedValues={(key) => usedValues(view.type, key)}
               onSaveSchema={(prop, opts, kind, notify, notifyBefore, target, format, description, rollup, review) => saveSchemaProp(view.type, prop, opts, kind, notify, notifyBefore, target, format, description, rollup, review)}
+              onPromoteOption={(prop, add, writeValue) => promoteSchemaOption(view.type, prop, add, writeValue)}
               relationCandidates={relCandidates}
               onCreateEntry={createEntry}
               onRenameNote={renameNote}
@@ -5366,6 +5427,7 @@ export default function App() {
               onSaveIcon={(ic) => saveSchemaIcon(activeSaved.db, ic)}
               usedValues={(key) => usedValues(activeSaved.db, key)}
               onSaveSchema={(prop, opts, kind, notify, notifyBefore, target, format, description, rollup, review) => saveSchemaProp(activeSaved.db, prop, opts, kind, notify, notifyBefore, target, format, description, rollup, review)}
+              onPromoteOption={(prop, add, writeValue) => promoteSchemaOption(activeSaved.db, prop, add, writeValue)}
               relationCandidates={relCandidates}
               onCreateEntry={createEntry}
               onRenameNote={renameNote}
@@ -5427,6 +5489,7 @@ export default function App() {
                 numberLocale={numberLocale}
                 changedPaths={changedPaths}
                 onSaveSchema={saveSchemaProp}
+                onPromoteOption={promoteSchemaOption}
                 relationCandidates={relCandidates}
                 onCreateEntry={createEntry}
                 dbTypes={dbTypes}
@@ -5514,6 +5577,7 @@ export default function App() {
             numberLocale={numberLocale}
             changedPaths={changedPaths}
             onSaveSchema={saveSchemaProp}
+            onPromoteOption={promoteSchemaOption}
             relationCandidates={relCandidates}
             onCreateEntry={createEntry}
             dbTypes={dbTypes}

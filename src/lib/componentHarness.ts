@@ -134,6 +134,10 @@ const copied = [
   "getComputedStyle",
   "requestAnimationFrame",
   "cancelAnimationFrame",
+  // the editor's measure pass asks whether a scroller `instanceof Window`;
+  // without the constructor that throws inside an animation frame, where the
+  // failure is a stderr line rather than a failing test
+  "Window",
   "Node",
   "Element",
   "HTMLElement",

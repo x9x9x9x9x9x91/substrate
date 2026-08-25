@@ -22,7 +22,7 @@ import {
   vaultWriteBody,
   voiceTranscribe,
 } from "../lib/ipc";
-import { setPropUndoable } from "../lib/undoprops";
+import { setPropUndoable, type UndoRecorder } from "../lib/undoprops";
 import { isPickedToday } from "../lib/today";
 import { useTodayIso } from "./useTodayIso";
 import { renameUndoable, recordCreate } from "../lib/undostruct";
@@ -169,6 +169,23 @@ interface NotePaneProps {
         string clears a stored window, undefined leaves it alone */
     review?: string
   ) => void;
+  /** "Add “x” to options": stores the option and runs `writeValue` as ONE
+      undoable action — the value only lands if the option did, and one ⌘Z
+      takes back both. Absent leaves the promote row off the chip picker. */
+  onPromoteOption?: (
+    dbType: string,
+    prop: string,
+    add: {
+      before: SelectOption[];
+      after: SelectOption[];
+      kind: PropKind | null;
+      /** the kind the property held before — restored beside the options, so
+          undo cannot demote an optionless explicit kind out of the schema */
+      priorKind: PropKind | null;
+      description?: string;
+    },
+    writeValue: (record: UndoRecorder) => Promise<void>
+  ) => void;
   /** entries of a relation's target database (picker source) */
   relationCandidates: (dbType: string) => RelationCandidate[];
   /** create a new entry of a database inline from the relation picker */
@@ -297,6 +314,7 @@ function NotePane({
   numberLocale,
   changedPaths = null,
   onSaveSchema,
+  onPromoteOption,
   relationCandidates,
   onCreateEntry,
   dbTypes,
@@ -419,6 +437,12 @@ function NotePane({
     () => applyPendingTo(meta.path, diskProps, pendingProps),
     [meta.path, diskProps, pendingProps]
   );
+  // "Add “x” to options" writes the chip's value only after the schema
+  // round-trip resolves, and a multi keeps its menu open across it — a ✓
+  // toggled meanwhile would be dropped by a list captured at pick time, so
+  // that write reads the props through here instead
+  const propsRef = useRef(props);
+  propsRef.current = props;
 
   // the note the overlay belongs to. Only this pane's own re-reads can retire
   // an entry, and they carry the OPEN note alone — so switching notes has to
@@ -1402,7 +1426,13 @@ function NotePane({
   // pill's click retries it, and success clears a previous failure. Per-note
   // state sets guard on the note still being current (a reply can lag a
   // switch); App-level follow-ups keep their old unconditional behavior.
-  const writeProp = (key: string, value: string | string[] | boolean | null) => {
+  const writeProp = (
+    key: string,
+    value: string | string[] | boolean | null,
+    // where the inverse goes. The promote path takes it instead of the stack
+    // so the option it added and this value ride ONE entry.
+    record: UndoRecorder = undo.record
+  ): Promise<void> => {
     const path = meta.path;
     // The note's own spelling comes off DISK, never off the
     // optimistic composite — a pending clear deletes the key there, and the
@@ -1413,7 +1443,7 @@ function NotePane({
     const optimistic: PendingWrite[] = [{ path, key: actualKey, value }];
     setPendingProps((cur) => addPending(cur, optimistic));
     // Undoable like every other property edit
-    setPropUndoable({ path, key: actualKey, value, record: undo.record })
+    return setPropUndoable({ path, key: actualKey, value, record })
       .then((m) => {
         setPendingProps((cur) => settlePending(cur, optimistic));
         if (pathRef.current === path) {
@@ -1468,7 +1498,7 @@ function NotePane({
       });
   };
 
-  const commitChip = (key: string, value: string) => {
+  const commitChip = (key: string, value: string, record?: UndoRecorder): Promise<void> => {
     // The note's property chips are the same free-text editor over
     // the same schema as the table's cells — a number-kind prop typed in the
     // app's own de-DE dialect lands canonical here too (noteType/schema read
@@ -1479,11 +1509,11 @@ function NotePane({
     const v = kind === "number" ? normalizeNumberInput(value) : value.trim();
     setEditingChip(null);
     setAddingChip(false);
-    if (!v) return;
+    if (!v) return Promise.resolve();
     // an untyped note has no picker, so a list-valued prop edits as the
     // comma-joined text propStr renders — chipCommitValue keeps that round
     // trip a list instead of collapsing it to one scalar string
-    writeProp(key, chipCommitValue(props[foldedPropKey(props, key)], v));
+    return writeProp(key, chipCommitValue(props[foldedPropKey(props, key)], v), record);
   };
 
   const removeChip = (key: string) => {
@@ -1506,9 +1536,8 @@ function NotePane({
   // list-valued props (relation, multi) commit live as the picker
   // toggles (menu stays open): one value stores as a scalar, several as a
   // YAML list, none removes
-  const commitList = (key: string, values: string[]) => {
-    writeProp(key, propListValue(values));
-  };
+  const commitList = (key: string, values: string[], record?: UndoRecorder): Promise<void> =>
+    writeProp(key, propListValue(values), record);
 
   const createRelationTarget = (key: string, dbType: string, title: string) => {
     onCreateEntry(dbType, title)
@@ -2163,6 +2192,27 @@ function NotePane({
                     removeChip(k);
                   }}
                   onSaveSchema={(o, nk, nf, nb, t, f, d, r, rv) => onSaveSchema(noteType, k, o, nk, nf, nb, t, f, d, r, rv)}
+                  onPromote={
+                    onPromoteOption && noteType
+                      ? (add) => {
+                          // the chip editor leaves on the pick, as it does for
+                          // every other row; a multi keeps its menu open
+                          if (kind !== "multi") setEditingChip(null);
+                          onPromoteOption(noteType, k, add, (record) =>
+                            // the value goes in the same way picking an
+                            // existing option would, so the option and the
+                            // value it lands in are one ⌘Z
+                            kind === "multi"
+                              ? commitList(
+                                  k,
+                                  toggleValue(propList(propsRef.current, k), add.value),
+                                  record
+                                )
+                              : commitChip(k, add.value, record)
+                          );
+                        }
+                      : undefined
+                  }
                   footer={chipReceiptFooter(k)}
                   onClose={() => setEditingChip(null)}
                 />
