@@ -1429,12 +1429,22 @@ export default function App() {
       // the review window rides through as the editor sent it: a canonical
       // window sets one, an empty string clears it, and undefined (every
       // caller that has no window field) leaves the stored one standing
-      vaultSchemaSet(storedDb, storedProp, options, kind ?? undefined, notify, notifyBefore, target, format, description, review, rollup)
-        .then(setSchema)
+      // Resolves true/false rather than rejecting: the toast below is how a
+      // refusal reaches the USER either way, and the boolean is how a caller
+      // with a step after the schema write — the row-onto-row grouping
+      // prompt writes rows next — knows not to take that step.
+      return vaultSchemaSet(storedDb, storedProp, options, kind ?? undefined, notify, notifyBefore, target, format, description, review, rollup)
+        .then((s) => {
+          setSchema(s);
+          return true;
+        })
         // engine refusals ("a rollup property needs a relation to follow",
         // "“mount” is set by the mount") must reach the user — the editor has
         // already closed by the time this rejects
-        .catch((e) => showToast(errText(e)));
+        .catch((e) => {
+          showToast(errText(e));
+          return false;
+        });
     },
     [schemaDbKey, schemaPropKey, showToast]
   );

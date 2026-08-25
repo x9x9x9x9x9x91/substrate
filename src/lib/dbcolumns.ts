@@ -132,24 +132,24 @@ export function canonicalViewPref(pref: ViewPref, columns: string[]): ViewPref {
   };
 }
 
+/** The keys a database table never shows as a column, folded: `type` is
+    constant per view, `title` is the name column, and `icon`/`home`/`parent`
+    are reserved schema keys the app writes for its own purposes. Exported
+    because refusing them is not only this file's job — anything that offers
+    to INVENT a property has to refuse the same five, or the new column
+    retypes its rows out of the database on the first write. */
+export const NON_COLUMN_KEYS = ["type", "title", "icon", "home", "parent"];
+
 /** Column set for a database table: schema-registered props (a
     column shows for every entry even with no values) ∪ prop keys in use
-    across the type's notes. `type` is constant per view, `title` is the name
-    column, `icon`/`home`/`parent` are reserved schema keys — none of them is a
-    column. Known props lead, the rest follow alphabetically. */
+    across the type's notes. None of NON_COLUMN_KEYS is a column. Known props
+    lead, the rest follow alphabetically. */
 export function dbColumns(notes: NoteMeta[], typeSchema: Record<string, PropSchema>): string[] {
   const seen = new Map<string, string>();
   const observed = new Set<string>();
   for (const k of Object.keys(typeSchema)) {
     const folded = k.toLowerCase();
-    if (
-      folded !== "type" &&
-      folded !== "title" &&
-      folded !== "icon" &&
-      folded !== "home" &&
-      folded !== "parent"
-    )
-      seen.set(folded, k);
+    if (!NON_COLUMN_KEYS.includes(folded)) seen.set(folded, k);
   }
   for (const n of notes) {
     for (const k of Object.keys(n.props)) {

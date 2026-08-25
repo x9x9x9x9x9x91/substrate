@@ -62,6 +62,7 @@ import {
 import { viewColumns, viewOrderedRows } from "../lib/vieweval";
 import SelectMenu, { anchorFrom, anchorsWentStale, type AnchorRect } from "./SelectMenu";
 import PropForm from "./PropForm";
+import RowGroupPrompt from "./RowGroupPrompt";
 import DotsMenu from "./DotsMenu";
 import InlineEdit from "./InlineEdit";
 import IconPicker from "./IconPicker";
@@ -115,7 +116,13 @@ interface DatabasePaneProps {
   icon?: DbIcon;
   onSaveIcon: (icon: DbIcon | null) => void;
   usedValues: (key: string) => string[];
-  onSaveSchema: (prop: string, options: SelectOption[], kind: PropKind | null, notify?: boolean, notifyBefore?: number, target?: string, format?: NumberFormat, description?: string, rollup?: RollupConfig | null, review?: string) => void;
+  /** Saves a property's schema entry. Resolves false when the engine refused
+      the write (a reserved key, a rollup with no relation) — the refusal is
+      already on the toast, so a caller that has more to do after the schema
+      lands awaits this and gives up rather than writing on regardless.
+      Returning nothing means "not refused": most callers are display-only
+      stubs with nothing to report. */
+  onSaveSchema: (prop: string, options: SelectOption[], kind: PropKind | null, notify?: boolean, notifyBefore?: number, target?: string, format?: NumberFormat, description?: string, rollup?: RollupConfig | null, review?: string) => void | Promise<boolean>;
   /** "Add “x” to options": stores the option and runs `writeValue` as ONE
       undoable action — the value only lands if the option did, and one ⌘Z
       takes back both. Absent leaves the promote row off the pickers. */
@@ -1212,6 +1219,43 @@ export default function DatabasePane({
   // row this table has in hand while it does
   const [noteDropAt, setNoteDropAt] = useState<string | null>(null);
   const [rowDrag, setRowDrag] = useState<string | null>(null);
+  // the row a row drag is hovering the middle of, lit as "group these two"
+  const [rowGroupDropAt, setRowGroupDropAt] = useState<string | null>(null);
+  /* The rows a confirmed row-onto-row drop would group, held here while the
+     prompt asks for the name. The drop itself writes NOTHING — this state IS
+     the pending gesture, and dismissing the prompt drops it.
+
+     `groupProp` is the table's grouping AS THE DROP FOUND IT, not as it
+     stands when the prompt is confirmed. A sync landing, or the user
+     regrouping in another pane, can change the live one while the prompt is
+     up; the question the prompt asked — "which column do these sections
+     stand for" — was asked about this one, so this is the one the confirm
+     answers. */
+  const [rowGroupDrop, setRowGroupDrop] = useState<{
+    paths: string[];
+    fromSel: boolean;
+    groupProp: string | null;
+  } | null>(null);
+  /* A windowed table can scroll the dragged row clean out of the DOM
+     mid-drag: its node unmounts, and the onDragEnd that would have put the
+     row down never fires. Every drag still ends at the window, so that is
+     where it gets put down instead — a row left in hand arms the
+     "group these two" band for the NEXT drag, one that may have started in
+     the sidebar and have no row here at all. */
+  useEffect(() => {
+    if (rowDrag === null) return;
+    const end = () => {
+      setRowDrag(null);
+      setRowGroupDropAt(null);
+    };
+    window.addEventListener("dragend", end);
+    window.addEventListener("drop", end);
+    return () => {
+      window.removeEventListener("dragend", end);
+      window.removeEventListener("drop", end);
+    };
+  }, [rowDrag]);
+
   const endGroupDrag = () => {
     setGroupDrag(null);
     setGroupDropAt(null);
@@ -2305,13 +2349,17 @@ export default function DatabasePane({
      commit the selection through it, a row dropped on a section header
      commits the paths the drag names. N writes, ONE undo entry, and the
      per-row failure marks the bar leans on either way. */
+  /* Resolves with what landed, so a caller that has a step AFTER the rows —
+     the row-onto-row prompt switches the table's grouping only once a row
+     has taken the value — can wait for it. Every other caller is the end of
+     its own gesture and ignores the result. */
   const writePropOn = (
     paths: string[],
     key: string,
     value: string | string[] | boolean | null,
     record: UndoRecorder = undo.record
-  ): Promise<void> => {
-    if (paths.length === 0) return Promise.resolve();
+  ): Promise<BulkPropResult | null> => {
+    if (paths.length === 0) return Promise.resolve(null);
     const label = displayColLabel(key);
     const optimistic = bulkPending(paths, key, value);
     setPending((cur) => addPending(cur, optimistic));
@@ -2327,6 +2375,7 @@ export default function DatabasePane({
             ? `Cleared ${label} on ${ok === 1 ? "1 note" : `${ok} notes`}`
             : `Set ${label} on ${ok === 1 ? "1 note" : `${ok} notes`}`
       );
+      return res;
     });
   };
 
@@ -2342,7 +2391,9 @@ export default function DatabasePane({
     setBulkEdit(null);
     setBulkCheck(null);
     clearSel();
-    return writePropOn(paths, key, value, record);
+    // the bulk bar is the end of its own gesture — the per-row result stays
+    // writePropOn's business
+    return writePropOn(paths, key, value, record).then(() => undefined);
   };
 
   /* Rows dropped on a section header join that section — the drag gesture
@@ -2371,6 +2422,130 @@ export default function DatabasePane({
     if (moving.length === 0) return;
     if (grouped) clearSel();
     writePropOn(moving, tableGroup, value);
+  };
+
+  /* The columns the row-onto-row prompt offers to START grouping by:
+     kindless ones only. A kinded column parses what it stores — a date, a
+     number, a checkbox, a relation — and the prompt has one free-text field,
+     which has no business inventing a value for any of them. A column with
+     no schema entry at all is kindless too: plain text, which groups fine.
+     A kinded column can still be grouped by from the header picker, and a
+     table already grouped by one takes the typed value through the same
+     normalization a typed cell does. */
+  const establishChoices = groupable.filter((c) => !byFoldedKey(typeSchema, c)?.kind);
+
+  /* The property that prompt opens on: a column the schema already calls a
+     select — a kindless entry carrying options — is unambiguously a grouping
+     column, so it beats inventing a new one. Nothing else defaults; the
+     prompt offers to make a property instead of guessing at a text column. */
+  const preferredGroupProp =
+    establishChoices.find((c) => (byFoldedKey(typeSchema, c)?.options?.length ?? 0) > 0) ?? null;
+
+  /** the group values a property already carries: its schema options first,
+      then the spellings in use the schema has never seen */
+  const groupValuesFor = (prop: string): string[] => {
+    const opts = (byFoldedKey(typeSchema, prop)?.options ?? []).map((o) => o.value);
+    const seen = new Set(opts.map((v) => v.toLowerCase()));
+    return [...opts, ...usedValues(prop).filter((v) => !seen.has(v.toLowerCase()))];
+  };
+
+  /* A row dropped ONTO another row asks for the two to share a group. The
+     drop only GATHERS the rows — the prompt names the group, and a dismissed
+     prompt leaves the table untouched, which is what makes a drop made by
+     accident while dragging rows around cost nothing.
+
+     Same guards the section-header drop makes: this table's own rows only
+     (a note dragged in from the sidebar carries the same drag type), and a
+     dragged row that is part of the selection carries the whole selection —
+     minus the row it landed on, which can never be dropped on itself. */
+  const onDropRowOnRow = (path: string, target: string) => {
+    setRowGroupDropAt(null);
+    if (!path || !target || path === target) return;
+    const own = (p: string) => rows.some((n) => n.path === p);
+    if (!own(path) || !own(target)) return;
+    const fromSel = sel.has(path);
+    const held = fromSel ? [...sel].filter(own) : [path];
+    if (held.includes(target)) return;
+    setRowGroupDrop({ paths: [...held, target], fromSel, groupProp: tableGroup ?? null });
+  };
+
+  /* The prompt's confirm — the only place this gesture writes. Up to three
+     things happen, each through the door that already owns it: a property
+     invented here (or a group name the property's schema has never seen)
+     lands as a schema option, an ungrouped table starts grouping by that
+     column, and the rows take the value through the same bulk write door the
+     section-header drop uses. Only that last part is undoable, so one undo
+     after a confirmed drop takes the group value back off every row it wrote
+     — the property and the grouping stay. */
+  const confirmRowGroup = async (prop: string, value: string, createProp: boolean) => {
+    const drop = rowGroupDrop;
+    setRowGroupDrop(null);
+    if (!drop || !prop || !value) return;
+    /* The prompt stood open while the table lived on — a sync landing, a
+       trashed note, a filter re-running — so the membership guard the drop
+       made is made again here. Writing the grouping property into the
+       frontmatter of a note this database no longer shows is exactly the
+       fault the foreign-drag guard refuses at the drop. */
+    const paths = drop.paths.filter((p) => rows.some((n) => n.path === p));
+    if (paths.length === 0) return;
+    const propSchema = byFoldedKey(typeSchema, prop);
+    const options = propSchema?.options ?? [];
+    /* A kinded column parses what it stores: a number column shows
+       "1.234,56 €" and must not take that string back verbatim. The typed
+       group name goes through the same door a typed cell does. Kindless
+       columns — every column the establish step offers — get their text
+       through untouched. */
+    const written = commitText(prop, value);
+    const known = options.some((o) => o.value.toLowerCase() === written.toLowerCase());
+    /* A select column is a kindless schema entry with options, so inventing
+       one and promoting a value into an existing one are the same call. The
+       existing entry's description rides along or the promote would silently
+       clear it — the same guard the inline promote in the cell menu makes.
+
+       It goes FIRST and is AWAITED: the engine can refuse a schema write,
+       the refusal reaches the user on the app's toast, and writing rows into
+       a group whose property never landed is a worse table than not writing
+       at all. */
+    if (createProp || (!known && !propSchema?.kind)) {
+      const next = createProp ? [{ value: written }] : [...options, { value: written }];
+      const saved = await onSaveSchema(
+        prop,
+        next,
+        null,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        propSchema?.description
+      );
+      if (saved === false) return;
+    }
+    if (drop.fromSel) clearSel();
+    // rows already carrying this value are not rewritten — the same
+    // same-value no-op filter the section-header drop makes
+    const moving = paths.filter(
+      (p) =>
+        (foldedPropStr(visible.find((n) => n.path === p)?.props ?? {}, prop) || null) !== written
+    );
+    const res = await writePropOn(moving, prop, written);
+    /* The grouping switch lands LAST, and only once a row is actually
+       carrying the value (`null` = every row already carried it, so nothing
+       needed writing). A table that regroups onto a column no row holds
+       shows every row under "No <prop>" — the gesture reading as a failure
+       when the only thing that failed was the rows.
+
+       Accepted residue: these are three separate writes and only the rows
+       are undoable, so when SOME rows fail the schema option and the rows
+       that did land stay. The toast names the count that failed and undo
+       takes the landed rows back out; nothing rolls the schema back. */
+    if ((res === null || res.ok.length > 0) && tableGroup !== prop)
+      // the fold set and hand order name sections of the OLD column
+      patchPref({
+        view: "table",
+        table_group_by: prop,
+        group_order: undefined,
+        collapsed_groups: undefined,
+      });
   };
 
   // column picked in the bulk bar's picker: checkbox kinds get a Checked /
@@ -3329,6 +3504,18 @@ export default function DatabasePane({
           onClose={() => setBgMenu(null)}
         />
       )}
+      {rowGroupDrop && (
+        <RowGroupPrompt
+          count={rowGroupDrop.paths.length}
+          groupProp={rowGroupDrop.groupProp}
+          propChoices={establishChoices}
+          preferredProp={preferredGroupProp}
+          existingCols={columns}
+          optionsFor={groupValuesFor}
+          onCancel={() => setRowGroupDrop(null)}
+          onConfirm={confirmRowGroup}
+        />
+      )}
     </>
   );
 
@@ -3475,6 +3662,9 @@ export default function DatabasePane({
       noteDropAt={noteDropAt}
       setNoteDropAt={setNoteDropAt}
       onDropNotesInGroup={onDropNotesInGroup}
+      rowGroupDropAt={rowGroupDropAt}
+      setRowGroupDropAt={setRowGroupDropAt}
+      onDropRowOnRow={onDropRowOnRow}
       treeDepth={treeDepth}
       treeKids={treeKids}
       subSums={subSums}

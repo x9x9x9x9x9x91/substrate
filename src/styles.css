@@ -8409,6 +8409,82 @@ body.agenda-window .palette:focus-visible {
   box-shadow: inset 0 0 0 1px var(--accent);
 }
 
+/* a row dragged onto the MIDDLE of another row: the target lights up as
+   the group the two would share — the same destination treatment a section
+   header wears, so one drag gesture speaks one language. The lit state is
+   the whole row and appears only over its middle band, which is what tells
+   "group with this row" apart from a pointer merely passing between rows. */
+/* The lit row is ALWAYS hovered — the pointer is on it — and may also be
+   selected, and both of those paint the row themselves. Each of the rules
+   below therefore repeats itself at those two specificities, so the drop
+   state is what reads whatever else the row is doing. */
+.db-table tbody tr.row-group-drop td,
+.db-table tbody tr.row-group-drop:hover td,
+.db-table tbody tr.is-selected.row-group-drop:hover td {
+  background: var(--accent-soft);
+  color: var(--text-1);
+  box-shadow: inset 0 1px 0 var(--accent), inset 0 -1px 0 var(--accent);
+}
+
+/* the frozen Name cell carries its tint as a layer over the opaque base,
+   the same way hover and selected do — without this it keeps the hover
+   wash while the rest of the row goes accent */
+.db-table tbody tr.row-group-drop td:first-child,
+.db-table tbody tr.row-group-drop:hover td:first-child,
+.db-table tbody tr.is-selected.row-group-drop:hover td:first-child {
+  background: linear-gradient(var(--accent-soft), var(--accent-soft)), var(--bg-panel);
+  box-shadow:
+    inset 0 1px 0 var(--accent),
+    inset 0 -1px 0 var(--accent),
+    inset 1px 0 0 var(--accent);
+}
+
+.db-table tbody tr.row-group-drop td:last-child,
+.db-table tbody tr.row-group-drop:hover td:last-child,
+.db-table tbody tr.is-selected.row-group-drop:hover td:last-child {
+  box-shadow:
+    inset 0 1px 0 var(--accent),
+    inset 0 -1px 0 var(--accent),
+    inset -1px 0 0 var(--accent);
+}
+
+/* a captioned field in the grouping prompt: the caption hugs its own input
+   rather than taking the card's own gap, so a stack of two fields reads as
+   two named things and not one repeated one */
+.rowgroup-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rowgroup-lbl {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+/* the group values already in use, under the prompt's name field — one
+   click instead of retyping a spelling that has to match */
+.rowgroup-opts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.rowgroup-opt {
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12px;
+  padding: 3px 7px;
+  cursor: pointer;
+}
+
+.rowgroup-opt:hover {
+  border-color: var(--accent);
+  color: var(--text-1);
+}
+
 .db-group-none {
   color: var(--text-3);
   font-weight: 510;

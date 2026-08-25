@@ -142,6 +142,9 @@ export default function DbTableLayout({
   onDropNotesInGroup,
   rowDrag,
   setRowDrag,
+  rowGroupDropAt,
+  setRowGroupDropAt,
+  onDropRowOnRow,
   windowed,
   win,
   winMetrics,
@@ -285,6 +288,13 @@ export default function DbTableLayout({
   /** rows dropped on a section header join that section: the dragged path,
       plus the rest of the selection when the dragged row is part of it */
   onDropNotesInGroup: (path: string, value: string | null) => void;
+  /** the row a row drag is hovering over the MIDDLE of, for its lit
+      "group these two" state — null while the pointer is anywhere else */
+  rowGroupDropAt: string | null;
+  setRowGroupDropAt: (v: string | null) => void;
+  /** a row dropped onto another row: the pair the prompt would group, in
+      drag-then-target order. Writes nothing on its own — the prompt does */
+  onDropRowOnRow: (path: string, target: string) => void;
   windowed: boolean;
   win: { start: number; end: number } | null;
   winMetrics: { rowH: number; groupH: number; draftH: number; headH: number; tbodyTop: number };
@@ -547,6 +557,23 @@ export default function DbTableLayout({
       <td colSpan={shown.length + 2} style={{ height: h }} />
     </tr>
   );
+
+  /* A row dragged ONTO another row asks for the two to share a group, and
+     the prompt the drop raises names it. Only the row's MIDDLE band takes
+     the drop: the outer quarters stay inert on purpose, so the lit target
+     visibly drops away as the pointer nears a row boundary and a drag
+     travelling between rows can never read as a grouping.
+
+     Same own-table guard the section headers use — a note dragged in from
+     the sidebar carries the same drag type and has no row here to group —
+     plus the rows already in hand, which cannot be dropped on themselves. */
+  const rowGroupHit = (e: React.DragEvent<HTMLTableRowElement>, path: string): boolean => {
+    if (rowDrag === null || !e.dataTransfer.types.includes(NOTE_DRAG_MIME)) return false;
+    if (path === rowDrag || (sel.has(rowDrag) && sel.has(path))) return false;
+    const r = e.currentTarget.getBoundingClientRect();
+    const edge = r.height / 4;
+    return e.clientY > r.top + edge && e.clientY < r.bottom - edge;
+  };
 
   /* A section header row spans the full table width: chevron, option dot,
      label, muted count — the board column header's type scale and casing. It
@@ -874,7 +901,7 @@ export default function DbTableLayout({
                   {heads?.map(groupHeaderRow)}
               <tr
                 className={
-                  `${openPath === n.path ? "db-open" : ""}${sel.has(n.path) ? " is-selected" : ""}${missingCls(n)}`.trim() ||
+                  `${openPath === n.path ? "db-open" : ""}${sel.has(n.path) ? " is-selected" : ""}${missingCls(n)}${rowGroupDropAt === n.path ? " row-group-drop" : ""}`.trim() ||
                   undefined
                 }
                 // a row hosting an open cell editor stays undraggable — the
@@ -885,7 +912,35 @@ export default function DbTableLayout({
                   e.dataTransfer.effectAllowed = "move";
                   setRowDrag(n.path);
                 }}
-                onDragEnd={() => setRowDrag(null)}
+                onDragEnd={() => {
+                  setRowDrag(null);
+                  setRowGroupDropAt(null);
+                }}
+                onDragOver={(e) => {
+                  if (!rowGroupHit(e, n.path)) {
+                    // the pointer left the middle band without leaving the
+                    // row — the lit state goes with it, so the two halves of
+                    // the row read differently before anything is released
+                    if (rowGroupDropAt === n.path) setRowGroupDropAt(null);
+                    return;
+                  }
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                  if (rowGroupDropAt !== n.path) setRowGroupDropAt(n.path);
+                }}
+                onDragLeave={(e) => {
+                  // dragleave also fires crossing from one cell of this row
+                  // to the next; the light may only go out when the pointer
+                  // has left the ROW, or it flickers off at every cell edge
+                  if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+                  if (rowGroupDropAt === n.path) setRowGroupDropAt(null);
+                }}
+                onDrop={(e) => {
+                  if (!rowGroupHit(e, n.path)) return;
+                  e.preventDefault();
+                  setRowGroupDropAt(null);
+                  onDropRowOnRow(e.dataTransfer.getData(NOTE_DRAG_MIME), n.path);
+                }}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   onNoteMenu(n.path, e.clientX, e.clientY);
