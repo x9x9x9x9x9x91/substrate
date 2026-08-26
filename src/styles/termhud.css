@@ -1,0 +1,154 @@
+
+/* ── Terminal HUD ─────────────────────────────────── */
+
+/* quake-style: fixed to the window bottom, slides up over the content and
+   back down when dismissed; the PTY session survives hiding, so the panel is
+   translated off-screen rather than unmounted (xterm keeps its buffer) */
+.termhud {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--border-strong);
+  box-shadow: 0 -14px 48px rgba(0, 0, 0, 0.5);
+  transform: translateY(102%);
+  transition: transform 160ms ease-out;
+  display: flex;
+  flex-direction: column;
+  /* above panes and menus (90), below palette overlays (100) — summoning the
+     palette over the open terminal keeps ⌘K on top */
+  z-index: 95;
+}
+
+.termhud.open {
+  transform: translateY(0);
+}
+
+/* Docked right — the same overlay panel anchored to the other edge.
+   Every axis flips: it fills the window height and takes a width fraction,
+   slides in from the right, and its frame line moves to the left side. */
+.termhud.dock-right {
+  top: 0;
+  bottom: 0;
+  left: auto;
+  right: 0;
+  border-top: none;
+  border-left: 1px solid var(--border-strong);
+  box-shadow: -14px 0 48px rgba(0, 0, 0, 0.5);
+  transform: translateX(102%);
+}
+
+.termhud.dock-right.open {
+  transform: translateX(0);
+}
+
+/* The panel's inner edge is a drag handle — the top edge when docked
+   bottom, the left edge when docked right. It was a decorative 6px grip
+   before; same footprint, now it resizes (and double-clicks back to the
+   default size). Hairline lights on hover, like the column handle. */
+.termhud-grip {
+  position: relative;
+  flex: none;
+  height: 6px;
+  border-bottom: 1px solid var(--border-soft);
+  cursor: ns-resize;
+}
+
+.termhud-grip::after {
+  content: "";
+  position: absolute;
+  left: 40%;
+  right: 40%;
+  top: 2px;
+  height: 2px;
+  border-radius: 1px;
+  background: transparent;
+}
+
+.termhud-grip:hover::after,
+.termhud-grip:focus-visible::after {
+  background: var(--border-strong);
+}
+
+/* docked right the grip is a full-height strip on the leading edge, so it
+   leaves the column flow and rides the panel's own padding */
+.termhud.dock-right .termhud-grip {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 6px;
+  height: auto;
+  border-bottom: none;
+  border-right: 1px solid var(--border-soft);
+  cursor: ew-resize;
+  z-index: 1;
+}
+
+.termhud.dock-right .termhud-grip::after {
+  left: 2px;
+  right: auto;
+  top: 40%;
+  bottom: 40%;
+  width: 2px;
+  height: auto;
+}
+
+.termhud-host {
+  flex: 1;
+  /* min-width too: docked right the host is the flex item that must be
+     allowed to shrink below the terminal's intrinsic width */
+  min-width: 0;
+  min-height: 0;
+  padding: 2px 10px 8px;
+}
+
+.termhud.dock-right .termhud-host {
+  padding-left: 16px;
+}
+
+.termhud-host .xterm {
+  height: 100%;
+}
+
+/* xterm's own scrollbar, tuned to the app's quiet chrome */
+.termhud-host .xterm-viewport {
+  background: transparent !important;
+}
+
+.termhud-host .xterm-viewport::-webkit-scrollbar {
+  width: 8px;
+}
+
+.termhud-host .xterm-viewport::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+}
+
+/* while a HUD drag is live: keep the resize cursor everywhere, stop selecting
+   text, and drop the slide transition — the panel must track the pointer
+   frame-for-frame rather than easing towards it (same idea as
+   body.col-resizing for the table columns) */
+body.termhud-resizing-ns,
+body.termhud-resizing-ns * {
+  cursor: ns-resize !important;
+  user-select: none;
+}
+
+body.termhud-resizing-ew,
+body.termhud-resizing-ew * {
+  cursor: ew-resize !important;
+  user-select: none;
+}
+
+body.termhud-resizing-ns .termhud,
+body.termhud-resizing-ew .termhud {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .termhud {
+    transition: none;
+  }
+}

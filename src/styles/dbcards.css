@@ -1,0 +1,464 @@
+
+.db-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  cursor: grab;
+  /* the drop line below paints into the column's 6px gap from here;
+     the landing flash (.db-flashing) already assumed this position */
+  position: relative;
+}
+
+/* where a dragged card will land in an unsorted column — a 2px
+   accent line drawn in the gap ABOVE or BELOW this card. It is a
+   pseudo-element rather than a spacer element on purpose: a real node in the
+   column would add another 6px flex gap and shove every card down, so the
+   board would move while the pointer is aiming at it. Same accent-line
+   grammar as the table's column drag (.db-th-drop-before). */
+.db-card.db-drop-before::before,
+.db-card.db-drop-after::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+.db-card.db-drop-before::before {
+  top: -4px;
+}
+
+.db-card.db-drop-after::after {
+  bottom: -4px;
+}
+
+.db-card:hover,
+.db-gcard:hover {
+  border-color: var(--border-strong);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+
+/* card metadata is data, not prose — one mono voice across board, gallery,
+   list, and calendar week subtitles */
+.db-card .row-sub,
+.db-gcard .row-sub,
+.db-list .row-sub,
+.cal-wk-sub {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+}
+
+/* an empty column's body is a visible drop zone — dashed inset, one card
+   tall — so the column reads as a place, not a leftover label */
+.db-col-empty {
+  flex: 1;
+  min-height: 72px;
+  border: 1px dashed var(--border-soft);
+  border-radius: 8px;
+}
+
+.db-col.drop .db-col-empty {
+  border-color: var(--accent);
+}
+
+/* per-column "+ New": quiet and muted at the column's foot —
+   the toolbar .db-new's shape, one step quieter */
+.db-col-new {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-3);
+  font-family: var(--font);
+  font-size: 11.5px;
+  font-weight: 500;
+  text-align: left;
+  /* Hidden at rest, but it keeps its grid space, so revealing it
+     never shifts the column's cards */
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+
+.db-col:hover .db-col-new,
+.db-col:focus-within .db-col-new,
+.db-col-new:focus-visible,
+.db-col-new.busy {
+  opacity: 1;
+}
+
+.db-col-new:hover {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .db-col-new {
+    transition: none;
+  }
+}
+
+.db-card.focused {
+  box-shadow: 0 0 0 1.5px var(--accent);
+}
+
+.db-card.dragging {
+  opacity: 0.45;
+  cursor: grabbing;
+}
+
+.db-card.open {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.db-card-title {
+  font-size: 13px;
+  font-weight: 510;
+  color: var(--text-1);
+}
+
+/* the card's tree line — the table's gutter, laid out for a card. The
+   indent is the card's own margin: indenting inside the box would leave a
+   full-width card pretending to be top-level */
+.db-card-tree {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.db-card-tree .db-tree-chevron,
+.db-card-tree .db-tree-spacer {
+  margin-left: -2px;
+}
+
+.db-card-tree .db-card-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.db-card.db-card-child {
+  margin-left: 16px;
+}
+
+/* gallery — cover card grid (releases with artwork) */
+
+.db-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  /* rows must own their height: with auto rows the aspect-ratio cover
+     contributes none and every card crushes to a sliver at density */
+  grid-auto-rows: max-content;
+  gap: 14px;
+  align-content: start;
+  padding: 14px 20px 24px;
+}
+
+.db-gallery .db-draft {
+  grid-column: 1 / -1;
+}
+
+/* The no-matches state renders inside the scroller, and it speaks for the
+   whole pane, not for one card: as an ordinary grid child it landed in the
+   first cell, a column-wide fragment against the top-left corner. With no
+   cards to place, the grid steps aside so the state can claim the pane the
+   way it does in the board. The shell's own height:100% measures the padding
+   box, which would leave the scroller permanently scrollable by its padding —
+   stretch owns the height here instead. */
+.db-gallery:has(> .empty) {
+  display: flex;
+  /* column, so an open draft row still sits above the state at its own
+     height rather than beside it */
+  flex-direction: column;
+}
+
+.db-gallery > .empty {
+  flex: 1;
+  align-self: stretch;
+  height: auto;
+}
+
+.db-gcard {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  overflow: hidden;
+}
+
+.db-gcard.focused {
+  box-shadow: 0 0 0 1.5px var(--accent);
+}
+
+.db-gcard.open {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.db-gcover {
+  aspect-ratio: 1;
+  background: var(--bg-elevated);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.db-gcover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  opacity: 0;
+}
+
+.db-gcover img.is-loaded {
+  opacity: 1;
+}
+
+/* Start only when the bitmap reports load, not when its element
+   mounts. Cached remounts keep is-loaded but never regain this class. */
+.db-gcover img.cover-entering {
+  animation: cover-in 220ms ease-out;
+}
+
+@keyframes cover-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .db-gcover img.cover-entering {
+    animation: none;
+  }
+}
+
+/* artless cover: the db's TypeIcon recedes to a quiet mark — the card's
+   title leads, never the placeholder */
+.db-gcover-ph {
+  display: flex;
+  color: var(--text-3);
+  opacity: 0.5;
+}
+
+.db-gmeta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px 9px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.db-gcard-title {
+  font-size: 13px;
+  font-weight: 510;
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.db-gsub {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* the subtitle content is one nested span; without this it hard-clips at the
+   card edge (flex containers don't ellipsize their children themselves) */
+.db-gsub > span {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.db-new {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--font);
+  font-size: 11.5px;
+  font-weight: 500;
+  transition:
+    background-color 120ms ease-out,
+    color 120ms ease-out;
+}
+
+.db-new:hover {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+/* inline draft entry — the row/card being titled before it exists on disk */
+.db-draft {
+  outline: 1.5px solid var(--accent);
+  outline-offset: -1.5px;
+  background: var(--bg-elevated);
+  cursor: default;
+}
+
+.db-draft-input {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-1);
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 510;
+  padding: 0;
+}
+
+.db-draft-input::placeholder {
+  color: var(--text-3);
+  font-weight: 400;
+}
+
+/* The draft input paints no ring of its own: the wrapper's accent
+   outline (.db-draft / the draft cell below) is the focus indicator —
+   the input is autofocused for the draft's whole life and blur commits
+   it, so wrapper-visible ⇔ input-focused. A second ring on the input
+   read as a frame inside a frame. */
+
+tr.db-draft-tr td.db-title {
+  padding: 7px 10px;
+  outline: 1.5px solid var(--accent);
+  outline-offset: -1.5px;
+  background: var(--bg-elevated);
+}
+
+/* The draft settles into the list instead of appearing already
+   there — the one moment where a row genuinely arrives */
+tr.db-draft-tr,
+.db-card.db-draft,
+.row.db-draft {
+  animation: row-in 120ms ease-out;
+}
+
+@keyframes row-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .db-new {
+    transition: none;
+  }
+
+  tr.db-draft-tr,
+  .db-card.db-draft,
+  .row.db-draft {
+    animation: none;
+  }
+}
+
+.db-note {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  position: relative;
+  border-left: 1px solid var(--border-soft);
+}
+
+.db-note-x {
+  position: absolute;
+  top: 10px;
+  /* flush against the fixed keyboard button, on the same row (the 9px is
+     .main's offset from the viewport edge: 8px margin + 1px border) */
+  right: calc(var(--chrome-x) + var(--chrome-slot) - 9px);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+}
+
+.db-note-x:hover {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+/* Window drag: thin strip along the whole top edge (overlay titlebar has no
+   native bar); sidebar keeps its taller 44px zone via .sidebar-drag. */
+.titlebar-drag {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 12px;
+  z-index: 200;
+  -webkit-app-region: drag;
+}
+
+/* ---- version history ---- */
+
+.note {
+  position: relative;
+}
+
+.note-tools {
+  position: sticky;
+  top: 0;
+  /* above the sticky heading rail (z 6): scrolled, the rail reaches this
+     corner, and the row's own buttons — outline toggle, clock, ⋯ — have to
+     stay clickable through it */
+  z-index: 7;
+  display: flex;
+  justify-content: flex-end;
+  /* right inset leaves the fixed chrome slot free — the keyboard button
+     completes this row at the corner: [clock][⋯][kbd]. The 9px is
+     .main's own offset from the viewport edge (8px margin + 1px border), so
+     the reservation lands flush against the fixed button. */
+  padding: 10px calc(var(--chrome-x) + var(--chrome-slot) - 9px) 0 14px;
+  margin-bottom: -35px;
+  pointer-events: none;
+}
+
+.note-tool {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: default;
+}
+
+.note-tool:hover {
+  background: var(--hover);
+  color: var(--text-2);
+}

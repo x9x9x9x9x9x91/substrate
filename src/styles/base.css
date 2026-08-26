@@ -1,0 +1,122 @@
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text-1);
+  font-family: var(--font);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  user-select: none;
+  cursor: default;
+}
+
+input,
+textarea {
+  user-select: text;
+  font-family: var(--font);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-3);
+  opacity: 1;
+}
+
+button:focus-visible,
+[role="button"]:focus-visible {
+  outline: 1.5px solid var(--accent);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--accent-soft);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 5px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+/* Interaction motion: soft fades on deliberate pointer targets, none on
+   keyboard-driven selection (palette items, list selection stay instant). */
+.side-item,
+.row,
+.chip,
+.chip-x,
+.chip-add,
+.backlink,
+.sidebar-new,
+.dash-source,
+.dash-rate-btn,
+.db-switch button,
+.db-tab,
+.db-tab-add,
+.db-filter-toggle,
+.db-card,
+.db-gcard,
+.db-note-x {
+  transition:
+    background-color 120ms ease-out,
+    color 120ms ease-out,
+    border-color 120ms ease-out,
+    box-shadow 120ms ease-out;
+}
+
+.side-item:active,
+.row:active,
+.backlink:active,
+.sidebar-new:active,
+.list-new:active,
+.dash-source:active,
+.dash-rate-btn:active,
+.db-card:active {
+  background: var(--active);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .side-item,
+  .row,
+  .chip,
+  .chip-x,
+  .chip-add,
+  .backlink,
+  .sidebar-new,
+  .list-new,
+  .dash-source,
+  .dash-rate-btn,
+  .dash-add,
+  .db-switch button,
+  .db-tab,
+  .db-tab-add,
+  .db-filter-toggle,
+  .db-card,
+  .db-gcard,
+  .db-note-x {
+    transition: none;
+  }
+}

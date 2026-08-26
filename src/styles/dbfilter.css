@@ -1,0 +1,323 @@
+
+.db-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  height: 34px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.db-filter > svg {
+  flex: none;
+  color: var(--text-3);
+}
+
+.db-filter-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-1);
+  font-family: var(--font);
+  font-size: 12.5px;
+  outline: none;
+}
+
+/* No border to recolor, so keyboard focus paints the app's accent
+   ring on the input itself — the same 1.5px var(--accent) every other
+   focusable surface gets (the .cal-wk-col idiom) */
+.db-filter-input:focus-visible {
+  outline: 1.5px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* visible "pin this filter" affordance — the ⋯-menu path stays */
+.db-filter-save {
+  flex: none;
+  transition: opacity 120ms ease-out;
+  padding: 2px 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: 5px;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 530;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.db-filter-save:hover {
+  background: var(--hover);
+  color: var(--text-1);
+  border-color: var(--border-strong);
+}
+
+.db-filter-clear {
+  flex: none;
+  transition: opacity 120ms ease-out;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-3);
+}
+
+.db-filter-clear:hover {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+/* The syntax reference: a ? at the input's right edge, dressed as the
+   quiet icon tool .db-filter-clear already is, folding out the operator
+   classes. The panel is the .keyhints-panel card — same elevated surface,
+   same label/value row — because it answers the same kind of question. */
+.db-syntax {
+  position: relative;
+  flex: none;
+  display: flex;
+}
+
+.db-syntax-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-3);
+}
+
+.db-syntax-btn:hover {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+.db-syntax-btn.active {
+  background: var(--active);
+  color: var(--text-1);
+}
+
+/* Above the completion chips, which overlay this same row */
+.db-syntax-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 60;
+  /* wide enough that every label and its example share one line — a
+     reference table you have to read around is one you stop opening */
+  width: 360px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  animation: menu-pop 100ms ease-out;
+  transform-origin: top right;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .db-syntax-panel {
+    animation: none;
+  }
+}
+
+.db-syntax-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.db-syntax-label {
+  min-width: 0;
+}
+
+/* the example is the thing to copy, so it carries the mono voice and the
+   brighter ink — the label is the caption, not the other way round */
+.db-syntax-example {
+  margin-left: auto;
+  flex: none;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--surface-faint);
+  color: var(--text-1);
+  font-family: var(--mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.db-syntax-foot {
+  margin-top: 2px;
+  padding: 7px 8px 5px;
+  border-top: 1px solid var(--border-soft);
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
+/* The save confirmation, in the sync pane's voice (.vault-sync-saved): the
+   one green word a written view earns, at the row's right edge where it
+   displaces nothing the cursor is in. */
+.db-filter-saved {
+  flex: none;
+  color: var(--ok);
+  font-size: 11px;
+  font-weight: 530;
+  white-space: nowrap;
+}
+
+/* The active filters, read back. One row of chips under the query input —
+   never beside it, which would shove the input sideways as filters land
+   (design-principles.md 4). Chips wrap rather than scroll: the row is an
+   overview, and an overview you have to scroll to finish reading is not one.
+   Same gap and padding as the completion chips it sits beneath, so the two
+   rows read as one block. */
+.db-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+/* The chip is the .search-completion shape — same hairline, same radius —
+   divided into its three readable parts. Nothing in it is sharp: the sharp
+   values on a database pane are the rows, and a chip is how you got to them
+   (design-principles.md 1.3). */
+.db-chip {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: none;
+  height: 22px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 12px;
+}
+
+.db-chip-key {
+  padding-left: 8px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.db-chip-op,
+.db-chip-val {
+  height: 100%;
+  padding: 0 4px;
+  border: none;
+  background: transparent;
+  font-family: var(--font);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* the operator is the caption between two nouns, so it sits a step back from
+   the value it qualifies */
+.db-chip-op {
+  color: var(--text-3);
+}
+
+.db-chip-val {
+  color: var(--text-2);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.db-chip-op:hover,
+.db-chip-val:hover,
+.db-chip-op.active,
+.db-chip-val.active {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+/* a comparison's operand is a day or a number — no roster to pick from, so it
+   is text the input owns rather than a control that opens on nothing */
+.db-chip-val.is-plain {
+  color: var(--text-2);
+  cursor: default;
+}
+
+/* Removal reveals on hover/focus-within and keeps its cell either way, so a
+   pointer crossing the row never re-lays it out (design-principles.md 5) */
+.db-chip-x {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 100%;
+  padding: 0;
+  margin-right: 2px;
+  border: none;
+  border-radius: 0 9px 9px 0;
+  background: transparent;
+  color: var(--text-3);
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+
+.db-chip:hover .db-chip-x,
+.db-chip:focus-within .db-chip-x {
+  opacity: 1;
+}
+
+.db-chip-x:hover {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .db-chip-x {
+    transition: none;
+  }
+}
+
+/* the operator and value menus: the app's .dots-menu card, hung under the
+   part of the chip it edits */
+.db-chip-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 60;
+  min-width: 140px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.db-chip-value-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Nothing to save or clear yet — the buttons hold their space and
+   fade out, so the first keystroke lights them up instead of shoving the
+   input sideways */
+.db-filter-save.is-off,
+.db-filter-clear.is-off {
+  opacity: 0;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .db-filter-save,
+  .db-filter-clear {
+    transition: none;
+  }
+}

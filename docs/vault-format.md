@@ -3038,7 +3038,7 @@ PropSchema fields:
   select and `multi` props keep theirs here). `color` is optional and names
   a muted palette dot: `gray blue indigo violet pink red orange yellow green teal`
   (`OPTION_COLORS` in `src/components/SelectMenu.tsx`, tokens `--opt-*` in
-  `src/styles.css`). An unknown color string is stored as-is and renders the
+  `src/styles/tokens.css`). An unknown color string is stored as-is and renders the
   default muted dot (`--text-3` fallback).
 - `kind` — omitted entirely for select props (free text with options);
   `"text"` = explicit free text: a schema-registered text column that

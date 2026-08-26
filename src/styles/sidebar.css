@@ -1,0 +1,458 @@
+
+.sidebar {
+  /* yields below ~954px window width so the note column keeps room;
+     the ceiling was widened — labels truncated too early at 218px */
+  width: clamp(160px, 26vw, 248px);
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  padding: 0 8px 10px;
+}
+
+.sidebar-drag {
+  height: 44px;
+  flex: none;
+}
+
+/* collapsed-sidebar rail: clears the macOS traffic lights (overlay
+   titlebar, ~72px) and carries the reveal button while the content panes take
+   the rest of the width */
+.sidebar-rail {
+  flex: none;
+  width: 78px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 0 0 10px 8px;
+}
+
+.sidebar-rail .sidebar-drag {
+  width: 100%;
+}
+
+.sidebar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 8px 10px;
+}
+
+.sidebar-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.sidebar-mobile-close,
+.mobile-nav,
+.mobile-sidebar-scrim {
+  display: none;
+}
+
+/* The boundary hairline appears only once rows scroll under the
+   fixed header — inset shadow, so it never shifts layout */
+.sidebar-head.scrolled {
+  box-shadow: inset 0 -1px 0 var(--border-soft);
+}
+
+.sidebar-title {
+  font-size: 13px;
+  font-weight: 590;
+  color: var(--text-1);
+  letter-spacing: -0.01em;
+}
+
+.sidebar-new {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+}
+
+.sidebar-new:hover {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+.side-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 6px;
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+button.side-item {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
+}
+
+.side-item svg {
+  flex: none;
+  color: var(--text-3);
+}
+
+.side-item:hover {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+.side-item.active {
+  background: var(--active);
+  color: var(--text-1);
+}
+
+.side-item.active svg {
+  color: var(--text-2);
+}
+
+.side-count {
+  margin-left: auto;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Quiet chip on a db-homed folder row — the row keeps the folder's
+   on-disk name; this is the one hint that clicking opens the database view
+   (the .head-kind idiom at row scale). Pinned to the row's right
+   edge — mid-row it read as clutter between label and count. */
+.side-db-chip {
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+  border: 1px solid var(--border-soft);
+  border-radius: 3px;
+  padding: 0.5px 3.5px;
+  flex: none;
+  margin-left: auto;
+}
+
+/* a key chip after the DB chip keeps its own right-edge slot */
+.side-db-chip + .side-count {
+  margin-left: 8px;
+}
+
+/* count sharing a row with a shortcut hint sits snug after the label
+   (Bear/Slack-style) — the hint keeps the right-edge column */
+.side-count-inline {
+  margin-left: 0;
+}
+
+.side-label {
+  padding: 18px 8px 5px;
+  font-size: 11px;
+  font-weight: 560;
+  letter-spacing: 0.03em;
+  color: var(--text-3);
+}
+
+.side-foot {
+  margin-top: auto;
+  padding: 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Sidebar: folder tree, reorder, inline edit ─────────────── */
+
+.sidebar-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-bottom: 6px;
+}
+
+/* An overflowing tree used to hard-clip its last row against
+   .side-bottom's divider — half a row, and nothing saying more was below.
+   Same gate idiom as the table edges: the fade paints only
+   while the scroller can still move down, so at the stop the last row
+   renders crisp, and a tree that fits never fades. A mask, not a scrim, so
+   it needs no background token and can't drift from the sidebar's ground. */
+.sidebar-scroll.side-more-y {
+  -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 20px), transparent);
+  mask-image: linear-gradient(to bottom, black calc(100% - 20px), transparent);
+}
+
+/* the head's hairline already says rows passed under it, but the row
+   itself still clipped mid-glyph — same gate, other end, off at scroll 0 */
+.sidebar-scroll.side-scrolled-y {
+  -webkit-mask-image: linear-gradient(to bottom, transparent, black 14px);
+  mask-image: linear-gradient(to bottom, transparent, black 14px);
+}
+
+.sidebar-scroll.side-scrolled-y.side-more-y {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    black 14px,
+    black calc(100% - 20px),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    black 14px,
+    black calc(100% - 20px),
+    transparent
+  );
+}
+
+/* The same gate, generalised. Surfaces were clipping content
+   mid-glyph at a container edge with nothing saying more was there; rather
+   than a bespoke fade each, any scroller opting in via useEdgeFade() gets this
+   one — a dozen call sites by now, across settings, Today, the charts
+   dashboard, the database manager, the palette, the shortcut overlay, the
+   calendar (agenda and expanded cell) and the db board/list/gallery bodies.
+   The list moves; `grep -rn useEdgeFade src/components` is the current one. Depths match the sidebar (14px in, 20px out) so every fade in the app
+   reads the same. Mask, not scrim: no background token, no theme coupling.
+   scroll-padding mirrors the band depths: keyboard walks land rows via
+   scrollIntoView(nearest), which otherwise aligns the selected row flush
+   with the scrollport edge — inside the fade, dissolving the one row the
+   user is on whenever trailing padding keeps the gate open. */
+.edge-fade-y {
+  scroll-padding-top: 14px;
+  scroll-padding-bottom: 20px;
+}
+
+.edge-fade-y.edge-more-y {
+  -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 20px), transparent);
+  mask-image: linear-gradient(to bottom, black calc(100% - 20px), transparent);
+}
+
+.edge-fade-y.edge-scrolled-y {
+  -webkit-mask-image: linear-gradient(to bottom, transparent, black 14px);
+  mask-image: linear-gradient(to bottom, transparent, black 14px);
+}
+
+.edge-fade-y.edge-scrolled-y.edge-more-y {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    black 14px,
+    black calc(100% - 20px),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    black 14px,
+    black calc(100% - 20px),
+    transparent
+  );
+}
+
+.side-label-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 2px;
+}
+
+.side-section-toggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.side-section-toggle > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.side-destination {
+  flex: 1;
+  align-self: stretch;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.side-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-3);
+}
+
+.side-add svg {
+  width: 11px;
+  height: 11px;
+}
+
+.side-add:hover {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+.side-chevron {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 16px;
+  margin-left: -3px;
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  border-radius: 4px;
+}
+
+.side-chevron svg {
+  transition: transform 120ms ease-out;
+}
+
+.side-chevron.open svg {
+  transform: rotate(90deg);
+}
+
+.side-chevron:hover {
+  color: var(--text-1);
+}
+
+/* the chevron's gutter without the chevron: 11px matches the chevron's
+   effective advance (14px wide, -3px margin), so a row that has no twisty
+   still lands its icon in the shared column */
+.side-chevron-spacer {
+  flex: none;
+  width: 11px;
+}
+
+.side-label-text {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.side-folder.drop-target {
+  background: var(--accent-soft);
+  color: var(--text-1);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* a note dragged over the Pinned section header */
+.side-label-row.drop-target {
+  background: var(--accent-soft);
+  color: var(--text-1);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.side-item.drop-before {
+  box-shadow: inset 0 1px 0 var(--accent);
+}
+
+.side-item.drop-after {
+  box-shadow: inset 0 -1px 0 var(--accent);
+}
+
+.inline-edit-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.inline-edit {
+  flex: 1;
+  min-width: 0;
+  height: 21px;
+  padding: 0 5px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  color: var(--text-1);
+  font-size: 13px;
+  font-weight: 500;
+  outline: none;
+}
+
+.inline-edit:focus {
+  border-color: var(--accent);
+}
+
+.inline-edit.error {
+  border-color: var(--danger);
+}
+
+.inline-edit-error {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 30;
+  margin-top: 3px;
+  padding: 3px 7px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  font-size: 11px;
+  color: var(--danger);
+  white-space: nowrap;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+}
+
+/* What committing the typed name would do — muted text riding beside the
+   field, not a popover: it is the normal answer for a name already taken,
+   never an error */
+.inline-edit-hint {
+  flex: none;
+  margin-left: 8px;
+  color: var(--text-3);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Context menu ───────────────────────────────────────────── */
+
+.ctx-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+}

@@ -76,7 +76,7 @@ frame-src 'none'; frame-ancestors 'none'; form-action 'none'
   `:90` for images). macOS uses the `http://asset.localhost` form; the `asset:`
   scheme is kept for the other platforms and for older webviews.
 - **`data:`** — three inline `url('data:image/svg+xml…')` icons in
-  `src/styles.css`, plus data-URI fonts.
+  `src/styles/codemirror.css` and `src/styles/dbtable.css`, plus data-URI fonts.
 - **`blob:`** — `URL.createObjectURL` in `src/lib/export.ts:15` (file export)
   and `src/lib/assets.ts:71`/`:275` (asset previews).
 - **`connect-src`** — `ipc:` / `http://ipc.localhost` are Tauri's command

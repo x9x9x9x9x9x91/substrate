@@ -1,0 +1,376 @@
+
+/* Capture-window save failure — text stays put, Enter retries */
+.capture-error {
+  padding: 0 18px 10px;
+  color: var(--danger);
+  font-size: 12px;
+}
+
+/* The context chip: what you were doing when the window opened, attached to
+   the note unless Backspace drops it. Aligned under the input's text (16px
+   frame + 15px mark + 11px gap), in the footer's own quiet voice — it is a
+   statement about the capture, not a control, so it gets no border, no fill
+   and no colour of its own. */
+.capture-context {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 16px 4px 42px;
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
+.capture-context-mark {
+  flex: none;
+  font-size: 9px;
+  line-height: 1;
+  color: var(--text-3);
+}
+
+/* one line, ellipsised: a 620px window has no room for a deep path or a long
+   page title, and the chip must never push the footer off the window */
+.capture-context-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* the drop hint sits between "file in Inbox" and "esc close", which is the
+   order they are used in */
+.capture-foot-drop {
+  margin-left: 14px;
+}
+
+/* Quick-capture window chrome: brand mark on the left of the input, quieter
+   footer. The window itself is 620×88 with no decorations, so the palette
+   border is the only frame the user sees. */
+.capture-row {
+  display: flex;
+  align-items: center;
+  padding-left: 16px;
+}
+
+.capture-mark {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  color: var(--text-3);
+}
+
+.capture-row .palette-input {
+  padding-left: 11px;
+}
+
+.capture-palette .palette-foot {
+  border-top-color: var(--border-soft);
+  padding: 7px 16px;
+}
+
+.capture-foot-hint {
+  margin-left: auto;
+}
+
+/* Was the last unconditional bottom fade — it dissolved the final
+   result at the bottom stop. Now rides the shared gate (.edge-fade-y), which
+   paints only toward the side the list can still scroll. The bottom padding
+   stays as clearance so the last row clears the footer's hairline. */
+.palette-results {
+  max-height: 380px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border-soft);
+  padding: 6px 6px 34px;
+}
+
+.palette-section {
+  padding: 8px 10px 3px;
+  font-size: 10.5px;
+  font-weight: 560;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+/* Zero-hit query signal — one muted, non-selectable row */
+.palette-empty {
+  display: flex;
+  align-items: center;
+  height: 38px;
+  padding: 0 10px;
+  font-size: 13px;
+  color: var(--text-3);
+}
+
+.palette-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 38px;
+  padding: 0 10px;
+  border-radius: 7px;
+  font-size: 13.5px;
+  color: var(--text-2);
+}
+
+.palette-item svg {
+  flex: none;
+  color: var(--text-3);
+}
+
+.palette-item.selected {
+  background: rgba(255, 255, 255, 0.065);
+  color: var(--text-1);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.palette-item.selected svg {
+  color: var(--text-2);
+}
+
+.palette-item-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.palette-item-snippet {
+  color: var(--text-3);
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* the palette speaks the search pane's match language — same tokens as
+   .search-snippet mark, so the two retrieval surfaces agree */
+.palette-item-label mark,
+.palette-item-snippet mark {
+  background: var(--accent-soft);
+  color: var(--text-1);
+  border-radius: 3px;
+  padding: 0 1px;
+}
+
+.palette-hint {
+  margin-left: auto;
+  flex: none;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.03em;
+  color: var(--text-3);
+}
+
+.palette-foot {
+  display: flex;
+  gap: 14px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--border-soft);
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
+.key {
+  display: inline-block;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  color: var(--text-2);
+  background: var(--surface-faint);
+}
+
+/* Everywhere palette — the window quick capture pivots into. Same transparent-frame
+   deal as the tray popover: the window paints nothing, the `.palette` card
+   owns the background, border and 12px radius. */
+body.everywhere-window {
+  background: transparent;
+}
+
+/* The window is 620px wide, which is under the phone breakpoint — so that
+   breakpoint fires inside a DESKTOP window and strips the designed hints.
+   Same trap the tray popover and the capture window hit. */
+body.everywhere-window .palette-foot {
+  display: flex !important;
+}
+
+body.everywhere-window .palette-hint {
+  display: inline !important;
+}
+
+/* The result list is the window's flexible middle: it takes whatever the
+   input and the footer leave, rather than the overlay's fixed 380px ceiling,
+   and drops the overlay's bottom clearance — the footer is a sibling here,
+   not something rows scroll under. */
+body.everywhere-window .palette-results {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  padding-bottom: 6px;
+}
+
+/* Tray mini-agenda popover — palette chrome, greyscale rows; color
+   only on meaning-carrying dots: due = yellow, overdue = red. */
+/* The tray popover's window is transparent, so its frame must not
+   paint — the card owns the background, border and 12px radius. Scoped to
+   agenda.html's body class; the main and capture windows keep `var(--bg)`. */
+body.agenda-window {
+  background: transparent;
+}
+
+/* Same trap as `.palette.capture-palette .palette-foot` below — the
+   tray popover is a 340px-wide DESKTOP window, so the phone breakpoint fires
+   inside it and strips the designed hints. Keep the esc foot and row hints. */
+body.agenda-window .palette-foot {
+  display: flex !important;
+}
+
+body.agenda-window .palette-hint {
+  display: inline !important;
+}
+
+.agenda-head {
+  flex: none;
+  padding: 12px 16px 6px;
+  font-size: 11px;
+  font-weight: 560;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+/* The listbox container (agenda.tsx) — a layout passthrough, not a
+   visual layer. It wraps the scroller and the pinned Capture row so one
+   element owns every option row; to leave the card's layout byte-identical it
+   repeats the flex column the card had and hands its own free space straight
+   down to `.agenda-list`. No padding, background or border of its own. */
+.agenda-rows {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.agenda-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 2px 8px 8px;
+}
+
+.agenda-empty {
+  padding: 6px 8px;
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+
+.agenda-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 8px;
+  border-radius: 7px;
+  font-size: 13px;
+  color: var(--text-2);
+  cursor: pointer;
+  transition:
+    background-color 120ms ease-out,
+    color 120ms ease-out;
+}
+
+/* Keyboard selection and hover are the same visible state — the two
+   can never disagree, because hover sets the selection (agenda.tsx
+   `onMouseMove`) rather than painting a second highlight of its own. Same
+   tokens as `.palette-item.selected`, one rule instead of two. */
+.agenda-row:hover,
+.agenda-row.selected {
+  background: var(--active);
+  color: var(--text-1);
+}
+
+.agenda-row.selected {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* done/cancelled: the dim is the one mark — never strike+dim, matching
+   `.today-row.done`. Ordered after the hover/selected rule on purpose, so a
+   finished row stays dimmed while it is the row Enter would open. */
+.agenda-row.done {
+  color: var(--text-3);
+}
+
+/* The card takes programmatic focus on open (it owns the key model),
+   which makes Chromium paint its default focus ring around the whole popover.
+   The selected row carries the visible state instead. Scoped to the tray
+   window so the main ⌘K palette — which focuses its input, not the card —
+   is untouched. */
+body.agenda-window .palette:focus,
+body.agenda-window .palette:focus-visible {
+  outline: none;
+}
+
+.agenda-row svg {
+  flex: none;
+  color: var(--text-3);
+}
+
+.agenda-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-3);
+}
+
+.agenda-dot.due {
+  background: var(--opt-yellow);
+}
+
+.agenda-dot.over {
+  background: var(--danger);
+}
+
+.agenda-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agenda-overdue {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 8px 8px 0;
+  border-top: 1px solid var(--border-soft);
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+
+.agenda-capture {
+  flex: none;
+  margin: 0 8px 4px;
+  border-top: 1px solid var(--border-soft);
+  border-radius: 0 0 7px 7px;
+}
+
+/* the ? cheat sheet — palette chrome, static rows */
+.shortcut-sheet {
+  width: 480px;
+  max-width: calc(100vw - 80px);
+  margin-top: 56px;
+  height: fit-content;
+  max-height: calc(100vh - 220px);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  box-shadow:
+    0 16px 70px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  overflow: hidden;
+  animation: palette-in 110ms ease-out;
+}

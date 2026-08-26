@@ -1,0 +1,128 @@
+
+/* Shared chrome: a small ghost action button and its busy spinner. Named
+   for the status table that introduced them — the name is history, the
+   rules are generic, and several panes reuse them. */
+.sync-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--hair-soft);
+  border-radius: var(--r);
+  background: transparent;
+  color: var(--text-2);
+  font: 500 11.5px/1 var(--font);
+  letter-spacing: 0;
+  text-transform: none;
+  /* "RUN ALL" wrapped to two lines inside the head's fixed 24px box and
+     clipped its own second line — a button label is one line by contract */
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease-out,
+    color 120ms ease-out,
+    border-color 120ms ease-out;
+}
+
+.sync-btn:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text-1);
+  border-color: var(--border-strong);
+}
+
+.sync-btn:active:not(:disabled) {
+  background: var(--active);
+}
+
+.sync-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.sync-spinner {
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid rgba(255, 255, 255, 0.22);
+  border-top-color: var(--text-1);
+  border-radius: 50%;
+  animation: sync-spin 0.8s linear infinite;
+}
+
+.sync-spinner.inline {
+  width: 8px;
+  height: 8px;
+  border-width: 1.5px;
+}
+
+@keyframes sync-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+/* The tasks dashboard, third layout: one grid across every section head and
+   row, with the row actions inline. Urgency carries the
+   color: red overdue, amber due today, accent for the hand-picked Now; area
+   groups take the quiet blue so grouping never competes with what's late. Rot
+   (stale/undated) is demoted to a secondary chip. The always-visible checkbox
+   is this surface's documented exception to the "visible button per row"
+   anti-pattern — on a task row it is the content, not a control. */
+.tasks-compact {
+  container-type: inline-size;
+}
+
+/* the quick-add composer: the Food board's dash-form idiom, one row */
+.tasks-compose {
+  display: flex;
+  gap: 8px;
+  margin-top: 22px;
+}
+
+.tasks-compose-input {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 11px;
+  border: 1px solid var(--hair);
+  border-radius: var(--r);
+  outline: none;
+  background: var(--bg-input);
+  color: var(--text-1);
+  font: var(--dash-sentence);
+  transition:
+    border-color 120ms ease-out,
+    box-shadow 120ms ease-out;
+}
+
+.tasks-compose-input::placeholder {
+  color: var(--text-3);
+}
+
+.tasks-compose-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+/* the composer's own due chip: setting a date before committing puts the new
+   task straight into Overdue/Due today instead of the foot of an area group */
+.tasks-compose-due {
+  height: 30px;
+  padding: 0 11px;
+  border: 1px solid var(--hair);
+  border-radius: var(--r);
+  background: var(--bg-input);
+  color: var(--text-3);
+  white-space: nowrap;
+  font: var(--dash-sentence);
+  cursor: pointer;
+}
+
+.tasks-compose-due:hover {
+  color: var(--text-1);
+  border-color: var(--border-strong);
+}
+
+.tasks-compose-due.set {
+  color: color-mix(in srgb, var(--opt-orange) 80%, #fff);
+}

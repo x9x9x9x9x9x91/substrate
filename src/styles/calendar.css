@@ -1,0 +1,1604 @@
+
+/* ── Calendar view ─────────────────────────────────── */
+/* Month/week grids over real notes: entries are database rows with a date
+   prop plus standalone type:event notes. Greyscale — databases read through
+   their name prefix, never color. */
+
+.cal {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.cal-pager {
+  display: flex;
+  gap: 2px;
+}
+
+.cal-pager button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+  transition:
+    background-color 120ms ease-out,
+    color 120ms ease-out;
+}
+
+.cal-pager button:hover {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+.cal-feeds-button.active::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: var(--opt-teal);
+}
+
+.cal-feeds-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.cal-feeds-menu {
+  position: absolute;
+  top: 48px;
+  right: 18px;
+  width: 430px;
+  max-width: calc(100vw - 36px);
+  max-height: calc(100vh - 70px);
+  overflow-y: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  box-shadow: 0 14px 48px rgba(0, 0, 0, 0.5);
+}
+
+.cal-feeds-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 13px 14px 11px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.cal-feeds-title {
+  color: var(--text-1);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.cal-feeds-sub,
+.cal-feeds-empty,
+.cal-feed-pending {
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.cal-feeds-sub {
+  margin-top: 2px;
+}
+
+.cal-feeds-close,
+.cal-feed-remove {
+  border: 0;
+  background: transparent;
+  color: var(--text-3);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.cal-feeds-close {
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  font-size: 18px;
+  line-height: 20px;
+}
+
+.cal-feeds-close:hover,
+.cal-feed-remove:hover {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+.cal-feeds-error,
+.cal-feed-error {
+  color: var(--danger);
+  font-size: 11px;
+}
+
+.cal-feeds-error {
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.cal-feeds-list {
+  padding: 5px;
+}
+
+.cal-feeds-empty {
+  padding: 12px 9px;
+}
+
+.cal-feed-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 8px 7px;
+  border-radius: 7px;
+}
+
+.cal-feed-row:hover {
+  background: var(--hover);
+}
+
+.cal-feed-row.disabled .cal-feed-copy {
+  opacity: 0.55;
+}
+
+.cal-feed-toggle {
+  flex: none;
+  width: 28px;
+  height: 18px;
+  padding: 2px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  background: var(--active);
+  cursor: pointer;
+}
+
+.cal-feed-toggle span {
+  display: block;
+  width: 12px;
+  height: 12px;
+  margin-left: 10px;
+  border-radius: 50%;
+  transition: margin 120ms ease-out;
+}
+
+.cal-feed-toggle[aria-checked="false"] {
+  background: transparent;
+}
+
+.cal-feed-toggle[aria-checked="false"] span {
+  margin-left: 0;
+  background: var(--text-3) !important;
+}
+
+.cal-feed-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.cal-feed-name {
+  color: var(--text-1);
+  font-size: 12px;
+  font-weight: 540;
+}
+
+.cal-feed-source {
+  overflow: hidden;
+  color: var(--text-3);
+  font-family: var(--mono);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cal-feed-remove {
+  flex: none;
+  padding: 3px 6px;
+  border-radius: 5px;
+  font-size: 11px;
+}
+
+.cal-feed-form {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 12px 14px 14px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.cal-feed-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text-3);
+  font-size: 10.5px;
+}
+
+.cal-feed-form input {
+  width: 100%;
+  height: 29px;
+  padding: 0 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  outline: 0;
+  background: var(--bg-input);
+  color: var(--text-1);
+  font-size: 12px;
+}
+
+.cal-feed-form input:focus {
+  border-color: var(--accent);
+}
+
+.cal-feed-tints {
+  display: flex;
+  gap: 5px;
+}
+
+.cal-feed-tints button {
+  width: 18px;
+  height: 18px;
+  border: 4px solid var(--bg-elevated);
+  border-radius: 50%;
+  outline: 1px solid transparent;
+  background: var(--feed-dot);
+}
+
+.cal-feed-tints button.active {
+  outline-color: var(--text-2);
+}
+
+.cal-feed-form-actions,
+.cal-feeds-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cal-feed-form-actions {
+  justify-content: flex-end;
+}
+
+.cal-feed-form-actions button,
+.cal-feeds-actions button {
+  height: 27px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  font-family: inherit;
+  font-size: 11.5px;
+}
+
+.cal-feed-form-actions button:hover,
+.cal-feeds-actions button:hover {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+.cal-feed-form-actions button.primary {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.cal-feed-form p {
+  color: var(--text-3);
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+
+.cal-feeds-actions {
+  padding: 8px 10px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.cal-feeds-actions .refresh {
+  margin-left: auto;
+}
+
+.cal-grid-scroll {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+}
+
+/* Readability follows the pane, not the window breakpoint: the desktop rail
+   can leave Calendar narrower than seven useful columns at tablet widths. */
+/* 816 = the old 770 + the week surface's 46px hour gutter, so the seven day
+   columns keep their readable width in both layouts. The canvas
+   sets --cal-cols, so Day asks for one column's worth of floor instead of
+   seven and stops scrolling horizontally at ordinary widths. */
+.cal-grid-scroll > .cal-weekdays,
+.cal-grid-scroll > .cal-grid,
+.cal-grid-scroll > .cal-wk-scroll {
+  min-width: calc(46px + var(--cal-cols, 7) * 110px);
+}
+
+.cal-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  flex: none;
+  padding: 0 0 0 1px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.cal-weekdays span {
+  padding: 5px 8px;
+  font-size: 10.5px;
+  font-weight: 560;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+/* today's weekday header sharpens while today is on the grid — the
+   second orientation mark next to the circled day number */
+.cal-weekdays span.cal-wd-today {
+  color: var(--text-1);
+  font-weight: 640;
+}
+
+.cal-grid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+}
+
+.cal-grid.month {
+  grid-auto-rows: 1fr;
+}
+
+/* week surface: a pinned all-day strip over a scrollable 24h
+   canvas. Strip and canvas share the column template — a left gutter the
+   hour labels live in, then the days. How many days is the one
+   thing Day changes, and it arrives as --cal-cols from the pane. */
+.cal-weekdays.week,
+.cal-grid.week {
+  grid-template-columns: 46px repeat(var(--cal-cols, 7), 1fr);
+}
+
+.cal-weekdays.week {
+  display: grid;
+}
+
+/* the app's scrollbars are classic (styled ::-webkit-scrollbar), so a bar
+   takes 10px of layout. The canvas scroller always carries one; the header
+   and strip usually don't — and their 1fr columns then sit a scrollbar's
+   worth wide of the canvas columns below. All three rows run overflow-y:
+   scroll so each always owns the same 10px lane (the track is invisible —
+   only the thumb is painted). Not scrollbar-gutter: WebKit computes it but
+   reserves nothing next to legacy custom scrollbars, and WKWebView is the
+   engine the app ships in. */
+.cal-weekdays.week {
+  overflow-y: scroll;
+  /* overflow-y alone computes the other axis to auto, so the header could
+     grow a horizontal bar of its own the grid below never shows. It has
+     nothing to scroll sideways to — the columns are the pane's width. */
+  overflow-x: hidden;
+}
+
+/* the all-day strip: sizes to its tallest cell's cards, capped so a loaded
+   week never squeezes the canvas out; scrolls internally past the cap */
+.cal-grid.week {
+  flex: none;
+  grid-auto-rows: max-content;
+  align-content: start;
+  max-height: 34%;
+  overflow-y: scroll;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.cal-wk-spacer {
+  border-left: none;
+}
+
+/* ── the timed canvas ── */
+
+.cal-wk-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: scroll;
+}
+
+.cal-wk-canvas {
+  position: relative;
+  display: grid;
+  grid-template-columns: 46px repeat(var(--cal-cols, 7), 1fr);
+  /* hour lines across the full canvas — the grid promises the geometry, so
+     one repeating gradient beats 23 rule elements */
+  background-image: linear-gradient(
+    to bottom,
+    var(--border-soft) 0,
+    var(--border-soft) 1px,
+    transparent 1px
+  );
+  background-size: 100% calc(100% / 24);
+  background-position: 0 -1px; /* no line at 00:00 — the strip's border is it */
+}
+
+.cal-wk-gutter {
+  position: relative;
+}
+
+.cal-wk-gutter span {
+  position: absolute;
+  right: 7px;
+  transform: translateY(-50%);
+  font-size: 9.5px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  background: var(--bg);
+  padding: 0 2px;
+}
+
+.cal-wk-col {
+  position: relative;
+  border-left: 1px solid var(--border-soft);
+  cursor: default;
+  /* a 23:45 block's min-height would otherwise paint past the day's end */
+  overflow: hidden;
+}
+
+/* drag hover on a column: the hover wash and nothing louder. The precise
+   part of the answer — where in the day the drop lands — is the
+   .cal-wk-ghost line below; the column only has to say "this day", and the
+   accent fill it used to wear said it as a blue sheet over the canvas. */
+.cal-wk-col.drop {
+  background: var(--hover);
+}
+
+/* the focused day's canvas half paints nothing — you know where you
+   clicked, and the strip cell's top mark already names the day; the inset
+   ring the column used to wear repeated it at full volume. Keyboard focus
+   keeps the accent ring via :focus-visible below. */
+
+/* The column is the week's tab stop and holds real DOM focus, so
+   keyboard focus draws the app's accent ring — same treatment every other
+   focusable surface gets, inset because the column has no room to bleed. A
+   mouse press keeps the quiet .focused ring only: no outline residue. */
+.cal-wk-col:focus {
+  outline: none;
+}
+
+.cal-wk-col:focus-visible {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+/* the keyboard time cursor: a half-hour band at the composing slot, with its
+   time in the ghost line's label language */
+.cal-wk-slot {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: var(--hover);
+  border-top: 1px solid var(--border-strong);
+  border-bottom: 1px solid var(--border-strong);
+  pointer-events: none;
+  /* 0, not 1: the blocks carry no z-index, so a later-in-DOM block still
+     paints over the band */
+  z-index: 0;
+}
+
+.cal-wk-slot span {
+  position: absolute;
+  top: 1px;
+  left: 3px;
+  font-size: 9px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* a timed block: absolutely placed by the component's inline top/height/
+   left/width percentages; the entry-card language at canvas density */
+.cal-entry.cal-wk-block {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 1px;
+  min-height: 17px;
+  padding: 3px 6px;
+  border: 1px solid var(--border-soft);
+  /* The leading edge carries the database's identity tint — the
+     same hue the month bar and the type icon wear; overdue overrides it
+     with --danger below (one mark, one meaning) */
+  border-left: 2px solid var(--entry-tint, var(--border-soft));
+  border-radius: 6px;
+  background: var(--bg-elevated);
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+
+.cal-entry.cal-wk-block:hover {
+  background: var(--bg-elevated);
+  border-color: var(--border-strong);
+  /* keep the identity edge through hover — border-color above is all four */
+  border-left-color: var(--entry-tint, var(--border-strong));
+  z-index: 3;
+}
+
+.cal-wk-block .cal-entry-title {
+  font-size: 11px;
+  font-weight: 510;
+  line-height: 1.25;
+  white-space: normal;
+  overflow: hidden;
+}
+
+/* the duration grips: a band along the block's bottom edge (the end) and
+   its mirror along the top (the start), wide enough to grab on a 30-minute
+   block without swallowing the block's own drag-to-move surface — on a
+   quarter-hour sliver each band shrinks to a third of the block so a strip
+   of movable middle always survives between them. Invisible until the
+   pointer is on the block, then a short centred bar in the entry's own
+   tint — the same "grab here" language as a window edge. They sit above
+   the block's text, so a grab near an edge always resizes rather than
+   starting a move. */
+.cal-wk-grip {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: min(7px, 33%);
+  z-index: 2;
+  cursor: ns-resize;
+}
+
+.cal-wk-grip.top {
+  top: 0;
+  bottom: auto;
+}
+
+.cal-wk-grip::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 2px;
+  width: 22px;
+  max-width: 60%;
+  height: 2px;
+  transform: translateX(-50%);
+  border-radius: 1px;
+  background: var(--entry-tint, var(--border-strong));
+  opacity: 0;
+  transition: opacity 90ms ease-out;
+}
+
+.cal-wk-grip.top::after {
+  top: 2px;
+  bottom: auto;
+}
+
+.cal-entry.cal-wk-block:hover > .cal-wk-grip::after,
+.cal-wk-grip:hover::after {
+  opacity: 0.85;
+}
+
+/* an overdue timed block wears the red leading edge — through
+   hover too: the hover rule's :hover outranks the bare .overdue, so the
+   red needs its own hover leg or hovering re-tints the edge */
+.cal-entry.cal-wk-block.overdue,
+.cal-entry.cal-wk-block.overdue:hover {
+  border-left-color: var(--danger);
+}
+
+/* a canvas-born draft floats at its slot — same footprint as the block the
+   commit will create */
+.cal-wk-draft {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  z-index: 4;
+}
+
+.cal-wk-draft .cal-draft {
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--bg-elevated);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+/* the now-line: today's current minute across the column */
+.cal-wk-now {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 1.5px solid var(--accent);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.cal-wk-now::before {
+  content: "";
+  position: absolute;
+  left: -3px;
+  top: -4px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* drag hover on the canvas: the snapped landing time as a ghost line */
+.cal-wk-ghost {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 1px dashed var(--accent);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.cal-wk-ghost span {
+  position: absolute;
+  top: -7px;
+  left: 3px;
+  font-size: 9px;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  background: var(--bg);
+  padding: 0 3px;
+  border-radius: 3px;
+}
+
+.cal-day {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+  min-width: 0;
+  padding: 4px 5px;
+  border-left: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--border-soft);
+  overflow: hidden;
+  cursor: default;
+  transition: background-color 120ms ease-out;
+}
+
+.cal-grid.month .cal-day:nth-child(7n + 1) {
+  border-left: none;
+}
+
+/* strip cells: the gutter spacer occupies column one, so every day keeps its
+   left rule — mirroring the canvas columns below */
+.cal-grid.week .cal-day {
+  border-bottom: none;
+  gap: 6px;
+  padding: 6px;
+  min-height: 58px;
+}
+
+.cal-day.adj .cal-daynum {
+  opacity: 0.38;
+}
+
+/* weekend columns sit a shade back from the workweek */
+.cal-day.wknd {
+  background: rgba(255, 255, 255, 0.015);
+}
+
+/* the whole adjacent-month cell reads quieter, entries included — the
+   month's own days are the figure, the spill is ground */
+.cal-day.adj .cal-entry {
+  opacity: 0.55;
+}
+
+/* the focused day marks itself at its top edge and no louder — you know
+   where you clicked; the full ring it used to wear shouted it */
+.cal-day.focused {
+  background: var(--hover);
+  box-shadow: inset 0 2px 0 var(--border-strong);
+}
+
+/* Keyboard focus in the month grid: the day-number button is the day's
+   tab stop, so the cell it names wears the accent ring on its behalf — the
+   same treatment the week column takes via :focus-visible, and the same trade
+   the property rows make (the inner control drops its outline, the container
+   rings). Inset because the cell clips its overflow and has no room to bleed.
+   The quiet .focused top mark is a different fact — which day the shortcuts
+   act on — and stays for every day that is not the one holding DOM focus. */
+.cal-grid.month .cal-daynum:focus-visible {
+  outline: none;
+}
+
+.cal-grid.month .cal-day:has(> .cal-daynum:focus-visible) {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+/* drag hover on a cell: the hover wash plus one accent hairline, so the
+   landing day is unmistakable without repainting it. The accent fill and
+   1.5px ring it used to wear read as an overlay dropped over the month —
+   the cell's own entries went blue underneath it. */
+.cal-day.drop {
+  background: var(--hover);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  border-radius: 2px;
+}
+
+/* an expanded day ("+N more") scrolls its full list inside the cell */
+.cal-day.expanded {
+  overflow-y: auto;
+}
+
+.cal-daynum {
+  display: flex;
+  width: 100%;
+  padding: 1px 2px 3px;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  font-size: 11px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cal-today {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 17px;
+  height: 17px;
+  margin: -2px 0;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+
+/* a month's first day names its month in-grid ("Aug 1") — a step
+   up from the bare-number ramp so the seam registers while scanning */
+.cal-seam {
+  color: var(--text-2);
+  font-weight: 600;
+}
+
+.cal-entry {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  width: 100%;
+  padding: 2px 5px;
+  border: 0;
+  background: transparent;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 11px;
+  color: var(--text-1);
+  text-align: left;
+  cursor: grab;
+  transition: background-color 120ms ease-out;
+}
+
+.cal-entry:hover {
+  background: var(--active);
+}
+
+/* External subscriptions share the calendar geometry, but never the note
+   interaction language: muted feed tint, hollow mark, default cursor. */
+.cal-entry.external,
+.cal-ag-item.external {
+  background: color-mix(in srgb, var(--entry-tint, var(--opt-gray)) 9%, transparent);
+  cursor: default;
+}
+
+.cal-entry.external:hover,
+.cal-ag-item.external:hover {
+  background: color-mix(in srgb, var(--entry-tint, var(--opt-gray)) 13%, transparent);
+}
+
+.cal-external-mark {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-left: auto;
+  border: 1px solid var(--entry-tint, var(--opt-gray));
+  border-radius: 50%;
+  opacity: 0.8;
+}
+
+.cal-feed-badge {
+  flex: none;
+  margin-left: 7px;
+  color: var(--entry-tint, var(--text-3));
+  font-size: 10px;
+}
+
+/* month chips: the Notion-Calendar line language — a small rounded
+   color bar carrying the database's identity tint, dim HH:MM, title. No box,
+   no icon: the boxed icon-chip cost ~2× the height and read heavy at seven
+   columns; identity moved from the glyph to the bar's hue (same typeTint the
+   icons wear, so the mapping is already learned). Week cards and agenda rows
+   keep the icon language — they have the room. */
+.cal-grid.month .cal-entry {
+  padding: 1px 4px 1px 3px;
+  margin: 0;
+  border-radius: 4px;
+  background: transparent;
+}
+
+/* the transparent base above outweighs the shared .cal-entry:hover, so month
+   chips need their own — same token, same feedback as every other entry
+   surface (external/selected keep winning via their later rules) */
+.cal-grid.month .cal-entry:hover {
+  background: var(--active);
+}
+
+/* the identity bar: 3×12, rounded, the entry's --entry-tint (set inline by
+   the component from typeTint). Overdue re-colors it --danger below — one
+   mark, one meaning at a time. */
+.cal-entry-bar {
+  flex: none;
+  width: 3px;
+  height: 12px;
+  border-radius: 2px;
+  background: var(--entry-tint, var(--opt-gray));
+}
+
+.cal-grid.month .cal-entry.overdue .cal-entry-bar {
+  background: var(--danger);
+}
+
+/* an overdue span has no bar (its fill is the mark) — the range's first
+   segment wears the red leading edge instead; padding gives back the
+   border's 2px so the title doesn't shift */
+.cal-grid.month .cal-entry.span.start.overdue {
+  border-left: 2px solid var(--danger);
+  padding-left: 1px;
+}
+
+.cal-entry.dragging {
+  opacity: 0.45;
+}
+
+/* done entries: visible but resolved — dimmed, struck title, bar
+   faded. Every entry surface (month chip, week card, canvas block, agenda
+   row) wears the same treatment; the component only marks non-repeating
+   entries, so a series never strikes its future occurrences. */
+.cal-entry.done,
+.cal-ag-item.done {
+  opacity: 0.55;
+}
+
+.cal-entry.done .cal-entry-title,
+.cal-ag-item.done .cal-entry-title {
+  text-decoration: line-through;
+  color: var(--text-3);
+}
+
+/* multi-day spans: a range renders as one chip per covered day.
+   Month cells are separate grid cells, so the bar can't be a single element —
+   instead every covered day gets the tint fill and the inner edges square
+   off, which reads as one bar running across the row. Each day's chip keeps
+   its own title, so a span that wraps to the next week is still legible.
+   the fill is the entry's own identity tint, not the one
+   accent — a trip and a release week stop wearing the same color. */
+.cal-entry.span {
+  background: color-mix(in srgb, var(--entry-tint, var(--accent)) 16%, transparent);
+}
+
+.cal-grid.month .cal-entry.span {
+  background: color-mix(in srgb, var(--entry-tint, var(--accent)) 16%, transparent);
+}
+
+/* square the edge that continues into the neighbouring day */
+.cal-entry.span.start {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.cal-entry.span.mid {
+  border-radius: 0;
+}
+
+.cal-entry.span.end {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+/* continuation days are the same event, not new ones — quiet their title so
+   the eye lands on the span's first day */
+.cal-entry.span.mid .cal-entry-title,
+.cal-entry.span.end .cal-entry-title {
+  color: var(--text-2);
+}
+
+/* entry badges: untinted badge svgs stay quiet, like Today's rows */
+.cal-entry svg,
+.cal-ag-item svg {
+  flex: none;
+  color: var(--text-3);
+}
+
+.cal-entry-type {
+  flex: none;
+  font-size: 9px;
+  font-weight: 620;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.cal-entry-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* a timed entry's HH:MM — quiet, monospaced digits, never shrinks */
+.cal-entry-time {
+  flex: none;
+  font-size: 10px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.cal-entry-repeat {
+  flex: none;
+  align-self: center;
+  color: var(--text-3);
+}
+
+/* week cards: full entry cards in the database card language —
+   elevated and bordered, a title row (icon, time, title, repeat mark) over a
+   compact prop subtitle */
+.cal-grid.week .cal-entry {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  padding: 7px 9px;
+  border: 1px solid var(--border-soft);
+  /* the same identity edge the canvas blocks wear — the week
+     surface reads as one color system across strip and canvas */
+  border-left: 2px solid var(--entry-tint, var(--border-soft));
+  border-radius: 8px;
+  background: var(--bg-elevated);
+}
+
+.cal-grid.week .cal-entry:hover {
+  background: var(--bg-elevated);
+  border-color: var(--border-strong);
+  border-left-color: var(--entry-tint, var(--border-strong));
+}
+
+/* Month/week surface rules above carry more selector weight than the shared
+   external rule. Reassert the quiet read-only fill after both layouts. */
+.cal-grid.month .cal-entry.external,
+.cal-grid.week .cal-entry.external,
+.cal-entry.cal-wk-block.external,
+.cal-ag-item.external {
+  background: color-mix(in srgb, var(--entry-tint, var(--opt-gray)) 9%, transparent);
+}
+
+.cal-grid.month .cal-entry.external:hover,
+.cal-grid.week .cal-entry.external:hover,
+.cal-entry.cal-wk-block.external:hover,
+.cal-ag-item.external:hover {
+  background: color-mix(in srgb, var(--entry-tint, var(--opt-gray)) 13%, transparent);
+}
+
+.cal-wk-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+/* week titles wrap like database card titles — the column has the room */
+.cal-grid.week .cal-entry-title {
+  font-weight: 510;
+  line-height: 1.3;
+  white-space: normal;
+}
+
+.cal-wk-sub {
+  padding-left: 17px; /* the head row's icon + gap — subtitle aligns with the title */
+}
+
+.cal-more {
+  width: 100%;
+  padding: 1px 5px;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  font-size: 10.5px;
+  color: var(--text-3);
+  border-radius: 4px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cal-more:hover {
+  color: var(--text-2);
+  background: var(--hover);
+}
+
+/* inline composer — the entry being titled before it exists on disk */
+.cal-draft {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 2px 3px;
+  border-radius: 4px;
+  background: var(--bg-elevated);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+
+.cal-draft-type {
+  flex: none;
+  padding: 1px 5px;
+  border: none;
+  border-radius: 3px;
+  background: var(--active);
+  color: var(--text-2);
+  font-family: var(--font);
+  font-size: 9px;
+  font-weight: 620;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.cal-draft-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-1);
+  font-family: var(--font);
+  font-size: 11px;
+  outline: none;
+}
+
+/* entry peek — the click popover editing an entry in place. Chrome borrows
+   the .dots-menu/.selmenu vocabulary (elevated ground, strong border, 8px
+   radius, the one shadow); rows read label-left / value-right */
+.cal-peek {
+  position: fixed;
+  z-index: 60;
+  width: 260px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+}
+
+.cal-peek-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.cal-peek-head svg {
+  flex: none;
+  color: var(--text-3);
+}
+
+.cal-peek-title {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-1);
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 560;
+  outline: none;
+}
+
+.cal-peek-rows {
+  padding: 4px;
+}
+
+.cal-peek-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  font-family: var(--font);
+  font-size: 13px;
+  color: var(--text-2);
+  text-align: left;
+}
+
+button.cal-peek-row:hover {
+  background: var(--active);
+  color: var(--text-1);
+}
+
+.cal-peek-key {
+  flex: none;
+  width: 48px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.cal-peek-val {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+}
+
+/* the series actions (virtual occurrence) read as plain verbs, not rows */
+.cal-peek-act {
+  color: var(--text-2);
+}
+
+.cal-peek-none {
+  color: var(--text-3);
+}
+
+/* the Ends field is its own class, not a second .cal-peek-time: that selector
+   means "the Time row's input" everywhere, and two of them would make it
+   ambiguous */
+.cal-peek-time,
+.cal-peek-end {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-1);
+  font-family: var(--font);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  outline: none;
+}
+
+/* the end's day, shown beside the Ends field only when it isn't the start's
+   — a bare "09:00" on a two-day event would read as day one. A button: it
+   opens a day picker to move the span's close, the peek's way back to a
+   single-day event after an over-drag */
+.cal-peek-endday {
+  flex: none;
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-family: var(--font);
+  font-size: 11px;
+  color: var(--text-3);
+  white-space: nowrap;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.cal-peek-endday:hover {
+  color: var(--text-1);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.cal-peek-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.cal-peek-open,
+.cal-peek-del {
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  font-family: var(--font);
+  font-size: 12px;
+  padding: 3px 7px;
+  color: var(--text-2);
+}
+
+.cal-peek-open:hover {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+.cal-peek-del {
+  color: var(--danger);
+}
+
+.cal-peek-del:hover {
+  background: var(--hover);
+}
+
+/* upcoming strip — next two weeks with entries, below the grid */
+/* grid over Upcoming by default; side by side when Upcoming is docked as a
+   rail. One axis flip — nothing inside either surface knows about the other. */
+.cal-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.cal-body.rail {
+  flex-direction: row;
+}
+
+.cal-body.rail > .cal-grid-scroll {
+  min-width: 0;
+}
+
+/* The height cap (or, as a rail, the width) is dragged and persisted, so it
+   arrives as an inline style — this block owns everything except the size. */
+.cal-agenda {
+  position: relative;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border-soft);
+}
+
+.cal-agenda.rail {
+  border-top: none;
+  border-left: 1px solid var(--border-soft);
+}
+
+/* the header toggle is latched while Upcoming is showing, with the same dot
+   the Calendars control uses for "this is on" — without it the control reads
+   identical in both states and the only way to tell is the panel itself */
+.cal-agenda-toggle.active::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: var(--opt-teal);
+}
+
+/* the splitter: the panel's inner edge, 6px of grab with a quiet handle that
+   only shows on hover or focus — same strip the terminal panel uses. It
+   overlays that edge rather than standing in the column flow: a grip that
+   took a row's worth of the panel would cost the strip its last entry at the
+   size it has always had. */
+.cal-agenda-grip {
+  position: absolute;
+  top: -1px;
+  left: 0;
+  right: 0;
+  height: 6px;
+  cursor: ns-resize;
+  z-index: 1;
+}
+
+.cal-agenda-grip::after {
+  content: "";
+  position: absolute;
+  left: 40%;
+  right: 40%;
+  top: 2px;
+  height: 2px;
+  border-radius: 1px;
+  background: transparent;
+}
+
+.cal-agenda-grip:hover::after,
+.cal-agenda-grip:focus-visible::after {
+  background: var(--border-strong);
+}
+
+/* as a rail the same strip runs down the leading edge instead of across the
+   top one */
+.cal-agenda.rail .cal-agenda-grip {
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: auto;
+  width: 6px;
+  height: auto;
+  cursor: ew-resize;
+}
+
+.cal-agenda.rail .cal-agenda-grip::after {
+  left: 2px;
+  right: auto;
+  top: 40%;
+  bottom: 40%;
+  width: 2px;
+  height: auto;
+}
+
+/* while a splitter drag is live: keep the resize cursor everywhere and stop
+   selecting text (same idea as body.col-resizing for the table columns) */
+body.cal-agenda-resizing-ns,
+body.cal-agenda-resizing-ns * {
+  cursor: ns-resize !important;
+  user-select: none;
+}
+
+body.cal-agenda-resizing-ew,
+body.cal-agenda-resizing-ew * {
+  cursor: ew-resize !important;
+  user-select: none;
+}
+
+.cal-agenda-head {
+  flex: none;
+  padding: 7px 16px 3px;
+  font-size: 10.5px;
+  font-weight: 560;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.cal-agenda-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 2px 10px 8px;
+}
+
+/* A rail is a fraction of the strip's width, so its rows stack instead:
+   the day label sits over its entries rather than beside them, and the
+   groups keep the same spacing they have at the bottom. */
+.cal-agenda.rail .cal-ag-row {
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cal-agenda.rail .cal-ag-day {
+  width: auto;
+  padding-top: 0;
+}
+
+/* empty-agenda discoverability hint — muted, one line */
+.cal-hint {
+  padding: 4px 6px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.cal-ag-row {
+  display: flex;
+  gap: 12px;
+  padding: 2px 6px;
+  border-radius: 5px;
+}
+
+/* groups (Overdue / Today / …) read as separate blocks, not one long list */
+.cal-ag-row + .cal-ag-row {
+  margin-top: 14px;
+}
+
+.cal-ag-row:hover {
+  background: var(--hover);
+}
+
+.cal-ag-day {
+  flex: none;
+  width: 96px;
+  padding-top: 2px;
+  font-size: 11.5px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+button.cal-ag-day {
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
+}
+
+.cal-ag-day.today {
+  color: var(--text-1);
+  font-weight: 590;
+}
+
+.cal-ag-items {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.cal-ag-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  width: 100%;
+  padding: 2px 4px;
+  border: 0;
+  background: transparent;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--text-1);
+  text-align: left;
+  cursor: pointer;
+}
+
+.cal-ag-item:hover {
+  background: var(--active);
+}
+
+/* The entry the peek/context menu is editing wears the selected
+   accent tint (Notion-Calendar style) so the popover and its target read as
+   one unit. Same token as a multi-selected table row. Placed after
+   every entry-surface base/hover rule so the tint outranks them at equal or
+   matching specificity; a span's covered days all light together (the
+   component marks every segment). */
+.cal-entry.selected,
+.cal-entry.span.selected,
+.cal-grid.month .cal-entry.selected,
+.cal-ag-item.selected {
+  background: var(--accent-soft);
+}
+
+/* bordered surfaces (week cards, canvas blocks) also pin their border to the
+   accent — the fill alone drowns against --bg-elevated */
+.cal-grid.week .cal-entry.selected,
+.cal-grid.week .cal-entry.selected:hover,
+.cal-entry.cal-wk-block.selected,
+.cal-entry.cal-wk-block.selected:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+/* overdue group + marks — color stays on meaning-carrying marks
+   only: the deadline dot's red (--danger), same 6px geometry as the Today
+   pane's dot; the group keeps a hairline separation from upcoming rows */
+.cal-ag-overdue {
+  margin-bottom: 3px;
+  padding-bottom: 3px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.cal-ag-day.overdue {
+  color: var(--danger);
+  cursor: default;
+}
+
+.cal-dot {
+  flex: none;
+  align-self: center;
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--danger);
+}
+
+/* an overdue item's day rides right after its title — never marooned at the
+   row's far right edge */
+.cal-ag-when {
+  flex: none;
+  margin-left: 8px;
+  font-size: 11px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Database management ─────────────────────────────────────── */
+
+/* centered admin cards (create/rename/delete/strip) — palette chrome,
+   dialog size */
+.dbform {
+  width: 420px;
+  max-width: calc(100vw - 80px);
+  margin-top: 130px;
+  height: fit-content;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  box-shadow:
+    0 16px 70px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dbform-title {
+  font-size: 13px;
+  font-weight: 590;
+  color: var(--text-1);
+}
+
+.dbform-note {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+
+.dbform-input {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-1);
+  font-size: 13px;
+  padding: 7px 9px;
+  outline: none;
+}
+
+.dbform-input:focus {
+  border-color: var(--accent);
+}
+
+.sealed-device-btn {
+  align-self: stretch;
+}
+
+.sealed-note {
+  position: relative;
+  /* .note is a block scroller — flex it so the lock card's margin:auto
+     centers vertically too, not just horizontally */
+  display: flex;
+}
+
+.sealed-locked {
+  width: min(420px, calc(100% - 48px));
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.sealed-lock-mark {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  color: var(--text-2);
+}
+
+.sealed-lock-mark svg {
+  width: 16px;
+  height: 16px;
+}
+
+.sealed-lock-title {
+  color: var(--text-1);
+  font-size: 17px;
+  font-weight: 590;
+}
+
+.sealed-lock-copy {
+  max-width: 360px;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.sealed-lock-hint {
+  color: var(--text-3);
+  font-size: 11px;
+}

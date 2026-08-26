@@ -1,0 +1,414 @@
+
+.overlay.closing .shortcut-sheet {
+  opacity: 0;
+  transform: scale(0.985) translateY(-4px);
+  transition:
+    opacity 90ms ease-out,
+    transform 90ms ease-out;
+}
+
+.shortcut-sheet-title {
+  padding: 13px 18px;
+  font-size: 13px;
+  font-weight: 560;
+  color: var(--text-1);
+}
+
+/* This fade used to be unconditional, so the sheet dissolved its own
+   last row even at the bottom stop — "Show app files" read as a rendering bug
+   at a 900px window height. It now rides the shared gate (.edge-fade-y), which
+   turns the fade off wherever the scroller can't move further. The bottom
+   padding stays as clearance so the last row clears the footer's hairline. */
+.shortcut-sheet-body {
+  max-height: 420px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border-soft);
+  padding: 6px 6px 34px;
+}
+
+.shortcut-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 30px;
+  padding: 0 10px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+/* Two columns, and the label owns the slack: without a min-width a long
+   description pushed its keycaps past the row's right edge instead of
+   wrapping, which is what read as "unaligned". */
+.shortcut-row-label {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.shortcut-row-keys {
+  margin-left: auto;
+  flex: none;
+  display: flex;
+  gap: 4px;
+}
+
+/* The unified keyboard button + contextual fold-out panel —
+   the note-tool idiom (borderless, hover ground) at the fixed chrome slot, so
+   it completes the note's [clock][⋯] row at the corner and still stands alone
+   on views that have no note tools. Below the overlays. */
+.keyhints {
+  position: fixed;
+  top: var(--chrome-y);
+  right: var(--chrome-x);
+  z-index: 40;
+}
+
+.keyhints-chip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--chrome-slot);
+  height: var(--chrome-slot);
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: default;
+}
+
+.keyhints-chip:hover {
+  background: var(--hover);
+  color: var(--text-2);
+}
+
+.keyhints-chip.active {
+  background: var(--active);
+  color: var(--text-1);
+}
+
+.keyhints-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  width: 240px;
+  max-height: calc(100vh - 60px);
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  animation: palette-in 110ms ease-out;
+}
+
+.keyhints-panel.closing {
+  opacity: 0;
+  transform: scale(0.985) translateY(-4px);
+  transition:
+    opacity 90ms ease-out,
+    transform 90ms ease-out;
+}
+
+/* long combo runs (the pane hjkl sets) wrap instead of clipping at 240px.
+   A wrapping label used to centre its keycaps against the whole block, so
+   two-line rows hung their keys halfway down; they now sit on the first
+   line, which is the one the label starts on. */
+.keyhints-panel .shortcut-row {
+  height: auto;
+  min-height: 30px;
+  padding: 4px 6px;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.keyhints-panel .shortcut-row-label {
+  line-height: 1.35;
+}
+
+.keyhints-panel .shortcut-row-keys {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  row-gap: 2px;
+  padding-top: 1px;
+}
+
+/* the foot is the route to the full sheet — a real button, dressed
+   as the quiet strip it already was */
+.keyhints-foot {
+  display: flex;
+  gap: 14px;
+  width: 100%;
+  margin-top: 2px;
+  padding: 7px 10px 5px;
+  border: none;
+  border-top: 1px solid var(--border-soft);
+  border-radius: 0 0 5px 5px;
+  background: transparent;
+  font: inherit;
+  font-size: 11.5px;
+  color: var(--text-3);
+  text-align: left;
+  cursor: default;
+}
+
+.keyhints-foot:hover {
+  background: var(--hover);
+  color: var(--text-2);
+}
+
+/* the sheet's ghost action, right-aligned against the esc hint */
+.sheet-assign-btn {
+  margin-left: auto;
+  padding: 1px 7px;
+  border: 1px solid var(--border-soft);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 11.5px;
+  transition:
+    color 120ms ease-out,
+    border-color 120ms ease-out;
+}
+
+.sheet-assign-btn:hover {
+  border-color: var(--border-strong);
+  color: var(--text-1);
+}
+
+/* the "Your keys" empty row is a statement, not a binding */
+.shortcut-row-empty {
+  color: var(--text-3);
+}
+
+/* Key-assign HUD — the sheet's chrome at panel scale, parked bottom
+   right. Deliberately NOT an overlay: the sidebar underneath must stay live,
+   because assigning a key IS a drag onto a sidebar row. */
+.key-hud {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 60;
+  width: 260px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5);
+  animation: palette-in 110ms ease-out;
+}
+
+.key-hud.closing {
+  opacity: 0;
+  transform: scale(0.985) translateY(4px);
+  transition:
+    opacity 90ms ease-out,
+    transform 90ms ease-out;
+}
+
+/* a chip dragged back over the panel: the same affordance a sidebar row
+   shows while it's the drop candidate */
+.key-hud.drop-target {
+  border-color: var(--accent);
+}
+
+.key-hud-head {
+  display: flex;
+  align-items: center;
+  padding: 9px 8px 9px 12px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.key-hud-title {
+  font-size: 12.5px;
+  font-weight: 560;
+  color: var(--text-1);
+}
+
+.key-hud-close {
+  margin-left: auto;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.key-hud-close:hover {
+  background: var(--active);
+  color: var(--text-1);
+}
+
+.key-hud-body {
+  padding: 8px 12px 12px;
+}
+
+.key-hud-hint,
+.key-hud-section {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.key-hud-section {
+  margin: 12px 0 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.key-hud-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.key-hud-assigned {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.key-hud-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.key-hud-row-label {
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--text-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* draggable chips read as grabbable and lift a touch on hover */
+.key-chip {
+  cursor: grab;
+  transition:
+    color 120ms ease-out,
+    border-color 120ms ease-out;
+}
+
+.key-chip:hover {
+  border-color: var(--border-strong);
+  color: var(--text-1);
+}
+
+/* Free but standing on a pinned view's shortcut — reads as available
+   at a lower weight, still grabbable, and comes fully forward on hover so the
+   drag never feels blocked */
+.key-chip-shadow {
+  border-style: dashed;
+  border-bottom-width: 1px;
+  opacity: 0.6;
+}
+
+.key-chip-shadow:hover {
+  opacity: 1;
+}
+
+/* a chip riding a sidebar row — sits in the shortcut-hint slot, so it inherits
+   that alignment and only needs the grab affordance */
+.side-key-chip {
+  cursor: grab;
+}
+
+/* while the HUD is open the sidebar's own static hints step back, so the
+   assignable chips are what the eye lands on */
+.sidebar.key-assign-active .side-shortcut:not(.side-key-chip) {
+  opacity: 0.35;
+  transition: opacity 120ms ease-out;
+}
+
+/* Hold-modifier HUD — the same shell as the click panel above,
+   sharing its anchor so the two read as one surface in two states. It differs
+   by SUBTRACTION, not restyling: denser rows, no hover or selected states, no
+   footer. The absence of interactivity is the signal that this thing is a
+   readout of a held key, not a menu (pointer-events: none says the same in
+   code). Entrance is 3px of travel — enough to register in peripheral vision,
+   short of "a thing arriving". There is no exit animation on purpose: keyup
+   unmounts, because residue after release reads as lag. */
+.modkey-hud {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  /* the click panel's 240px, plus a hair: these rows carry the same labels in
+     a smaller face, so the extra width is what keeps them off the ellipsis */
+  width: 252px;
+  padding: 4px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  animation: modkey-hud-in 90ms ease-out both;
+}
+
+@keyframes modkey-hud-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* A two-column variant was tried and cut: at these row metrics the worst case
+   (12 rows) is ~220px tall — shorter than the click panel it sits under, so
+   there was no slab to fix, and halving the column width truncated every
+   label to a few characters. One column, one width, keys always readable. */
+
+.modkey-hud-head {
+  padding: 2px 6px 4px;
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--text-3);
+}
+
+.modkey-hud-rows {
+  display: grid;
+  gap: 1px;
+}
+
+
+.modkey-hud-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 6px;
+  font-size: 11.5px;
+  line-height: 1.3;
+  color: var(--text-2);
+}
+
+/* the label yields — full names live in the ⌘/ sheet; the KEYS must never
+   truncate, they are the whole point of the panel. `min-width: 0` is what
+   makes the ellipsis actually engage: a flex item's default min-width is
+   auto, i.e. its longest word, so without this the row grows instead. */
+.modkey-hud-row-label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* wraps rather than clips, like the click panel: a row with several combos
+   (⌘K ⌘P, ⌘← ⌘→) buys a second line instead of losing a key */
+.modkey-hud-row-keys {
+  margin-left: auto;
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+  row-gap: 2px;
+}
+
+.modkey-hud-row-keys .key {
+  font-size: 10px;
+  padding: 1px 4px;
+}

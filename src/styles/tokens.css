@@ -1,0 +1,195 @@
+:root {
+  /* The grey ramp is NEUTRAL (equal-ish RGB, no cool tint) — the blue
+     cast we flagged came from cool-hued greys; the accent family lives only
+     in interactive tokens (--accent/--link), never in surfaces or text greys */
+  --bg: #090909;
+  --bg-panel: #101011;
+  --bg-elevated: #1a1a1b;
+  --border: rgba(255, 255, 255, 0.09);
+  --border-soft: rgba(255, 255, 255, 0.06);
+  --border-strong: rgba(255, 255, 255, 0.14);
+  /* `db-grid` column rules only — fainter than --border-soft so the
+     grid orients without competing with the row hairlines */
+  --grid-line: rgba(255, 255, 255, 0.04);
+  --text-1: #f5f6f6;
+  --text-2: #a9abae;
+  --text-3: #75777b;
+  /* The interactive family, routed through the tone presets further
+     down: the Settings tone dial moves the WHOLE app at once — cell cursor,
+     focus rings, text selection, filled buttons, links and dashboard
+     marks all wear one family at a time (owner's call 2026-08-22; the
+     earlier dashboard-only scoping is retired, and the tone table's block
+     says why). The selected sidebar row is NOT in the family: it paints the
+     neutral --active wash and stays where it is. Sky is the table's own
+     :root default, so an unset dial still renders the shipped look with no
+     attribute written and no arithmetic that can drift. */
+  --accent: var(--tone-accent);
+  --accent-soft: var(--tone-accent-soft);
+  /* the same family lifted to text weight — an emphasised value, a link */
+  --accent-text: var(--tone-accent-text);
+  --link: var(--tone-accent-text);
+  /* the ink that sits ON an --accent fill: a filled button's label, a
+     checked box's tick. Every tone's fill weight is LIGHT (sky is 67.5%
+     lightness), so white on it is unreadable — 1.6:1 at the worst
+     tone/nudge pair. The ink is the app's own near-black instead, which
+     clears 7.9:1 on the worst pair; lib/appearance.test.ts holds that floor
+     at 4.5:1 across all four tones and the whole nudge range. Pure marks —
+     bars, dots, cursor rules, the now-line — carry no ink and keep the fill
+     alone. */
+  --on-accent: #090909;
+  --hover: rgba(255, 255, 255, 0.05);
+  /* dense many-row tables (the dashboard panes) want a fainter hover than
+     --hover: at high row density the stronger wash flickers as the pointer
+     crosses rows. Same weight the dashboard rows have always used, named
+     so the next dense table gets it right by default. */
+  --hover-dense: rgba(255, 255, 255, 0.03);
+  /* the faintest raised surface: a control face at rest (checkbox, kbd chip),
+     a quiet state wash, a pre block. Same weight as --hover-dense and a
+     different job — making dense hover fainter should not repaint every
+     checkbox in the app, which is why this is its own name. */
+  --surface-faint: rgba(255, 255, 255, 0.03);
+  /* the unfilled part of a bar or rail — progress tracks, quota bars, the
+     mastering range. A ground for a fill to sit on, not a hairline: it shares
+     --border-soft's weight today and answers to a different question. */
+  --track: rgba(255, 255, 255, 0.06);
+  /* the selected/active wash. Deliberately declared, not aliased to --border:
+     it happens to land on the same weight, but a hairline and a selection
+     wash are unrelated roles and a change to one shouldn't ride along on the
+     other (they were identical and nothing said whether that was
+     derivation or coincidence; it is coincidence). */
+  --active: rgba(255, 255, 255, 0.09);
+  --danger: #eb5757;
+  --ok: #4cb782;
+  /* the attention amber: "worth a look", between --ok and the
+     act-now --danger. It sat as two different hand-typed hexes on five
+     surfaces, each commented as THE amber; this is the one they all mean.
+     Not an --opt-* — those are user schema colours, chosen by the user. */
+  --warn: #d9a02b;
+  /* pale tint of --ok for "progressing, not there yet" states */
+  --ok-soft: color-mix(in srgb, var(--ok) 55%, #fff);
+  /* select-option dot palette — meaning-carrying marks only, never chrome;
+     saturated enough to pop on the neutral ground, Linear-dosage */
+  --opt-gray: #8d939e;
+  --opt-blue: #609ae8;
+  --opt-indigo: #7d8cf0;
+  --opt-violet: #a887f0;
+  --opt-pink: #dd7fbd;
+  --opt-red: #e66d68;
+  --opt-orange: #e8965a;
+  --opt-yellow: #d9b850;
+  --opt-green: #56c17e;
+  --opt-teal: #4cc2ba;
+  /* Chart-series ramp — the ONLY categorical hue set on a dashboard, and the
+     one place design principle 3's "one accent family" is amended: a `by:`
+     split needs marks that differ in hue, because a split is exactly the
+     question "which series is this". Five fixed slots, assigned by series
+     position and never cycled. Validated on ADJACENT pairs only: neighbours
+     stay ≥ 14.7 ΔE00 under protan/deutan simulation and ≥ 41.4 for normal
+     vision, on both the dark ground and the print white (appearance.test.ts
+     re-measures it from these hexes, floor 8.0). Non-adjacent pairs are NOT
+     covered — 3↔5 and 2↔4 converge under deuteranopia; the legend, the hover
+     tooltip and the line dash patterns are the relief, and a chart comparing
+     arbitrary (non-neighbouring) series pairs must cap at 3 slots or facet.
+     See docs/design-principles.md §3. Deliberately NOT part of the tone
+     family — a categorical hue that shifts with the accent dial stops being
+     an identity, so these are literals, not tone slots. Paper weights live in
+     the @media print block. Marks only: text never wears a band colour. */
+  --band-1: #3987e5;
+  --band-2: #d95926;
+  --band-3: #199e70;
+  --band-4: #c98500;
+  --band-5: #d55181;
+  --code-keyword: #8b95e8;
+  --code-string: #9fb8a4;
+  --code-const: #c2a888;
+  --code-type: #8fb3c9;
+  --font: "Inter Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  /* Dashboard instrument language. Mono carries data and labels,
+     Inter carries the title and sentences; structure is hairlines, never
+     boxes; hue stays in the interactive/state tokens above. --text-4 extends
+     the neutral ramp one step (same tint delta as --text-3), for plot
+     axes and page footers only. */
+  --hair: rgba(255, 255, 255, 0.1);
+  --hair-soft: rgba(255, 255, 255, 0.055);
+  /* The strong page rule, routed through the tone family. The
+     default is the chosen sky fade; preset and fine-tune changes move every
+     stop with the dashboard ink instead of leaving literal sky behind. */
+  --hairline-accent: linear-gradient(
+    90deg,
+    var(--tone-series-2),
+    var(--tone-accent) 40%,
+    color-mix(in srgb, var(--tone-accent-text) 85%, transparent) 70%,
+    transparent
+  );
+  --text-4: #54565a;
+  --bg-input: #0d0d0e;
+  --r: 2px;
+  /* The one app-chrome slot: the keyboard button sits fixed at this
+     viewport coordinate on every desktop view, aligned with the note-tools
+     row (.main's 8px margin + 1px border, then note-tools' 10px padding) and
+     14px inside .main's right edge. Every pane that loads controls on that
+     side reserves the slot in these terms — one number, no drift. */
+  --chrome-y: 19px;
+  --chrome-x: 23px;
+  --chrome-slot: 26px;
+  /* the language's four type voices — one place, no per-surface drift */
+  --dash-label: 500 10.5px/1.4 var(--mono); /* + .06–.08em tracking, uppercase */
+  --dash-data: 400 11.5px/18px var(--mono); /* rows, cells, tabular-nums */
+  --dash-value: 500 17px/1.3 var(--mono); /* stat tile values */
+  --dash-sentence: 400 13px/1.5 var(--font); /* prose, hints */
+}
+
+/* Bounded style tokens — the ONLY place an author's accent name
+   becomes a colour. A board writes `accent: teal`, the renderer emits
+   `data-accent="teal"` after checking the name against the option roster
+   (src/lib/styletokens.ts), and these ten rules resolve it. Nothing else in
+   the app interpolates a name into a var(): an accent the theme doesn't know
+   matches no rule here, so the failure mode is an untinted surface. A fence
+   or card key never reaches the attribute with an off-roster name either —
+   but a custom kind (§5.8) writes its own DOM, so it CAN put an unvalidated
+   name on `data-accent`; the consumers below carry var() fallbacks so that
+   path lands on neutral rather than on inherited colour.
+
+   Ten rules rather than `var(--opt-` + name: a closed list is the contract.
+   Adding an eleventh accent means adding a hue to the palette on purpose,
+   which is exactly the decision the design system means to keep. */
+[data-accent="gray"] {
+  --accent-tint: var(--opt-gray);
+}
+
+[data-accent="blue"] {
+  --accent-tint: var(--opt-blue);
+}
+
+[data-accent="indigo"] {
+  --accent-tint: var(--opt-indigo);
+}
+
+[data-accent="violet"] {
+  --accent-tint: var(--opt-violet);
+}
+
+[data-accent="pink"] {
+  --accent-tint: var(--opt-pink);
+}
+
+[data-accent="red"] {
+  --accent-tint: var(--opt-red);
+}
+
+[data-accent="orange"] {
+  --accent-tint: var(--opt-orange);
+}
+
+[data-accent="yellow"] {
+  --accent-tint: var(--opt-yellow);
+}
+
+[data-accent="green"] {
+  --accent-tint: var(--opt-green);
+}
+
+[data-accent="teal"] {
+  --accent-tint: var(--opt-teal);
+}

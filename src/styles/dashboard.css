@@ -1,0 +1,593 @@
+
+/* indigo — the app's own interactive hue, lifted to dashboard weight */
+:root[data-tone="indigo"] {
+  --tone-accent: hsl(calc((229.5 + var(--tone-nudge)) * 1deg) 84.3% 80.0%);
+  --tone-accent-soft: hsl(calc((229.5 + var(--tone-nudge)) * 1deg) 84.3% 80.0% / 0.22);
+  --tone-accent-text: hsl(calc((224.5 + var(--tone-nudge)) * 1deg) 82.9% 86.3%);
+  --tone-series-1: hsl(calc((229.5 + var(--tone-nudge)) * 1deg) 84.3% 80.0%);
+  --tone-series-2: hsl(calc((263.1 + var(--tone-nudge)) * 1deg) 47.2% 62.2%);
+  --tone-series-3: hsl(calc((195.8 + var(--tone-nudge)) * 1deg) 77.5% 72.2%);
+  --tone-series-4: hsl(calc((250.0 + var(--tone-nudge)) * 1deg) 21.4% 72.5%);
+  --tone-series-5: #c9b98f;
+}
+
+:root[data-tone="indigo"] {
+  --tone-paper-accent: hsl(calc((237.7 + var(--tone-nudge)) * 1deg) 33.0% 54.3%);
+  --tone-paper-accent-soft: hsl(calc((237.7 + var(--tone-nudge)) * 1deg) 33.0% 54.3% / 0.22);
+  --tone-paper-accent-text: hsl(calc((233.7 + var(--tone-nudge)) * 1deg) 28.6% 39.0%);
+  --tone-paper-series-1: hsl(calc((239.3 + var(--tone-nudge)) * 1deg) 40.1% 59.4%);
+  --tone-paper-series-2: hsl(calc((264.8 + var(--tone-nudge)) * 1deg) 36.1% 52.7%);
+  --tone-paper-series-3: hsl(calc((192.7 + var(--tone-nudge)) * 1deg) 59.0% 39.2%);
+  --tone-paper-series-4: hsl(calc((251.4 + var(--tone-nudge)) * 1deg) 17.4% 52.5%);
+  --tone-paper-series-5: #8f7a3f;
+}
+
+/* violet — the warm end of the safe arc — orchid, never pink-red */
+:root[data-tone="violet"] {
+  --tone-accent: hsl(calc((274.4 + var(--tone-nudge)) * 1deg) 57.6% 76.9%);
+  --tone-accent-soft: hsl(calc((274.4 + var(--tone-nudge)) * 1deg) 57.6% 76.9% / 0.22);
+  --tone-accent-text: hsl(calc((266.5 + var(--tone-nudge)) * 1deg) 60.6% 86.1%);
+  --tone-series-1: hsl(calc((274.4 + var(--tone-nudge)) * 1deg) 57.6% 76.9%);
+  --tone-series-2: hsl(calc((312.0 + var(--tone-nudge)) * 1deg) 37.4% 55.5%);
+  --tone-series-3: hsl(calc((215.7 + var(--tone-nudge)) * 1deg) 100.0% 81.6%);
+  --tone-series-4: hsl(calc((304.8 + var(--tone-nudge)) * 1deg) 16.1% 69.6%);
+  --tone-series-5: #c9b98f;
+}
+
+:root[data-tone="violet"] {
+  --tone-paper-accent: hsl(calc((282.1 + var(--tone-nudge)) * 1deg) 27.1% 48.4%);
+  --tone-paper-accent-soft: hsl(calc((282.1 + var(--tone-nudge)) * 1deg) 27.1% 48.4% / 0.22);
+  --tone-paper-accent-text: hsl(calc((277.5 + var(--tone-nudge)) * 1deg) 26.1% 36.1%);
+  --tone-paper-series-1: hsl(calc((283.0 + var(--tone-nudge)) * 1deg) 30.6% 52.5%);
+  --tone-paper-series-2: hsl(calc((313.2 + var(--tone-nudge)) * 1deg) 34.5% 46.7%);
+  --tone-paper-series-3: hsl(calc((214.3 + var(--tone-nudge)) * 1deg) 36.3% 50.8%);
+  --tone-paper-series-4: hsl(calc((301.8 + var(--tone-nudge)) * 1deg) 13.7% 48.6%);
+  --tone-paper-series-5: #8f7a3f;
+}
+
+/* The accent family (owner's call: pure b/w reads flat; V1 "sky"
+   picked from the 03.08 contact sheet). One family, never per-widget hues.
+
+   SCOPE, amended 2026-08-22 (owner's call, attended): the family is
+   APP-WIDE. The tone dial now drives the interactive tokens at :root —
+   --accent, --accent-soft, --accent-text, --link — so one family is visible
+   at any time. The earlier round scoped the family to the dashboard
+   surfaces and kept a fixed interactive indigo outside it; that scoping is
+   retired because it left the app wearing two families at once. What the
+   :root swap actually repaints is the cell cursor, focus rings, text
+   selection, filled controls and links — the selected sidebar row is not
+   among them, it paints the neutral --active wash. The strong page hairline was
+   already tone-aware (--hairline-accent on .list-head/.dash-head), so a list
+   header wore sky while the cell cursor beside it stayed indigo — the
+   incoherence the owner called out. Repainting the chrome IS the decision
+   now, not a side effect of one.
+
+   What is left here is the dashboard's own vocabulary: the five-slot series
+   ramp. It stays scoped because it is chart language, not chrome — nothing
+   outside a dashboard draws a series.
+
+   .wb-tabs is in the scope because a workbook's tab strip is chrome for the
+   dashboard it pages through — it sits outside .dash-inner in the DOM, so
+   without this a split chart's ramp would not reach it.
+
+   The series ramp is fixed at five, each entry clearing 3:1 as a shape on
+   BOTH grounds. The chosen warm khaki fifth series sits close to reserved
+   yellow, so the boundary is semantic rather than a false hue-distance
+   invariant: series-5 is only categorical, state keeps its reserved token
+   and a non-colour carrier.
+
+   The VALUES live in the tone table above: this block only says which family
+   slot each token is, so a tone change moves the whole family at once. */
+.dash-inner,
+.metrics-cards,
+.wb-tabs,
+#print-surface {
+  --series-1: var(--tone-series-1);
+  --series-2: var(--tone-series-2);
+  --series-3: var(--tone-series-3);
+  --series-4: var(--tone-series-4);
+  --series-5: var(--tone-series-5);
+}
+
+.dash-inner {
+  /* 760 left oceans of side space on wide windows and squeezed table grids
+     into truncation (2026-07-23: "they don't need to be this
+     centered") — 1120 fills the content area on normal windows and only
+     caps on true ultrawide */
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 32px clamp(20px, 4vw, 48px) 80px;
+  counter-reset: dashsect;
+}
+
+.dash-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  /* the rule under the title row is the page's one strong hairline */
+  padding-bottom: 13px;
+  border-bottom: 1px solid var(--hair);
+}
+
+/* The two strong page hairlines carry the accent fade. Keep the
+   transparent border in the box model so the 1.5px paint never reflows the
+   list or dashboard; the variable above makes the full gradient tone-aware. */
+.list-head,
+.dash-head {
+  border-bottom-color: transparent;
+  background: var(--hairline-accent) bottom / 100% 1.5px no-repeat;
+}
+
+/* ————— one header rhythm —————
+   Whatever a kind puts first — a card strip, a tile grid, a titled section, a
+   banner — it starts the same distance under the head's rule. The kinds split
+   into two families before this: the ones whose first block is content
+   (24px, the majority) and the ones that open with a titled section, whose
+   label carried the 32px it uses BETWEEN sections up to the top of the page.
+   Read in sequence the difference was the most visible incoherence in the
+   set, and neither family was wrong — having both was.
+
+   The gap is declared once, on the head, and the first block is zeroed into
+   it — its own first child included. That second rule is not belt-and-braces:
+   a block's leading child either collapses its top margin through the block
+   (a titled section pushing the page's whole opening down to its
+   between-sections spacing) or stacks it on top of the head's gap (a strip
+   wrapper landing the cards 48px down instead of 24). Both were live here.
+   e2e/dashrhythm.spec.ts measures the box AND the ink for every config in
+   the matrix corpus, which is the only place the difference is visible. */
+.dash-inner > .dash-head {
+  margin-bottom: 24px;
+}
+
+.dash-inner > .dash-head + * {
+  margin-top: 0;
+}
+
+.dash-inner > .dash-head + * > *:first-child {
+  margin-top: 0;
+}
+
+.dash-title {
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.dash-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font: 400 12px/1.4 var(--font);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-3);
+}
+
+.dash-dot {
+  /* round state dot — the square-LED experiment was reverted (2026-07-24):
+     color carries state; the mark stays a dot like everywhere else */
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+/* the actions cluster: page controls + source button, right-aligned as one
+   unit; individual buttons stop fighting for margin-left:auto */
+.dash-actions {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.dash-source {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid transparent;
+  border-radius: var(--r);
+  background: transparent;
+  color: var(--text-3);
+}
+
+/* legacy call sites where the source button still sits directly in
+   .dash-head (converted pages use .dash-actions) */
+.dash-head > .dash-source {
+  margin-left: auto;
+}
+
+.dash-source:hover {
+  border-color: var(--hair);
+  color: var(--text-1);
+}
+
+.dash-hero {
+  margin-top: 24px;
+}
+
+.dash-label {
+  font: var(--dash-label);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: 5px;
+}
+
+.dash-apr {
+  font: 500 36px/1.15 var(--mono);
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+
+.dash-apr-pct {
+  font: var(--dash-value);
+  font-weight: 400;
+  color: var(--text-3);
+  margin-left: 2px;
+}
+
+.dash-sub {
+  font: var(--dash-data);
+  color: var(--text-3);
+  margin-top: 6px;
+}
+
+/* stat tiles: a ruled row — one hairline over each figure, no boxes.
+   The rule used to run down each tile's left edge, which only ever
+   divides tiles that share a row. This grid wraps (auto-fit), so the tile
+   that opened a wrapped row hung a rule in the gutter with nothing to its
+   left — `:first-child` only knew about row one. A rule ABOVE the figure is
+   the ledger's own gesture: it is the line a column of numbers is written
+   under, it is right in every row, and it needs no renderer to tell it where
+   a row begins. The gap separates tiles now; the padding is the rhythm
+   between the rule and the label under it. */
+.dash-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 24px 16px;
+  margin-top: 24px;
+}
+
+.dash-metric {
+  padding-top: 8px;
+  border-top: 1px solid var(--hair-soft);
+}
+
+.dash-metric .dash-value {
+  font: var(--dash-value);
+  font-variant-numeric: tabular-nums;
+}
+
+.dash-rate-btn {
+  margin-left: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  font: var(--dash-sentence);
+  border-radius: 4px;
+  padding: 0 3px;
+}
+
+.dash-rate-btn:hover {
+  color: var(--text-1);
+  background: var(--hover);
+}
+
+/* numbered section label with a trailing hairline — the language's section
+   voice: "01 · PROJECTED YIELD ————". The counter lives on .dash-inner. */
+.dash-section-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font: 550 12.5px/1.4 var(--font);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-2);
+  margin: 32px 0 12px;
+}
+
+.dash-section-label::before {
+  content: none;
+}
+
+.dash-section-label::after {
+  content: "";
+  flex: 1;
+  border-bottom: 1px solid var(--hair-soft);
+}
+
+
+/* ————— changelog (structured, visual pass) —————
+   A release history in the instrument language: the version is the section
+   label's own text, the release name rides the label voice beside it, the
+   date sits at the right end of the same rule. Headline items lead the
+   release a step up from sentence voice; the rest sit under New / Improved /
+   Fixed micro-labels, where the kind color lives on label and dot. Entries
+   authored "Lead: detail" carry the lead a voice up — the pane scans as
+   phrases, not paragraphs. */
+
+.chlog-release {
+  /* prose reads at a reading measure, not the 1120px dashboard grid — the
+     wide measure was the "wall of text" */
+  max-width: 720px;
+}
+
+.chlog-release .dash-section-label {
+  /* the label already carries the trailing hairline; the date must sit
+     after that rule, so the tail flexes between them */
+  margin-top: 26px;
+}
+
+/* releases after the first get real air — the gap is what separates two
+   releases more than any rule could */
+.chlog-release + .chlog-release .dash-section-label {
+  margin-top: 48px;
+}
+
+.chlog-release .dash-section-label > span:first-child {
+  /* the version number is the scan anchor down the page */
+  font-weight: 650;
+  color: var(--text-1);
+  font-variant-numeric: tabular-nums;
+}
+
+.chlog-release-title {
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.chlog-release-date {
+  /* the label's ::after hairline is the last child by construction; ordering
+     the date after it puts the rule between the title and the date */
+  order: 1;
+  color: var(--text-4);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.chlog-headlines {
+  list-style: none;
+  margin: 0 0 4px;
+  padding: 0;
+}
+
+.chlog-headline {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 0;
+}
+
+.chlog-headline-text {
+  /* the flagship's bold lead carries the prominence; its detail run recedes
+     so a three-line paragraph reads as "phrase — then detail if you want it" */
+  font: 400 14px/1.55 var(--font);
+  color: var(--text-2);
+}
+
+.chlog-headline-text.no-lead {
+  /* a flagship without an authored lead keeps the old full-voice treatment —
+     it must not read dimmer than the group items below it */
+  font-weight: 500;
+  color: var(--text-1);
+}
+
+.chlog-lead {
+  color: var(--text-1);
+}
+
+.chlog-headline-text .chlog-lead {
+  font-weight: 600;
+}
+
+.chlog-text .chlog-lead {
+  font-weight: 500;
+}
+
+.chlog-group {
+  margin-top: 14px;
+}
+
+/* the group label is a section voice, not a row: uppercase
+   micro-label closed by a trailing hairline, same anatomy as
+   .dash-section-label one step down. No dot — a dotted label read as a
+   bullet peer of the dotted headlines. The highlights label shares the
+   anatomy; kind labels take their kind color inline, highlights stays
+   neutral (its rows mix kinds — each row's ✦ carries its own). */
+.chlog-group-label,
+.chlog-highlights-label {
+  display: flex;
+  align-items: center; /* the ::after rule wants the label's optical middle */
+  gap: 10px;
+  font: var(--dash-label);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: 2px;
+}
+
+.chlog-highlights-label {
+  color: var(--text-2);
+}
+
+.chlog-group-label::after,
+.chlog-highlights-label::after {
+  content: "";
+  flex: 1;
+  border-bottom: 1px solid var(--hair-soft);
+}
+
+.chlog-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.chlog-item {
+  display: flex;
+  align-items: baseline;
+  padding: 7px 0 7px 18px; /* items nest one column in under their label */
+  border-bottom: 1px solid var(--hair-soft);
+}
+
+.chlog-item:last-child {
+  border-bottom: none;
+}
+
+.chlog-mark {
+  /* a ✦ in the kind color — a highlight mark, not a state dot;
+     baseline-aligned with the row's first line by the flex parent */
+  flex: none;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.chlog-text {
+  font: var(--dash-sentence);
+  color: var(--text-2);
+}
+
+/* ————— cookbook —————
+   A browsable shelf of the recipes the app ships with. Each recipe is a wide
+   row: its screenshot on the left at a fixed column, the prose and the install
+   action on the right. The shot is the thing being chosen, so it leads. */
+
+.cb-about {
+  font: var(--dash-sentence);
+  color: var(--text-3);
+  margin: 14px 0 0;
+  max-width: 62ch;
+}
+
+.cb-recipe {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+  padding: 20px 0;
+  border-bottom: 1px solid var(--hair-soft);
+}
+
+.cb-recipe:last-child {
+  border-bottom: none;
+}
+
+.cb-shot {
+  flex: none;
+  width: 220px;
+  /* the shots are wide dashboard captures — crop to a consistent tile so the
+     rows keep a rhythm instead of tracking each screenshot's height */
+  height: 138px;
+  object-fit: cover;
+  object-position: top left;
+  border-radius: 8px;
+  border: 1px solid var(--border-soft);
+  background: var(--hover);
+}
+
+.cb-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.cb-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 6px;
+  font: 500 14.5px/1.4 var(--font);
+  color: var(--text-1);
+}
+
+.cb-kind {
+  font: var(--dash-label);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-4);
+}
+
+.cb-blurb {
+  font: var(--dash-sentence);
+  color: var(--text-2);
+  margin: 0 0 6px;
+  max-width: 68ch;
+}
+
+.cb-adapt,
+.cb-expects {
+  font: var(--dash-sentence);
+  color: var(--text-4);
+  margin: 0 0 4px;
+  max-width: 68ch;
+}
+
+.cb-install,
+.cb-open {
+  margin-top: 8px;
+  border: 1px solid var(--border-soft);
+}
+
+.cb-done-head {
+  font: var(--dash-label);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-top: 10px;
+}
+
+.cb-files {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+}
+
+.cb-file {
+  font: var(--dash-data);
+  color: var(--text-3);
+  padding: 2px 0;
+}
+
+.cb-file-note {
+  color: var(--text-4);
+}
+
+/* "cards" are ruled tiles — same anatomy as .dash-metrics: a hairline over
+   each figure rather than a box around it */
+.dash-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 24px 16px;
+}
+
+.dash-card {
+  padding-top: 8px;
+  border-top: 1px solid var(--hair-soft);
+}
+
+.dash-card-eur {
+  font: var(--dash-value);
+  font-variant-numeric: tabular-nums;
+}
+
+.dash-card-usd {
+  font: var(--dash-data);
+  color: var(--text-3);
+  margin-top: 3px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* a card whose binding names something the sheet doesn't have — the reason
+   rides under the dash in the sub-value slot, same anatomy as the usd line,
+   in the error voice the chart binding errors already speak */
+.dash-card-miss {
+  font: var(--dash-data);
+  color: var(--danger);
+  margin-top: 3px;
+}
+
+/* the positioning ground for a chart's one tooltip card — the card moves to
+   the hovered slot rather than one card existing per bar */
+.chart-wrap {
+  position: relative;
+}

@@ -1,0 +1,326 @@
+
+.editor-shell {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+
+/* the body breathes after the property block. .note-inner is a flex column,
+   so the prop block's 4px trailing margin adds to this 16px instead of
+   collapsing with it: 20px total, matching the original rhythm. */
+.prop-rows + .editor-shell {
+  margin-top: 16px;
+}
+
+.editor-shell.with-outline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 160px;
+  gap: 16px;
+  align-items: start;
+}
+
+.editor-wrap {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  /* The heading-fold gutter lives in the note's left breathing room instead
+     of shifting every body line right of the title/property column. */
+  width: calc(100% + 18px);
+  margin-top: 0;
+  margin-left: -18px;
+}
+
+.editor-toolbar {
+  position: absolute;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  height: 34px;
+  padding: 3px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, calc(-100% - 8px)) scale(0.98);
+  transform-origin: center bottom;
+  transition:
+    opacity 100ms ease-out,
+    transform 100ms ease-out;
+  white-space: nowrap;
+}
+
+.editor-toolbar.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, calc(-100% - 8px)) scale(1);
+}
+
+.editor-toolbar-button {
+  height: 26px;
+  min-width: 28px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--font);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background-color 100ms ease-out,
+    color 100ms ease-out;
+}
+
+.editor-toolbar-button:hover,
+.editor-turn-item:hover {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+.editor-toolbar-bold {
+  font-weight: 700;
+}
+
+.editor-toolbar-italic {
+  font-style: italic;
+  font-family: Georgia, serif;
+}
+
+.editor-toolbar-strike {
+  text-decoration: line-through;
+}
+
+.editor-toolbar-code {
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.editor-toolbar-link {
+  min-width: 35px;
+}
+
+.editor-toolbar-divider {
+  width: 1px;
+  height: 18px;
+  margin: 0 3px;
+  background: var(--border-strong);
+}
+
+.editor-toolbar-turn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+}
+
+.editor-turn-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  width: 154px;
+  padding: 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+}
+
+.editor-turn-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 28px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--font);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.editor-turn-glyph {
+  width: 18px;
+  color: var(--text-3);
+  font-family: var(--mono);
+  font-size: 11px;
+  text-align: center;
+}
+
+/* The rail renders only while it is open, and the shell grid places it —
+   there is no closed fallback box, because a hidden outline leaves nothing
+   in the text column at all. Its toggle lives in the note's tool row. */
+.editor-outline {
+  z-index: 6;
+}
+
+.editor-shell.with-outline .editor-outline {
+  position: sticky;
+  /* clears the note tool row, which sticks at the top of the same scroller
+     and is 36px tall (10px padding + a 26px tool) — this offset is measured
+     inside .note, unlike the fixed variant's, which counts from the viewport */
+  top: 40px;
+  grid-column: 2;
+  grid-row: 1;
+  width: 160px;
+  min-width: 0;
+  padding-left: 12px;
+  border-left: 1px solid var(--border-soft);
+}
+
+.editor-outline-label {
+  display: flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 6px 0 8px;
+  color: var(--text-3);
+  font-family: var(--font);
+  font-size: 11px;
+}
+
+/* the rail's toggle, sitting in the note tool row beside history and ⋯ —
+   open reads as a held-down tool, the same way .note-tool.active does */
+.note-tool.editor-outline-toggle[aria-expanded="true"] {
+  background: var(--hover);
+  color: var(--text-2);
+}
+
+.editor-outline-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: calc(100vh - 112px);
+  margin-top: 5px;
+  overflow-y: auto;
+}
+
+.editor-outline-item {
+  width: 100%;
+  height: 25px;
+  padding-right: 6px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-3);
+  font-family: var(--font);
+  font-size: 11.5px;
+  line-height: 25px;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition:
+    background-color 100ms ease-out,
+    color 100ms ease-out;
+}
+
+.editor-outline-item:hover {
+  background: var(--hover);
+  color: var(--text-2);
+}
+
+.editor-outline-item.is-active {
+  background: var(--active);
+  color: var(--text-1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .editor-toolbar,
+  .editor-toolbar-button,
+  .editor-outline-item {
+    transition: none;
+  }
+}
+
+.cm-editor {
+  flex: 1;
+  min-height: 100%;
+  background: transparent !important;
+  outline: none !important;
+}
+
+.cm-editor .cm-scroller {
+  flex: 1;
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.75;
+  color: var(--text-1);
+}
+
+.cm-editor .cm-content {
+  align-self: stretch;
+  padding: 0;
+  caret-color: var(--text-1);
+}
+
+.cm-editor .cm-line {
+  padding: 0;
+}
+
+.cm-editor .cm-cursor {
+  border-left-color: var(--text-1);
+}
+
+/* the empty-doc cue (ghost dailies) recedes to the quietest text */
+.cm-editor .cm-placeholder {
+  color: var(--text-3);
+}
+
+.cm-editor .cm-selectionBackground,
+.cm-editor.cm-focused .cm-selectionBackground {
+  background: var(--accent-soft) !important;
+}
+
+.cm-editor .cm-activeLine {
+  background: transparent;
+}
+
+.cm-editor .cm-gutters {
+  border: 0;
+  background: transparent;
+  color: var(--text-3);
+}
+
+.cm-heading-fold-gutter {
+  width: 18px;
+}
+
+.cm-heading-fold-gutter .cm-gutterElement {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  padding: 0;
+  cursor: pointer;
+}
+
+.cm-heading-fold-marker {
+  width: 14px;
+  color: var(--text-3);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1;
+  text-align: center;
+  opacity: 0.58;
+  /* the ⌄/› glyphs sit low in their em box and the line box centers on the
+     full line (descender included) — lift to the heading's cap-height center
+     and pull toward the text so the gap matches other markers */
+  transform: translate(2px, -5px);
+}
+
+.cm-heading-fold-gutter .cm-gutterElement:hover .cm-heading-fold-marker {
+  color: var(--text-2);
+  opacity: 1;
+}
+
+.cm-heading-fold-spacer {
+  visibility: hidden;
+  width: 14px;
+}

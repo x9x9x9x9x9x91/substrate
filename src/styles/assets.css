@@ -1,0 +1,312 @@
+
+.asset-thumb {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  object-fit: cover;
+}
+
+span.asset-thumb {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-soft);
+  color: var(--text-3);
+}
+
+span.asset-thumb svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* all-databases manager — trash-row-shaped list, one row per db */
+.dbmgr {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.dbmgr .list-head > svg {
+  width: 15px;
+  height: 15px;
+  color: var(--text-3);
+}
+
+.dbmgr-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 0;
+}
+
+.dbmgr-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  cursor: pointer;
+}
+
+.dbmgr-row:hover {
+  background: var(--hover);
+}
+
+.dbmgr-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dbmgr-row-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dbmgr-row-sub {
+  font-size: 11.5px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dbmgr-menu {
+  flex: none;
+}
+
+/* ----- reality mounts ----- */
+
+/* the glyph that marks a database as a real folder on disk, in the manager
+   list and in the sidebar — quiet, it rides beside the name */
+.dbmgr-mount,
+.side-mount {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 5px;
+  color: var(--text-3);
+  vertical-align: -1px;
+}
+
+.dbmgr-mount svg,
+.side-mount svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* the mount board and its banner: shown when the folder isn't reachable from
+   this machine, so the rows below it are the last known contents */
+.db-mount {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.mount-banner {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  font-size: 12px;
+  color: var(--text-2);
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.mount-banner > span {
+  flex: 1;
+  min-width: 0;
+}
+
+.mount-locate {
+  flex: none;
+  padding: 3px 10px;
+  font-size: 12px;
+  color: var(--text-1);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.mount-locate:hover {
+  background: var(--bg-elevated);
+}
+
+/* A row a bulk write was refused on. The marker sits next to the
+   title carrying that note's own reason; the row keeps its ordinary paint —
+   the value never landed, so there is nothing wrong with what it shows. */
+.db-fail {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  color: var(--danger);
+  vertical-align: -2px;
+}
+
+/* a row whose file isn't in the folder any more — still listed, because what
+   was written about it is still true, but visibly not there */
+.db-table tbody tr.is-missing td,
+.db-card.is-missing,
+.db-gcard.is-missing,
+.db-list .row.is-missing {
+  opacity: 0.55;
+}
+
+/* ---------- Drive Shelf ----------
+   The shelf borrows the trash pane's row chrome wholesale; what it adds is
+   only what a disk needs that a note doesn't — a lamp saying whether the
+   thing is here right now, a path back up its folders, and the greyed-out
+   state for a row the last scan couldn't find. */
+
+.shelf .list-head {
+  gap: 10px;
+}
+
+.shelf-filter {
+  max-width: 280px;
+}
+
+/* the staleness line is not chrome to skim past: it is the claim that
+   everything below it is a memory, so it reads at full text weight */
+.shelf-banner {
+  color: var(--text-2);
+}
+
+.shelf-crumbs {
+  flex: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 6px 16px 0;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
+.shelf-crumb {
+  padding: 2px 4px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font-family: var(--font);
+  font-size: inherit;
+  cursor: pointer;
+}
+
+.shelf-crumb:hover {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+.shelf-crumb + .shelf-crumb::before {
+  content: "/";
+  margin-right: 6px;
+  color: var(--text-3);
+}
+
+.shelf-up .trash-row-title {
+  color: var(--text-3);
+}
+
+/* plugged in right now, or not. The lamp is the only thing on a shelf row
+   that is a statement about the present tense. */
+.shelf-lamp {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--border);
+}
+
+.shelf-drive.is-online .shelf-lamp,
+.side-drive.is-online .shelf-lamp {
+  background: var(--ok);
+}
+
+/* the rail's drive row: the lamp rides in the chevron gutter, out of the
+   row's flex flow, so it costs the disk glyph no horizontal space and the
+   drive icons land in the same column as every other row's icon */
+.side-drive {
+  position: relative;
+}
+
+.side-drive .shelf-lamp {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.trash-row.is-missing {
+  opacity: 0.55;
+}
+
+.shelf-ignored {
+  margin-top: 10px;
+  border-top: 1px solid var(--border-soft);
+  padding-top: 6px;
+}
+
+.shelf-ignored-head {
+  padding: 4px 16px;
+  font-size: 11px;
+  font-weight: 560;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.trash-restore,
+.trash-danger {
+  flex: none;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: var(--font);
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text-2);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.trash-restore:hover {
+  background: var(--hover);
+  color: var(--text-1);
+  border-color: var(--border-strong);
+}
+
+.selmenu-btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+
+.selmenu-btn-primary:hover {
+  color: var(--on-accent);
+  filter: brightness(1.1);
+}
+
+
+/* property kind selector inside the schema editor — wraps to a second row
+   as the kind vocabulary grows (11 kinds at), never squeezes labels */
+.selmenu-kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin: 2px 8px 4px;
+  padding: 2px;
+  border: 1px solid var(--border-soft);
+  border-radius: 7px;
+}

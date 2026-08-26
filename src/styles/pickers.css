@@ -1,0 +1,468 @@
+
+.selmenu-kind {
+  flex: 1 1 auto;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 12px;
+  padding: 3px 6px;
+}
+
+.selmenu-kind:hover {
+  color: var(--text-2);
+}
+
+.selmenu-kind.active {
+  background: var(--active);
+  color: var(--text-1);
+}
+
+.selmenu-hint {
+  padding: 4px 12px 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-3);
+}
+
+/* the destructive-save line above the foot: the kind hint's metrics in the
+   attention amber — a facet is about to be deleted with no undo.
+   Not danger red: Save is still the right move often enough. */
+.selmenu-warn {
+  padding: 4px 12px 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--warn);
+}
+
+/* the property description as an entry hint: one muted line under
+   the picker's filter input — truncated, never wraps, full text on hover */
+.selmenu-prophint {
+  padding: 6px 12px 4px;
+  font-size: 11px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* the bulk bar's replace-semantics line: a bulk multi/relation
+   write REPLACES every selected note's values, so the picker says so in one
+   quiet wrapping line under the filter input — same ink as the entry hint,
+   but never truncated (the warning must read in full) */
+.selmenu-bulknote {
+  padding: 6px 12px 4px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-3);
+}
+
+.selmenu-notify {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 2px 12px 8px;
+  font-size: 12px;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.selmenu-notify input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.selmenu-notify-label {
+  white-space: nowrap;
+}
+
+/* lead-time row: same family as the notify checkbox above it, so
+   the pair reads as one reminder block */
+.selmenu-notify-lead {
+  padding-top: 0;
+}
+
+.selmenu-notify-days {
+  width: 40px;
+  padding: 1px 4px;
+  font: inherit;
+  text-align: center;
+  color: var(--text-1);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+}
+
+.selmenu-notify-days:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.selmenu-notify-note {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+/* Database icons — per-type glyph/emoji with optional muted tint */
+
+.type-icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.type-icon-emoji {
+  line-height: 1;
+}
+
+.type-icon-auto {
+  border-radius: 4px;
+  background: var(--active);
+  border: 1px solid var(--border-soft);
+  color: var(--text-2);
+  font-weight: 590;
+  letter-spacing: 0;
+}
+
+/* clickable icon in a database view header — opens the picker */
+.db-icon-btn {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin-left: -5px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+}
+
+.db-icon-btn:hover {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+/* the picker popover itself — same chrome as .selmenu */
+.iconpick {
+  position: fixed;
+  z-index: 60;
+  width: 248px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.iconpick-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 12px 8px;
+  font-size: 11.5px;
+  font-weight: 510;
+  color: var(--text-3);
+}
+
+.iconpick-emojirow {
+  padding: 0 12px 10px;
+}
+
+.iconpick-emoji-input {
+  width: 100%;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  color: var(--text-1);
+  font-size: 13px;
+  padding: 5px 8px;
+  outline: none;
+}
+
+.iconpick-emoji-input:focus {
+  border-color: var(--accent);
+}
+
+.iconpick-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 2px;
+  padding: 0 10px 10px;
+}
+
+.iconpick-glyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+}
+
+.iconpick-glyph:hover {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+.iconpick-glyph.active {
+  background: var(--active);
+  color: var(--text-1);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+
+.iconpick-swatches {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px 10px;
+}
+
+.iconpick-swatches.disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.iconpick-swatch {
+  width: 14px;
+  height: 14px;
+  border: none;
+  border-radius: 50%;
+  padding: 0;
+}
+
+.iconpick-swatch.none {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--text-3);
+}
+
+.iconpick-swatch.active {
+  box-shadow:
+    0 0 0 2px var(--bg-elevated),
+    0 0 0 3.5px var(--text-2);
+}
+
+.iconpick-foot {
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px 8px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.iconpick-remove {
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 12px;
+  padding: 4px 6px;
+}
+
+.iconpick-remove:hover {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+/* date-kind picker: compact month calendar */
+.datemenu {
+  width: 260px;
+}
+
+.datemenu-parse {
+  padding: 4px 12px;
+  font-size: 11px;
+  color: var(--text-3);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.datemenu-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px 4px;
+}
+
+.datemenu-month {
+  font-size: 12px;
+  font-weight: 590;
+  color: var(--text-1);
+}
+
+.datemenu-nav {
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 8px;
+  border-radius: 5px;
+}
+
+.datemenu-nav:hover {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+.datemenu-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 1px;
+  padding: 2px 8px 8px;
+}
+
+.datemenu-wd {
+  text-align: center;
+  font-size: 10px;
+  color: var(--text-3);
+  padding: 3px 0;
+}
+
+.datemenu-day {
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  padding: 4px 0;
+  border-radius: 5px;
+  /* Arrowing through the grid glides the cursor and the span
+     shading across the days instead of teleporting cell to cell */
+  transition:
+    background-color 90ms ease-out,
+    color 90ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .datemenu-day {
+    transition: none;
+  }
+}
+
+.datemenu-day.out {
+  color: var(--text-3);
+  opacity: 0.5;
+}
+
+.datemenu-day.today {
+  font-weight: 640;
+  color: var(--text-1);
+}
+
+.datemenu-day.cursor {
+  background: var(--active);
+  color: var(--text-1);
+}
+
+.datemenu-day.current {
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+
+/* a range's interior — the two endpoints already read as `current`,
+   so the shading is what joins them into one span */
+.datemenu-day.inspan {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-radius: 0;
+}
+
+.datemenu-foot {
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.datemenu-type {
+  margin-left: auto;
+}
+
+/* file-kind props are links to real files; broken = target no longer exists */
+.filemenu-missing {
+  padding: 6px 12px;
+  font-size: 11px;
+  color: var(--text-3);
+  border-bottom: 1px solid var(--border-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-broken {
+  text-decoration: underline dashed;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+  opacity: 0.7;
+}
+
+/* url-kind values render as external links — the editor's
+   wikilink treatment: link tint, underline on hover */
+.url-link {
+  color: var(--link);
+  cursor: pointer;
+}
+
+.db-cell a.url-link {
+  font: inherit;
+  text-decoration: none;
+}
+
+.url-link:hover {
+  text-decoration: underline;
+}
+
+.trash-danger:hover {
+  color: var(--danger);
+  border-color: rgba(235, 87, 87, 0.4);
+}
+
+.trash-danger.armed {
+  color: var(--danger);
+  border-color: rgba(235, 87, 87, 0.55);
+  background: rgba(235, 87, 87, 0.08);
+}
+
+.trash-purged {
+  flex: none;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.trash-also {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-3);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.trash-also:hover {
+  color: var(--text-2);
+}
+
+/* armed empty-trash: the offer sits beside the button, hugging the right edge */
+.trash .list-head .trash-also {
+  margin-left: auto;
+}
+
+.trash .list-head .trash-also + .trash-danger {
+  margin-left: 0;
+}
+
+.trash-error {
+  flex: none;
+  padding: 8px 16px;
+  font-size: 12px;
+  color: var(--danger);
+  border-top: 1px solid var(--border-soft);
+}

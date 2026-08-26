@@ -1,0 +1,717 @@
+
+/* ---- note → PDF print surface ----
+   Invisible on screen; under @media print it replaces the app entirely:
+   light page, clean type, no chrome. */
+
+#print-surface {
+  display: none;
+}
+
+@media print {
+  html,
+  body {
+    height: auto;
+    overflow: visible;
+    background: #fff;
+  }
+
+  #root,
+  .titlebar-drag {
+    display: none !important;
+  }
+
+  #print-surface {
+    display: block;
+    color: #1b1e22;
+    font-family: var(--font);
+    font-size: 12.5px;
+    line-height: 1.65;
+    user-select: text;
+  }
+
+  /* dashboards print as themselves: the live pane's DOM clones into
+     the surface, keeping its own layout and type voices — the dark token ramp
+     just remaps onto this block's light palette. Only chrome that means
+     nothing on paper is dropped — the head's actions cluster (print/source
+     buttons) and the in-body controls a reader cannot press: job pause/run,
+     verdict and vote chips nobody has marked, the quick-add forms. Links,
+     checkbox states and marked verdicts/votes are content and stay. */
+  #print-surface {
+    --text-1: #1b1e22;
+    --text-2: #565b63;
+    --text-3: #71767e;
+    /* the screen ramp's faintest tier has no legible paper weight: on the
+       near-black ground #9198a1 is a quiet fourth voice, on white it reads at
+       2.91:1 — under the 4.5:1 floor, which on a printed page means a caption
+       a reader squints at rather than reads. Paper therefore has one tier
+       fewer than screen: the fourth voice merges into the third at 4.57:1 and
+       keeps its place in the hierarchy by size and weight instead of hue. */
+    --text-4: #71767e;
+    --hair: #d5d8dc;
+    --hair-soft: #e6e8eb;
+    --border: #dfe2e6;
+    --border-soft: #e6e8eb;
+    --border-strong: #b6bac1;
+    --grid-line: #eef0f2;
+    /* the paper family's text weight, same mechanism the accent tokens
+       below use: a link is the accent at text weight, and on paper that is
+       the tone's --tone-paper-accent-text rather than the screen one. */
+    --link: var(--tone-paper-accent-text);
+    --bg: #ffffff;
+    --bg-panel: #f6f7f8;
+    --bg-elevated: #f2f3f5;
+    --bg-input: #f6f7f8;
+  }
+
+  /* the accent family's paper weights. The sky family is tuned for
+     a near-black ground and washes out on white — #6cc0ec is 9.9:1 on #090909
+     but only 1.9:1 on the print panel, i.e. invisible as text and barely a
+     shape as a bar. So the WHOLE family is remapped here, not just the two
+     text weights: each entry moves to a darker paper-safe variant while
+     keeping the same visual role and broad family. The remap does not claim
+     exact HSL preservation; the printed chart remains recognisably the same
+     palette without pretending the coordinates are identical.
+
+     This block sits after the scoped .dash-inner/.metrics-cards/#print-surface
+     declaration and re-declares on the same three selectors, so it wins for
+     the cloned pane too: the print surface contains a .dash-inner, and a
+     dark-ground value declared there would otherwise shadow the paper one.
+
+     the values come from the tone table's --tone-paper-* slots,
+     so a dashboard prints in the tone it is wearing. Sky's paper slots hold
+     the exact hexes this block used to name. */
+  #print-surface,
+  #print-surface .dash-inner,
+  #print-surface .metrics-cards {
+    --accent: var(--tone-paper-accent);
+    --accent-soft: var(--tone-paper-accent-soft);
+    --accent-text: var(--tone-paper-accent-text);
+    /* the on-fill ink flips with the fill: the paper weights are DARK on
+       white (that is what makes them printable), so the near-black screen
+       ink would vanish into them. Same token, opposite end. */
+    --on-accent: #ffffff;
+    --series-1: var(--tone-paper-series-1);
+    --series-2: var(--tone-paper-series-2);
+    --series-3: var(--tone-paper-series-3);
+    --series-4: var(--tone-paper-series-4);
+    --series-5: var(--tone-paper-series-5);
+  }
+
+  /* the band ramp's paper weights. Same five hues, darkened for white: the
+     screen set is tuned against #090909 and the lighter members wash out on
+     paper. ADJACENT-pair separation is preserved (neighbours ≥ 14.8 ΔE00
+     under protan, ≥ 17.2 under deutan, ≥ 43.2 for normal vision on white);
+     non-adjacent pairs are not covered here either — see the screen block
+     and design-principles §3. Aqua, yellow and magenta sit
+     just under 3:1 against white as bare marks — the legend is what carries
+     them, which is why a split chart always prints its legend. */
+  #print-surface,
+  #print-surface .dash-inner,
+  #print-surface .metrics-cards {
+    --band-1: #2a78d6;
+    --band-2: #eb6834;
+    --band-3: #1baf7a;
+    --band-4: #eda100;
+    --band-5: #e87ba4;
+  }
+
+  /* the status family's paper weights. --ok/--warn/--danger are tuned for
+     #090909 (7.97 / 8.55 / 5.72 there) and collapse on the print panel —
+     2.33 / 2.17 / 3.25 against #f6f7f8, i.e. under 4.5:1 as text. They are read as text here,
+     not only as marks: food's day values, music-work's quality flag, jobs'
+     run chips, tasks' stale/priority chips. Same hues, darkened for paper
+     the way the accent and band families already are — ok 5.2:1, warn 5.0:1,
+     danger 6.2:1 against the panel. Danger lands on the exact red this block
+     already prints its error lines in, so a page carries one red, not two.
+     --ok-soft is substituted at :root, so re-slotting --ok alone would leave
+     it at its screen weight; it is named here and keeps its role — the paler
+     "progressing, not there yet" sibling, still 3.3:1 against the panel —
+     over the 3:1 mark floor, under the text floor, so it stays on figures
+     large enough to read as display type. Every ratio in this block is
+     measured against the print panel #f6f7f8, not the page. */
+  #print-surface,
+  #print-surface .dash-inner,
+  #print-surface .metrics-cards {
+    --ok: #2f7452;
+    --ok-soft: #3d996c;
+    --warn: #8a6519;
+    --danger: #a33636;
+    /* the unfilled part of a bar or rail: white on white otherwise, since the
+       screen value is a white wash meant for a near-black ground */
+    --track: #e6e8eb;
+  }
+
+  /* Glow is a screen affordance: a drop-shadow on ink prints as a grey
+     smear, so the bloom rules are switched off wholesale for paper
+     rather than each being re-scoped to exclude the print surface. */
+  [data-glow] .chart-line-path,
+  [data-glow] .chart-dot,
+  [data-glow-bars] .dash-bar {
+    filter: none;
+  }
+
+  [data-glow] .metrics-cards .dash-card:not(.sunk) .dash-card-eur {
+    text-shadow: none;
+  }
+
+  #print-surface .dash-actions {
+    display: none;
+  }
+
+  /* the same argument one level in: a dashboard body carries controls that
+     write to the vault — jobs' pause/run rail, the food/yield/task quick-add
+     forms. Printed they are affordances a reader cannot take, so they leave
+     the page; the rows and figures they act on stay. The submit button is
+     named alongside the form it usually sits in, for the boards that carry
+     one on its own. */
+  #print-surface .jobs-acts button,
+  #print-surface .dash-form,
+  #print-surface .dash-add,
+  #print-surface .food-daynav-btn {
+    display: none;
+  }
+
+  /* two of those clusters carry a statement as well as its controls, so the
+     rule above takes the buttons and not the box around them: jobs' rail says
+     "read-only" on a row the app cannot drive, and food's stepper names the
+     day the board is showing. Both are facts about what is on the page, and a
+     printed board that drops them says less than the screen did. What is left
+     is text, so the stepper's frame comes off with its arrows. */
+  #print-surface .food-daynav {
+    border: none;
+    padding: 0;
+  }
+
+  #print-surface .food-daynav-day {
+    color: var(--text-2);
+  }
+
+  /* verdict and vote chips are the exception the checkbox rule already
+     names: an unmarked chip is a button and goes, a marked one is a recorded
+     state and prints as a static mark. Their screen ink mixes 78% toward
+     #fff for the dark ground, so the marked chip is re-slotted here rather
+     than printing pale on the page. */
+
+  #print-surface .feed-vote:not(.is-up):not(.is-down) {
+    display: none;
+  }
+
+  #print-surface .feed-vote {
+    border-color: var(--border);
+    background: none;
+  }
+
+  #print-surface .feed-vote.is-up {
+    color: var(--ok);
+  }
+
+  #print-surface .feed-vote.is-down {
+    color: var(--danger);
+  }
+
+  /* the overdue chips mix --danger toward #fff the same way, for the same
+     dark ground: on its own 15% tint the date chip lands at 3.29:1, under the
+     4.5:1 this block holds text to — and a due date is text. Undiluted it
+     reads 4.95:1 there. The section name's 85% mix clears the bar at 4.59:1
+     on the panel and is re-slotted with it anyway, so an overdue section
+     speaks in one red rather than two weights of it. */
+  #print-surface .tasks-overdue .tasks-group-name,
+  #print-surface .tasks-due.overdue {
+    color: var(--danger);
+  }
+
+  /* select-value pills are the same story one step further out: the tint is
+     the mark, but the word inside it is text, and its screen ink mixes 78%
+     toward #fff for the dark ground. On the panel that lands between 1.41:1
+     (yellow) and 1.91:1 (gray) over the pill's own 16% wash — a value you can
+     see the colour of and not read. Mixing the same tint 45% into the block's
+     body ink instead keeps every pill its own hue and puts the range at
+     5.05:1–6.36:1, clear of the 4.5:1 this block holds text to. The wash under
+     it is the mark and stays as it is. */
+  #print-surface .opt-pill {
+    color: color-mix(in srgb, var(--pill) 45%, #1b1e22);
+  }
+
+  /* the chart language now draws in accent tokens, which the block above
+     remaps to their paper weights. Tinted bars keep their schema or series hue
+     via the inline --bar; the stack and pointer-only affordances still need
+     explicit print handling. */
+  /* tinted bars keep their schema hue via the inline --bar; everything else
+     takes the fallback. Printing that fallback as a mid grey turned every
+     unsplit chart monochrome on paper, so a board whose bars name one series
+     on screen said nothing about it on the page. The accent is the hue the
+     screen bar carries, and a wash of it holds two obligations at once: as a
+     mark against the page it reads 3.13:1, over the 3:1 a mark owes, and the
+     value written inside it stays dark ink at 5.34:1 — the same ink the
+     tinted bars need, so one knockout colour serves every bar on the sheet. */
+  #print-surface .dash-bar {
+    background: var(--bar, color-mix(in srgb, var(--accent) 75%, #ffffff));
+  }
+
+  /* The inset value knocks out of its bar. On screen the bar is a lit accent
+     and `--bg` is near-black, so the number reads dark on light; on paper
+     every fill is a pale wash and `--bg` is the page itself, which would print
+     white on white. The ink flips with the surface, so it is named here rather
+     than inherited. */
+  #print-surface .dash-chart .dash-bar-val.is-inset {
+    color: #1b1e22;
+  }
+
+  /* a goal bar's fill is a hardcoded white wash on screen (the ground it sits
+     on is near-black), so on paper it printed white on a white track and the
+     board carried no goal — only its percent hint. Same neutral grayscale
+     voice as on screen, in paper ink: the fill reads against the remapped
+     --track at 3.7:1 and against the page at 4.6:1 — a bar is a mark, so
+     the 3:1 floor is the one that applies. */
+  #print-surface .progress-fill {
+    background: #71767e;
+  }
+
+  /* a stack is drawn by its slices — the id-scoped rule above would otherwise
+     paint a solid column behind them */
+  #print-surface .dash-bar.is-stack {
+    background: none;
+  }
+
+  /* a real zero stack has no slices, so its box keeps the ordinary zero fill */
+  #print-surface .dash-bar.is-stack.is-zero {
+    background: var(--bar, color-mix(in srgb, var(--accent) 75%, #ffffff));
+  }
+
+  /* an empty bucket prints as the faint tick it draws on screen, in both
+     shapes — the id-scoped rules above would otherwise print a split gap as
+     nothing and a plain one as a solid grey mark */
+  #print-surface .dash-bar.is-empty {
+    background: var(--hair);
+  }
+
+  /* a tooltip is a pointer affordance — on paper there is no pointer, and a
+     card frozen over one bar would be a lie about which one matters */
+  #print-surface .chart-tip,
+  #print-surface .chart-line-slot {
+    display: none;
+  }
+  #print-surface .chart-line {
+    border-bottom-color: #e2e4e8;
+  }
+
+  /* the heatmap ramp inverts for paper: darker ink = busier day */
+  #print-surface .heatmap {
+    --hm-0: #eef0f2;
+    --hm-1: #d3d7dc;
+    --hm-2: #b0b6bd;
+    --hm-3: #8b929b;
+    --hm-4: #626973;
+  }
+
+  #print-surface .hub-pre {
+    background: #f6f7f8;
+  }
+
+  /* the one banner, the one paper red. --danger is re-slotted to this exact
+     value above, so this only pins the surfaces that used to carry their own
+     hue and keeps the page at one red. */
+  #print-surface .dash-alert {
+    color: #a33636;
+  }
+
+  /* a view table sizes itself from its cells (each up to 220px, never
+     wrapped), so in a multi-column card row the second table used to run past
+     its column and collide with its neighbour — on screen the card scrolls,
+     on paper nothing scrolls. Here the table is held to the width it was
+     given and the cells wrap instead of being clipped to an ellipsis: paper
+     has no hover to reveal the rest of a truncated cell, so a printed table
+     shows its text or it says nothing. */
+  #print-surface .embed-view-table {
+    table-layout: fixed;
+  }
+
+  #print-surface .embed-view-table th,
+  #print-surface .embed-view-table td {
+    max-width: none;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+  }
+  #print-surface .hub-timeline-scroll {
+    overflow: visible;
+  }
+
+  #print-surface .hub-timeline-canvas {
+    min-width: 0;
+  }
+
+  /* A hub embeds whole boards inside its cards, and on screen each embed sits
+     in a scroller sized for the app window: a month grid asks for seven
+     columns of 110px and up, a heatmap for its 470px plot. Paper is about
+     658px once the page margin is taken out, and nothing scrolls there — so
+     the scroller clipped, and the printed canvas lost its last weekday column
+     and the tail of its heatmap at the right margin. On paper the embed gives
+     up its screen minimum and takes the width the page has: seven narrower
+     columns that all print beat six wide ones and a missing Sunday. Scoped to
+     the hub's own wrappers, so the calendar and heatmap kinds keep whatever
+     print behaviour they are given. */
+  #print-surface .hub-calendar .cal-grid-scroll,
+  #print-surface .hub-heatmap .heatmap-scroll {
+    overflow: visible;
+  }
+
+  /* and once the columns are page-narrow the entries in them have to say
+     their whole name: paper has no hover to reveal the rest of an ellipsis,
+     the same reason a printed view table wraps its cells instead of cutting
+     them. The entry wraps as a block so a time chip takes its own line rather
+     than squeezing the title into a column two letters wide, and the day cell
+     grows to hold what it holds. */
+  #print-surface .hub-calendar .cal-entry {
+    flex-wrap: wrap;
+    align-items: baseline;
+  }
+
+  #print-surface .hub-calendar .cal-entry-title {
+    white-space: normal;
+    overflow-wrap: break-word;
+    text-overflow: clip;
+    min-width: min-content;
+  }
+
+  #print-surface .hub-calendar .cal-weekdays,
+  #print-surface .hub-calendar .cal-grid,
+  #print-surface .hub-calendar .cal-wk-scroll,
+  #print-surface .hub-heatmap .heatmap-plot {
+    width: 100%;
+    min-width: 0;
+  }
+
+  /* A plot has no reading at half height: a chart cut by a page break leaves
+     bars with no baseline on one page and a baseline with no bars on the
+     next, and the reader cannot put them back together. A chart, a card, a
+     hub callout and a release timeline are each one unit of meaning, so each
+     moves whole to the next page rather than being sliced. */
+  #print-surface .chart-wrap,
+  #print-surface .dash-chart,
+  #print-surface .dash-card,
+  #print-surface .hub-timeline {
+    break-inside: avoid;
+  }
+
+  /* and its name travels with it: a section label left alone at the foot of a
+     page announces a plot the reader has to turn over to find. */
+  #print-surface .dash-section-label {
+    break-after: avoid;
+  }
+
+  /* Chrome a reader cannot press does not belong on paper — the same argument
+     that drops the head's actions cluster. The back arrow returns to a list
+     that is not printed, and a month pager offers to page a grid that is
+     already fixed on the page; the month it names is a heading and stays. */
+  #print-surface .list-back,
+  #print-surface .hub-calendar .cal-pager {
+    display: none;
+  }
+
+  #print-surface .print-title {
+    font-size: 23px;
+    font-weight: 650;
+    letter-spacing: -0.02em;
+    margin-bottom: 4px;
+  }
+
+  #print-surface .print-props {
+    color: #71767e;
+    font-size: 10.5px;
+    margin-bottom: 18px;
+  }
+
+  #print-surface h1,
+  #print-surface h2,
+  #print-surface h3,
+  #print-surface h4,
+  #print-surface h5,
+  #print-surface h6 {
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 18px 0 6px;
+    break-after: avoid;
+  }
+
+  #print-surface h1 { font-size: 19px; }
+  #print-surface h2 { font-size: 16px; }
+  #print-surface h3 { font-size: 14px; }
+  #print-surface h4,
+  #print-surface h5,
+  #print-surface h6 { font-size: 12.5px; }
+
+  #print-surface p,
+  #print-surface ul,
+  #print-surface ol,
+  #print-surface table,
+  #print-surface blockquote,
+  #print-surface pre {
+    margin: 0 0 10px;
+  }
+
+  #print-surface ul,
+  #print-surface ol {
+    padding-left: 22px;
+  }
+
+  #print-surface li.print-task {
+    list-style: none;
+    margin-left: -18px;
+  }
+
+  #print-surface .print-box {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    margin-right: 7px;
+    border: 1px solid #b6bac1;
+    border-radius: 3px;
+    font-size: 9px;
+    line-height: 11px;
+    text-align: center;
+    color: #565b63;
+    vertical-align: -1px;
+  }
+
+  #print-surface li.print-task.done {
+    color: #868b93;
+  }
+
+  #print-surface code {
+    font-family: var(--mono);
+    font-size: 11px;
+    background: #f2f3f5;
+    border-radius: 4px;
+    padding: 1px 4px;
+  }
+
+  #print-surface pre {
+    background: #f6f7f8;
+    border: 1px solid #e6e8eb;
+    border-radius: 6px;
+    padding: 10px 12px;
+    overflow: hidden;
+    white-space: pre-wrap;
+    word-break: break-word;
+    break-inside: avoid;
+  }
+
+  #print-surface pre code {
+    background: none;
+    padding: 0;
+  }
+
+  #print-surface blockquote {
+    border-left: 2.5px solid #d5d8dc;
+    padding-left: 12px;
+    color: #565b63;
+  }
+
+  #print-surface table {
+    border-collapse: collapse;
+    width: 100%;
+  }
+
+  #print-surface th,
+  #print-surface td {
+    border: 1px solid #dfe2e6;
+    padding: 5px 9px;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  #print-surface th {
+    font-weight: 600;
+    background: #f6f7f8;
+  }
+
+  #print-surface img {
+    max-width: 100%;
+    border-radius: 4px;
+  }
+
+  #print-surface a,
+  #print-surface .print-link {
+    color: var(--link);
+    text-decoration: none;
+    font-weight: 500;
+  }
+
+  #print-surface .print-missing,
+  #print-surface .print-embed {
+    color: #71767e;
+    font-size: 11px;
+    font-style: italic;
+  }
+
+  #print-surface .print-sep {
+    color: #b6bac1;
+  }
+
+  #print-surface hr {
+    border: none;
+    border-top: 1px solid #e2e4e8;
+    margin: 14px 0;
+  }
+
+  /* ---- designed templates ----
+     The one-sheet and table sheet ride the same surface and palette but
+     carry their own deliberate layout — confident title, quiet fact rows,
+     restrained accents. Hierarchy comes from size and weight only. */
+
+  #print-surface .os-head {
+    display: flex;
+    gap: 26px;
+    align-items: flex-start;
+    margin-bottom: 26px;
+  }
+
+  #print-surface .os-art {
+    width: 220px;
+    height: 220px;
+    object-fit: cover;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+
+  #print-surface .os-id {
+    flex: 1;
+    min-width: 0;
+    align-self: stretch;
+    display: flex;
+    flex-direction: column;
+  }
+
+  #print-surface .os-title {
+    font-size: 30px;
+    font-weight: 650;
+    letter-spacing: -0.025em;
+    line-height: 1.15;
+    margin: 0;
+  }
+
+  #print-surface .os-byline {
+    font-size: 13px;
+    color: #565b63;
+    margin-top: 5px;
+  }
+
+  #print-surface .os-facts {
+    margin-top: auto;
+    padding-top: 18px;
+  }
+
+  #print-surface .os-fact {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 18px;
+    padding: 4.5px 0;
+    border-top: 1px solid #e6e8eb;
+    font-size: 11px;
+  }
+
+  #print-surface .os-fact:last-child {
+    border-bottom: 1px solid #e6e8eb;
+  }
+
+  #print-surface .os-fact-label {
+    color: #71767e;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    font-size: 9.5px;
+    font-weight: 500;
+  }
+
+  #print-surface .os-fact-value {
+    color: #1b1e22;
+    font-weight: 500;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* no artwork: the facts still sit as a block under the title, not glued
+     to the page bottom */
+  #print-surface .os-head:not(:has(.os-art)) .os-facts {
+    margin-top: 0;
+  }
+
+  #print-surface .os-body {
+    border-top: 1px solid #d5d8dc;
+    padding-top: 16px;
+  }
+
+  /* table sheet: horizontal hairlines only — the designed listing, not the
+     generic bordered grid the body renderer prints */
+  #print-surface .ts-title {
+    font-size: 24px;
+    font-weight: 650;
+    letter-spacing: -0.02em;
+    margin: 0;
+  }
+
+  #print-surface .ts-meta {
+    color: #71767e;
+    font-size: 10.5px;
+    margin: 4px 0 20px;
+  }
+
+  #print-surface .print-sheet table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  #print-surface .print-sheet th,
+  #print-surface .print-sheet td {
+    border: none;
+    border-bottom: 1px solid #e6e8eb;
+    background: none;
+    padding: 6.5px 14px 6.5px 0;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  #print-surface .print-sheet th {
+    color: #71767e;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    font-size: 9.5px;
+    font-weight: 500;
+    border-bottom-color: #b6bac1;
+    padding-bottom: 5px;
+  }
+
+  #print-surface .print-sheet td {
+    font-size: 11px;
+  }
+
+  #print-surface .print-sheet td.ts-name {
+    font-weight: 550;
+  }
+
+  #print-surface .print-sheet th.ts-num,
+  #print-surface .print-sheet td.ts-num {
+    text-align: right;
+    padding-right: 0;
+    font-variant-numeric: tabular-nums;
+  }
+
+  #print-surface .print-sheet td.ts-date {
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  #print-surface .print-sheet th:last-child,
+  #print-surface .print-sheet td:last-child {
+    padding-right: 0;
+  }
+
+  #print-surface .print-sheet tr {
+    break-inside: avoid;
+  }
+}
+
+@page {
+  margin: 18mm;
+}

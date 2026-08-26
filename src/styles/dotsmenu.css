@@ -1,0 +1,125 @@
+
+/* file drag hovering over the editor (Tauri drop lane) */
+.editor-wrap.cm-dropping .cm-editor {
+  outline: 1.5px dashed var(--border-strong);
+  outline-offset: -1px;
+  border-radius: 8px;
+}
+
+/* drag-over hint pill: toast-shaped, but pinned while the drag
+   hovers — teaches ⇧-link without stealing pointer events from the drop */
+.drop-hint {
+  position: fixed;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  color: var(--text-2);
+  font-size: 12px;
+  padding: 7px 14px;
+  z-index: 120;
+  animation: toast-in 140ms ease-out;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* ---- view-header ⋯ menus (exports) ---- */
+
+.dots {
+  position: relative;
+  display: flex;
+  /* .note-tools disables pointer events on the row; the menu must get them back */
+  pointer-events: auto;
+}
+
+.dots-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+}
+
+.dots-btn:hover,
+.dots-btn.active,
+.note-tool.active {
+  background: var(--hover);
+  color: var(--text-2);
+}
+
+.dots-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 60;
+  min-width: 190px;
+  padding: 4px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+}
+
+.dots-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--font);
+  font-size: 13px;
+  text-align: left;
+}
+
+.dots-item:hover {
+  background: var(--active);
+  color: var(--text-1);
+}
+
+.dots-item svg {
+  flex-shrink: 0;
+  color: var(--text-3);
+}
+
+/* destructive lane + trailing hint — the ctx-menu conventions
+   carried into the ⋯ dropdown */
+.dots-item.danger,
+.dots-item.danger svg {
+  color: var(--danger);
+}
+
+.dots-label {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.dots-hint {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.dots-item.separated {
+  position: relative;
+  margin-top: 9px;
+}
+
+.dots-item.separated::before {
+  content: "";
+  position: absolute;
+  top: -5px;
+  left: 0;
+  right: 0;
+  border-top: 1px solid var(--border-soft);
+}

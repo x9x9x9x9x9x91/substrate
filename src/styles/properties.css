@@ -1,0 +1,202 @@
+
+.chip-input {
+  height: 24px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--bg-elevated);
+  color: var(--text-1);
+  font-size: 12px;
+  padding: 0 8px;
+  outline: none;
+  min-width: 60px;
+}
+
+/* The + property draft and its key suggestions. The popup hangs off the ROW,
+   not the field: hints are sentences, and a box anchored to the short input
+   would run off the pane's right edge. Left edge = the value column (the
+   key column's 120px + the row's 6px padding and 8px gap). */
+.prop-add-row {
+  position: relative;
+}
+
+.chip-add-field {
+  display: inline-flex;
+}
+
+/* Same elevated card as .selmenu — this is a menu, it should read as one */
+.chip-suggest {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 134px;
+  right: 6px;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+}
+
+.chip-suggest-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chip-suggest-row:hover,
+.chip-suggest-row.active {
+  background: var(--active);
+}
+
+.chip-suggest-key {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-1);
+}
+
+/* The hint is the point of the list — it says what the key does — but it
+   yields to the key it belongs to, and truncates rather than widening */
+.chip-suggest-hint {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Note property table: one row per property — a fixed muted label column
+   carries the eye, so mixed-length values stop mattering (Notion's property
+   list, Linear's sidebar density). Rows keep the .chip/.chip-key/.chip-val
+   classes (editor plumbing + e2e contract); the .prop-* family owns layout.
+   The pill chrome stays where it means something — .opt-pill/.multi-pills/
+   .prop-check inside the value cell. */
+.prop-rows {
+  display: flex;
+  flex-direction: column;
+  margin: 12px -6px 4px;
+}
+
+.prop-rows .prop-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: auto;
+  min-height: 26px;
+  padding: 0 6px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+}
+
+.prop-rows button.prop-row {
+  color: var(--text-2);
+  font: inherit;
+  text-align: left;
+}
+
+/* Property rows contain several sibling actions (primary, relation links,
+   remove) rather than nesting buttons. The primary action fills the row
+   behind its visual labels, preserving the established property geometry. */
+.prop-rows .prop-row:has(> .chip-primary) {
+  position: relative;
+}
+
+.prop-rows .chip-primary {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: block;
+  border: none;
+  border-radius: inherit;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  cursor: pointer;
+}
+
+.prop-rows .prop-row:has(> .chip-primary) > :not(.chip-primary) {
+  position: relative;
+  z-index: 1;
+}
+
+/* Visual labels stay inert so clicks reach the full-row primary action —
+   but interactive controls must stay out of this blanket: it
+   out-specificities their hover/focus reveals, so a click on the × or the
+   receipts clock would fall through to the overlay and open the editor
+   instead. The base .chip-x / .chip-clock rules keep both pointer-inert
+   until the row is hovered. */
+.prop-rows .prop-row:has(> .chip-primary) > :not(.chip-primary, .chip-x, .chip-clock) {
+  pointer-events: none;
+}
+
+.prop-rows .prop-row .chip-rel {
+  pointer-events: auto;
+}
+
+.prop-rows .chip-primary:focus-visible {
+  outline: none;
+}
+
+.prop-rows .prop-row:has(> .chip-primary:focus-visible) {
+  outline: 1.5px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.prop-rows .prop-row:has(.multi-pills) {
+  align-items: flex-start;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+.prop-rows .prop-row:hover {
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.prop-rows .prop-key {
+  flex: none;
+  width: 120px;
+  font-size: 12px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* the value column breathes: values run to the row's edge, not the chip's
+   old 240px clamp; long text still ellipsizes (chip-val's nowrap) */
+.prop-rows .prop-val {
+  flex: 1;
+  min-width: 0;
+  max-width: none;
+}
+
+.prop-rows .prop-val .multi-pills {
+  max-width: none;
+}
+
+/* an empty multi pill-set isn't a value — collapse like chip-val:empty so
+   the Empty affordance sits at the value column's start */
+.prop-rows .prop-val:has(.multi-pills:empty) {
+  display: none;
+}
+
+/* born-empty schema rows: a quiet affordance in the value column —
+   the chip-val itself stays empty (its :empty collapse and the e2e contract
+   are untouched) */
+.prop-rows .prop-empty {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text-3);
+}

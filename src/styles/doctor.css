@@ -1,0 +1,163 @@
+
+/* Vault doctor — read-only findings grouped by kind, on the trash
+   pane's row chassis. No destructive affordances: nothing here writes. */
+
+.doctor-group + .doctor-group {
+  margin-top: 10px;
+}
+
+.doctor-group-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 16px 2px;
+}
+
+.doctor-group-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.doctor-group-count {
+  font-size: 11px;
+  color: var(--text-4);
+}
+
+.doctor-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-4);
+}
+
+.doctor-dot.sev-error {
+  background: var(--danger);
+}
+
+.doctor-dot.sev-warn {
+  background: var(--text-3);
+}
+
+.doctor-paths {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 45%;
+  overflow: hidden;
+}
+
+.doctor-path {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.doctor-path svg {
+  flex: none;
+  color: var(--text-3);
+}
+
+.doctor-path-static {
+  font-size: 11.5px;
+  color: var(--text-4);
+  white-space: nowrap;
+}
+
+.doctor-foot {
+  flex: none;
+  padding: 8px 16px;
+  font-size: 11.5px;
+  color: var(--text-4);
+  border-top: 1px solid var(--border-soft);
+}
+
+/* Full search pane (⌘⇧F) — content matches with per-line context */
+
+.search-pane {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.search-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 44px;
+  flex: none;
+  /* right-loaded sort switch, so it reserves the fixed chrome slot;
+     the 9px is .main's own offset from the viewport edge (8px margin + 1px
+     border) */
+  padding: 0 calc(var(--chrome-x) + var(--chrome-slot) - 9px) 0 16px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.search-head > svg {
+  flex: none;
+  color: var(--text-3);
+}
+
+.search-input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-1);
+  font-size: 14px;
+}
+
+.search-stats {
+  flex: none;
+  font-size: 12px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.search-sort {
+  flex: none;
+}
+
+.search-completions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border-soft);
+  overflow-x: auto;
+}
+
+.search-completions > svg {
+  flex: none;
+  color: var(--text-3);
+}
+
+.search-completion {
+  flex: none;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12px;
+  font-family: var(--font);
+  padding: 2px 8px;
+  border-radius: 10px;
+  transition:
+    background-color 120ms ease-out,
+    color 120ms ease-out;
+}
+
+.search-completion:hover {
+  background: var(--hover);
+  color: var(--text-1);
+}

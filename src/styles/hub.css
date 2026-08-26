@@ -1,0 +1,582 @@
+
+.hub-p {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-2);
+}
+
+.hub-card-body .hub-p {
+  margin: 0 0 6px;
+  font-size: 12.5px;
+}
+
+/* hub headings join the shared section voice — the hub note's ##
+   headings are section labels, not prose headings */
+.hub-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 32px 0 12px;
+  font: var(--dash-label);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.hub-heading::after {
+  content: "";
+  flex: 1;
+  border-bottom: 1px solid var(--hair-soft);
+}
+
+.hub-hr {
+  margin: 20px 0;
+  border: none;
+  border-top: 1px solid var(--border-soft);
+}
+
+.hub-quote {
+  margin: 0 0 12px;
+  padding-left: 12px;
+  border-left: 2px solid var(--border-strong);
+}
+
+.hub-quote > *:last-child {
+  margin-bottom: 0;
+}
+
+/* a ```view fence's live table. The framed card the editor's inline
+   widget wears would read as a second box inside the page; on the hub the
+   section label above it is already the frame, so the table sits open in the
+   flow like the markdown tables around it. */
+.hub-view {
+  margin: 0 0 16px;
+}
+
+/* the hub body stacks its blocks on bottom margins, so the shared banner
+   takes the same gap-below rhythm its neighbours use rather than the page's
+   gap-above one */
+.hub-body .dash-alert {
+  margin: 0 0 12px;
+}
+
+/* a ```chart fence — the charts dashboard renders it embedded, so
+   the wrapper only owns the gap to the next block; the chart carries its own
+   label and provenance foot. */
+.hub-chart {
+  margin: 0 0 16px;
+}
+
+/* a ```heatmap fence — same deal as.hub-chart: the wrapper owns
+   only the gap, the grid carries its own label, legend and foot */
+.hub-heatmap {
+  margin: 0 0 16px;
+}
+
+/* a ```progress fence — the thermometer owns its own head, bar and
+   pace line, so the wrapper only owns the gap to the next block. Its first
+   fence drops the standalone top margin: in a hub the section label above it
+   already sets the distance. */
+.hub-progress {
+  margin: 0 0 16px;
+}
+.hub-progress .progress-fence:first-child {
+  margin-top: 0;
+}
+
+/* a ```calendar fence — same deal: the month grid brings its own
+   heading, pager and foot, so the wrapper owns only the gap. The section's own
+   bottom margin is dropped here; the wrapper spaces hub blocks uniformly. */
+.hub-calendar {
+  margin: 0 0 16px;
+}
+
+.hub-calendar .calfence {
+  margin-bottom: 0;
+}
+
+/* a ```cards fence's strip sits in the flow like the view tables do */
+.hub-body .metrics-strip {
+  margin: 0 0 16px;
+}
+
+/* A timeline fence is one open instrument, not a nested dashboard card. The
+   authored groups stack vertically; overlap packing adds quiet subtracks.
+   Horizontal overflow preserves readable labels instead of compressing a
+   long production arc into decorative noise. */
+.hub-timeline {
+  margin: 0 0 18px;
+}
+
+.hub-timeline-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 8px;
+  font: var(--dash-label);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.hub-timeline-head span:last-child {
+  color: var(--text-4);
+  letter-spacing: 0.03em;
+}
+
+.hub-timeline-scroll {
+  overflow-x: auto;
+  padding-bottom: 5px;
+}
+
+.hub-timeline-canvas {
+  position: relative;
+  min-width: 680px;
+}
+
+.hub-timeline-axis {
+  position: relative;
+  height: 26px;
+  border-bottom: 1px solid var(--hair);
+  font: var(--dash-label);
+  color: var(--text-4);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.hub-timeline-axis span {
+  position: absolute;
+  bottom: 7px;
+  transform: translateX(-50%);
+}
+
+/* A centred label at either extreme would hang past the canvas — anchor it. */
+.hub-timeline-axis span.at-end {
+  transform: translateX(-100%);
+}
+
+.hub-timeline-axis span.at-start {
+  transform: none;
+}
+
+.hub-timeline-grid {
+  position: absolute;
+  inset: 26px 0 0;
+  pointer-events: none;
+}
+
+.hub-timeline-grid i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--hair-soft);
+}
+
+.hub-timeline-grid i.today {
+  z-index: 2;
+  background: var(--accent);
+  opacity: 0.72;
+}
+
+.hub-timeline-lanes {
+  position: relative;
+}
+
+.hub-timeline-lane {
+  position: relative;
+  border-bottom: 1px solid var(--hair-soft);
+}
+
+.hub-timeline-lane-label {
+  position: absolute;
+  top: 7px;
+  left: 0;
+  font: var(--dash-label);
+  color: var(--text-3);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.hub-timeline-bar,
+.hub-timeline-milestone {
+  position: absolute;
+  z-index: 3;
+  height: 22px;
+  border: 0;
+  font: var(--dash-data);
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.hub-timeline-bar {
+  min-width: 7px;
+  padding: 2px 7px;
+  overflow: hidden;
+  border-left: 2px solid var(--accent);
+  border-radius: var(--r);
+  background: var(--accent-soft);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hub-timeline-bar:hover {
+  color: var(--text-1);
+  background: var(--active);
+}
+
+.hub-timeline-milestone {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: max-content;
+  padding: 0;
+  background: transparent;
+  transform: translateX(-5px);
+  white-space: nowrap;
+}
+
+.hub-timeline-milestone i {
+  width: 9px;
+  height: 9px;
+  flex: none;
+  border: 2px solid var(--accent);
+  background: var(--bg);
+  transform: rotate(45deg);
+}
+
+.hub-timeline-milestone:hover span {
+  color: var(--text-1);
+}
+
+.hub-timeline-foot {
+  margin-top: 7px;
+}
+
+.hub-pre {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  background: var(--surface-faint);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-2);
+  overflow: auto;
+}
+
+.hub-list {
+  margin: 0 0 12px;
+  padding-left: 20px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-2);
+}
+
+.hub-card-body .hub-list {
+  font-size: 12.5px;
+}
+
+.hub-task {
+  list-style: none;
+  margin-left: -18px;
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+
+.hub-task input {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  margin: 0;
+  accent-color: var(--text-3);
+}
+
+.hub-task.done .hub-task-text {
+  color: var(--text-3);
+  text-decoration: line-through;
+}
+
+.hub-body .dash-table {
+  margin-bottom: 12px;
+}
+
+.hub-img {
+  display: block;
+  max-width: 100%;
+  border-radius: 6px;
+  margin: 4px 0;
+}
+
+.hub-embed,
+.hub-missing {
+  color: var(--text-3);
+  font-size: 11px;
+  font-style: italic;
+}
+
+.dash-link {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--link);
+  font: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
+
+.dash-link:hover {
+  text-decoration: underline;
+}
+
+/* Database views (table / board / list) */
+
+.db {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.db-tools {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* the database's second row: Notion-style view tabs left, the consolidated
+   icon-first tools right — 32px so identity + tabs stay tighter than the
+   old header + always-on filter stack (42 + 34) */
+.db-tabrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  height: 32px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+/* the tab strip scrolls horizontally when crowded (no wrap), with the
+   right-edge fade cue; the accent underline is the one colored
+   chrome in the header */
+.db-tabs {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.db-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.db-tabs.db-more-x {
+  /* 20px matches the table fade right below it */
+  -webkit-mask-image: linear-gradient(to right, black calc(100% - 20px), transparent);
+  mask-image: linear-gradient(to right, black calc(100% - 20px), transparent);
+}
+
+.db-tab {
+  position: relative;
+  flex: none;
+  height: 100%;
+  max-width: 180px;
+  padding: 0 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.db-tab:hover {
+  color: var(--text-2);
+}
+
+.db-tab.active {
+  color: var(--text-1);
+}
+
+.db-tab.active::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 0;
+  height: 2px;
+  background: var(--accent);
+  /* The underline draws itself under the tab you just picked
+     instead of blinking into place. Per-tab, not a shared sliding element */
+  transform-origin: left center;
+  animation: tab-underline 140ms ease-out;
+}
+
+@keyframes tab-underline {
+  from {
+    opacity: 0;
+    transform: scaleX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .db-tab.active::after {
+    animation: none;
+  }
+}
+
+/* A pinned view's ⌘-digit rides its tab — the app-wide keycap
+   (.key), nudged off the tab's name */
+.db-tab .key {
+  margin-left: 5px;
+}
+
+.db-tab-add {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-left: 2px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-3);
+}
+
+.db-tab-add:hover {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+/* the database layout switch is icon-only — the layout name rides the
+   button's title/aria-label (the calendar's switch keeps text buttons) */
+.db-switch.db-layouts button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+}
+
+/* the funnel toggles the on-demand filter row under the tab bar */
+.db-filter-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+}
+
+.db-filter-toggle:hover {
+  color: var(--text-2);
+}
+
+.db-filter-toggle.active {
+  background: var(--active);
+  color: var(--text-1);
+}
+
+.db-switch {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border-soft);
+  border-radius: 7px;
+}
+
+.db-switch button {
+  height: 21px;
+  padding: 0 9px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-3);
+  font-family: var(--font);
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.db-switch button:hover {
+  color: var(--text-2);
+}
+
+.db-switch button.active {
+  background: var(--active);
+  color: var(--text-1);
+}
+
+.db-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
+.db-group-btn {
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--font);
+  font-size: 11.5px;
+  outline: none;
+}
+
+/* the database filter bar: one quiet query row under the tab bar,
+   rendered only on demand — an active query, focus, the naming flow, or the
+   funnel toggle keep it on screen */
+/* The filter row and its completion chips form one block. The chips
+   overlay the body rather than joining the column flow, so appearing and
+   vanishing mid-typing never moves the table (design-principles.md 4) */
+.db-filter-wrap {
+  flex: none;
+  position: relative;
+  z-index: 4;
+}
+
+/* the input row and its overlay. The completion chips hang off THIS box, not
+   off the whole block, so committing a filter — which grows the chip row
+   below — never slides the overlay out from under the pointer */
+.db-filter-head {
+  position: relative;
+}
+
+.db-filter-head .search-completions {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  z-index: 5;
+  background: var(--bg-elevated);
+}
+
+/* One rung earlier than the value chips: these spell OPERATORS the reader
+   has not typed yet, not values that exist. Mono, the same voice the syntax
+   panel gives an example, so `status:` reads as syntax being offered. */
+.db-key-completions .search-completion {
+  font-family: var(--mono);
+  font-size: 11px;
+}

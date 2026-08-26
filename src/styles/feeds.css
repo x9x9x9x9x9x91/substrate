@@ -1,0 +1,724 @@
+
+/* Topic chips: the same quiet-chip chrome as .feed-vote, sitting
+   between head and stream. "all" is a real chip so the cleared state reads as
+   a selection, not an absence; active chips lift with hover-tier chrome
+   rather than a color fill — the topic dot already carries the hue. */
+.feed-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 16px;
+}
+
+.feed-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  background: none;
+  font: var(--dash-label);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  cursor: pointer;
+  transition:
+    color 120ms ease-out,
+    background 120ms ease-out,
+    border-color 120ms ease-out;
+}
+
+.feed-chip:hover {
+  background: var(--hover);
+  border-color: var(--border);
+  color: var(--text-1);
+}
+
+.feed-chip.is-on {
+  background: var(--hover);
+  border-color: var(--border-strong);
+  color: var(--text-1);
+}
+
+/* the curator's own stamp, in the head's actions slot */
+.feed-curated {
+  font: var(--dash-data);
+  color: var(--text-4);
+}
+
+/* Music work index: a scanning surface — 245 jobs pivoted three
+   ways. The group header carries the page's only sharp values (the year's job
+   count and total size); every job line stays at --text-2 and below so a
+   year's worth of rows reads as texture you skim, not a wall of data. Rows are
+   a four-column grid with the meta right-aligned, hairlines between groups
+   only: one rule per year, never a box per job. The view switcher is
+   underline-dashes in the head's actions slot, and what each view groups by
+   lives in its title tooltip rather than a printed legend. */
+
+/* view switcher rides the shared .db-switch idiom (labelled underline-
+   dashes); .mw-views only pins its slot in the head's actions row */
+.mw-views {
+  display: flex;
+}
+
+.mw-filter {
+  width: 130px;
+  padding: 3px 7px;
+  border: 1px solid var(--hair);
+  border-radius: var(--r);
+  background: none;
+  font: var(--dash-data);
+  color: var(--text-2);
+}
+
+.mw-filter::placeholder {
+  color: var(--text-4);
+}
+
+.mw-filter:focus {
+  outline: none;
+  border-color: var(--text-4);
+}
+
+/* the scanner's own stamp */
+.mw-scanned {
+  font: var(--dash-data);
+  color: var(--text-4);
+}
+
+.mw-board {
+  margin-top: 26px;
+}
+
+.mw-group + .mw-group {
+  margin-top: 28px;
+}
+
+/* group heads repeat once per axis value, so they stay off the sharp budget
+   (principle 1.3 measures the page, not the group): the label leads the row
+   at --text-2, its totals sink further */
+.mw-grouphead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--hair);
+}
+
+.mw-grouplabel {
+  font: var(--dash-value);
+  color: var(--text-2);
+}
+
+.mw-groupsum {
+  font: var(--dash-data);
+  color: var(--text-3);
+}
+
+.mw-sub {
+  margin-top: 14px;
+}
+
+.mw-sublabel {
+  margin-bottom: 3px;
+  font: var(--dash-label);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-4);
+}
+
+.mw-job {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.6fr) auto auto;
+  align-items: baseline;
+  gap: 14px;
+  padding: 3px 0;
+  font: var(--dash-data);
+}
+
+.mw-client {
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mw-name {
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* dating the scanner isn't sure about — a mark on the job, not a column.
+   The attention amber (--warn): --opt-* are user schema colours and
+   --danger is act-now, neither fits a soft data-quality mark. */
+.mw-flag {
+  margin-left: 5px;
+  color: var(--warn);
+  cursor: help;
+}
+
+.mw-meta {
+  text-align: right;
+  color: var(--text-4);
+}
+
+.mw-size {
+  min-width: 62px;
+}
+
+/* Property-visibility checklist: the header right-click menu.
+   Check squares reuse .prop-check so shown/hidden reads at a glance; the
+   list scrolls past ~12 props instead of outgrowing the window. */
+.propvis {
+  min-width: 200px;
+  max-width: 260px;
+}
+
+.propvis-head {
+  padding: 6px 8px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.propvis-list {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.propvis-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.propvis-showall {
+  position: relative;
+  margin-top: 5px;
+  color: var(--text-3);
+}
+
+.propvis-showall::before {
+  content: "";
+  position: absolute;
+  top: -3px;
+  left: 0;
+  right: 0;
+  border-top: 1px solid var(--border-soft);
+}
+
+/* ── Phone shell ───────────────────────────────────
+   One surface at a time: navigation is a drawer, list/detail is a stack,
+   and every persistent control reaches the 44px touch target. The runtime
+   match in App uses this exact breakpoint so behavior and geometry cannot
+   disagree. */
+@media (max-width: 700px) {
+  .app {
+    display: block;
+    height: 100dvh;
+  }
+
+  .titlebar-drag {
+    display: none;
+  }
+
+  .main {
+    width: 100%;
+    height: 100dvh;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    touch-action: pan-y;
+  }
+
+  .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 90;
+    width: min(86vw, 320px);
+    padding: 0 8px max(10px, env(safe-area-inset-bottom));
+    background: var(--bg);
+    border-right: 1px solid var(--border);
+    box-shadow: 18px 0 52px rgba(0, 0, 0, 0.52);
+    transform: translateX(-102%);
+    visibility: hidden;
+    pointer-events: none;
+    transition:
+      transform 140ms ease-out,
+      visibility 0s linear 140ms,
+      pointer-events 0s linear;
+    transition-behavior: allow-discrete;
+  }
+
+  .sidebar.mobile-open {
+    transform: translateX(0);
+    visibility: visible;
+    pointer-events: auto;
+    /* Keep the moving drawer out of hit-testing until its final
+       position. Under load, actionability could sample two stalled frames and
+       dispatch a tap at the row's old x-coordinate; the scrim received it and
+       navigation silently stayed on the current view. Closing still disables
+       pointer events immediately via the zero-delay base transition above. */
+    transition:
+      transform 140ms ease-out,
+      pointer-events 0s linear 140ms;
+    transition-behavior: allow-discrete;
+  }
+
+  .sidebar-drag {
+    height: max(12px, env(safe-area-inset-top));
+  }
+
+  .sidebar-head {
+    min-height: 52px;
+    padding: 2px 6px 8px 10px;
+  }
+
+  .sidebar-new,
+  .sidebar-mobile-close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-2);
+  }
+
+  /* The folder header "+" is the ONLY create path on touch (no ⌘N)
+     — same 44px bump the sidebar buttons get */
+  .list-new {
+    width: 44px;
+    height: 44px;
+    border-radius: 8px;
+  }
+
+  .sidebar-mobile-close:hover,
+  .sidebar-mobile-close:active {
+    background: var(--hover);
+    color: var(--text-1);
+  }
+
+  .side-item {
+    min-height: 44px;
+    height: auto;
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+
+  .side-add,
+  .side-chevron {
+    width: 44px;
+    height: 44px;
+  }
+
+  /* the touch-sized chevron advances 41px (44 − 3px margin) — the gutter on
+     chevron-less rows has to grow with it or the icon column splits */
+  .side-chevron-spacer {
+    width: 41px;
+  }
+
+  .side-label-row {
+    min-height: 44px;
+  }
+
+  .side-shortcut,
+  .today-kbd,
+  .palette-hint,
+  .palette-foot,
+  .search-foot {
+    display: none !important;
+  }
+
+  .mobile-sidebar-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    background: rgba(0, 0, 0, 0.54);
+  }
+
+  .mobile-nav {
+    position: fixed;
+    top: max(8px, env(safe-area-inset-top));
+    left: 8px;
+    z-index: 70;
+    display: flex;
+    pointer-events: none;
+  }
+
+  .mobile-nav-button {
+    pointer-events: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    min-width: 44px;
+    height: 44px;
+    padding: 0 11px;
+    border: 1px solid var(--border-soft);
+    border-radius: 9px;
+    background: var(--bg-panel);
+    color: var(--text-2);
+    font-family: var(--font);
+    font-size: 12px;
+    font-weight: 560;
+    box-shadow: 0 5px 18px rgba(0, 0, 0, 0.32);
+  }
+
+  .mobile-nav-button:active {
+    background: var(--active);
+    color: var(--text-1);
+  }
+
+  .mobile-menu {
+    padding: 0;
+  }
+
+  .list {
+    width: 100%;
+    border-right: 0;
+  }
+
+  .list-head,
+  .search-head,
+  .dash-head,
+  .today-head {
+    min-height: calc(56px + env(safe-area-inset-top));
+    height: auto;
+    padding-top: env(safe-area-inset-top);
+    padding-left: 64px;
+  }
+
+  /* The fixed keyboard button is !mobile-gated, so the chrome slot these heads
+     reserve on desktop is 40px of empty gutter on a 390px screen.
+     .cal and .search-head hand back the space in their own rules below. */
+  .trash .list-head,
+  .dbmgr .list-head,
+  .vault-sync .list-head,
+  .main:not(:has(.db-note)) .db .list-head {
+    padding-right: 8px;
+  }
+
+  .vault-sync-inner {
+    width: 100%;
+    padding: 18px 14px calc(32px + env(safe-area-inset-bottom));
+  }
+
+  .vault-sync-intro {
+    margin-bottom: 16px;
+    padding: 0 2px;
+  }
+
+  .vault-sync-card-head,
+  .vault-sync-status,
+  .vault-sync-form {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  .vault-sync-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    padding: 12px 14px;
+  }
+
+  .vault-sync-button,
+  .vault-sync-save,
+  .vault-sync-form input {
+    min-height: 44px;
+  }
+
+  /* 16px is the phone webview's no-zoom floor for a focused field; below it
+     the page zooms in and stays zoomed after the keyboard goes. The viewport
+     meta already pins scale — this keeps the one long-typing form on the
+     phone (enrollment: URL, token, passphrase) legible at native size too. */
+  .vault-sync-form input,
+  .vault-sync-form textarea {
+    font-size: 16px;
+  }
+
+  .vault-sync-form-foot {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .vault-sync-save {
+    width: 100%;
+  }
+
+  .list-body {
+    padding: 8px;
+  }
+
+  /* Seven semantic day columns need more than a phone's 390px. Weekdays and
+     cells share one viewport so their columns cannot drift while swiping. */
+  .cal-grid-scroll {
+    scrollbar-width: none;
+  }
+
+  .cal-grid-scroll::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* 886 = 840 + the week gutter — day columns keep their width. Day view:
+     scaled by the column count, and floored at the viewport so Day's single
+     column fills the phone rather than sitting in a 166px sliver. */
+  .cal-grid-scroll > .cal-weekdays,
+  .cal-grid-scroll > .cal-grid,
+  .cal-grid-scroll > .cal-wk-scroll {
+    width: max(100%, calc(46px + var(--cal-cols, 7) * 120px));
+    min-width: max(100%, calc(46px + var(--cal-cols, 7) * 120px));
+  }
+
+  .row {
+    min-height: 52px;
+    justify-content: center;
+    padding: 10px 12px;
+  }
+
+  .note-inner {
+    max-width: none;
+    min-height: 100dvh;
+    margin: 0;
+    padding: calc(68px + env(safe-area-inset-top)) 18px
+      calc(96px + env(safe-area-inset-bottom));
+  }
+
+  .note-tools {
+    top: 0;
+    padding: calc(10px + env(safe-area-inset-top)) 8px 0;
+    background: var(--bg);
+  }
+
+  .note-feedback {
+    top: calc(62px + env(safe-area-inset-top));
+    margin-right: 0;
+  }
+
+  .note-tool {
+    width: 44px;
+    height: 44px;
+    border-radius: 8px;
+  }
+
+  .main.mobile-detail > .db {
+    display: none;
+  }
+
+  .main.mobile-detail > .db-note {
+    width: 100%;
+    border-left: 0;
+  }
+
+  .main.mobile-detail .db-note-x {
+    display: none;
+  }
+
+  .hist,
+  .palette {
+    width: calc(100vw - 16px);
+    max-width: none;
+    max-height: calc(100dvh - 32px);
+    margin-top: max(8px, env(safe-area-inset-top));
+  }
+
+  /* The standalone desktop capture window is intentionally 620×88. Its
+     width crosses the phone breakpoint, but it must fill that tiny window so
+     an inline save failure is not clipped by the regular palette inset. */
+  .palette.capture-palette {
+    width: 100%;
+    max-height: none;
+    margin-top: 0;
+  }
+
+  /* …and it is a desktop window despite its phone-sized width: keep the
+     ↩ / esc footer hints that the phone breakpoint strips. */
+  .palette.capture-palette .palette-foot {
+    display: flex !important;
+  }
+
+  /* History's desktop split leaves only ~140px for the diff on a phone.
+     Stack the snapshot rail above a full-width diff and give the maintenance
+     controls their own rows instead of making every label wrap vertically. */
+  .hist-body {
+    height: min(620px, calc(100dvh - 210px));
+    min-height: 0;
+    max-height: none;
+    flex-direction: column;
+  }
+
+  .hist-list {
+    width: 100%;
+    max-height: 140px;
+    box-sizing: border-box;
+    border-right: 0;
+    border-bottom: 1px solid var(--border-soft);
+  }
+
+  .hist-diff {
+    min-height: 0;
+  }
+
+  .hist-foot {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .hist-danger-links {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .hist-foot-hint {
+    line-height: 1.35;
+  }
+
+  .hist-purge {
+    overflow-y: auto;
+    padding: 16px;
+  }
+
+  .hist-purge-confirm {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .hist-purge-input {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    flex-basis: 100%;
+  }
+
+  /* the narrow row form itself is a container query next to the .coding2-*
+     rules — it has to fire on pane width, not viewport. Only the outer
+     spacing is a phone concern. */
+  .coding-rows {
+    gap: 4px;
+    margin-top: 16px;
+  }
+
+  /* Fixed-view desktop headers cannot share one 375px row with the drawer
+     button. Search keeps the query on row one and status/sort on row two. */
+  .search-head {
+    flex-wrap: wrap;
+    column-gap: 10px;
+    row-gap: 0;
+    padding-right: 10px;
+    padding-bottom: 8px;
+  }
+
+  .search-input {
+    height: 44px;
+    flex: 0 0 calc(100% - 25px);
+  }
+
+  .search-stats {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  /* Calendar follows the same two-tier shell: the title clears the fixed
+     menu button, then every date/view control gets the full second row. */
+  .cal .list-head {
+    min-height: 83px;
+    flex-wrap: wrap;
+    column-gap: 8px;
+    row-gap: 0;
+    padding-right: 8px;
+    padding-bottom: 8px;
+    padding-left: 8px;
+  }
+
+  .cal .list-title {
+    display: flex;
+    align-items: center;
+    height: 48px;
+    box-sizing: border-box;
+    flex: 0 0 100%;
+    padding-left: 56px;
+  }
+
+  .cal .db-tools {
+    width: 100%;
+    margin-left: 0;
+    gap: 4px;
+  }
+
+  /* the second row is already full at this width: the date and view controls
+     are the ones a phone cannot do without, so the Upcoming latch stands down
+     and the panel keeps whichever state it was left in */
+  .cal-agenda-toggle {
+    display: none;
+  }
+
+  /* Settings was a desktop-only sheet until the drawer grew a row for it.
+     At 620px wide with the palette's 80px inset it would draw itself 310px
+     wide on a phone — a dialog floating in a screen it could have had — so
+     it takes the same full-bleed inset the palette and history take here. */
+  .settings-sheet {
+    width: calc(100vw - 16px);
+    max-width: none;
+    height: min(620px, calc(100dvh - 32px));
+    max-height: calc(100dvh - 32px);
+    margin-top: max(8px, env(safe-area-inset-top));
+  }
+
+  /* The control column is a stack of widths chosen against that 620px sheet:
+     a 170px text box, a 230px quick-actions box, a 130px dial. Beside a label
+     they leave it a sliver at this width, and the body scrolls on both axes,
+     so anything that does not fit slides the whole sheet sideways instead of
+     wrapping. The wide controls take the line under their label — the same
+     move the many-option pickers already make on desktop. Switches, segments
+     and tone chips still fit beside their text, so they stay put. */
+  .settings-row:has(> .settings-input),
+  .settings-row:has(> .settings-slider) {
+    display: block;
+  }
+
+  .settings-row:has(> .settings-input) > .settings-input,
+  .settings-row:has(> .settings-slider) > .settings-slider {
+    width: 100%;
+    box-sizing: border-box;
+    margin-top: 8px;
+  }
+
+  /* stacked, the dial owns the row: the track takes what the number leaves */
+  .settings-row > .settings-slider .settings-range {
+    flex: 1;
+    width: auto;
+  }
+
+  /* both of these already know how to wrap; they just never had a width to
+     wrap against, because `flex: none` sizes them to their whole content */
+  .settings-chips,
+  .settings-choice {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+}
+
+@media (max-width: 700px) and (prefers-reduced-motion: reduce) {
+  .sidebar,
+  .sidebar.mobile-open {
+    transition: none;
+  }
+}

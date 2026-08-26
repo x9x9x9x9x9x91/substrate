@@ -1,0 +1,98 @@
+
+
+
+/* Tax readiness (dashboard: tax) — the year's deductible totals over
+   a checklist of documents still owed. Read-only over two exported sheets, and
+   the one board that leaves the app on paper, so it stays plain: ruled tiles,
+   a category table, and a checklist whose rings are marks rather than
+   controls (the books are where a document actually gets filed). */
+.tax-strip {
+  margin-top: 24px;
+}
+
+.tax-table {
+  margin-top: 4px;
+}
+
+/* counts and euro figures line up on their digits; the header sits over them */
+.tax-table .tax-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.tax-missing {
+  display: flex;
+  flex-direction: column;
+  margin-top: 4px;
+  container-type: inline-size;
+}
+
+.tax-group + .tax-group {
+  margin-top: 16px;
+}
+
+.tax-group-name {
+  padding: 0 8px 6px 26px;
+  border-bottom: 1px solid var(--hair-soft);
+  font: var(--dash-label);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-4);
+}
+
+.tax-row {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) 110px minmax(0, 0.9fr);
+  column-gap: 12px;
+  align-items: baseline;
+  padding: 8px;
+  border-bottom: 1px solid var(--hair-soft);
+  font: var(--dash-data);
+  color: var(--text-2);
+}
+
+/* an unchecked mark, not a checkbox: nothing here is clickable, so it never
+   picks up the hover/fill affordances the tasks board's ring has */
+.tax-ring {
+  align-self: center;
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--text-4);
+  border-radius: 50%;
+}
+
+.tax-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-1);
+}
+
+.tax-date {
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* what is actually missing — the row's reason for existing, kept quiet so
+   the names stay the reading line */
+.tax-fields {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-3);
+}
+
+@container (max-width: 560px) {
+  .tax-row {
+    grid-template-columns: 14px minmax(0, 1fr) 110px;
+  }
+
+  /* the missing fields drop under the name rather than squeezing it out */
+  .tax-fields {
+    grid-column: 2 / -1;
+    grid-row: 2;
+  }
+}

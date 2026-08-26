@@ -1,0 +1,867 @@
+
+/* ── Settings sheet (⌘,) ──────────────────────────── */
+
+/* One frame for all six tabs. The shortcut sheet sizes to its content, so
+   before this the settings sheet stood 526px tall on General and 309px on
+   Experimental: picking a tab resized the window under the pointer and the
+   footer jumped up to meet it. Fixing the sheet's height and letting the body
+   take whatever is left makes it a frame the tabs are swapped inside. On a
+   short window it yields to the same 100vh - 220px cap the sheet always had,
+   and the body scrolls for the difference. */
+.settings-sheet {
+  width: 620px;
+  height: min(520px, calc(100vh - 220px));
+}
+
+.settings-sheet .shortcut-sheet-body {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+}
+
+.settings-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  /* the tab strip carries the space under the title now */
+  padding-bottom: 8px;
+}
+
+/* The sheet's tab strip, in the agent ledger's idiom: latched buttons under
+   the title rather than a second chrome. Six of them fit the sheet's width at
+   this size, and they wrap rather than widen it if a tab is ever added. */
+.settings-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  /* 18px lines the strip up with the title above it and, once the body's own
+     6px is added, with the label of every row below it */
+  padding: 0 18px 10px;
+}
+
+.settings-tab {
+  padding: 3px 9px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.settings-tab:hover {
+  background: var(--hover);
+}
+
+.settings-tab.on {
+  color: var(--text-1);
+  border-color: var(--border);
+  background: var(--surface-faint);
+}
+
+.settings-raw {
+  border: none;
+  background: none;
+  color: var(--text-3);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.settings-raw:hover {
+  color: var(--text-1);
+  background: var(--hover);
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 9px 12px;
+}
+
+.settings-row-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-label {
+  display: block;
+  font-size: 13px;
+  color: var(--text-1);
+}
+
+.settings-hint {
+  margin-top: 2px;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--text-3);
+}
+
+/* One line at the top of the Experimental tab, said once for the whole tab
+   rather than per switch. Aligned to the rows' text column (12px) and
+   set in the hint's own voice — a caveat, not a warning. It opens the tab
+   now that the tab's name is its heading, so it carries its own room above
+   instead of tucking under one. */
+.settings-experimental-note {
+  margin: 4px 12px 4px;
+}
+
+/* the terminal-font row's "not found" line: the hint's own type, one
+   grey step brighter so it reads as the newer line without becoming an error
+   state — nothing is broken, the font just isn't resolving */
+.settings-hint-warn {
+  margin-top: 3px;
+  color: var(--text-2);
+}
+
+/* Settings → Vault: the consent list. A section of rows rather than
+   a control per key — each line is a thing the vault contains, not a
+   preference — so the list carries no bullets and leans on the row idiom. */
+.settings-kinds-lead {
+  margin: 2px 0 8px;
+  max-width: 460px;
+}
+
+.settings-kinds {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.settings-kind-row {
+  align-items: flex-start;
+}
+
+/* the standing rider sits under the state line, at hint weight: it is a
+   qualifier on a consent already given, never the consent itself */
+.settings-kind-trust {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 5px;
+  cursor: pointer;
+}
+
+.settings-input {
+  flex: none;
+  width: 170px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text-1);
+  font-size: 12.5px;
+  font-family: var(--mono);
+  outline: none;
+}
+
+/* The terminal quick-actions list — one entry per line, so it needs
+   height and a top-aligned row rather than the single-line box's centering */
+.settings-textarea {
+  width: 230px;
+  height: auto;
+  padding: 6px 8px;
+  line-height: 1.45;
+  resize: vertical;
+  align-self: flex-start;
+}
+
+.settings-input:focus {
+  border-color: var(--accent);
+}
+
+.settings-input::placeholder {
+  color: var(--text-3);
+}
+
+.settings-switch {
+  flex: none;
+  width: 30px;
+  height: 18px;
+  border-radius: 9px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elevated);
+  padding: 1px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  transition: background 120ms ease-out;
+}
+
+.settings-switch .settings-knob {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--text-3);
+  transition: transform 120ms ease-out, background 120ms ease-out;
+}
+
+.settings-switch.on {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.settings-switch.on .settings-knob {
+  transform: translateX(11px);
+  background: var(--text-1);
+}
+
+/* A two-choice segmented control (terminal dock edge). Same chrome
+   family as the switch above — elevated track, accent for the live choice —
+   but both options stay named, because "bottom vs right" has no on/off. */
+.settings-seg {
+  flex: none;
+  display: flex;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elevated);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.settings-seg-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 12px;
+  padding: 4px 12px;
+  cursor: pointer;
+  transition: background 120ms ease-out, color 120ms ease-out;
+}
+
+.settings-seg-btn:hover {
+  color: var(--text-1);
+}
+
+.settings-seg-btn.on {
+  background: var(--accent-soft);
+  color: var(--text-1);
+}
+
+/* The appearance dials. A hairline track with a small round handle —
+   the same restraint as the switch, no filled progress bar, because the value
+   is a taste dial and not a measurement. The number rides to its right in the
+   mono data voice, tabular so the handle doesn't jitter the row while it
+   moves. The window-opacity dial rides the same chrome. */
+.settings-slider {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-range {
+  width: 130px;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  appearance: none;
+  cursor: pointer;
+}
+
+.settings-range::-webkit-slider-runnable-track {
+  height: 2px;
+  border-radius: 1px;
+  background: var(--border-strong);
+}
+
+.settings-range::-webkit-slider-thumb {
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -5px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: var(--text-2);
+  transition: background 120ms ease-out;
+}
+
+.settings-range:hover::-webkit-slider-thumb {
+  background: var(--text-1);
+}
+
+.settings-range:focus-visible::-webkit-slider-thumb {
+  outline: 1.5px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.settings-slider-val {
+  width: 30px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+  text-align: right;
+}
+
+/* the tone picker: a chip per curated tone, each showing the accent it would
+   install. The dots read the same table the dashboard does (the tone blocks
+   near the accent family), so the swatch and the result can't drift apart. */
+.settings-chips {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.settings-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg-elevated);
+  color: var(--text-3);
+  font-size: 12px;
+  padding: 4px 9px;
+  cursor: pointer;
+  transition: background 120ms ease-out, color 120ms ease-out,
+    border-color 120ms ease-out;
+}
+
+.settings-chip:hover {
+  color: var(--text-1);
+}
+
+.settings-chip.on {
+  color: var(--text-1);
+  border-color: var(--tone-accent);
+  background: var(--tone-accent-soft);
+}
+
+.settings-chip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--chip-tone);
+}
+
+/* Each chip names its own swatch at the preset's BASE hue — unnudged on
+   purpose: the chip identifies the preset, and letting the fine-tune slider
+   drag all four dots at once would say the presets themselves had moved. */
+.settings-chip[data-tone-swatch="sky"] {
+  --chip-tone: hsl(200.6deg 77.1% 67.5%);
+}
+
+.settings-chip[data-tone-swatch="teal"] {
+  --chip-tone: hsl(183deg 55.8% 57.5%);
+}
+
+.settings-chip[data-tone-swatch="indigo"] {
+  --chip-tone: hsl(229.5deg 84.3% 80%);
+}
+
+.settings-chip[data-tone-swatch="violet"] {
+  --chip-tone: hsl(274.4deg 57.6% 76.9%);
+}
+
+/* A latched-button row — the send-link expiry picker's idiom rather than a
+   <select>, so every option stays readable without opening anything.
+
+   It wraps, and rows with more than a couple of options stack it under the
+   text instead of parking it in the control column. Five locale samples in a
+   single non-wrapping control column is wider than the sheet, and the sheet
+   body scrolls (overflow-y: auto makes the x axis scrollable too) — which is
+   what let the whole sheet slide sideways into empty space. */
+.settings-choice {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* a row whose control is too wide to sit beside its label: text on top, the
+   control on its own full-width line beneath */
+.settings-row-stack {
+  display: block;
+}
+
+.settings-row-stack .settings-choice {
+  margin-top: 8px;
+}
+
+/* the sheet's section headings reuse the palette's label voice; they need
+   room above them because a settings row is taller than a palette row —
+   except the one that opens a tab, which has the strip right above it */
+.settings-sheet .palette-section {
+  margin-top: 10px;
+}
+
+.settings-sheet .shortcut-sheet-body > .palette-section:first-child {
+  margin-top: 2px;
+}
+
+.settings-missing {
+  padding: 12px;
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+
+/* MCP grants are machine permissions, not Settings.md fields. They live in
+   the same sheet but read as one bounded pane: grant controls, current
+   holders, then the client setup artifact. */
+.settings-section {
+  margin: 6px 12px 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.settings-section-head,
+.mcp-setup-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.settings-section-title {
+  color: var(--text-1);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.settings-raw:disabled,
+.mcp-grant-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.mcp-grant-builder {
+  display: grid;
+  grid-template-columns: auto minmax(120px, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.mcp-client-input {
+  width: 100%;
+}
+
+.mcp-grant-button {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg-elevated);
+  color: var(--text-1);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.mcp-grant-button:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.mcp-client-hint {
+  margin-top: 7px;
+}
+
+.mcp-client-hint code {
+  font-family: var(--mono);
+  color: var(--text-2);
+}
+
+.mcp-last-seen {
+  margin-top: 5px;
+}
+
+/* The whole point of this line is that the name is character-exact, so keep the
+   mono face and stop HTML from collapsing the padding that caused the mismatch. */
+.mcp-last-seen-name {
+  font-family: var(--mono);
+  color: var(--text-2);
+  white-space: pre-wrap;
+}
+
+.mcp-grant-list {
+  margin-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.mcp-grant,
+.mcp-empty {
+  min-height: 34px;
+  border-bottom: 1px solid var(--border);
+}
+
+.mcp-grant {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mcp-empty {
+  display: flex;
+  align-items: center;
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+
+.mcp-grant-copy {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(90px, 0.8fr) minmax(110px, 1.2fr) auto;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  font-size: 11.5px;
+}
+
+.mcp-grant-client,
+.mcp-grant-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mcp-grant-client {
+  color: var(--text-1);
+}
+
+.mcp-grant-path,
+.mcp-path {
+  font-family: var(--mono);
+  color: var(--text-3);
+  word-break: break-all;
+}
+
+.mcp-grant-access {
+  color: var(--text-3);
+}
+
+.mcp-error {
+  margin-top: 8px;
+  color: var(--danger);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+.mcp-setup {
+  margin-top: 12px;
+}
+
+.mcp-snippet {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  max-height: 132px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-elevated);
+  color: var(--text-2);
+  font: var(--dash-data);
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: text;
+}
+
+.mcp-setup > .mcp-path {
+  margin-top: 6px;
+}
+
+.mcp-setup-note {
+  margin-top: 4px;
+}
+
+/* ── First-run onboarding ───────────────────────────────────────
+   Only surface a returning user never sees. Same instrument language as the
+   dashboards: mono labels, Inter sentences, hairlines instead of boxes. */
+.onboarding {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow-y: auto;
+  background: var(--bg);
+  padding: 40px 24px;
+}
+
+.onboarding-sheet {
+  width: 100%;
+  max-width: 520px;
+}
+
+/* The product mark, above the title. This is the one surface that
+   opens cold — no chrome, no vault, nothing else on screen — so it is also
+   the one place the icon does the work the credo asks of it: sets the tone
+   before a word is read. 56px: large enough for the cut rune to resolve,
+   small enough that it reads as a mark rather than a splash. */
+.onboarding-mark {
+  display: block;
+  margin-bottom: 20px;
+}
+
+/* A real headline, not a bolder sentence. The old 15px/500 landed
+   within a step of the 13px lede under it, so the sheet opened on a stack of
+   near-equal lines with nothing to enter at. */
+.onboarding-title {
+  font: 600 24px/1.25 var(--font);
+  letter-spacing: -0.01em;
+  color: var(--text-1);
+  margin-bottom: 8px;
+}
+
+.onboarding-lede {
+  font: var(--dash-sentence);
+  color: var(--text-2);
+  margin-bottom: 26px;
+}
+
+.onboarding-error {
+  font: var(--dash-sentence);
+  color: var(--danger);
+  border-left: 2px solid var(--danger);
+  padding: 6px 10px;
+  margin-bottom: 18px;
+}
+
+.onboarding-option {
+  border-top: 1px solid var(--hair);
+  padding-top: 14px;
+  margin-bottom: 22px;
+}
+
+.onboarding-option-title {
+  font: var(--dash-label);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: 10px;
+}
+
+.onboarding-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.onboarding-input {
+  flex: 1;
+  min-width: 0;
+  font: var(--dash-data);
+  color: var(--text-1);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 6px 8px;
+}
+
+.onboarding-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.onboarding-primary,
+.onboarding-ghost {
+  font: var(--dash-data);
+  color: var(--text-1);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 6px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.onboarding-primary {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.onboarding-primary:hover:not(:disabled),
+.onboarding-ghost:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+
+.onboarding-primary:disabled,
+.onboarding-ghost:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.onboarding-hint {
+  flex: 1;
+  font: var(--dash-sentence);
+  color: var(--text-3);
+}
+
+.onboarding-candidate {
+  border-left: 2px solid var(--hair);
+  padding: 8px 0 8px 10px;
+  margin-top: 4px;
+}
+
+.onboarding-candidate .onboarding-primary {
+  margin-top: 8px;
+}
+
+.onboarding-path {
+  display: block;
+  font: var(--dash-data);
+  color: var(--text-2);
+  word-break: break-all;
+}
+
+.onboarding-warning {
+  font: var(--dash-sentence);
+  color: var(--text-2);
+  margin-top: 6px;
+}
+
+.onboarding-actions {
+  margin-bottom: 22px;
+}
+
+.onboarding-foot {
+  font: var(--dash-data);
+  color: var(--text-4);
+  word-break: break-all;
+}
+
+/* the open vault's path in Settings — long, so it wraps instead of clipping */
+.settings-vault-path {
+  font: var(--dash-data);
+  color: var(--text-3);
+  word-break: break-all;
+}
+
+/* ---- workbook pages: the bottom sheet-tab strip ---- */
+
+/* the pane splits into the page (whatever surface the tab shows) and the
+   strip; the strip sits at the BOTTOM like a spreadsheet's sheet tabs */
+.wb-wrap {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.wb-page {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.wb-page > .note {
+  flex: 1;
+  min-width: 0;
+}
+
+/* an embedded dashboard with pages of its own: the switcher rides at the TOP
+   of the page, above the sub-page it chooses, aligned with the dashboard
+   content under it rather than with the pane edge */
+.wb-nested {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.wb-nested > .note {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.db-switch.wb-subpages {
+  flex: none;
+  align-self: center;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 1120px;
+  padding: 22px clamp(20px, 4vw, 48px) 0;
+}
+
+.wb-tabs {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 34px;
+  padding: 0 10px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.wb-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.wb-tab {
+  position: relative;
+  flex: none;
+  height: 100%;
+  max-width: 180px;
+  padding: 0 10px;
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.wb-tab:hover {
+  color: var(--text-2);
+}
+
+.wb-tab.active {
+  color: var(--text-1);
+}
+
+/* active marker rides the TOP edge — the strip hangs below the page,
+   mirroring .db-tab.active::after which underlines from above. The marker
+   wears the accent: it is a where-am-I mark, and hue on a 2px
+   rule is the cheapest legible one — the tab's own label keeps carrying the
+   selection in --text-1 for anyone who can't see the hue. */
+.wb-tab.active::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 0;
+  height: 2px;
+  background: var(--accent);
+}
+
+.wb-tab-err {
+  color: var(--danger);
+}
+
+/* The strip's own + — the database tab strip's control (.db-tab-add), which
+   is the idiom a saved view is already added by */
+.wb-tab-add {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-left: 2px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-3);
+}
+
+.wb-tab-add:hover {
+  background: var(--hover);
+  color: var(--text-1);
+}

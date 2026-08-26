@@ -1,0 +1,82 @@
+
+/* ── Trash view ─────────────────────────────────────────────── */
+
+.side-bottom {
+  margin-top: auto;
+  padding-top: 4px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.side-bottom .side-foot {
+  margin-top: 0;
+}
+
+
+.trash {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.trash .list-head .trash-danger {
+  margin-left: auto;
+}
+
+.trash-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 0;
+}
+
+.trash-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+}
+
+.trash-row:hover {
+  background: var(--hover);
+}
+
+.trash-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.trash-row-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.trash-row-title svg {
+  width: 13px;
+  height: 13px;
+  margin-right: 5px;
+  vertical-align: -2px;
+  color: var(--text-3);
+}
+
+/* type tag on trashed assets, so they read apart from notes */
+.trash-row-tag {
+  margin-left: 6px;
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--text-3);
+}
+
+.trash-row-sub {
+  font-size: 11.5px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

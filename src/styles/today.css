@@ -1,0 +1,596 @@
+
+.today-eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.today-date {
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text-1);
+}
+
+.today-journal {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: none;
+  padding: 5px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12px;
+  font-family: var(--font);
+}
+
+.today-journal:hover {
+  background: var(--hover);
+  border-color: var(--border-strong);
+  color: var(--text-1);
+}
+
+.today-kbd {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+/* The capture line, directly under the head: one hairline-bottomed field the
+   width of the column, no box and no fill — it reads as the next line of the
+   document, not as a control bolted on top of it. The Add button stays
+   invisible until there is something to add. */
+.today-add {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 0 10px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.today-add-input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-1);
+  font-family: var(--font);
+  font-size: 13px;
+}
+
+.today-add-input::placeholder {
+  color: var(--text-3);
+}
+
+.today-add-input:focus {
+  outline: none;
+}
+
+.today-add-act {
+  flex: none;
+  padding: 2px 4px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 11.5px;
+  font-family: var(--font);
+}
+
+.today-add-act:disabled {
+  opacity: 0;
+}
+
+.today-add-act:not(:disabled):hover {
+  color: var(--text-1);
+}
+
+.today-section {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.today-section > .today-eyebrow {
+  display: block;
+  margin-bottom: 10px;
+}
+
+/* the per-lane line on a PARTIALLY full day — an empty day collapses to one
+   `.empty` state instead */
+.today-quiet {
+  padding: 2px 0;
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+
+/* Layout delta on the shared shell — the column is already padded and
+   centered, so the state sits under the head rather than claiming height */
+.empty.today-empty {
+  height: auto;
+  padding: 64px 0 0;
+}
+
+.today-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  margin: 0 -8px;
+  border-radius: 7px;
+  color: var(--text-1);
+}
+
+.today-row svg {
+  flex: none;
+  color: var(--text-3);
+}
+
+.today-open {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-self: stretch;
+  align-items: center;
+  gap: 10px;
+  margin: -7px 0 -7px -8px;
+  padding: 7px 0 7px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.today-row:hover {
+  background: var(--hover);
+}
+
+.today-row:active {
+  background: var(--active);
+}
+
+/* The keyboard's selected row, mirroring the tray popover's
+   `.agenda-row.selected` — the same accent rail so one visual language covers
+   both Today surfaces. The listbox takes programmatic focus (it owns the key
+   model), so the selected row carries the visible state instead of a focus
+   ring around the whole column. */
+.today-rows:focus,
+.today-rows:focus-visible {
+  outline: none;
+}
+
+.today-row.selected {
+  background: var(--active);
+  color: var(--text-1);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.today-row.selected .today-act {
+  opacity: 1;
+}
+
+/* done/cancelled: the dim is the one mark — never strike+dim */
+.today-row.done {
+  color: var(--text-3);
+}
+
+.today-row-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* the day's headline: it already sits on top of its lane, so the row itself
+   only stops being grey — no rule, no fill, no colour */
+.today-row.headline .today-row-title {
+  color: var(--text-1);
+  font-weight: 500;
+}
+
+/* The day's ending, at the foot of the column: a quiet text button until it
+   is armed, then the exact line and the exact clearing it is about to do.
+   Bordered like the Journal button, never filled — this is the one place the
+   pane writes to the vault in bulk, so it shows its work instead of shouting */
+.today-wrap {
+  display: flex;
+  gap: 8px;
+  margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.today-wrap.armed {
+  flex-direction: column;
+  gap: 6px;
+}
+
+.today-wrap-act {
+  flex: none;
+  align-self: flex-start;
+  padding: 5px 10px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 12px;
+  font-family: var(--font);
+}
+
+.today-wrap-act:hover {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+.today-wrap-act.go {
+  border-color: var(--border-soft);
+  color: var(--text-2);
+}
+
+.today-wrap-act.go:hover {
+  border-color: var(--border-strong);
+}
+
+.today-wrap-act:disabled {
+  color: var(--text-3);
+}
+
+.today-wrap-what {
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
+/* the literal line that will land in the journal — shown verbatim, mono, so
+   the confirmation is the thing itself and not a description of it */
+.today-wrap-line {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+  word-break: break-word;
+}
+
+.today-wrap-row {
+  display: flex;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+/* the clock marker on a scheduled row — "now" on what is running, "in 25m"
+   on what starts next. Same quiet mono as the day qualifier; the running row
+   earns the brighter text and nothing else, no badge and no colour */
+.today-cursor {
+  flex: none;
+  margin-left: auto;
+  padding-left: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+
+.today-cursor.now {
+  color: var(--text-1);
+}
+
+/* the day qualifier on an overdue or leftover row — quiet mono in a fixed
+   right-aligned column, so dates of different lengths never shift the verb
+   cluster; on an overdue row it carries the calendar's red, the
+   row's one red signal */
+.today-row-day {
+  flex: none;
+  min-width: 56px;
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+
+.today-row-day.overdue {
+  color: var(--danger);
+}
+
+/* the one verb: Pick / Unpick / Keep / Clear — quiet text buttons
+   revealed by row hover or keyboard focus, never a picket fence of pills;
+   the fixed min-width keeps the cluster's right edge still across rows */
+.today-act {
+  flex: none;
+  min-width: 44px;
+  margin-left: auto;
+  padding: 2px 4px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 11.5px;
+  font-family: var(--font);
+  text-align: right;
+  opacity: 0;
+}
+
+.today-row-day ~ .today-act {
+  margin-left: 0;
+}
+
+.today-row:hover .today-act,
+.today-row:focus-within .today-act {
+  opacity: 1;
+}
+
+.today-act:hover {
+  color: var(--text-1);
+}
+
+.today-journal,
+.today-row,
+.today-act,
+.today-add-act,
+.today-wrap-act {
+  transition:
+    background-color 120ms ease-out,
+    color 120ms ease-out,
+    border-color 120ms ease-out,
+    opacity 100ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .today-journal,
+  .today-row,
+  .today-act,
+  .today-add-act,
+  .today-wrap-act {
+    transition: none;
+  }
+}
+
+/* Pill regression fixes — chips grow instead of overflowing, table
+   rows stay one line tall, the db-open note's × gets clear corner room */
+.chip:has(.multi-pills) {
+  height: auto;
+  min-height: 24px;
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+
+.db-cell-txt .multi-pills {
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+/* in the split the tools clear BOTH the chrome slot and the 24px close × that
+   sits beside it — slot inset + the ×'s own width, plus a gap */
+.db-note .note-tools {
+  padding-right: calc(var(--chrome-x) + var(--chrome-slot) + 19px);
+}
+
+.chip {
+  overflow: hidden;
+}
+
+.chip .multi-pills {
+  max-width: 240px;
+}
+
+/* Plain-note default chip — every note is at least a "note"; the
+   chip states the kind quietly and clicking it joins a database */
+.chip-plain .chip-plain-val {
+  color: var(--text-3);
+}
+
+.chip-plain:hover .chip-plain-val {
+  color: var(--text-2);
+}
+
+/* ---- display-columns curator ----
+   The tab row's "Columns" dropdown: an icon-only trigger on the
+   db-new/db-filter-toggle idiom; the menu reuses .dots-menu/.dots-item.
+   (The "Views" dropdown it once shared chrome with is gone —
+   saved views are the tab strip now.) */
+
+.db-cols {
+  position: relative;
+  display: flex;
+}
+
+.db-cols-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+}
+
+.db-cols-btn:hover {
+  color: var(--text-2);
+}
+
+.db-cols-btn.active {
+  background: var(--active);
+  color: var(--text-1);
+}
+
+.db-cols-menu {
+  min-width: 170px;
+}
+
+.db-cols-item .db-cols-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+/* ---- sort overview ----
+   The tab row's sort popover: the same icon-only trigger idiom as the
+   columns curator, over a .dots-menu panel. Rows are the sort's own
+   priority order — ordinal, name, direction, remove — so the panel is a
+   reading of the key list before it is a control for it. */
+
+.db-sorts {
+  position: relative;
+  display: flex;
+}
+
+.db-sorts-btn {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 24px;
+  padding: 0 5px;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+}
+
+.db-sorts-btn:hover {
+  color: var(--text-2);
+}
+
+.db-sorts-btn.active {
+  background: var(--active);
+  color: var(--text-1);
+}
+
+/* how many keys are live, in the header badge's voice — quiet until
+   there is something to report */
+.db-sorts-count {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-3);
+}
+
+.db-sorts-menu {
+  min-width: 240px;
+}
+
+.db-sorts-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+.db-sorts-row:hover {
+  background: var(--active);
+}
+
+/* the reorder gesture: the grabbed row fades; the row under the pointer
+   lights up whole (below) */
+.db-sorts-row.dragging {
+  opacity: 0.4;
+}
+
+/* the whole row lights up, not an edge line: the gesture is "take this
+   row's place", and a top-edge marker would promise insert-before — one
+   slot off for a downward drag */
+.db-sorts-row.drop-on {
+  background: var(--hover);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.db-sorts-ord {
+  flex: none;
+  width: 12px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-4);
+  text-align: right;
+}
+
+.db-sorts-name {
+  flex: 1;
+  min-width: 0;
+  cursor: grab;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.db-sorts-dir,
+.db-sorts-drop {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-3);
+  font-family: var(--font);
+  font-size: 12px;
+}
+
+.db-sorts-dir:hover,
+.db-sorts-drop:hover {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+.db-sorts-drop svg {
+  width: 11px;
+  height: 11px;
+}
+
+.db-sorts-empty {
+  padding: 6px 8px;
+  color: var(--text-4);
+  font-size: 12px;
+}
+
+/* the way in reads quieter than the keys it adds to — it is an offer, not
+   part of the list */
+.db-sorts-add {
+  color: var(--text-3);
+}
+
+/* one property per row, nothing but its name */
+.db-sorts-add-item {
+  color: var(--text-2);
+}
+
+/* at the cap the offer stays put and says what it waits on */
+.db-sorts-cap {
+  cursor: default;
+}
+
+/* the add face sits under the key list, hairline-separated, so the keys it
+   is adding to stay on screen while a property is picked */
+.db-sorts-add-list {
+  max-height: 220px;
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border-soft);
+  overflow-y: auto;
+}
+
+/* the one line that teaches the gesture — on demand inside the popover,
+   never printed on the pane (design-principles.md 5) */
+.db-sorts-hint {
+  margin-top: 4px;
+  padding: 6px 8px 2px;
+  border-top: 1px solid var(--border-soft);
+  color: var(--text-4);
+  font-size: 11px;
+}

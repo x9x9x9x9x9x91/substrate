@@ -1,0 +1,211 @@
+
+/* Ableton-style info view: a persistent pointer readout docked into
+   the lower-left sidebar. It claims real layout space instead of obscuring
+   the bottom navigation; the scrollable tree yields while it is open. */
+.info-view {
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 4px 4px 0;
+}
+
+.info-view-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 620;
+}
+
+.info-view-toggle:hover {
+  color: var(--text-2);
+  border-color: var(--border);
+}
+
+.info-view.open .info-view-toggle {
+  background: var(--active);
+  color: var(--text-1);
+}
+
+.info-view-panel {
+  width: 100%;
+  min-height: 68px;
+  padding: 10px 12px 11px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  animation: info-view-in 110ms ease-out;
+}
+
+@keyframes info-view-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+.info-view-title {
+  margin-bottom: 4px;
+  color: var(--text-1);
+  font-size: 12px;
+  font-weight: 580;
+}
+
+.info-view-body {
+  color: var(--text-3);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+/* With the sidebar folded to its 78px rail, only the ? belongs in-flow. The
+   open explanation floats just above it; there is no full sidebar column to
+   reserve space in this state. */
+.sidebar-rail .info-view {
+  margin-top: auto;
+  padding-bottom: 0;
+}
+
+.sidebar-rail .info-view-panel {
+  position: fixed;
+  left: 12px;
+  bottom: 42px;
+  z-index: 45;
+  width: 220px;
+  background: var(--bg-elevated);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+}
+
+/* The lower-left "about the app" cluster. The controls share the
+   ?'s own row so they stay adjacent; the readout panel above still spans the
+   full sidebar column. */
+.info-view-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* sibling of .info-view-toggle — same ghost weight, icon instead of a glyph */
+.side-tool-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+}
+
+.side-tool-btn:hover {
+  color: var(--text-2);
+  border-color: var(--border);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .keyhints-panel,
+  .info-view-panel {
+    animation: none;
+  }
+
+  .keyhints-panel.closing {
+    transition: none;
+  }
+
+  /* the HUD still appears — it is information, not decoration; only the
+     travel and fade go away */
+  .modkey-hud {
+    animation: none;
+  }
+}
+
+/* ————— dashboard instrument language —————
+   One header, one label voice, one data voice, hairline structure. The page
+   is a spec sheet: mono uppercase micro-labels, ruled stat rows instead of
+   boxed cards, round state dots, --r radii. Inter speaks only in the
+   title and in sentences. */
+
+/* ————— accent tone table —————
+   Four curated tones for the accent family above, plus a bounded hue nudge.
+   The owner's call (03.08): presets as the base, a fine-tune slider around
+   them —
+   a free hue wheel makes ugly easy, a curated set does not.
+
+   Every value is written as hsl() with its hue inside a calc, so ONE
+   variable — --tone-nudge, in degrees, written by the Settings slider —
+   rotates the whole family coherently. Sky is the :root default and carries
+   the exact HSL of the shipped hexes (hsl(200.6 77.1% 67.5%) IS
+   #6cc0ec, asserted in lib/appearance.test.ts), so a default vault renders
+   the shipped look with no attribute set and no arithmetic that can drift.
+
+   The other three were derived by rotating sky in OKLCH — perceptually
+   uniform, so lightness and chroma survive the rotation — and converting
+   back to sRGB. They read as siblings of sky rather than as a second design.
+   Each keeps the family's two rules: series-5 stays the FIXED warm neutral
+   counterweight (the ramp's only warm slot; rotating or nudging it crosses
+   the reserved state band), and every moving slot clears 3:1 as a shape on
+   BOTH grounds across the whole nudge range — which bounds the nudge at ±12°
+   (lib/appearance.ts carries the sweep that fixes that number).
+
+   --tone-paper-* is the same family at print weight; the @media print block
+   maps them onto the same tokens, so a toned page prints in its own ink
+   rather than reverting to sky's. */
+
+/* sky — the shipped family: its numbers ARE the V1 hexes */
+:root {
+  /* degrees of hue offset around the chosen tone, ±12 */
+  --tone-nudge: 0;
+
+  --tone-accent: hsl(calc((200.6 + var(--tone-nudge)) * 1deg) 77.1% 67.5%);
+  --tone-accent-soft: hsl(calc((200.6 + var(--tone-nudge)) * 1deg) 77.1% 67.5% / 0.22);
+  --tone-accent-text: hsl(calc((199.2 + var(--tone-nudge)) * 1deg) 71.4% 79.4%);
+  --tone-series-1: hsl(calc((200.6 + var(--tone-nudge)) * 1deg) 77.1% 67.5%);
+  --tone-series-2: hsl(calc((215.9 + var(--tone-nudge)) * 1deg) 63.7% 57.8%);
+  --tone-series-3: hsl(calc((169.2 + var(--tone-nudge)) * 1deg) 53.3% 67.3%);
+  --tone-series-4: hsl(calc((211.3 + var(--tone-nudge)) * 1deg) 29.9% 69.8%);
+  --tone-series-5: #c9b98f;
+}
+
+:root {
+  --tone-paper-accent: hsl(calc((200.5 + var(--tone-nudge)) * 1deg) 77.2% 37.8%);
+  --tone-paper-accent-soft: hsl(calc((200.5 + var(--tone-nudge)) * 1deg) 77.2% 37.8% / 0.22);
+  --tone-paper-accent-text: hsl(calc((199.4 + var(--tone-nudge)) * 1deg) 71.8% 27.8%);
+  --tone-paper-series-1: hsl(calc((200.9 + var(--tone-nudge)) * 1deg) 78.1% 41.2%);
+  --tone-paper-series-2: hsl(calc((216.7 + var(--tone-nudge)) * 1deg) 51.4% 49.2%);
+  --tone-paper-series-3: hsl(calc((169.5 + var(--tone-nudge)) * 1deg) 53.6% 35.5%);
+  --tone-paper-series-4: hsl(calc((210.9 + var(--tone-nudge)) * 1deg) 26.6% 48.6%);
+  --tone-paper-series-5: #8f7a3f;
+}
+
+/* teal — cooler and greener than sky, still clear of the --ok band */
+:root[data-tone="teal"] {
+  --tone-accent: hsl(calc((183.0 + var(--tone-nudge)) * 1deg) 55.8% 57.5%);
+  --tone-accent-soft: hsl(calc((183.0 + var(--tone-nudge)) * 1deg) 55.8% 57.5% / 0.22);
+  --tone-accent-text: hsl(calc((179.0 + var(--tone-nudge)) * 1deg) 47.7% 74.5%);
+  --tone-series-1: hsl(calc((183.0 + var(--tone-nudge)) * 1deg) 55.8% 57.5%);
+  --tone-series-2: hsl(calc((192.6 + var(--tone-nudge)) * 1deg) 98.9% 36.9%);
+  --tone-series-3: hsl(calc((221.2 + var(--tone-nudge)) * 1deg) 100.0% 83.1%);
+  --tone-series-4: hsl(calc((192.8 + var(--tone-nudge)) * 1deg) 27.2% 66.1%);
+  --tone-series-5: #c9b98f;
+}
+
+:root[data-tone="teal"] {
+  --tone-paper-accent: hsl(calc((184.8 + var(--tone-nudge)) * 1deg) 100.0% 27.1%);
+  --tone-paper-accent-soft: hsl(calc((184.8 + var(--tone-nudge)) * 1deg) 100.0% 27.1% / 0.22);
+  --tone-paper-accent-text: hsl(calc((183.6 + var(--tone-nudge)) * 1deg) 100.0% 19.6%);
+  --tone-paper-series-1: hsl(calc((185.2 + var(--tone-nudge)) * 1deg) 100.0% 29.6%);
+  --tone-paper-series-2: hsl(calc((193.2 + var(--tone-nudge)) * 1deg) 100.0% 31.2%);
+  --tone-paper-series-3: hsl(calc((221.0 + var(--tone-nudge)) * 1deg) 34.2% 52.9%);
+  --tone-paper-series-4: hsl(calc((193.3 + var(--tone-nudge)) * 1deg) 33.0% 42.7%);
+  --tone-paper-series-5: #8f7a3f;
+}

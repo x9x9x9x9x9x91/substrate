@@ -1,0 +1,1211 @@
+
+/* `--bar-plot` is the tallest bar's height — the same number BAR_PLOT_PX holds
+   in ChartsDashboard.tsx, kept here so the max rule can be drawn at the top of
+   the plot without the renderer having to place it. `min-height` is that plot
+   plus the 19px the axis rule and time-label row take under every bar, plus
+   the block's own 8px of head room — 147 — rounded up to a flat 150; the value
+   labels ride INSIDE their bars and so cost the block nothing.
+   `--bar-w*` is the bar's width in one place: the fill and the value label
+   knocked out of it have to be the same box or the label paints its overhang
+   in the background colour on the background (review). */
+.dash-chart {
+  --bar-plot: 120px;
+  --bar-w: 52%;
+  --bar-w-floor: min(100%, 28px);
+  --bar-w-cap: 72px;
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  min-height: calc(var(--bar-plot) + 30px);
+  padding: 8px 0 0;
+  position: relative;
+}
+
+/* `size: tall` — the only size token a chart fence can name. The
+   number lives here and in BAR_PLOT_PX (ChartsDashboard.tsx); a fence names
+   the token, never the height. */
+.dash-chart[data-size="tall"] {
+  --bar-plot: 220px;
+}
+
+/* 1px axis the bars stand on — sits between the bars and the time-label row
+   (label line-height 14px + 5px column gap) */
+.dash-chart::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 19px;
+  border-bottom: 1px solid var(--hair);
+  pointer-events: none;
+}
+
+/* ONE gridline, at the max. A ledger rules the top of a column of
+   figures and leaves the middle alone: the reader needs to know where full
+   scale is, and every further line between it and the axis is chrome charging
+   rent. It rides the softer hairline so the axis stays the stronger of the
+   two, and it lands exactly on the tallest bar's top edge — `--bar-plot` above
+   the axis, which is where the renderer puts a bar at 100%. Only a plot whose
+   scale IS its tallest bar earns the rule, hence the marker class: the yield
+   pane borrows `.dash-chart` but scales against a rounded ceiling, so a line at
+   full scale there would rule empty air. */
+.dash-chart.is-ruled::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(19px + var(--bar-plot));
+  border-bottom: 1px solid var(--hair-soft);
+  pointer-events: none;
+}
+
+.dash-bar-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+/* A bar owns a little over half its band. It used to be capped at
+   28px whatever the band was, so a four-category chart on a wide board drew
+   four pencil strokes marooned in 500px of gutter — the mark reading as an
+   accident of the layout rather than as the quantity. Half the band is the
+   ledger's own proportion: wide enough that the bar is the figure, with enough
+   air left that the columns never touch. The cap is the far end of the same
+   argument: past ~72px a three-point chart stops drawing bars and starts
+   drawing slabs, and the figure is lost in its own fill.
+   The ratio alone does NOT hold at every column count — below a ~54px band it
+   draws a thinner bar than the 28px-capped geometry it replaced, and a
+   20-column chart in a 490px plot lands at 6.8px, the same pencil stroke at
+   the other end of the range (review). So the old rule survives as the floor:
+   `min(100%, 28px)` is exactly what the bar used to be, and the ratio only
+   takes over once it is the wider of the two. */
+.dash-bar {
+  width: var(--bar-w, 52%);
+  min-width: var(--bar-w-floor, min(100%, 28px));
+  max-width: var(--bar-w-cap, 72px);
+  border-radius: 0;
+  /* flat fill; --bar/--bar-hover carry the per-bar hue only where the renderer
+     has an authored one — the schema hue on a colored select axis (pill
+     idiom). Everything else takes the fallback, the accent itself: an unsplit
+     chart is ONE series and wears one colour, rather than reading as grey or
+     cycling a ramp that names nothing. */
+  background: var(--bar, var(--accent));
+  min-height: 3px;
+  transition: background 120ms ease-out;
+}
+
+.dash-bar-col:hover .dash-bar {
+  background: var(--bar-hover, var(--accent-text));
+}
+
+.dash-bar-val {
+  font: var(--dash-label);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  width: 100%;
+  height: 14px;
+  line-height: 14px;
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The value belongs to the bar, so it is written ON it. Floating
+   above the mark, every label added 19px of band the chart then had to be tall
+   enough to hold, and a full-height bar pushed its own number out over the max
+   rule. Inset, the number sits where the quantity ends and the plot keeps its
+   declared height. The negative margin is the whole mechanism: it pulls the
+   bar (and everything under it) up past this box — 19px to close the label's
+   own band, 4 more for the inset — so the label lands just inside the bar's
+   top edge while both stay in normal flow.
+
+   Only a bar with room gets one, in BOTH directions: the renderer withholds
+   `is-inset` under 22px of height, where the number would hang off the end of a
+   stub, and again when the number is wider than the bar is — knocked-out type
+   that overhangs its fill is painted background-on-background and is simply
+   gone (review). The label then keeps its old place above the mark, where it
+   is laid down in ink and reads even when its column has to clip it.
+   The box is sized off the same `--bar-w*` as the fill rather than the column,
+   so that guard has a belt: anything the renderer misjudges clips at the bar's
+   edge instead of vanishing past it. The scope is `.dash-chart` because
+   `.dash-bar-val` is shared: the food plot places the same element by its own
+   rules, and must not inherit this one. */
+.dash-chart .dash-bar-val.is-inset {
+  position: relative;
+  z-index: 1;
+  width: var(--bar-w, 52%);
+  min-width: var(--bar-w-floor, min(100%, 28px));
+  max-width: var(--bar-w-cap, 72px);
+  margin-bottom: -23px;
+  /* on the fill, in the surface's own colour — the one place in the dashboard
+     where type is knocked out rather than laid down */
+  color: var(--bg);
+}
+
+.dash-bar-time {
+  font: var(--dash-label);
+  color: var(--text-4);
+  font-variant-numeric: tabular-nums;
+  width: 100%;
+  height: 14px;
+  line-height: 14px;
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Keep every label measurable so the renderer can thin by its real width,
+   but hide skipped ticks without collapsing the shared axis band. */
+.dash-bar-time.is-hidden {
+  visibility: hidden;
+}
+
+/* A kept time label owns its hidden neighbours' room — thinning already
+   guarantees the widest token fits in labelEvery columns, so render it whole
+   instead of ellipsizing to one column ("2025-…" ×9 says nothing).
+   The box itself is sized to the token (width: max-content) and placed by the
+   column's own flex cross-alignment, so the PAINTED text — not just the box —
+   is centred on the bar: text-align cannot do this, since inline content that
+   overflows its box always spills to the inline end regardless (from
+   review). The edge columns swap centring for an inward anchor, which bounds
+   the painted rect at the plot's edges (first column's left and last column's
+   right are the plot's own edges — .dash-chart has no horizontal padding). */
+.dash-bar-time.is-roomy {
+  width: max-content;
+  overflow: visible;
+  text-overflow: clip;
+}
+.dash-bar-time.is-roomy.is-first {
+  align-self: flex-start;
+}
+.dash-bar-time.is-roomy.is-last {
+  align-self: flex-end;
+}
+
+/* Chart blocks (```chart fences) — line kind in the bar idiom's greys. The
+   plot insets right of a fixed 40px value gutter (hi/lo labels live there,
+   never floating over the line); one baseline under the whole chart. */
+
+.chart-line {
+  position: relative;
+  height: 150px;
+  margin-top: 4px;
+  padding-left: 40px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* the line plot's geometry is percentage-based, so `size: tall` is
+   purely this box growing — the path, dots and hints follow */
+.chart-line[data-size="tall"] {
+  height: 250px;
+}
+
+.chart-line-plot {
+  position: relative;
+  height: 100%;
+}
+
+.chart-line svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.chart-line-path {
+  stroke: var(--accent);
+  stroke-width: 1.5px;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.chart-dot {
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  margin: -2.5px 0 0 -2.5px;
+  border-radius: 50%;
+  background: var(--accent);
+  transition: background 120ms ease-out;
+}
+
+.chart-dot:hover {
+  background: var(--accent-text);
+}
+
+/* ————— glow —————
+   The bloom the owner dialled back to zero in the round-2 sheet, kept
+   as a
+   dial instead of a decision. --glow and --glow-bars are 0–1 scalars written
+   from the Settings slider; every rule below multiplies one of them, and the
+   full-strength numbers here are the reference overrides verbatim — 6px/0.55
+   on the line language, 12px/0.4 on the emphasised values, 8px/0.35 on the
+   bars. The line scalar saturates where the bar scalar starts, so slider 70
+   renders V2 and slider 100 renders V3, both pixel-identical to the variants
+   that round put up.
+
+   The [data-glow] gate is the whole point of the default costing nothing:
+   at glow 0 the attribute is ABSENT, so these selectors never match and the
+   compositor sees no filter and no text-shadow — not a 0px shadow it still
+   has to rasterise. Bars have their own gate one stage up, because a glowing
+   bar is the loudest mark the page can make and it should be the last thing
+   to light up.
+
+   The bloom colour is mixed from --accent, so it follows the tone table
+   above without a second palette to keep in sync. */
+[data-glow] .chart-line-path,
+[data-glow] .chart-dot {
+  filter: drop-shadow(
+    0 0 calc(6px * var(--glow)) color-mix(in srgb, var(--accent) calc(55% * var(--glow)), transparent)
+  );
+}
+
+[data-glow] .metrics-cards .dash-card:not(.sunk) .dash-card-eur {
+  text-shadow: 0 0 calc(12px * var(--glow))
+    color-mix(in srgb, var(--accent) calc(40% * var(--glow)), transparent);
+}
+
+[data-glow-bars] .dash-bar {
+  filter: drop-shadow(
+    0 0 calc(8px * var(--glow-bars))
+      color-mix(in srgb, var(--accent) calc(35% * var(--glow-bars)), transparent)
+  );
+}
+
+/* A line chart's axis names its marks for the same reason a bar chart's does,
+   so it says it in the same voice. These two used to be hand-rolled
+   sans at the label size while `.dash-bar-val` and `.dash-bar-time` — the bar
+   plot's exact equivalents — took `--dash-label` and its mono; two charts on
+   one board then labelled themselves in two typefaces. The size is unchanged;
+   only the voice is. Neither takes the label's uppercase or tracking, because
+   neither of the bar plot's does: an axis tick is a date or a figure being
+   read, not a heading being scanned. */
+.chart-line-hint {
+  position: absolute;
+  left: 0;
+  width: 34px;
+  text-align: right;
+  transform: translateY(-50%);
+  font: var(--dash-label);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.chart-line-labels {
+  position: relative;
+  /* one label line tall — the children are absolutely positioned; 1.5em
+     matches the inherited line-height the old flex row had */
+  height: 1.5em;
+  /* aligns with the plot, which insets right of the value gutter — a margin,
+     not padding, so the children's containing block spans the plot width */
+  margin: 6px 0 0 40px;
+  font: var(--dash-label);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-line-labels span {
+  position: absolute;
+  top: 0;
+  white-space: nowrap;
+}
+
+/* Five categorical band treatments for a `by:` split, walked from slot 1 in
+   order — never rotated to fit the split, never cycled. A sixth series says
+   so in place rather than borrowing slot 1's colour and lying about which
+   series it is. */
+.chart-swatch {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 1px;
+  background: var(--band, var(--text-1));
+}
+
+.band-0 {
+  --band: var(--band-1);
+}
+
+.band-1 {
+  --band: var(--band-2);
+}
+
+.band-2 {
+  --band: var(--band-3);
+}
+
+.band-3 {
+  --band: var(--band-4);
+}
+
+.band-4 {
+  --band: var(--band-5);
+}
+
+/* the legend names the bands before the plot draws them — one line, label
+   voice, no box */
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  margin: 6px 0 2px;
+  font: var(--dash-label);
+  color: var(--text-3);
+}
+
+.chart-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* a stacked column is one bar-height box; slices divide it by share, so the
+   column still reads as a single mark and totals stay comparable */
+.dash-bar.is-stack {
+  display: flex;
+  flex-direction: column-reverse;
+  background: none;
+  overflow: hidden;
+}
+
+/* An empty bucket — no rows behind it, split or not — reads as a
+   flat tick in the axis hairline rather than as a bar of its own. */
+.dash-bar.is-empty {
+  background: var(--hair);
+}
+
+/* A real zero stack has rows but no positive slice to paint. Give its 3px box
+   the same resting and hover fills as a plain zero bar. */
+.dash-bar.is-stack.is-zero {
+  background: var(--bar, rgba(255, 255, 255, 0.38));
+}
+
+.dash-bar-col:hover .dash-bar.is-stack.is-zero {
+  background: var(--bar-hover, rgba(255, 255, 255, 0.5));
+}
+
+/* `.dash-bar.is-empty` has lower specificity than the generic column-hover
+   rule, so pointer hover already brightens a plain empty tick. This explicit
+   rule supplies the missing keyboard-focus response and keeps both shapes on
+   the same deliberate treatment: axis grey, quieter than any real bar. */
+.dash-bar-col:hover .dash-bar.is-empty,
+.dash-bar-col:focus-visible .dash-bar.is-empty {
+  background: var(--text-4);
+}
+
+.dash-bar-slice {
+  flex-basis: 0;
+  min-height: 0;
+  background: var(--band);
+  /* a hairline in the page ground keeps two adjacent doses from fusing */
+  border-top: 1px solid var(--bg);
+}
+
+.dash-bar-slice:first-child {
+  border-top: 0;
+}
+
+.dash-bar-col:hover .dash-bar-slice,
+.dash-bar-col:focus-visible .dash-bar-slice {
+  filter: brightness(1.15);
+}
+
+/* Dash patterns ride along with the hue as a second, colour-free carrier: a
+   printed-mono or CVD reading still separates the paths. Slot 0 stays solid
+   as the reference line; each further slot takes its own pattern. */
+.chart-line-path.band-1 {
+  stroke-dasharray: 5 3;
+}
+
+.chart-line-path.band-2 {
+  stroke-dasharray: 1 3;
+}
+
+.chart-line-path.band-3 {
+  stroke-dasharray: 8 3 1 3;
+}
+
+.chart-line-path.band-4 {
+  stroke-dasharray: 2 2 6 2;
+}
+
+/* Five fixed slots deserve a fixed-five selector: a `[class*="band-"]`
+   substring match would also claim unrelated classes that happen to contain
+   the word (`.mastering-band-flagged` already ships), so the slots are
+   enumerated. */
+.chart-line-path.band-0,
+.chart-line-path.band-1,
+.chart-line-path.band-2,
+.chart-line-path.band-3,
+.chart-line-path.band-4 {
+  stroke: var(--band);
+}
+
+.chart-dot.band-0,
+.chart-dot.band-1,
+.chart-dot.band-2,
+.chart-dot.band-3,
+.chart-dot.band-4 {
+  background: var(--band);
+}
+
+/* full-height hover/focus target per x — hovering a 5px dot is a pixel hunt,
+   and a split chart has to answer for every band at that x at once */
+.chart-line-slot {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  min-width: 1px;
+  border-radius: var(--r);
+}
+
+.chart-line-slot:hover {
+  background: var(--hover-dense);
+}
+
+/* The tooltip: an elevated card in the palette's chrome, anchored to the
+   hovered slot and lifted clear of it. Never a hit target of its own — the
+   pointer must be able to cross it to the next bar. */
+.chart-tip {
+  position: absolute;
+  z-index: 3;
+  --tip-x: -50%;
+  --tip-y: -100%;
+  transform: translate(var(--tip-x), var(--tip-y));
+  margin-top: -8px;
+  pointer-events: none;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.5);
+  padding: 6px 9px;
+  min-width: 74px;
+  white-space: nowrap;
+}
+
+/* at the axis ends the card hangs from that side instead of centring, so the
+   first and last slot never push it past the chart */
+.chart-tip.is-l {
+  --tip-x: -14px;
+}
+
+.chart-tip.is-r {
+  --tip-x: calc(-100% + 14px);
+}
+
+.chart-tip.is-below {
+  --tip-y: 0;
+  margin-top: 8px;
+}
+
+.chart-tip-x {
+  font: var(--dash-label);
+  color: var(--text-3);
+  margin-bottom: 3px;
+}
+
+.chart-tip-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font: var(--dash-data);
+  color: var(--text-1);
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-tip-name {
+  color: var(--text-2);
+  margin-right: auto;
+}
+
+.chart-tip-val {
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-tip-n {
+  font: var(--dash-label);
+  color: var(--text-4);
+  margin-top: 2px;
+}
+
+/* The consent review a custom kind waits behind. A pane in the
+   dashboard frame, so it takes the page's own measure rather than a dialog's:
+   full-width prose, the facts as a definition list, the decision at the
+   bottom. Nothing here is styled to be dismissed. */
+.kind-review {
+  max-width: 560px;
+  margin: 4px 0 8px;
+}
+
+.kind-review-title {
+  font: var(--dash-label);
+  font-size: 15px;
+  color: var(--text-1);
+}
+
+.kind-review-desc {
+  margin: 10px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+
+.kind-review-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 3px 14px;
+  margin: 14px 0 0;
+  font-size: 12.5px;
+}
+
+.kind-review-facts > div {
+  display: contents;
+}
+
+.kind-review-facts dt {
+  color: var(--text-4);
+}
+
+.kind-review-facts dd {
+  margin: 0;
+  color: var(--text-2);
+  font-family: var(--mono);
+}
+
+/* what the user is agreeing to — the one block on the pane that gets a rule
+   and the body's full contrast, because it is the part worth reading twice */
+.kind-review-terms {
+  margin: 16px 0 0;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--border);
+  list-style: none;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-2);
+}
+
+.kind-review-terms li + li {
+  margin-top: 6px;
+}
+
+.kind-review-trust {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 14px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.kind-review-trust .dash-sub {
+  display: block;
+  margin-top: 2px;
+}
+
+.kind-review-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.kind-review-actions button {
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+/* "Open the code" is the alternative to deciding, not a second decision */
+.kind-review-actions button.ghost {
+  background: var(--bg);
+  border-color: var(--border);
+  color: var(--text-2);
+}
+
+.kind-review-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.kind-review-error {
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: var(--danger);
+}
+
+/* a chart still plotting, with something worth saying about its source — a
+   mount reading its last-known index. Quiet by design: the data is
+   real, only possibly stale, so this is not an error voice. */
+.chart-note {
+  font-size: 12.5px;
+  color: var(--text-4);
+  margin: 2px 0 6px;
+}
+
+/* Heatmap blocks (```heatmap fences) — a year of day squares in the
+   chart language's greyscale. Intensity is the same white-alpha ramp the bars
+   use, five steps of it, so a heatmap next to a chart reads as one surface:
+   no hue means no claim about which day was good. */
+
+.heatmap {
+  --hm-gap: 3px;
+  /* level 0 is the empty day: the grid's own hairline, present but silent */
+  --hm-0: var(--grid-line);
+  --hm-1: rgba(255, 255, 255, 0.11);
+  --hm-2: rgba(255, 255, 255, 0.19);
+  --hm-3: rgba(255, 255, 255, 0.28);
+  --hm-4: rgba(255, 255, 255, 0.42);
+  margin-top: 8px;
+}
+
+.heatmap-years {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.heatmap-year {
+  height: 22px;
+  padding: 0 9px;
+  border: 1px solid var(--border-soft);
+  border-radius: 11px;
+  background: none;
+  font: var(--dash-label);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+  cursor: pointer;
+  transition:
+    color 120ms ease-out,
+    background 120ms ease-out,
+    border-color 120ms ease-out;
+}
+
+.heatmap-year:hover {
+  background: var(--hover);
+  border-color: var(--border);
+  color: var(--text-1);
+}
+
+.heatmap-year.is-on {
+  background: var(--hover);
+  border-color: var(--border-strong);
+  color: var(--text-1);
+}
+
+/* a narrow pane scrolls the year rather than shrinking the squares to dust */
+.heatmap-scroll {
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.heatmap-plot {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 6px;
+  /* floor keeps a square legible; ceiling keeps 53 of them from turning into
+     tiles on a wide pane */
+  min-width: 470px;
+  max-width: 780px;
+}
+
+.heatmap-months {
+  display: grid;
+  grid-template-columns: repeat(var(--weeks), minmax(0, 1fr));
+  font: var(--dash-label);
+  color: var(--text-4);
+}
+
+.heatmap-months span {
+  white-space: nowrap;
+}
+
+/* rides the same 7 rows as a week column, so Mon/Wed/Fri sit on their squares */
+.heatmap-wd {
+  display: grid;
+  grid-template-rows: repeat(7, 1fr);
+  gap: var(--hm-gap);
+  align-items: center;
+  font: var(--dash-label);
+  color: var(--text-4);
+  text-align: right;
+}
+
+.heatmap-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--weeks), minmax(0, 1fr));
+  gap: var(--hm-gap);
+}
+
+.heatmap-grid:focus-visible {
+  outline: 1.5px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.heatmap-week {
+  display: grid;
+  grid-template-rows: repeat(7, auto);
+  gap: var(--hm-gap);
+}
+
+.heatmap-day,
+.heatmap-pad {
+  aspect-ratio: 1;
+  border-radius: var(--r);
+}
+
+.heatmap-day {
+  background: var(--hm-0);
+  transition: background 120ms ease-out;
+}
+
+.heatmap-day[data-level="1"] {
+  background: var(--hm-1);
+}
+
+.heatmap-day[data-level="2"] {
+  background: var(--hm-2);
+}
+
+.heatmap-day[data-level="3"] {
+  background: var(--hm-3);
+}
+
+.heatmap-day[data-level="4"] {
+  background: var(--hm-4);
+}
+
+/* the keyboard cursor: a ring, never a fill — the fill is the value */
+.heatmap-day.is-cursor {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+.heatmap-day:hover {
+  box-shadow: inset 0 0 0 1px var(--hair);
+}
+
+.heatmap-under {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 8px;
+}
+
+/* the readout says what the cursor is on — aria-live for AT, plain text for
+   everyone else, so a heatmap is readable without a mouse or a tooltip */
+.heatmap-readout {
+  font: var(--dash-data);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.heatmap-legend {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font: var(--dash-label);
+  color: var(--text-4);
+  flex: none;
+}
+
+.heatmap-key {
+  width: 9px;
+  height: 9px;
+  border-radius: var(--r);
+  background: var(--hm-0);
+}
+
+.heatmap-key[data-level="1"] {
+  background: var(--hm-1);
+}
+
+.heatmap-key[data-level="2"] {
+  background: var(--hm-2);
+}
+
+.heatmap-key[data-level="3"] {
+  background: var(--hm-3);
+}
+
+.heatmap-key[data-level="4"] {
+  background: var(--hm-4);
+}
+
+/* the goal thermometer — a ```progress fence. It is a section like
+   a chart is: label above, picture, then the reading and the pace line. */
+.progress-fence {
+  margin-top: 26px;
+  /* the squeeze point is the fence's own width, not the window (principle 4):
+     a sidebar can starve it while the viewport stays wide */
+  container: progress-fence / inline-size;
+}
+
+.progress-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* an accented fence tints its LABEL only — the same treatment a
+   metric card's `accent:` gets, so one token reads alike on a card and on a
+   thermometer. Deliberately not the bar: the fill stays neutral grayscale by
+   the rule below, so the hue says what the goal is about while the bar keeps
+   saying how far along it is. The fallback keeps an unresolved name neutral. */
+.progress-fence[data-accent] .dash-label {
+  color: var(--accent-tint, var(--text-3));
+}
+
+/* the percent is the same statement as the bar, so it stays a hint, not a
+   second headline — the reading below carries the value/target voice */
+.progress-pct {
+  font: var(--dash-data);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.progress-track {
+  height: 6px;
+  margin-top: 8px;
+  border-radius: 3px;
+  background: var(--track);
+  overflow: hidden;
+}
+
+/* a goal bar is a flow bar: neutral grayscale, no accent or heat ramp — the
+   accent belongs to quota alone, so one hue never carries two meanings
+   (design principle 4). Ahead/behind is said in words, not in colour. */
+.progress-fill {
+  display: block;
+  height: 100%;
+  width: var(--progress-fill, 0%);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.35);
+  transition: width 0.4s ease;
+}
+
+.progress-read {
+  margin-top: 8px;
+  font: var(--dash-value);
+  font-variant-numeric: tabular-nums;
+}
+
+.progress-foot {
+  margin-top: 3px;
+  font: var(--dash-data);
+  color: var(--text-4);
+  font-variant-numeric: tabular-nums;
+}
+
+/* one broken fence, one error, siblings untouched: the shared banner sits
+   tight under the fence's own label rather than at page rhythm */
+.progress-fence .dash-alert {
+  margin-top: 6px;
+}
+
+/* a narrow pane stacks the label and its percent rather than squeezing both
+   onto one line; the squeeze point is the pane, not the window (principle 4) */
+@container progress-fence (max-width: 320px) {
+  .progress-head {
+    flex-direction: column;
+    gap: 2px;
+  }
+}
+
+/* ── ```calendar fences ── the Calendar pane's month grid, sized for
+   a dashboard section instead of a full pane. It reuses the pane's cell,
+   chip and pager classes verbatim (one visual language for one surface); only
+   the outer sizing differs, because the pane grid is a flex child that fills
+   the window and a fence has to declare its own height. */
+
+.calfence {
+  margin-bottom: 30px;
+}
+
+.calfence-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.calfence-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.calfence-month {
+  font-size: 12px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* the grid rows are fixed rather than fractional: six rows of a flex-filled
+   pane would collapse to nothing inside a scrolling dashboard */
+.calfence-scroll {
+  flex: none;
+  border-top: 1px solid var(--border-soft);
+}
+
+.calfence-scroll .cal-grid.month {
+  grid-auto-rows: minmax(76px, auto);
+}
+
+/* narrow panes scroll the grid sideways rather than crush seven columns —
+   the same trade the pane makes, at the density a section can carry */
+.calfence-scroll > .cal-weekdays,
+.calfence-scroll > .cal-grid {
+  min-width: 560px;
+}
+
+/* the fence's chips open a note; they never drag */
+.calfence .cal-entry {
+  cursor: pointer;
+}
+
+/* the form is a section, not a box — its section label carries the frame */
+.dash-form {
+  margin-top: 32px;
+}
+
+.dash-form-row {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.dash-form-row label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1 1 0;
+  min-width: 140px;
+}
+
+.dash-form-row input {
+  height: 30px;
+  border: 1px solid var(--hair);
+  border-radius: var(--r);
+  background: var(--bg-input);
+  color: var(--text-1);
+  font: 400 12px var(--mono);
+  font-variant-numeric: tabular-nums;
+  padding: 0 10px;
+  outline: none;
+  width: 100%;
+  min-width: 0;
+  color-scheme: dark;
+  transition:
+    border-color 120ms ease-out,
+    box-shadow 120ms ease-out;
+}
+
+.dash-form-row input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.dash-form-row input.error {
+  border-color: var(--danger);
+}
+
+.dash-add {
+  height: 30px;
+  padding: 0 16px;
+  border: none;
+  border-radius: var(--r);
+  background: var(--accent);
+  /* the filled button's ink follows the accent's lightness: white on a
+     lit accent is 2.0:1, unreadable. A light fill takes a dark ink — and
+     since the fill now follows the tone dial, the ink is the app-wide
+     --on-accent rather than a sky-only deep blue that would read as a
+     leftover under any other tone. */
+  color: var(--on-accent);
+  font: var(--dash-sentence);
+  font-weight: 550;
+  transition: filter 120ms ease-out;
+}
+
+.dash-add:hover {
+  filter: brightness(1.1);
+}
+
+.dash-add:active {
+  filter: brightness(0.92);
+}
+
+/* Claim: quiet ghost next to the primary Add — marks the current
+   balance as claimed so freshly entered venue numbers add on top. The
+   actions wrap as one unit so Claim never strands on its own row. */
+.dash-form-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.dash-claim {
+  height: 30px;
+  padding: 0 14px;
+  border: 1px solid var(--hair);
+  border-radius: var(--r);
+  background: transparent;
+  color: var(--text-2);
+  font: var(--dash-sentence);
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease-out,
+    color 120ms ease-out,
+    border-color 120ms ease-out;
+}
+
+.dash-claim:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text-1);
+  border-color: var(--border-strong);
+}
+
+.dash-claim:active:not(:disabled) {
+  background: var(--active);
+}
+
+/* armed: the confirming press names the amount and wears the same
+   treatment as the trash-danger buttons — one confirm pattern app-wide */
+.dash-claim.armed {
+  color: var(--danger);
+  border-color: rgba(235, 87, 87, 0.55);
+  background: rgba(235, 87, 87, 0.08);
+}
+
+.dash-claim:disabled {
+  color: var(--text-3);
+  opacity: 0.55;
+  cursor: default;
+}
+
+.dash-claim-hint {
+  font-weight: 400;
+  color: var(--text-3);
+}
+
+.dash-metric-sub {
+  margin-top: 3px;
+  font: var(--dash-data);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.dash-table {
+  width: 100%;
+  border-collapse: collapse;
+  font: var(--dash-data);
+  font-variant-numeric: tabular-nums;
+}
+
+.dash-table th {
+  text-align: left;
+  font: var(--dash-label);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--hair);
+}
+
+.dash-table td {
+  padding: 5px 10px;
+  color: var(--text-2);
+  border-bottom: 1px solid var(--hair-soft);
+}
+
+.dash-table tr td:first-child {
+  color: var(--text-3);
+}
+
+/* history toggle: quiet text control under the table — walks the
+   table back to the earliest snapshot and closes up again */
+.dash-table-toggle {
+  margin-top: 8px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: var(--dash-data);
+  color: var(--text-3);
+  cursor: pointer;
+  transition: color 120ms ease-out;
+}
+
+.dash-table-toggle:hover {
+  color: var(--text-1);
+}
+
+.dash-foot {
+  margin-top: 16px;
+  font: var(--dash-data);
+  color: var(--text-4);
+}
+
+/* ————— the one empty voice and the one error voice —————
+   Every dashboard kind speaks these two sentences and nothing else when it
+   has no content to draw. Before this there were four dialects of empty (a
+   faint --text-4 footer line, a centred sentence, a board-local class, a dot
+   and a sentence) and six near-identical error classes, one per kind.
+
+   `.dash-empty` is the calm one: a dot at reading size and one sentence in
+   the house voice. --text-4 is documented as plot-axis and page-footer ink,
+   so an empty board's ONLY line was being drawn in the quietest ink the
+   system owns — the message a reader most needs set as the one they can
+   least see.
+
+   `.dash-alert` is the visible banner: the weight the write and action
+   failures have always used, now carrying every kind's failures too — a
+   fence that would not parse, a source that is not there, a read that threw —
+   and marked with the rule the readiness board's banners carried, because a
+   bare red line is a sentence that happens to be red and a marked one is a
+   banner. That board had the strongest of the two dresses, so the fold goes
+   UP to it rather than down. `.sync-action-err` is the name the weight grew
+   up under and stays a live alias, so the panes outside the dashboard kinds
+   speak the same one voice without each naming it separately. */
+.dash-empty {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  font: var(--dash-sentence);
+  color: var(--text-2);
+}
+
+.dash-alert,
+.sync-action-err {
+  margin-top: 12px;
+  padding-left: 10px;
+  border-left: 2px solid var(--danger);
+  font: var(--dash-data);
+  color: var(--danger);
+}
+
+/* the tile variant: a broken fence inside a grid cell holds the cell open at
+   the height a rendered tile would have, so its neighbours do not reflow
+   around the failure */
+.dash-alert.is-fill {
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+  margin-top: 0;
+}

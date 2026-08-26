@@ -1,0 +1,553 @@
+
+/* Heads that reach the window's right edge load their controls there, so they
+   reserve the fixed chrome slot. The narrow .list column never sits
+   under the slot and keeps its full width; the database grid only reaches the
+   edge while no entry is open beside it. */
+.cal .list-head,
+.trash .list-head,
+.dbmgr .list-head,
+.vault-sync .list-head,
+.main:not(:has(.db-note)) .db .list-head {
+  /* the 9px is .main's own offset from the viewport edge (8px margin + 1px
+     border) — the inset lands flush against the fixed button */
+  padding-right: calc(var(--chrome-x) + var(--chrome-slot) - 9px);
+}
+
+.list-title {
+  font-size: 13px;
+  font-weight: 590;
+  letter-spacing: -0.01em;
+}
+
+.list-count {
+  font-size: 12px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Quiet kind word ("Folder" / "Database" / "Dashboard") naming what
+   the open view IS — headers otherwise read identically across kinds */
+.head-kind {
+  font-size: 10.5px;
+  font-weight: 550;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  border: 1px solid var(--border-soft);
+  border-radius: 4px;
+  padding: 1.5px 6px;
+  flex: none;
+}
+
+/* Back chevron — leads the header, .list-new's shape mirrored to
+   the leading edge. Present only while there is somewhere to return to, so
+   the header's left edge is quiet in the views you start from. */
+.list-back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-left: -6px;
+  flex: none;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  transition:
+    background-color 120ms ease-out,
+    color 120ms ease-out;
+}
+
+.list-back:hover {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+/* Folder header "+" — births a note (or the home database's entry)
+   in the open folder; sits at the header's far edge, .sidebar-new's shape */
+.list-new {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-left: auto;
+  flex: none;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  transition:
+    background-color 120ms ease-out,
+    color 120ms ease-out;
+}
+
+.list-new:hover {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+.list-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.row {
+  padding: 8px 10px;
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  cursor: pointer;
+}
+
+.row:hover {
+  background: var(--hover);
+}
+
+.row.selected {
+  background: var(--active);
+}
+
+.row-top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.row-title {
+  font-size: 13px;
+  font-weight: 510;
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.row-date {
+  margin-left: auto;
+  flex: none;
+  font-size: 11px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.row-sub {
+  font-size: 12px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* designed empty state: hero glyph, confident title, one quiet line.
+   Same DOM everywhere — <div class="empty"> icon? <span>title</span>
+   <span class="empty-hint">…</span> [action]. */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 100%;
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.empty > svg {
+  width: 30px;
+  height: 30px;
+  color: var(--text-3);
+  margin-bottom: 10px;
+}
+
+/* The rule above scales a 16-viewBox chrome glyph to 30px, which renders its
+   1.4 stroke at 2.63px — twice the weight of the same glyph in the sidebar. A
+   hero mark (components/HeroIcons.tsx) is drawn at 48 and rendered at 44, so it
+   opts OUT of that scaling: 1.5 at 0.917 scale is 1.375px, optically level with
+   15px chrome. */
+.empty > svg.hero-mark {
+  width: 44px;
+  height: 44px;
+  margin-bottom: 14px;
+}
+
+.empty-hint {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-3);
+  max-width: 300px;
+  text-align: center;
+  text-wrap: balance;
+  line-height: 1.5;
+}
+
+/* the seam between the pane's two list grammars — database blocks above,
+   loose notes below (All notes / folder views) */
+.list-seam {
+  height: 1px;
+  margin: 6px 10px;
+  background: var(--border-soft);
+}
+
+/* Windowing: the anchor marks where the notes region starts (the
+   measure effect reads its offset), the spacers stand in for the rows outside
+   the painted slice so the scroll height matches a full render. */
+.list-win-anchor {
+  height: 0;
+}
+
+.list-win-spacer {
+  flex: none;
+  pointer-events: none;
+}
+
+/* sparse-journal pointer (under the rows, not a centered empty state) */
+.list-journal-hint {
+  padding: 8px 10px;
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+
+/* A clickable dead-end hint — the did-you-mean case applies the
+   corrected query on click */
+button.empty-hint-fix {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+button.empty-hint-fix:hover {
+  color: var(--text-2);
+  text-decoration: underline;
+}
+
+.empty-action {
+  margin-top: 14px;
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-elevated);
+  color: var(--text-1);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease-out,
+    border-color 120ms ease-out;
+}
+
+.empty-action:hover {
+  background: var(--hover);
+  border-color: var(--border-strong);
+}
+
+.note {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+}
+
+.note-inner {
+  /* Notion's reading measure is ~900px; 700 read cramped next to it
+     (2026-07-20: "more space in notion") — 780 keeps lines readable
+     while letting the page breathe */
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  max-width: 780px;
+  /* .note is a flex item rather than an explicitly-sized containing block,
+     so a percentage min-height collapses to content height here. Match the
+     desktop pane's viewport minus .main's 8px top/bottom frame instead. */
+  min-height: calc(100vh - 18px);
+  margin: 0 auto;
+  padding: 44px clamp(24px, 4.5vw, 56px) 120px;
+}
+
+/* external-truth banners (conflict / gone): quiet inline strip
+   under the title — no toast, no modal */
+.note-feedback {
+  position: sticky;
+  top: 10px;
+  z-index: 4;
+  margin-right: 72px;
+  background: var(--bg);
+}
+
+.note-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 2px 0 12px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-elevated);
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.note-banner > span {
+  flex: 1;
+  min-width: 0;
+}
+
+.note-banner button {
+  flex-shrink: 0;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-1);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease-out,
+    border-color 120ms ease-out;
+}
+
+.note-banner button:hover {
+  background: var(--hover);
+  border-color: var(--border-strong);
+}
+
+/* Broken frontmatter — the block is invisible to the editor, so a
+   quiet strip between the props and the body names it and opens the repair
+   dialog. Hairline + err-dot, the save-error lane's warning vocabulary. */
+.fm-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 0 12px;
+  padding: 6px 10px;
+  border: 1px solid var(--hair);
+  border-radius: var(--r);
+  font: var(--dash-sentence);
+  color: var(--text-2);
+}
+
+.fm-banner > span:not(.err-dot) {
+  flex: 1;
+  min-width: 0;
+}
+
+.fm-banner button {
+  flex-shrink: 0;
+  padding: 3px 9px;
+  border: 1px solid var(--hair);
+  border-radius: var(--r);
+  background: transparent;
+  color: var(--text-1);
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease-out,
+    border-color 120ms ease-out;
+}
+
+.fm-banner button:hover {
+  background: var(--hover);
+  border-color: var(--border-strong);
+}
+
+.note-title {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-1);
+  font-family: var(--font);
+  font-size: 24px;
+  font-weight: 640;
+  letter-spacing: -0.015em;
+  padding: 0;
+}
+
+.note-title::placeholder {
+  color: var(--text-3);
+}
+
+/* Body-write failure — quiet persistent pill under the title until
+   a write succeeds; the button IS the retry */
+.save-error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  border: none;
+  outline: none;
+  background: transparent;
+  padding: 0;
+  margin: -4px 0 8px;
+  color: var(--danger);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.save-error:hover {
+  text-decoration: underline;
+}
+
+.err-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--danger);
+  flex: none;
+}
+
+/* daily-note header: chevron ‹ date › */
+.note-daily {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.note-title-daily {
+  width: auto;
+  padding: 0 2px;
+}
+
+/* template header: fixed type name + muted marker, same metrics */
+.note-title-template {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.note-title-tag {
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--text-3);
+}
+
+/* day-steppers: 26px square hit areas via .note-tool, quiet until
+   hovered */
+.daily-nav {
+  flex: none;
+}
+
+.daily-nav:hover {
+  color: var(--text-1);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 12px 0 4px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid var(--border-soft);
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-2);
+  animation: chip-in 120ms ease-out;
+}
+
+@keyframes chip-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chip {
+    animation: none;
+  }
+}
+
+.chip:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: var(--border);
+}
+
+.chip-key {
+  color: var(--text-3);
+}
+
+.chip-val {
+  color: var(--text-2);
+  font-weight: 500;
+  /* non-string props (lists/maps) render as JSON — clamp instead of exploding
+     the chip row (bit by the Portfolio dashboard's cards list) */
+  max-width: 240px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* born-empty schema chips collapse to a key-only pill */
+.chip-val:empty {
+  display: none;
+}
+
+.chip-x {
+  display: inline-flex;
+  align-items: center;
+  border: none;
+  background: none;
+  color: var(--text-3);
+  padding: 0;
+  margin-left: 1px;
+  margin-right: -3px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.chip:hover .chip-x,
+.chip-x:focus {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.chip-x:hover {
+  color: var(--text-1);
+}
+
+/* one value inside a relation chip — each is a link to its note */
+.chip-rel {
+  display: inline;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  padding: 0;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.chip-rel:hover {
+  color: var(--text-1);
+}
+
+.chip-add {
+  background: transparent;
+  border: 1px dashed var(--border);
+  color: var(--text-3);
+}
+
+.chip-add:hover {
+  color: var(--text-2);
+  background: transparent;
+  border-color: var(--border-strong);
+}

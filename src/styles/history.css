@@ -1,0 +1,502 @@
+
+.hist {
+  width: 780px;
+  max-width: calc(100vw - 80px);
+  margin-top: 90px;
+  height: fit-content;
+  max-height: calc(100vh - 180px);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  box-shadow:
+    0 16px 70px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  overflow: hidden;
+  animation: palette-in 110ms ease-out;
+}
+
+.hist-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.hist-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.hist-title-note {
+  color: var(--text-2);
+  font-weight: 450;
+}
+
+.hist-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: default;
+}
+
+.hist-close:hover {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+.hist-body {
+  display: flex;
+  min-height: 260px;
+  max-height: calc(100vh - 320px);
+}
+
+.hist-list {
+  width: 235px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  border-right: 1px solid var(--border-soft);
+  padding: 6px;
+}
+
+.hist-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 9px;
+  border-radius: 6px;
+}
+
+.hist-item:hover {
+  background: var(--hover);
+}
+
+/* snapshot rows are listbox options with roving focus — the ring
+   marks keyboard entry; pointer picks keep the quiet .selected ground */
+.hist-item:focus-visible {
+  outline: 1.5px solid var(--accent);
+  outline-offset: -1.5px;
+}
+
+.hist-item.selected {
+  background: var(--active);
+}
+
+.hist-item-when {
+  font-size: 12.5px;
+  color: var(--text-1);
+}
+
+.hist-item-now {
+  color: var(--text-3);
+}
+
+.hist-item-stat {
+  font-size: 11.5px;
+  font-family: var(--mono);
+  color: var(--text-3);
+}
+
+.hist-item-restore {
+  font-family: var(--font);
+  color: var(--text-3);
+}
+
+.hist-stat-add {
+  color: var(--ok);
+}
+
+.hist-stat-del {
+  color: var(--danger);
+}
+
+.hist-diff {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.hist-diff-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.hist-diff-label {
+  font-size: 11px;
+  font-weight: 550;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.hist-restore {
+  padding: 4px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-1);
+  font-size: 12px;
+  cursor: default;
+}
+
+.hist-restore:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.hist-restore:disabled {
+  color: var(--text-3);
+  border-color: var(--border-soft);
+}
+
+.hist-diff-lines {
+  flex: 1;
+  overflow: auto;
+  padding: 8px 0 12px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+  user-select: text;
+}
+
+.hist-line {
+  padding: 0 14px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.hist-line-add {
+  color: var(--ok);
+  background: rgba(76, 183, 130, 0.07);
+}
+
+.hist-line-del {
+  color: var(--danger);
+  background: rgba(235, 87, 87, 0.06);
+}
+
+.hist-line-ctx {
+  color: var(--text-2);
+}
+
+.hist-line-hunk {
+  color: var(--text-3);
+  padding-top: 6px;
+}
+
+/* the inline note inside a populated diff column ("No text changes") — not a
+   pane's empty state, so it stays a quiet strip rather than the shell */
+.hist-empty {
+  padding: 18px 14px;
+  color: var(--text-3);
+  font-size: 12.5px;
+}
+
+/* Layout delta where the panel's empty states ride the shared shell.
+   The glyph steps down — this is a 260px column, not a pane — and the box sits
+   at the top of the list instead of centering in its scroll height. */
+.empty.hist-empty {
+  height: auto;
+  color: var(--text-2);
+}
+
+.empty.hist-empty > svg {
+  width: 22px;
+  height: 22px;
+  margin-bottom: 6px;
+}
+
+/* foreign-repo state: same quiet grey as the empty state, no chrome */
+.hist-disabled {
+  width: 100%;
+  padding: 26px 18px;
+  line-height: 1.55;
+}
+
+.hist-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 16px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.hist-danger-links {
+  display: flex;
+  gap: 14px;
+}
+
+.hist-danger-link {
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-size: 12px;
+  color: var(--text-3);
+  cursor: default;
+}
+
+.hist-danger-link:hover {
+  color: var(--danger);
+}
+
+.hist-foot-hint {
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
+.hist-purge {
+  padding: 18px 20px 20px;
+}
+
+.hist-purge-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.hist-purge-text {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-2);
+  max-width: 560px;
+}
+
+.hist-purge-text b {
+  color: var(--text-1);
+  font-weight: 600;
+}
+
+.hist-purge-datelabel {
+  display: block;
+  margin-top: 12px;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+.hist-purge-date {
+  margin-left: 6px;
+  padding: 3px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  color: var(--text-1);
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.hist-purge-confirm {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.hist-purge-input {
+  width: 200px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  color: var(--text-1);
+  font-size: 12.5px;
+  outline: none;
+}
+
+.hist-purge-input:focus {
+  border-color: var(--danger);
+}
+
+.hist-purge-go {
+  padding: 6px 12px;
+  border: 1px solid var(--danger);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--danger);
+  font-size: 12.5px;
+  font-weight: 550;
+  cursor: default;
+}
+
+.hist-purge-go:disabled {
+  opacity: 0.4;
+}
+
+.hist-purge-go:not(:disabled):hover {
+  background: rgba(235, 87, 87, 0.1);
+}
+
+.hist-purge-cancel {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12.5px;
+  cursor: default;
+}
+
+.hist-purge-cancel:hover {
+  background: var(--hover);
+}
+
+.hist-error {
+  padding: 8px 16px 12px;
+  color: var(--danger);
+  font-size: 12px;
+}
+
+/* Sheets — formula grid (type: sheet notes) */
+
+.note-sheet {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.note-inner-sheet {
+  max-width: none;
+  /* with auto side margins a flex item sizes to max-content (the nowrap table)
+     and overflows .note-sheet at narrow widths — zero them so stretch applies */
+  margin-left: 0;
+  margin-right: 0;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 24px;
+}
+
+.sheet {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin-top: 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.015);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.sheet-toolbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.sheet-tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 12px;
+  font-family: var(--font);
+  padding: 2px 8px;
+  transition:
+    background-color 120ms ease-out,
+    color 120ms ease-out;
+}
+
+.sheet-tool:hover {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+.sheet-tool svg {
+  width: 14px;
+  height: 14px;
+}
+
+.sheet-flex {
+  flex: 1;
+}
+
+.sheet-parse-err {
+  font-size: 12px;
+  color: var(--danger);
+}
+
+.sheet-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* Held for one frame while the sheet swaps to a body that arrived from disk.
+   The rows under a sticky header and a sticky totals row live in a composited
+   layer WKWebView will happily leave on screen after the DOM under it changed
+   — the reported symptom is a grid that opens blank and paints in full the
+   moment a hover repaints it. Changing the scrollport's own transform forces
+   the layer to be rebuilt from the current DOM instead of presented as it
+   was; translateZ(0) is a no-op geometrically, so nothing moves. */
+.sheet-scroll-repaint {
+  transform: translateZ(0);
+}
+
+/* the cell cursor moves by focusing a cell, and the browser scrolls it to
+   the nearest edge of the scrollport — where the column header is painted,
+   opaque and sticky. Growing the cell's own scroll box by the header's
+   height (7px twice around a 12px label, on its hairline) makes "nearest"
+   mean the readable top. The totals row is sticky at the bottom too, but its
+   height is its content's: a stack of summaries in one cell can outgrow the
+   scrollport itself, so there is no honest constant to clear it by.
+   scroll-margin here, not scroll-padding on .sheet-scroll, for the reason
+   spelled out over .db-table tbody td: a padded scrollport also declares the
+   sticky header itself half-hidden, and the header holds focusable inputs
+   (rename a computed column, add a column) whose focus would then jerk the
+   sheet to an unrelated scroll offset. */
+.sheet-table tbody .sheet-cell {
+  scroll-margin-top: 34px;
+}
+
+.sheet-table {
+  border-collapse: collapse;
+  font-size: 13px;
+  min-width: 100%;
+}
+
+.sheet-table th {
+  position: sticky;
+  top: 0;
+  /* above the totals row's cells, which are sticky at the same depth: on a tie
+     the later row in the table wins, and the totals would print through the
+     column names whenever a short scrollport made the two bands meet */
+  z-index: 2;
+  background: var(--bg-panel);
+  text-align: left;
+  font-size: 12px;
+  font-weight: 510;
+  color: var(--text-3);
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border-soft);
+  white-space: nowrap;
+}
+
+.sheet-table td {
+  padding: 0;
+  border-bottom: 1px solid var(--border-soft);
+  white-space: nowrap;
+}
+
+.sheet-table tbody tr:hover td {
+  background: rgba(255, 255, 255, 0.014);
+}

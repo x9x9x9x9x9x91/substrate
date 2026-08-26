@@ -1,0 +1,646 @@
+
+/* ---- food dashboard ---- */
+
+/* Day strip: 14 columns rising from a baseline, the floor→ceiling
+   band shaded behind them — the band is what makes over/under read at a
+   glance. Bar color carries the day's band verdict. */
+
+.food-strip {
+  margin-top: 28px;
+}
+
+.food-plot {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  height: 140px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.food-band {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: rgba(76, 183, 130, 0.08);
+  border-top: 1px solid rgba(76, 183, 130, 0.22);
+  border-bottom: 1px solid rgba(76, 183, 130, 0.22);
+  pointer-events: none;
+}
+
+/* every column stacks value over bar (the dash-bar-val idiom from the chart
+   panes) — logged days all carry their number, so the layout is the base
+   case, not a today/focus special */
+.food-col {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 3px;
+  cursor: pointer; /* the strip is the day picker */
+}
+
+.food-bar {
+  width: 62%;
+  max-width: 22px;
+  min-height: 3px;
+  border-radius: 0;
+}
+
+.food-bar.food-in {
+  background: var(--ok);
+}
+
+.food-bar.food-under {
+  background: var(--ok-soft);
+}
+
+.food-bar.food-over {
+  background: var(--danger);
+}
+
+.food-bar.food-empty {
+  background: rgba(117, 119, 123, 0.25);
+}
+
+/* Zero-line split: when any of the 14 days nets negative, the plot
+   gains a sub-zero region under a zero hairline in the plot's existing
+   border color — no new chrome. Bars and labels leave the flex flow so
+   negatives can hang below the line while positives and the empty stub stay
+   anchored on it from above; positions come from inline styles. */
+.food-zero {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--border-soft);
+  pointer-events: none;
+}
+
+.food-plot.split .food-col {
+  position: relative;
+}
+
+.food-plot.split .food-bar,
+.food-plot.split .dash-bar-val {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+/* keep the un-split plot's paint order in split mode: the band washes over
+   bars and labels, the weight line rides above both */
+.food-plot.split .food-band {
+  z-index: 1;
+}
+
+.food-plot.split .food-weight {
+  z-index: 2;
+}
+
+/* weight overlay: a line across the same day columns on its own
+   vertical scale. It sits ABOVE the bars but never takes the pointer — the
+   strip underneath is still the day picker — except the dots, which carry
+   their own hover title. Blue (was the burn-accent teal, which
+   drowned in the bars' greens), with a bg-colored casing stroke and dot
+   rings so the line reads over any bar color. */
+.food-weight {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.food-weight-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+}
+
+.food-weight-line-casing {
+  fill: none;
+  stroke: var(--bg);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.food-weight-line {
+  fill: none;
+  stroke: var(--opt-blue);
+  stroke-width: 1.5px;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.food-weight-dot {
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  margin: 0 0 -2.5px -2.5px; /* centre on the column/value point */
+  border-radius: 50%;
+  background: var(--opt-blue);
+  box-shadow: 0 0 0 2px var(--bg); /* same casing as the line */
+  pointer-events: auto;
+}
+
+.food-weight-val {
+  position: absolute;
+  transform: translate(-50%, 0);
+  margin-bottom: 7px; /* clear of its dot */
+  font: var(--dash-label);
+  color: var(--opt-blue);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  /* bg halo so a label crossing a bar stays legible */
+  text-shadow:
+    0 0 3px var(--bg),
+    0 0 6px var(--bg);
+}
+
+.food-labels {
+  display: flex;
+  margin-top: 5px;
+}
+
+.food-day-label {
+  flex: 1;
+  text-align: center;
+  font: var(--dash-label);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.food-day-label.today {
+  color: var(--text-1);
+  font-weight: 560;
+}
+
+/* quick add: food name gets the wide field, numbers stay narrow */
+.food-food {
+  flex: 2 1 0;
+  position: relative;
+}
+
+/* autocomplete under the food input — dots-menu chrome; the log
+   is the memory, so every logged food suggests forever */
+.food-suggest {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 4px;
+  z-index: 60;
+  padding: 4px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+}
+
+.food-suggest-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-2);
+  font: var(--dash-sentence);
+  text-align: left;
+  cursor: pointer;
+}
+
+.food-suggest-item.active {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+.food-suggest-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.food-suggest-detail {
+  flex: none;
+  color: var(--text-3);
+  font: var(--dash-data);
+  font-variant-numeric: tabular-nums;
+}
+
+/* today's rows: compact log lines, delete button surfaces on hover */
+.food-rows {
+  margin-top: 2px;
+}
+
+.food-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 28px;
+  padding: 0 4px;
+  border-radius: var(--r);
+  font: var(--dash-data);
+}
+
+.food-row:hover {
+  background: var(--hover);
+}
+
+.food-row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-1);
+}
+
+.food-row-protein {
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.food-row-kcal {
+  min-width: 56px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* exercise rows (negative kcal) read teal, not danger */
+.food-row-kcal.food-exercise {
+  color: var(--opt-teal);
+}
+
+.food-del {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: var(--r);
+  background: transparent;
+  color: var(--text-3);
+  font: var(--dash-sentence);
+  cursor: pointer;
+  opacity: 0;
+}
+
+.food-row:hover .food-del,
+.food-del:focus-visible {
+  opacity: 1;
+}
+
+.food-del:hover {
+  background: var(--hover);
+  color: var(--danger);
+}
+
+/* day navigation: ‹ Today › sits right of the hero number, a
+   segmented control in the db-switch idiom; next is disabled at today */
+.food-hero {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.food-daynav {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--hair-soft);
+  border-radius: var(--r);
+}
+
+.food-daynav-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 22px;
+  border: none;
+  border-radius: 1px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.food-daynav-btn:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+.food-daynav-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.food-daynav-day {
+  min-width: 58px;
+  height: 22px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 1px;
+  background: transparent;
+  color: var(--text-1);
+  font: var(--dash-label);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.food-daynav-day:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.food-daynav-day:disabled {
+  cursor: default;
+}
+
+/* the strip is the day picker: columns are clickable, the focus day's bar
+   gets a quiet ring and its label the same emphasis as today's */
+.food-col:hover .food-bar {
+  filter: brightness(1.2);
+}
+
+.food-col.focus .food-bar {
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.35);
+}
+
+.food-day-label.focus {
+  color: var(--text-1);
+  font-weight: 560;
+}
+
+/* the focus day's value reads at full strength; the rest stay the quiet
+   chart-label gray so the selected day still leads the strip */
+.food-col.focus .dash-bar-val {
+  color: var(--text-1);
+}
+
+/* food database: the section header is a disclosure toggle with
+   the DB note's open-source button at the right. The toggle speaks the
+   section-label voice — it IS the section title, just clickable. */
+.food-db-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.food-db-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  font: var(--dash-label);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.food-db-toggle:hover {
+  color: var(--text-2);
+}
+
+.food-db-caret {
+  display: inline-block;
+  font: var(--dash-label);
+  transition: transform 120ms ease-out;
+}
+
+.food-db-caret.open {
+  transform: rotate(90deg);
+}
+
+.food-db-per-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: none;
+}
+
+/* match the 32px input height so the basis switch aligns in the form row */
+.food-db-per {
+  height: 32px;
+  align-items: center;
+  box-sizing: border-box;
+}
+
+.food-db-per button {
+  height: 24px;
+}
+
+.food-db-hint {
+  margin-top: 8px;
+  font: var(--dash-sentence);
+  color: var(--text-3);
+}
+
+/* the basis-drift tripwire: the one loud line when a logged row
+   contradicts the remembered price — a warn-grade finding in amber, the pin
+   action in the interaction accent, dismiss in dust */
+.food-drift {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-top: 8px;
+  font: var(--dash-sentence);
+  color: var(--opt-yellow);
+}
+.food-drift button {
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+  color: var(--accent);
+}
+.food-drift .food-drift-x {
+  color: var(--text-3);
+}
+
+.food-db-rows {
+  margin-top: 10px;
+}
+
+/* Curated newsfeed (dashboard: feed) — a reading surface, so the
+   stream is one column of hairline-separated cards with no boxes and no
+   colored chrome beyond the topic dot. The feedback buttons idle at --text-4
+   and only earn --ok/--danger once set: nothing on this page should compete
+   with the titles. */
+
+.feed-stream {
+  margin-top: 26px;
+  max-width: 720px;
+}
+
+/* the date rule: a quiet mono label with the day's hairline running off it */
+.feed-daylabel {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 4px;
+  font: var(--dash-label);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-4);
+}
+
+.feed-daylabel::after {
+  content: "";
+  height: 1px;
+  background: var(--hair);
+}
+
+.feed-day + .feed-day {
+  margin-top: 30px;
+}
+
+.feed-item {
+  padding: 18px 0;
+  border-bottom: 1px solid var(--hair);
+}
+
+.feed-day:last-child .feed-item:last-child {
+  border-bottom: 0;
+}
+
+.feed-topic {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font: var(--dash-label);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.feed-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.feed-title {
+  margin-top: 7px;
+  font: var(--dash-sentence);
+  font-weight: 550;
+  color: var(--text-1);
+}
+
+/* a title with a url is a link, but stays a title: no button chrome */
+.feed-title-link {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.feed-title-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.feed-meta {
+  margin-top: 5px;
+  font: var(--dash-data);
+  color: var(--text-3);
+}
+
+.feed-blurb {
+  margin-top: 8px;
+  font: var(--dash-sentence);
+  color: var(--text-2);
+}
+
+/* the why-line is the curator's argument, not more description — one quiet
+   hairline inset sets it apart without adding a second color */
+.feed-why {
+  margin-top: 8px;
+  padding-left: 11px;
+  border-left: 1px solid var(--hair);
+  font: var(--dash-sentence);
+  color: var(--text-3);
+}
+
+.feed-fb {
+  display: flex;
+  gap: 4px;
+  margin-top: 10px;
+}
+
+/* This pair trains the curator — it has to read as a control, not as
+   two stray glyphs. Quiet-chip chrome (the .side-db-chip/.rel-pill hairline),
+   a 26×24 hit target, and the verdict tinted with the .opt-pill formula so a
+   chosen direction is legible at a glance without adding colored chrome. */
+.feed-vote {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--border-soft);
+  border-radius: 4px;
+  background: none;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--text-3);
+  cursor: pointer;
+  transition:
+    color 120ms ease-out,
+    background 120ms ease-out,
+    border-color 120ms ease-out;
+}
+
+.feed-vote:hover {
+  background: var(--hover);
+  border-color: var(--border);
+  color: var(--text-1);
+}
+
+.feed-vote:active {
+  background: var(--active);
+}
+
+.feed-vote.is-up {
+  background: color-mix(in srgb, var(--ok) 16%, transparent);
+  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
+  color: color-mix(in srgb, var(--ok) 78%, #fff);
+}
+
+.feed-vote.is-down {
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+  color: color-mix(in srgb, var(--danger) 78%, #fff);
+}
+
+/* hovering the chosen verdict means "clear it" — lift, don't recolor */
+.feed-vote.is-up:hover,
+.feed-vote.is-down:hover {
+  border-color: var(--border-strong);
+  color: var(--text-1);
+}

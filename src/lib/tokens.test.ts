@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { stylesheetSource } from "../../scripts/styles-source.ts";
 import { DANGER, OK, RGB, RUNNING, WARN } from "./tokens.ts";
 
 /* The failure this guards is not a wrong colour, it's a colour that
@@ -11,21 +12,21 @@ import { DANGER, OK, RGB, RUNNING, WARN } from "./tokens.ts";
    day it's written and then silently ignores every later edit to the token it
    was copied from. */
 
-const CSS = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+const CSS = stylesheetSource();
 
 function declaredHex(token: string): string {
   const m = CSS.match(new RegExp(`${token}\\s*:\\s*(#[0-9a-f]{6})`, "i"));
-  assert.ok(m, `${token} is not declared as a hex in styles.css`);
+  assert.ok(m, `${token} is not declared as a hex in the stylesheet`);
   return m[1].toLowerCase();
 }
 
-test("every exported status colour names a token styles.css actually declares", () => {
+test("every exported status colour names a token the stylesheet actually declares", () => {
   for (const [name, value] of Object.entries({ OK, WARN, DANGER, RUNNING })) {
     const token = value.match(/var\((--[a-z0-9-]+)\)/)?.[1];
     assert.ok(token, `${name} should be a var() reference, got ${value}`);
     assert.ok(
       new RegExp(`${token}\\s*:`).test(CSS),
-      `${name} points at ${token}, which styles.css does not declare`,
+      `${name} points at ${token}, which the stylesheet does not declare`,
     );
   }
 });

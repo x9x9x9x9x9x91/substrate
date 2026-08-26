@@ -1,0 +1,91 @@
+
+
+
+/* Hub dashboard (dashboard: hub) — ordinary markdown laid out as a
+   column-first home: `##` = section labels (dash-section-label), consecutive
+   callouts = cards side by side, everything else linear. Neutral greys; the
+   only color is the callout kind accent, reusing the editor glyph hues. */
+
+.hub-body {
+  margin-top: 20px;
+}
+
+.hub-body > *:last-child {
+  margin-bottom: 0;
+}
+
+.hub-cards {
+  /* 210px min: three callouts read as three columns inside the 760px
+     dash-inner measure (664px content), stacking 2/1 on narrower panes */
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  margin: 0 0 12px;
+  gap: 16px;
+  /* the row measures itself so a wide card can ask about the row it is in,
+     not the window — a hub in a split pane collapses at the same width a hub
+     in a full one does */
+  container: hub-cards / inline-size;
+}
+
+/* a card the author widened. auto-fit counts tracks from the CONTAINER width
+   alone — item spans do not feed into it — so a `span 2` in a row that only
+   ever built one track would create a second, implicit track and overflow the
+   pane. Below the width two 210px tracks and their 16px gap need, the wide
+   card is simply an ordinary one. */
+.hub-card.span-2 {
+  grid-column: span 2;
+}
+
+@container hub-cards (width < 436px) {
+  .hub-card.span-2 {
+    grid-column: auto;
+  }
+}
+
+/* the callout's hue rides its own rule, so EVERY hub card is ruled — the type
+   mark is what the rule is for, and a card without one says nothing about its
+   type. The rule used to be a left edge on `:first-child` only, so
+   the three hue rules below painted the first callout and nothing else. */
+.hub-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--hair-soft);
+}
+
+.hub-card-note {
+  border-top-color: var(--opt-indigo);
+}
+
+.hub-card-warn {
+  border-top-color: var(--opt-yellow);
+}
+
+.hub-card-idea {
+  border-top-color: var(--opt-violet);
+}
+
+/* an accent replaces the kind's default hue on the type rule: the
+   glyph-free hub card marks its type by position and title, so the rule is
+   free to carry the author's mood. Higher specificity than the three rules
+   above, so order in this file isn't load-bearing. */
+.hub-card[data-accent] {
+  border-top-color: var(--accent-tint);
+}
+
+.hub-card-title {
+  font: var(--dash-label);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+.hub-card-body {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-2);
+}
+
+.hub-card-body > *:last-child {
+  margin-bottom: 0;
+}

@@ -1,0 +1,811 @@
+
+.db-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* keyboard-walk clearance under the table's two sticky bands. The
+   walk moves focus with scrollIntoView({block:"nearest"}), which reads the
+   scrollport's own edges — and the header lid and the aggregation footer are
+   painted over rows sitting at exactly those edges, opaquely. Growing each
+   cell's own scroll box by the band above or below it makes "nearest" mean
+   the readable box. The values are the bands as they measure: header 36.5px
+   (8px padding twice around a 10.5/1.4 label, on its hairline), footer
+   27.5px (one 12px row on its own).
+   This is scroll-margin on the cells, not scroll-padding on the scroller,
+   and the difference is load-bearing: padding the scroller shrinks the
+   readable box for EVERY reveal, including the sticky header's own — which
+   sits flush at the top edge, so a padded box declares it permanently
+   half-hidden and anything scrolling it into view (tabbing to a sort
+   button, a click's own scroll-into-view) yanks the table to a scroll
+   offset nowhere near the row the user was on. That broke the windowed
+   re-sort reveal outright. scroll-margin only speaks for the
+   thing being revealed, so the bands keep their own geometry.
+   Only the table view has bands: list, gallery and board share .db-body and
+   must keep landing flush. */
+.db-table tbody td {
+  scroll-margin-top: 37px;
+  scroll-margin-bottom: 28px;
+}
+
+/* the right-edge fade says more columns hide past the edge
+   gates it on actual scrollability: gone at max scroll so the last column
+   renders crisp, and absent entirely when the table fits its pane. The board
+   scrolls the same axis, so it carries the same cue.
+   Widened 12px → 20px. At 12px a chip or a numeral clipped by the
+   pane edge still ended in a near-solid stub, which read as a rendering fault
+   rather than a cue; 20px also matches every other fade in the app. */
+.db-body:has(> .db-table).db-more-x,
+.db-board.db-more-x {
+  -webkit-mask-image: linear-gradient(to right, black calc(100% - 20px), transparent);
+  mask-image: linear-gradient(to right, black calc(100% - 20px), transparent);
+}
+
+.db-list {
+  padding: 6px;
+}
+
+.row.focused {
+  background: var(--active);
+}
+
+.row.open {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.db-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  /* numerals line up column-wise — dates, counts, cat numbers */
+  font-variant-numeric: tabular-nums;
+}
+
+/* header reads as chrome, not data: uppercase, a step dimmer than cells —
+   the row hierarchy is Name (text-1) > cells (text-2) > dates/header (text-3) */
+.db-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-panel);
+  text-align: left;
+  font: var(--dash-label);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+
+.db-table th:hover {
+  color: var(--text-1);
+  transition: color 120ms ease-out;
+}
+
+/* Rows sliding under the sticky header need the header to read as a
+   lid over them. One step on the border it already has — the vertical twin of
+   the .db-scrolled-x freeze line, and at scroll 0 nothing changes. */
+.db-scrolled-y .db-table th {
+  border-bottom-color: var(--border-strong);
+  transition: border-bottom-color 120ms ease-out;
+}
+
+.db-sort {
+  color: var(--text-1);
+}
+
+/* Ordinal marking a key's place in a multi-key sort — muted and
+   small so it reads as a subscript of the arrow, never as its own column */
+.db-sort-ord {
+  margin-left: 1px;
+  font-size: 10px;
+  color: var(--text-3);
+}
+
+.db-table td {
+  padding: 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+/* Vertical column rules — Notion's grid, for tracking a column down
+   a wide or sparse table. `.db-grid` rides the table when the database's
+   override (ViewPref `grid`) or the global `db-grid` setting says on. A
+   sibling selector, not a per-cell border, so single-cell colSpan rows (group
+   headers, window spacers) never catch a rule. The second column is excluded:
+   its divider is the frozen Name cell's own box-shadow edge below — a border
+   here too would double that line to 2px at scroll 0. `--grid-line` is
+   fainter than any shared border token: the grid orients, the row
+   hairlines still carry the hierarchy. */
+.db-grid th + th:not(:nth-child(2)),
+.db-grid td + td:not(:nth-child(2)) {
+  border-left: 1px solid var(--grid-line);
+}
+
+/* at scroll 0 the freeze-line box-shadow isn't painted (.db-scrolled-x
+   gates it) — the frozen Name cell draws its grid edge itself so the first
+   rule doesn't pop in and out with horizontal scroll. `:where` keeps the row
+   exclusions at zero specificity, so the scrolled state's stronger --border
+   freeze line (a .db-scrolled-x rule, two classes) still wins on this edge. */
+.db-grid th:first-child,
+.db-grid :where(tr:not(.db-group-tr):not(.db-win-spacer)) td:first-child {
+  box-shadow: inset -1px 0 0 var(--grid-line);
+}
+
+.db-grid.db-table td.db-cell.focused:first-child {
+  box-shadow:
+    inset 0 0 0 1.5px var(--accent),
+    inset -1px 0 0 var(--grid-line);
+}
+
+/* scrolled, the freeze line's stronger token wins on the focused cell too —
+   this outranks the grid rule above, matching the non-grid scrolled rule */
+.db-scrolled-x .db-grid.db-table td.db-cell.focused:first-child {
+  box-shadow:
+    inset 0 0 0 1.5px var(--accent),
+    inset -1px 0 0 var(--border);
+}
+
+/* The wash eases in on the shared 120ms grammar and snaps back out
+   on leave — an easing exit trails the pointer across a long table */
+.db-table tbody tr:hover td {
+  background: var(--hover);
+  transition: background-color 120ms ease-out;
+}
+
+/* A multi-selected row carries the accent tint — it outranks the
+   hover wash (later at equal specificity) and keeps the frozen Name cell's
+   opaque base via the same layer trick as hover/open */
+.db-table tbody tr.is-selected td,
+.db-table tbody tr.is-selected:hover td {
+  background: var(--accent-soft);
+  /* The tint arrives over 140ms so a shift-range select reads as one
+     sweep; declared on the selected rules only, so deselect snaps clear */
+  transition: background-color 140ms ease-out;
+}
+
+.db-table tbody tr.is-selected td:first-child,
+.db-table tbody tr.is-selected:hover td:first-child {
+  background: linear-gradient(var(--accent-soft), var(--accent-soft)), var(--bg-panel);
+  /* the frozen cell carries its tint as a layer over the opaque base, so it
+     is background-image that has to ease here for the row to tint as one */
+  transition: background-image 140ms ease-out;
+}
+
+.db-table tr.db-open td {
+  background: rgba(255, 255, 255, 0.028);
+}
+
+/* frozen Name column: on wide tables the first column sticks to
+   the pane's left edge while the rest of the row scrolls beneath it. The base
+   is the opaque pane token so sliding rows never bleed through; hover/open
+   washes layer the same token values the flat rules use over that base, so
+   scroll-0 renders identical to before. Stuck cells paint above their row
+   siblings (z 2) and below the corner header (z 3). */
+.db-table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  /* The transparent layer renders identically to the bare token but
+     gives hover/selected a background-image to interpolate from */
+  background: linear-gradient(transparent, transparent), var(--bg-panel);
+}
+
+.db-table tbody tr:hover td:first-child {
+  background: linear-gradient(var(--hover), var(--hover)), var(--bg-panel);
+  transition: background-image 120ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .db-table th:hover,
+  .db-table tbody tr:hover td,
+  .db-table tbody tr:hover td:first-child,
+  .db-table tbody tr.is-selected td,
+  .db-table tbody tr.is-selected:hover td,
+  .db-table tbody tr.is-selected td:first-child,
+  .db-table tbody tr.is-selected:hover td:first-child {
+    transition: none;
+  }
+}
+
+.db-table tr.db-open td:first-child {
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.028), rgba(255, 255, 255, 0.028)),
+    var(--bg-panel);
+}
+
+/* the corner header cell freezes on BOTH axes — it must outrank the plain
+   sticky header (z 1) and the frozen column's cells (z 2) */
+.db-table th:first-child {
+  left: 0;
+  z-index: 3;
+}
+
+/* the freeze line reads only while the table is actually scrolled (.db-body
+   carries .db-scrolled-x) — at scroll 0 nothing changes. A focused stuck
+   cell keeps its accent ring painted in front of the hairline. */
+.db-scrolled-x .db-table th:first-child,
+.db-scrolled-x .db-table td:first-child {
+  box-shadow: inset -1px 0 0 var(--border);
+}
+
+.db-scrolled-x .db-table td.db-cell.focused:first-child {
+  box-shadow:
+    inset 0 0 0 1.5px var(--accent),
+    inset -1px 0 0 var(--border);
+}
+
+/* The left-edge fade can't be a mask — mask-image on .db-body covers
+   sticky descendants too, dimming the pinned Name column it must leave crisp.
+   Instead an overlay rides each frozen cell's right edge, so the fade starts
+   exactly where the frozen column ends at any column width. Section headers
+   span the full table — nothing slides out from under them, no fade. */
+.db-scrolled-x .db-table th:first-child::after,
+.db-scrolled-x .db-table tr:not(.db-group-tr) td:first-child::after {
+  content: "";
+  position: absolute;
+  left: 100%;
+  top: 0;
+  bottom: -1px; /* the row hairline fades too, like under the right mask */
+  width: 12px;
+  pointer-events: none;
+  background: linear-gradient(to right, var(--bg-panel), transparent);
+}
+
+.db-cell.focused {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+/* Commit flash. An edited cell used to close its editor and look
+   exactly as it did before — the write and a discarded edit were the same
+   picture. One accent wash, one-shot, laid over the cell so the value's own
+   colours (option pills, links) are untouched. */
+.db-cell.db-flashing,
+.db-card.db-flashing {
+  position: relative;
+}
+
+.db-cell-flash {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: var(--accent-soft);
+  animation: cell-flash 700ms ease-out forwards;
+}
+
+@keyframes cell-flash {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .db-cell-flash {
+    animation: none;
+    opacity: 0;
+  }
+}
+
+/* grouped table: a section header row spans the full width in the
+   board column header's language — option dot, label, muted count (.db-col-head
+   type scale/weight), the "No …" section in the board's muted treatment */
+.db-group-tr td {
+  padding: 13px 10px 5px;
+  font-size: 12px;
+  font-weight: 590;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+  cursor: default;
+}
+
+/* a section header is chrome, not data — no row hover wash */
+.db-table tbody tr.db-group-tr:hover td {
+  background: transparent;
+}
+
+/* the first section sits directly under the sticky header's hairline */
+.db-table tbody .db-group-tr:first-child td {
+  padding-top: 6px;
+}
+
+.db-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.db-group-label {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+/* The full-width section-header cell can't stick (zero slack
+   against the table box), so its LABEL rides the freeze instead — it lands
+   in the frozen column's lane while the table is scrolled right. z stays
+   auto so the label still slides UNDER the sticky thead on vertical scroll. */
+.db-scrolled-x .db-group-label {
+  position: sticky;
+  left: 10px;
+}
+
+/* the header's whole label is one disclosure control: chevron, option dot,
+   name. Bare-button reset — it inherits the header row's type so folding a
+   section never changes how its name reads */
+.db-group-disclose {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+}
+
+.db-group-disclose:hover {
+  color: var(--text-1);
+}
+
+.db-group-chevron {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-right: 2px;
+  color: var(--text-3);
+}
+
+.db-group-chevron svg {
+  transition: transform 120ms ease-out;
+}
+
+.db-group-chevron.open svg {
+  transform: rotate(90deg);
+}
+
+.db-group-disclose:hover .db-group-chevron {
+  color: var(--text-1);
+}
+
+/* A folded section keeps its full height and its count — the only thing
+   that changes is that its rows are gone, so the row below it is the next
+   header. That height is load-bearing, not just tidy: a windowed table
+   measures ONE header height and lays every section out on it, so a
+   collapsed header even 4px off its open twin drifts the scroll geometry
+   by that much per fold. Nothing here may change the row's box. */
+
+/* section drag-reorder: the dragged header dims, and a 2px accent line
+   marks the slot the drop would land in — the column headers' language,
+   one axis over */
+.db-group-tr.dragging td {
+  opacity: 0.45;
+}
+
+.db-group-tr.drop-before td {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.db-group-tr.drop-after td {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+/* rows dragged onto a section header: the section lights up as the
+   destination it would become — the sidebar's drop-target treatment */
+.db-group-tr.note-drop td {
+  background: var(--accent-soft);
+  color: var(--text-1);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* a row dragged onto the MIDDLE of another row: the target lights up as
+   the group the two would share — the same destination treatment a section
+   header wears, so one drag gesture speaks one language. The lit state is
+   the whole row and appears only over its middle band, which is what tells
+   "group with this row" apart from a pointer merely passing between rows. */
+/* The lit row is ALWAYS hovered — the pointer is on it — and may also be
+   selected, and both of those paint the row themselves. Each of the rules
+   below therefore repeats itself at those two specificities, so the drop
+   state is what reads whatever else the row is doing. */
+.db-table tbody tr.row-group-drop td,
+.db-table tbody tr.row-group-drop:hover td,
+.db-table tbody tr.is-selected.row-group-drop:hover td {
+  background: var(--accent-soft);
+  color: var(--text-1);
+  box-shadow: inset 0 1px 0 var(--accent), inset 0 -1px 0 var(--accent);
+}
+
+/* the frozen Name cell carries its tint as a layer over the opaque base,
+   the same way hover and selected do — without this it keeps the hover
+   wash while the rest of the row goes accent */
+.db-table tbody tr.row-group-drop td:first-child,
+.db-table tbody tr.row-group-drop:hover td:first-child,
+.db-table tbody tr.is-selected.row-group-drop:hover td:first-child {
+  background: linear-gradient(var(--accent-soft), var(--accent-soft)), var(--bg-panel);
+  box-shadow:
+    inset 0 1px 0 var(--accent),
+    inset 0 -1px 0 var(--accent),
+    inset 1px 0 0 var(--accent);
+}
+
+.db-table tbody tr.row-group-drop td:last-child,
+.db-table tbody tr.row-group-drop:hover td:last-child,
+.db-table tbody tr.is-selected.row-group-drop:hover td:last-child {
+  box-shadow:
+    inset 0 1px 0 var(--accent),
+    inset 0 -1px 0 var(--accent),
+    inset -1px 0 0 var(--accent);
+}
+
+/* a captioned field in the grouping prompt: the caption hugs its own input
+   rather than taking the card's own gap, so a stack of two fields reads as
+   two named things and not one repeated one */
+.rowgroup-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rowgroup-lbl {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+/* the group values already in use, under the prompt's name field — one
+   click instead of retyping a spelling that has to match */
+.rowgroup-opts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.rowgroup-opt {
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12px;
+  padding: 3px 7px;
+  cursor: pointer;
+}
+
+.rowgroup-opt:hover {
+  border-color: var(--accent);
+  color: var(--text-1);
+}
+
+.db-group-none {
+  color: var(--text-3);
+  font-weight: 510;
+}
+
+.db-group-count {
+  font-weight: 500;
+  color: var(--text-3);
+}
+
+/* Windowed-table spacer rows stand in for the off-screen rows above
+   and below the painted slice — inert voids: no hover wash, no row hairline,
+   no frozen-column fade overlay, no sticky Name cell (the empty td would
+   paint an opaque block over scrolling rows' left edge) */
+.db-table tbody tr.db-win-spacer:hover td {
+  background: transparent;
+}
+.db-win-spacer td {
+  padding: 0;
+  border-bottom: none;
+}
+.db-table .db-win-spacer td:first-child {
+  position: static;
+  background: transparent;
+}
+.db-scrolled-x .db-table tr.db-win-spacer td:first-child::after {
+  content: none;
+}
+
+.db-cell-txt {
+  display: block;
+  padding: 8px 10px;
+  color: var(--text-2);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 240px;
+}
+
+.db-title-txt {
+  color: var(--text-1);
+  font-weight: 510;
+}
+
+/* The Name cell's inline rename editor takes the title span's exact box, so
+   opening it shifts nothing: same padding, same weight, same clip. The cell
+   already carries the focus ring, so the input draws no chrome of its own. */
+.db-title-edit {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: none;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: var(--font);
+  font-size: 13px;
+  cursor: text;
+}
+
+/* Sub-item tree rows. Only a database that marks a parent relation grows
+   this gutter — everywhere else the Name cell is the bare title span it has
+   always been, so nothing shifts under vaults that don't use sub-items.
+   The twisty rides in a fixed-width lane and every row reserves it (rows
+   with no children get the blank), so a mixed section's titles still read
+   down one straight edge. ONE indent step exists on purpose: a grandchild
+   stands as a top-level row, so no rule here can ever compound. */
+.db-tree-cell {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.db-tree-cell.is-child {
+  padding-left: 20px;
+}
+
+/* the title keeps its vertical padding (it sets the row height) and gives
+   up only the left inset the twisty lane now covers */
+.db-tree-cell .db-cell-txt {
+  padding-left: 2px;
+  min-width: 0;
+}
+
+.db-tree-chevron {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-left: 8px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.db-tree-chevron svg {
+  transition: transform 120ms ease-out;
+}
+
+.db-tree-chevron.open svg {
+  transform: rotate(90deg);
+}
+
+.db-tree-chevron:hover {
+  color: var(--text-1);
+}
+
+/* the twisty's lane without the twisty, so childless rows still align */
+.db-tree-spacer {
+  flex: none;
+  width: 16px;
+  margin-left: 8px;
+}
+
+/* what climbs the chain, on the parent row — the section count's weight
+   and colour: a tally, not a second title */
+.db-sub-badge {
+  flex: none;
+  margin-right: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* data discipline: date values read as instrument data, not prose — and a
+   step dimmer: metadata columns must never weigh what the Name column does */
+.db-cell-txt.cell-mono {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
+  color: var(--text-3);
+}
+
+/* number kind: numbers column-scan, text doesn't — right-align */
+.db-cell-txt.cell-num {
+  text-align: right;
+}
+
+/* checkbox kind: the one-click check square, same visual language
+   as the editor's .cm-task-toggle — border-token box (~14px, subtle radius);
+   checked fills with the accent focused controls use + a white check mark */
+.db-cell-txt.cell-check {
+  display: flex;
+  align-items: center;
+}
+
+/* audio-valued file props: a compact play/pause leading the path
+   text, in table cells (.prop-audio) and on gallery cards (.db-gtitle-row).
+   16px keeps the uniform 32px row height; a quiet ghost that only lights
+   while its file is the one playing */
+.prop-audio,
+.db-gtitle-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.prop-audio-name,
+.db-gtitle-row .db-gcard-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prop-play {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  transition:
+    background 120ms ease-out,
+    color 120ms ease-out;
+}
+
+.prop-play:hover {
+  background: var(--active);
+  color: var(--text-1);
+}
+
+.prop-play.playing {
+  color: var(--accent);
+}
+
+.prop-play svg {
+  display: block;
+}
+
+.prop-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  transition:
+    border-color 120ms ease-out,
+    background-color 120ms ease-out;
+}
+
+.db-cell:hover .prop-check,
+.chip:hover .prop-check {
+  border-color: var(--text-3);
+}
+
+.prop-check.on,
+.db-cell:hover .prop-check.on,
+.chip:hover .prop-check.on {
+  border-color: var(--accent);
+  background: var(--accent)
+    url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><path d="M2.5 6.2 5 8.7l4.5-5.4" fill="none" stroke="%23090909" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>')
+    center / 10px no-repeat;
+  animation: check-pop 140ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .prop-check.on {
+    animation: none;
+  }
+}
+
+.db-cell-input {
+  display: block;
+  width: 100%;
+  min-height: 31px;
+  border: none;
+  outline: 1.5px solid var(--accent);
+  outline-offset: -1.5px;
+  background: var(--bg-elevated);
+  color: var(--text-1);
+  font-family: var(--font);
+  font-size: 13px;
+  padding: 7px 10px;
+}
+
+.db-board {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 12px 14px;
+}
+
+/* The no-matches state renders inside the scroller, so it has to
+   claim the row rather than sit at content width against the left edge */
+.db-board > .empty {
+  flex: 1;
+  align-self: stretch;
+}
+
+.db-col {
+  flex: none;
+  width: 236px;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.018);
+}
+
+/* The target column takes a faint accent wash under the ring, so
+   the drop target is legible without reading the border alone */
+.db-col.drop {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  transition:
+    border-color 120ms ease-out,
+    background-color 120ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .db-col.drop {
+    transition: none;
+  }
+}
+
+.db-col-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 12px 7px;
+  font-size: 12px;
+  font-weight: 590;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.db-col-none {
+  color: var(--text-3);
+  font-weight: 510;
+}
+
+.db-col-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px;
+  min-height: 42px;
+  overflow-y: auto;
+}

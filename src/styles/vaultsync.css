@@ -1,0 +1,663 @@
+
+/* ── Vault sync view ────────────────────────────────────────── */
+
+.vault-sync {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.vault-sync-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.vault-sync-inner {
+  width: min(100%, 640px);
+  margin: 0 auto;
+  padding: 30px 28px 48px;
+}
+
+.vault-sync-intro {
+  max-width: 520px;
+  margin-bottom: 20px;
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.vault-sync-card {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-panel);
+  box-shadow: inset 0 1px 0 var(--border-soft);
+}
+
+.vault-sync-card + .vault-sync-card {
+  margin-top: 14px;
+}
+
+.vault-sync-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 48px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.vault-sync-card-head h2 {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-2);
+}
+
+.vault-sync-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  color: var(--text-3);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.vault-sync-state-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-3);
+}
+
+.vault-sync-state.ok {
+  color: var(--text-2);
+}
+
+.vault-sync-state.ok .vault-sync-state-dot {
+  background: var(--ok);
+}
+
+.vault-sync-state.danger {
+  color: var(--danger);
+}
+
+.vault-sync-state.danger .vault-sync-state-dot {
+  background: var(--danger);
+}
+
+.vault-sync-status {
+  min-height: 94px;
+  padding: 17px 16px 18px;
+}
+
+.vault-sync-status-title,
+.vault-sync-summary {
+  color: var(--text-1);
+  font-size: 14px;
+  font-weight: 560;
+  letter-spacing: -0.01em;
+}
+
+.vault-sync-muted {
+  display: block;
+  margin-top: 5px;
+  max-width: 490px;
+  color: var(--text-3);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+/* The sync manager's failures speak the shared banner (`.dash-alert`, marked
+   with the rule) — these two keep the affordances the messages need: a git
+   error is a long machine sentence with a URL or a path in it, and a reader
+   copies it into a bug report. `.vault-sync-error` is now the privacy box's
+   own line, which sits inside a box that already carries the mark; the
+   inline `.vault-sync-form-error` stays a field's red note beside its
+   control, not a banner. */
+.vault-sync-card .dash-alert {
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+/* the status slot holds one thing at a time, and a failure is one of them:
+   the banner starts where the status sentence starts rather than a gap below
+   the padding it is the only content of */
+.vault-sync-status > .dash-alert {
+  margin-top: 0;
+}
+
+.vault-sync-error,
+.vault-sync-form-error {
+  color: var(--danger);
+  font-size: 12.5px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.vault-sync-head {
+  margin-top: 5px;
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+
+.vault-sync-head code,
+.vault-sync-conflicts code {
+  font-family: var(--mono);
+  color: var(--text-2);
+}
+
+/* Amber, not red: the sync succeeded. This is the store saying it is filling
+   up, early enough that nothing is urgent yet. */
+.vault-sync-notice {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-soft);
+  border-left: 3px solid var(--warn);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.vault-sync-conflicts {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.vault-sync-conflicts h3 {
+  margin-bottom: 8px;
+  color: var(--danger);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.vault-sync-conflicts ul {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  list-style: none;
+}
+
+.vault-sync-conflicts li {
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: var(--bg-elevated);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.vault-sync-conflicts code {
+  font-size: 11.5px;
+}
+
+/* The sticky privacy notice. Same danger colour as any sync error, but boxed
+   and ruled rather than a line of red text: it outlives the attempt that
+   produced it, so it must not read as "the last sync failed". */
+.vault-sync-privacy {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-soft);
+  border-left: 3px solid var(--danger);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+}
+
+.vault-sync-privacy h3 {
+  margin-bottom: 8px;
+  color: var(--danger);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.vault-sync-privacy ul {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  list-style: none;
+}
+
+.vault-sync-privacy li {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.vault-sync-privacy code {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+
+.vault-sync-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.vault-sync-button,
+.vault-sync-save {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  border-radius: 7px;
+  font-family: var(--font);
+  font-size: 12.5px;
+  font-weight: 540;
+  cursor: pointer;
+}
+
+.vault-sync-button {
+  min-width: 72px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-2);
+}
+
+.vault-sync-button:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+.vault-sync-button:active:not(:disabled) {
+  background: var(--active);
+}
+
+/* Armed: the next press replaces what the server holds, so the button must
+   not look like the one that only asked. */
+.vault-sync-button.danger {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.vault-sync-button:disabled,
+.vault-sync-save:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.vault-sync-remote-head {
+  align-items: flex-start;
+  padding-top: 13px;
+  padding-bottom: 13px;
+}
+
+.vault-sync-remote-head p {
+  margin-top: 4px;
+  color: var(--text-3);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.vault-sync-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+}
+
+.vault-sync-form > label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 520;
+}
+
+.vault-sync-form input {
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  outline: none;
+  background: var(--bg-elevated);
+  color: var(--text-1);
+  font-size: 13px;
+  transition:
+    border-color 120ms ease-out,
+    box-shadow 120ms ease-out;
+}
+
+.vault-sync-form input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.vault-sync-form input:disabled {
+  opacity: 0.55;
+}
+
+/* the optional PEM field shares the input chrome; monospace because a
+   certificate is opaque machine text, resize stays vertical-only */
+.vault-sync-form textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  outline: none;
+  background: var(--bg-elevated);
+  color: var(--text-1);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  resize: vertical;
+  transition:
+    border-color 120ms ease-out,
+    box-shadow 120ms ease-out;
+}
+
+.vault-sync-form textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.vault-sync-form textarea:disabled {
+  opacity: 0.55;
+}
+
+.vault-sync-field-hint {
+  color: var(--text-3);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+/* a quiet text button, not a field: unmasking is a glance, and it must not
+   read as the thing that saves the form */
+.vault-sync-passphrase-reveal {
+  align-self: flex-start;
+  padding: 2px 0;
+  border: none;
+  background: none;
+  color: var(--text-3);
+  font-size: 11px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.vault-sync-passphrase-reveal:hover:not(:disabled) {
+  color: var(--text-1);
+}
+
+.vault-sync-passphrase-reveal:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.vault-sync-form-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+}
+
+.vault-sync-save {
+  flex: none;
+  min-width: 108px;
+  padding: 0 15px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.vault-sync-save:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.vault-sync-saved {
+  color: var(--ok);
+  font-size: 12px;
+}
+
+/* Where the vault syncs, and in what form. Encryption gets the accent rule and
+   a plain remote gets none: the difference is the whole point of the line, so
+   it has to be legible at a glance rather than only on reading. */
+.vault-sync-remote-kind {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 16px 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-soft);
+  border-left: 3px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+}
+
+.vault-sync-remote-kind.hosted {
+  border-left-color: var(--ok);
+}
+
+.vault-sync-remote-kind-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.vault-sync-remote-kind.hosted .vault-sync-remote-kind-label {
+  color: var(--ok);
+}
+
+.vault-sync-remote-kind-url {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+/* Two states that must not read as ordinary form feedback: one is about to
+   remove the vault's encryption, the other just decided a passphrase nothing
+   else in the world holds. Boxed and ruled, like the privacy notice. */
+.vault-sync-downgrade,
+.vault-sync-created {
+  margin-top: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-soft);
+  border-left: 3px solid var(--danger);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+}
+
+.vault-sync-created {
+  border-left-color: var(--ok);
+}
+
+.vault-sync-downgrade h3,
+.vault-sync-created h3 {
+  margin-bottom: 6px;
+  color: var(--danger);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.vault-sync-created h3 {
+  color: var(--ok);
+}
+
+.vault-sync-downgrade p,
+.vault-sync-created p {
+  max-width: 52ch;
+  color: var(--text-3);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.vault-sync-save.danger {
+  border-color: var(--danger);
+  background: var(--danger);
+  /* its own ink: the base class carries --on-accent, which is the app's
+     near-black and is unreadable on the red. White on this fill is what the
+     other destructive control (.selmenu-btn-danger:hover) already uses. */
+  color: #fff;
+}
+
+/* ── Sync conflict resolution ─────────────────────── */
+
+.sync-conflict .vault-sync-card-head {
+  align-items: flex-start;
+  padding-top: 13px;
+  padding-bottom: 13px;
+}
+
+.sync-conflict .vault-sync-card-head p {
+  margin-top: 4px;
+  max-width: 46ch;
+  color: var(--text-3);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.sync-conflict-progress {
+  flex: none;
+  color: var(--text-3);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.sync-conflict .dash-alert {
+  margin: 0 16px 12px;
+}
+
+.sync-conflict-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 16px 14px;
+  list-style: none;
+}
+
+.sync-conflict-file {
+  min-width: 0;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  overflow: hidden;
+}
+
+.sync-conflict-file.resolved {
+  border-color: var(--ok);
+}
+
+.sync-conflict-file-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.sync-conflict-path {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-1);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.sync-conflict-badge {
+  color: var(--ok);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.sync-conflict-props {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11.5px;
+}
+
+.sync-conflict-props th,
+.sync-conflict-props td {
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border-soft);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.sync-conflict-props thead th {
+  color: var(--text-3);
+  font-weight: 540;
+}
+
+.sync-conflict-props tbody th {
+  color: var(--text-2);
+  font-weight: 540;
+}
+
+.sync-conflict-props code {
+  font-family: var(--mono);
+  color: var(--text-1);
+  user-select: text;
+}
+
+.sync-conflict-prop-missing {
+  color: var(--text-3);
+}
+
+.sync-conflict-diff {
+  border: 0;
+  border-radius: 0;
+}
+
+.sync-conflict-diff .hist-diff-head {
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.sync-conflict-side-note {
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.sync-conflict-empty {
+  padding: 10px 12px;
+  color: var(--text-3);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.sync-conflict-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.sync-conflict-choice.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.sync-conflict-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border-soft);
+}

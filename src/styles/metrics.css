@@ -1,0 +1,318 @@
+
+/* One row, one baseline. The cards used to be flex columns whose LABEL took
+   the slack (`flex: 1 0 auto`), which bottom-anchored the value block — fine
+   while every card in the row had the same anatomy, and a ~21px stagger the
+   moment one card carried a reason line under its value and its neighbour did
+   not. The three bands are shared now: label, value, sub-line. Every card
+   spans the same three rows of the strip's own grid, so a card with a reason
+   line lands that line in the third band instead of pushing its own value up
+   out of line with the row.
+
+   The gutter override is load-bearing: the strip's 24px row-gap is the space
+   BETWEEN card rows, and without this it would also open between a card's
+   label and its value. */
+.metrics-cards .dash-card {
+  display: grid;
+  grid-template-rows: subgrid;
+  grid-row: span 3;
+  align-content: start;
+  /* what the strip's row gap used to be — see .metrics-cards */
+  padding-bottom: 24px;
+}
+
+/* Select-type properties — option dots + value picker */
+
+.opt-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  vertical-align: middle;
+}
+
+.opt-dot-none {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--text-3);
+}
+
+.db-cell-txt .opt-dot,
+.db-col-head .opt-dot,
+.db-group-label .opt-dot {
+  margin-right: 6px;
+  margin-top: -2px;
+}
+
+/* status dots in card/list subtitles */
+.row-sub .opt-dot {
+  margin-right: 4px;
+  margin-top: -1px;
+}
+
+/* multi-select values: one dot per value inside the chip */
+.chip-val .opt-dot {
+  margin-right: 4px;
+  margin-top: -1px;
+}
+
+.chip-editing {
+  border-color: var(--accent);
+}
+
+.selmenu {
+  position: fixed;
+  z-index: 60;
+  width: 240px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* section label above a picker list — "Databases" on the type picker */
+.selmenu-listhead {
+  padding: 8px 10px 0;
+  font-size: 10.5px;
+  font-weight: 560;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.selmenu-item .type-icon {
+  flex: none;
+  margin-right: 1px;
+}
+
+.chip .type-icon {
+  flex: none;
+}
+
+.selmenu-input {
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-1);
+  font-size: 13px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.selmenu-list {
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.selmenu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.selmenu-item.selected {
+  background: var(--active);
+  color: var(--text-1);
+}
+
+/* hairline between the value rows and the grey action block */
+.selmenu-item.separated {
+  position: relative;
+  margin-top: 9px;
+}
+
+.selmenu-item.separated::before {
+  content: "";
+  position: absolute;
+  top: -5px;
+  left: 0;
+  right: 0;
+  border-top: 1px solid var(--border-soft);
+}
+
+.selmenu-val {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selmenu-cur {
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.selmenu-note {
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.selmenu-action {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-3);
+}
+
+.selmenu-item.selected .selmenu-action {
+  color: var(--text-1);
+}
+
+.selmenu-empty {
+  padding: 10px 8px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+/* cell mode: the picker rides the table cell itself — the wrapper
+   loses its panel chrome, the input pins to the cell rect (same text metrics
+   as .db-cell-txt, so the glyphs land where the value sat), and the option
+   list hangs off it as its own panel. .flip-up stacks the panel above. */
+.selmenu.selmenu-cell {
+  background: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  overflow: visible;
+  display: block;
+}
+
+.selmenu-cell > .selmenu-input {
+  display: block;
+  width: 100%;
+  height: var(--cell-h);
+  padding: 8px 10px;
+  border-bottom: none;
+  background: var(--bg-elevated);
+  outline: 1.5px solid var(--accent);
+  outline-offset: -1.5px;
+}
+
+.selmenu-cell-panel {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  min-width: 100%;
+  width: max-content;
+  max-width: 320px;
+  margin-top: 4px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+
+.selmenu-cell.flip-up .selmenu-cell-panel {
+  top: auto;
+  bottom: 100%;
+  margin-top: 0;
+  margin-bottom: 4px;
+}
+
+.selmenu-edit-head {
+  padding: 9px 12px 5px;
+  font-size: 11px;
+  font-weight: 590;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-3);
+}
+
+.selmenu-editrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.selmenu-editrow:hover {
+  background: var(--hover);
+}
+
+.selmenu-dotbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  padding: 0;
+}
+
+.selmenu-dotbtn:hover {
+  background: var(--active);
+}
+
+.selmenu-x {
+  display: inline-flex;
+  align-items: center;
+  border: none;
+  background: none;
+  color: var(--text-3);
+  padding: 2px;
+}
+
+.selmenu-x:hover {
+  color: var(--text-1);
+}
+
+.selmenu-addrow {
+  padding: 2px 8px 4px;
+}
+
+.selmenu-add-input {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-1);
+  font-size: 13px;
+  padding: 4px 0;
+}
+
+.selmenu-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.selmenu-btn {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12px;
+  padding: 4px 10px;
+}
+
+.selmenu-btn:disabled {
+  opacity: 0.4;
+}
+
+.selmenu-btn:hover {
+  color: var(--text-1);
+  border-color: var(--border-strong);
+}
+
+/* a latched footer toggle (the date picker's Range button) */
+.selmenu-btn.on {
+  color: var(--text-1);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}

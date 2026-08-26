@@ -1,0 +1,252 @@
+
+.ctx-menu {
+  position: absolute;
+  padding: 4px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  box-shadow:
+    0 10px 38px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  outline: none;
+  animation: ctx-in 90ms ease-out;
+}
+
+@keyframes ctx-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* One pop-in for every anchored menu. The context menu and the
+   palette animated; the property/date/column/dots popovers appeared
+   instantly, so the same kind of click read as two different surfaces.
+   The menu grows out of its trigger — origin top-left when it drops, and
+   mirrored to bottom-left for the flipped-up cases. No fill mode: once the
+   100ms is over the transform is gone, so the menu stops being a
+   containing block for anything positioned inside it. */
+@keyframes menu-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-3px) scale(0.98);
+  }
+}
+
+@keyframes menu-pop-up {
+  from {
+    opacity: 0;
+    transform: translateY(3px) scale(0.98);
+  }
+}
+
+.selmenu:not(.selmenu-cell),
+.selmenu-cell-panel,
+.colmenu,
+.dots-menu {
+  transform-origin: top left;
+  animation: menu-pop 100ms ease-out;
+}
+
+.selmenu.flip-up:not(.selmenu-cell),
+.selmenu-cell.flip-up .selmenu-cell-panel,
+.colmenu.flip-up {
+  transform-origin: bottom left;
+  animation-name: menu-pop-up;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .selmenu:not(.selmenu-cell),
+  .selmenu-cell-panel,
+  .colmenu,
+  .dots-menu {
+    animation: none;
+  }
+}
+
+/* The hover tooltip. Same elevated card as every other floating
+   surface, sized down — it is a label, not a menu. Positioned by
+   src/components/Tooltip.tsx (fixed, viewport coords), so nothing here places
+   it. Above the menus, below the toast: a tooltip may describe a menu item,
+   but must never cover the thing the app is trying to tell you. Never a
+   pointer target — it sits where the pointer is heading. */
+.tooltip {
+  position: fixed;
+  z-index: 115;
+  max-width: 280px;
+  padding: 4px 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  box-shadow:
+    0 6px 20px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  color: var(--text-1);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  animation: tip-in 90ms ease-out;
+}
+
+/* grows out of the trigger, like the menus */
+.tooltip.tip-bottom {
+  transform-origin: top center;
+}
+
+.tooltip.tip-top {
+  transform-origin: bottom center;
+}
+
+@keyframes tip-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tooltip {
+    animation: none;
+  }
+}
+
+.ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 5px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-2);
+  cursor: default;
+}
+
+.ctx-item svg {
+  flex: none;
+  color: var(--text-3);
+  /* The row owns the action. A tall menu can finish its entrance animation
+     with the pointer over the glyph, so keep the decorative child out of
+     hit-testing and let the stable row receive the click. */
+  pointer-events: none;
+}
+
+.ctx-item.selected {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+.ctx-item.selected svg {
+  color: var(--text-2);
+}
+
+.ctx-item.danger,
+.ctx-item.danger svg {
+  color: var(--danger);
+}
+
+.ctx-item.disabled {
+  opacity: 0.4;
+}
+
+/* hairline group divider (separatorAbove) — 4px breathing room each side,
+   drawn as a pseudo-element so the hover pill never bleeds under it */
+.ctx-item.separated {
+  position: relative;
+  margin-top: 9px;
+}
+
+.ctx-item.separated::before {
+  content: "";
+  position: absolute;
+  top: -5px;
+  left: 0;
+  right: 0;
+  border-top: 1px solid var(--border-soft);
+}
+
+.ctx-label {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ctx-hint {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.main {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+  margin: 8px 8px 8px 0;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+/* The desktop shining through, at `window-opacity` percent.
+
+   Only two surfaces take the alpha: the window ground and `.main`. `--bg` and
+   `--bg-panel` themselves stay OPAQUE, because ~20 other rules use them as a
+   KNOCKOUT (the CodeMirror search field over text, the calendar week gutter,
+   the onboarding card) where translucency would leak whatever sits behind;
+   and because the panel hierarchy has to survive — every layer above `.main`
+   keeps its solid token, so an elevated surface still reads as elevated.
+
+   Stacking two translucent layers means `.main` composites to
+   1-(1-a)² — at the 80% floor the note pane still lands at 96% solid, and
+   the sidebar's bare ground carries most of the effect. That is the intent:
+   the chrome breathes, the writing surface stays readable.
+
+   The class is added only on macOS-in-Tauri with a dial below 100, so the
+   plain webview, iOS and the e2e mock never take this path — their window is
+   opaque exactly as before, and `color-mix` rather than an rgba() literal so
+   both surfaces keep reading their existing tokens — no new grey enters the
+   ramp. */
+/* index.html paints the canvas `#08090a` inline so the window can't flash
+   white before React mounts. That ground sits BEHIND body, so leaving it
+   opaque would have the translucent surfaces composite against it and the OS
+   material would be installed but invisible. Cleared for this class only —
+   everywhere else the anti-flash paint is untouched. */
+html.vibrancy {
+  background: transparent;
+}
+
+html.vibrancy body {
+  background: color-mix(in srgb, var(--bg) var(--window-opacity, 100%), transparent);
+}
+
+html.vibrancy .main {
+  background: color-mix(in srgb, var(--bg-panel) var(--window-opacity, 100%), transparent);
+}
+
+.list {
+  flex: none;
+  width: clamp(170px, 28%, 284px);
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border-soft);
+}
+
+/* 44px matches .sidebar-drag, so the sidebar's and the content pane's
+   hairlines meet as one line */
+.list-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  flex: none;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border-soft);
+}

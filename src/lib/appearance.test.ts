@@ -1,6 +1,7 @@
 import { strict as assert } from "node:assert";
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
+
+import { stylesheetSource } from "../../scripts/styles-source.ts";
 
 import {
   appearancePreviewPending,
@@ -304,13 +305,13 @@ function hslToHex(h: number, s: number, l: number): string {
     they exist to guard. So the anchor is asserted before it is used. */
 function sliceFrom(text: string, anchor: string): string {
   const at = text.indexOf(anchor);
-  assert.ok(at >= 0, `styles.css no longer contains “${anchor}”`);
+  assert.ok(at >= 0, `the stylesheet no longer contains “${anchor}”`);
   return text.slice(at);
 }
 
 /** every `--tone-<slot>: hsl(calc((<hue> + …)) <s>% <l>%…)` in the sky block */
 function skySlots(): Map<string, string> {
-  const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+  const css = stylesheetSource();
   const table = sliceFrom(css, "accent tone table");
   // the sky block is the first one and is the bare :root — stop at the first
   // tone-scoped block so a later preset can't be mistaken for sky
@@ -356,7 +357,7 @@ test("the sky tone reproduces the shipped SUB-932 hexes exactly", () => {
 });
 
 test("every tone declares the full family on both grounds", () => {
-  const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+  const css = stylesheetSource();
   const table = sliceFrom(css, "accent tone table");
   for (const tone of TONES) {
     const block =
@@ -384,7 +385,7 @@ test("every tone declares the full family on both grounds", () => {
 });
 
 test("series-5 is fixed across every preset and the full nudge range", () => {
-  const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+  const css = stylesheetSource();
   const table = sliceFrom(css, "accent tone table");
   for (const tone of TONES) {
     const start = tone.id === "sky" ? 0 : table.indexOf(`:root[data-tone="${tone.id}"]`);
@@ -403,7 +404,7 @@ test("series-5 is fixed across every preset and the full nudge range", () => {
 });
 
 test("the SUB-943 strong hairline reads only from the tone family", () => {
-  const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+  const css = stylesheetSource();
   const gradient = css.slice(css.indexOf("--hairline-accent:"), css.indexOf("--text-4:"));
   assert.match(gradient, /var\(--tone-series-2\)/);
   assert.match(gradient, /var\(--tone-accent\)/);
@@ -434,7 +435,7 @@ function contrast(a: string, b: string): number {
 }
 
 test("no tone, at any nudge, drops a family colour below 3:1 on its ground", () => {
-  const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+  const css = stylesheetSource();
   const table = sliceFrom(css, "accent tone table");
   const re =
     /--tone-(paper-)?([a-z0-9-]+):\s*hsl\(calc\(\(([\d.]+)\s*\+\s*var\(--tone-nudge\)\)\s*\*\s*1deg\)\s+([\d.]+)%\s+([\d.]+)%/g;
@@ -475,12 +476,12 @@ test("no tone, at any nudge, drops a family colour below 3:1 on its ground", () 
 /** the `:root` block — up to the first nested rule */
 function rootBlock(css: string): string {
   const at = css.indexOf(":root {");
-  assert.ok(at >= 0, "styles.css no longer opens with a :root block");
+  assert.ok(at >= 0, "the stylesheet no longer opens with a :root block");
   return css.slice(at, css.indexOf("\n}", at));
 }
 
 test("the interactive tokens at :root read from the tone family", () => {
-  const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+  const css = stylesheetSource();
   const root = rootBlock(css);
   for (const [token, slot] of [
     ["--accent", "--tone-accent"],
@@ -509,7 +510,7 @@ function onAccent(css: string): string {
 }
 
 test("--on-accent clears 4.5:1 on every tone across the whole nudge range", () => {
-  const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+  const css = stylesheetSource();
   const ink = onAccent(css);
   const table = sliceFrom(css, "accent tone table");
   const re =
@@ -539,7 +540,7 @@ test("--on-accent clears 4.5:1 on every tone across the whole nudge range", () =
 });
 
 test("the checkbox ticks carry --on-accent's value", () => {
-  const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+  const css = stylesheetSource();
   const ink = onAccent(css);
   // a data URI is an opaque image: it cannot read a custom property, so the
   // three ticks write the value out and this test is what keeps them in step
@@ -579,7 +580,7 @@ function screenOnly(css: string): string {
 }
 
 test("no control paints white text on an accent fill", () => {
-  const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+  const css = stylesheetSource();
   const screen = screenOnly(css);
   assert.ok(
     screen.includes(".cal-feed-form-actions button.primary"),
@@ -658,7 +659,7 @@ function inherited(
 }
 
 test("a control that swaps its fill does not keep the other fill's ink", () => {
-  const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+  const css = stylesheetSource();
   const rules = ruleList(screenOnly(css));
   assert.ok(rules.length > 500, "the rule scan found almost nothing — the parse drifted");
 
@@ -701,7 +702,7 @@ const BAND_SCREEN = ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181"];
 const BAND_PAPER = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4"];
 
 test("the band ramp ships its validated hexes on both grounds", () => {
-  const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+  const css = stylesheetSource();
   // split on the real at-rule, not on the words: several comments name the
   // print block, and matching one of those would hand the screen half nothing
   const at = css.indexOf("\n@media print {");
@@ -725,7 +726,7 @@ test("the band ramp ships its validated hexes on both grounds", () => {
 });
 
 test("no accent dial reaches the band ramp", () => {
-  const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+  const css = stylesheetSource();
   for (const m of css.matchAll(/--band-[1-5]:\s*([^;]+);/g)) {
     assert.doesNotMatch(
       m[1],
@@ -744,7 +745,7 @@ test("no accent dial reaches the band ramp", () => {
    §3 rule 4): 1↔2, 2↔3, 3↔4, 4↔5. Non-adjacent pairs are knowingly not
    covered — 3↔5 and 2↔4 converge under deuteranopia, and the legend, hover
    tooltip and line dash patterns are the relief. This test is the tooling
-   that holds the claimed scope, so it reads the hexes out of styles.css
+   that holds the claimed scope, so it reads the hexes out of the stylesheet
    rather than off a constant: edit a --band token and the floor is re-run
    against the new hue.
 
@@ -858,7 +859,7 @@ function bandHexesFromCss(css: string, ground: "screen" | "paper"): string[] {
 }
 
 test("adjacent band slots clear the CVD floor for protan and deutan, both grounds", () => {
-  const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+  const css = stylesheetSource();
   let worst = { dE: Infinity, where: "" };
   for (const ground of ["screen", "paper"] as const) {
     const set = bandHexesFromCss(css, ground);
@@ -908,7 +909,7 @@ test("the non-adjacent deutan residual is real and stays documented", () => {
   // hue edit ever fixes that, this test fails — and the doc's honest paragraph
   // should then be tightened rather than left overclaiming in the other
   // direction.
-  const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+  const css = stylesheetSource();
   const labs = bandHexesFromCss(css, "screen").map((hex) =>
     linearToLab(simulateDichromat(hexToLinear(hex), "deutan"))
   );
