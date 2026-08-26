@@ -188,9 +188,9 @@ test("shot: the peek's way home from the day-2 chip", async ({ page }) => {
   await strip(page, later).click();
   await expect(page.locator(".cal-peek")).toBeVisible();
   await expect(page.locator(".cal-peek-time")).toHaveValue("09:00");
-  // the value settles a beat after the resize write (two observable steps —
-  // see the strand-settle issue); wait for the closing hour so the shot shows
-  // the peek a human reads, not the mid-settle frame
+  // no settle window here any more — the peek's drafts sync during render,
+  // so the closing hour is in the field from its first paint (pinned in
+  // calPeekFirstPaint.component.test.ts)
   await expect(page.locator(".cal-peek-end")).toHaveValue(/^\d{2}:\d{2}$/);
   await expect(page.locator(".cal-peek-endday")).toHaveCount(1);
   await page.screenshot({ path: `${OUT}/9-day2-chip-peek.png` });

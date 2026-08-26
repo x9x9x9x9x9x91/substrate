@@ -1612,11 +1612,21 @@ export default function CalendarPane({
         .catch(reportWriteFailure);
       return;
     }
-    setPropUndoable({
+    // Picking a cadence RESTARTS the series, so its old bookkeeping goes with
+    // the old cadence: an end date left behind by "Delete this and following"
+    // would keep cutting the new series off at the old boundary — often
+    // before today, so the pick appears to do nothing at all — and skipped
+    // days named against the old rhythm no longer land on occurrences. One
+    // pick, one undo entry, same as the None branch above.
+    setPropsUndoable({
       path: e.path,
-      key: foldedPropKey(props, "repeat"),
-      value: v.toLowerCase(),
+      edits: [
+        { key: foldedPropKey(props, "repeat"), value: v.toLowerCase() },
+        { key: foldedPropKey(props, "repeat_until"), value: null },
+        { key: foldedPropKey(props, "repeat_skip"), value: null },
+      ],
       record: undo.record,
+      label: `Repeat ${v.toLowerCase()}`,
     })
       .then(onMutated)
       .catch(reportWriteFailure);

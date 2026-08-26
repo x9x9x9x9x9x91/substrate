@@ -118,10 +118,31 @@ export default function CalPeek({
   const [statusMenu, setStatusMenu] = useState<AnchorRect | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
 
-  // a committed time lands on the next refresh — pick it up, but never fight
-  // an in-progress edit (the input shows the normalized value once committed)
-  useEffect(() => setTimeDraft(startTime ?? ""), [startTime]);
-  useEffect(() => setEndDraft(endTime ?? ""), [endTime]);
+  // A committed time lands on the next refresh — pick it up, but never fight
+  // an in-progress edit (the input shows the normalized value once committed).
+  //
+  // Adjusted DURING render against the value each field last synced from,
+  // rather than from an effect keyed on the value itself. A write made from
+  // one of these rows lands as two updates at once — the vault refresh
+  // carrying the new value, and the field's own commit — and React renders
+  // the first pass, throws it away, and re-renders. A discarded pass still
+  // leaves its values in the effect's comparison, so on the surviving pass
+  // the row that changed in the discarded one reads as unchanged, its effect
+  // never runs, and the field sits on the old time until the peek is
+  // reopened: type a start past the block's own end and the Ends row keeps
+  // showing the end that was just moved. A state adjustment made during
+  // render is thrown away together with the render that made it, so the
+  // surviving pass always compares against what was actually shown.
+  const [syncedStart, setSyncedStart] = useState(startTime);
+  const [syncedEnd, setSyncedEnd] = useState<string | null>(null);
+  if (startTime !== syncedStart) {
+    setSyncedStart(startTime);
+    setTimeDraft(startTime ?? "");
+  }
+  if (endTime !== syncedEnd) {
+    setSyncedEnd(endTime);
+    setEndDraft(endTime ?? "");
+  }
 
   // outside press closes — except while a sub-picker (date/status, or the
   // pane's repeat menu) owns the layer; those portals sit outside this box.

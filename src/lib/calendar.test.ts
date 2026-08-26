@@ -1362,6 +1362,51 @@ test("a time EDIT still leaves the span's end exactly where it was", () => {
   assert.equal(retimedRangeValue(null, "2026-08-11", "11:15"), "2026-08-11 11:15");
 });
 
+test("a start time typed PAST its own end moves the END, never the start", () => {
+  // the peek's time row edits the START; a same-day end left where it was
+  // would reverse the pair and dateRangeValue would SWAP it, writing a start
+  // nobody typed. The block keeps its length instead.
+  const block = splitDateRange("2026-08-10 09:00/2026-08-10 10:30");
+  assert.equal(
+    retimedRangeValue(block, "2026-08-10", "18:00"),
+    "2026-08-10 18:00/2026-08-10 19:30"
+  );
+  // landing exactly ON the stored end counts as overtaking it — a
+  // zero-length block is as unusable as a reversed one
+  assert.equal(
+    retimedRangeValue(block, "2026-08-10", "10:30"),
+    "2026-08-10 10:30/2026-08-10 12:00"
+  );
+  // an earlier time is an ordinary edit: the end does not budge
+  assert.equal(
+    retimedRangeValue(block, "2026-08-10", "08:00"),
+    "2026-08-10 08:00/2026-08-10 10:30"
+  );
+});
+
+test("a start time typed near midnight carries its block into the next day", () => {
+  const late = splitDateRange("2026-08-10 22:00/2026-08-10 23:00");
+  assert.equal(
+    retimedRangeValue(late, "2026-08-10", "23:30"),
+    "2026-08-10 23:30/2026-08-11 00:30"
+  );
+});
+
+test("a block with no length to keep settles on the resize floor", () => {
+  // an untimed start has no duration to preserve, and neither does a
+  // zero-length block — both land one grid step after the typed time
+  const untimed = splitDateRange("2026-08-10/2026-08-10 10:30");
+  assert.equal(
+    retimedRangeValue(untimed, "2026-08-10", "18:00"),
+    "2026-08-10 18:00/2026-08-10 18:15"
+  );
+  const instant = splitDateRange("2026-08-10 09:00/2026-08-10 09:00");
+  assert.equal(
+    retimedRangeValue(instant, "2026-08-10", "18:00"),
+    "2026-08-10 18:00/2026-08-10 18:15"
+  );
+});
+
 test("parseRepeat: counts Number cannot hold are non-repeating (SUB-1281)", () => {
   // 320 digits coerce to Infinity; repeatStep would multiply it into NaN days
   assert.equal(parseRepeat(`every ${"9".repeat(320)} days`), null);

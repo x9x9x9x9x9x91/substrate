@@ -175,6 +175,17 @@ export function parseTimeEntry(raw: string): TimeEntry {
     becomes a three-day all-day band); an end sitting on the start's own day
     only existed to give the block a length, so it goes with the time.
 
+    A typed time that lands at or after the stored end is the one case where
+    the end cannot stay put: only a same-day timed end can be overtaken (a
+    later day never is, and a stored value can't already be reversed), and
+    leaving it would let `dateRangeValue` SWAP the pair — writing a start the
+    user never typed and snapping the field back. The typed time IS the
+    start, so the END moves instead: the block keeps its LENGTH
+    (`shiftedRangeEnd`, the same duration arithmetic a drop uses), and only
+    when that can't produce a later end — an untimed stored start, or a
+    zero-length block — does it fall back to the resize floor
+    (`clampedRangeEnd`).
+
     Every other edit leaves the end exactly as stored. `fallbackDay` is used
     when the note has no parseable value yet. */
 export function retimedRangeValue(
@@ -189,8 +200,27 @@ export function retimedRangeValue(
       ? stored.end.day === stored.start.day
         ? null
         : { day: stored.end.day }
-      : { day: stored.end.day, time: stored.end.time ?? undefined };
+      : heldOrMovedEnd(stored.start, stored.end, time);
   return dateRangeValue(day, time, end);
+}
+
+/** The end a time edit leaves behind — the stored one, unless the new start
+    has overtaken it (see `retimedRangeValue`). Split out so the swap guard
+    reads as one thought instead of a fourth nested ternary. */
+function heldOrMovedEnd(
+  start: DayTime,
+  end: DayTime,
+  time: string,
+): { day: string; time?: string } {
+  const held = { day: end.day, time: end.time ?? undefined };
+  const overtaken = end.day === start.day && !!end.time && time >= end.time;
+  if (!overtaken) return held;
+  const moved = shiftedRangeEnd(
+    { day: start.day, time: start.time, endDay: end.day, endTime: end.time },
+    { day: start.day, time },
+  );
+  if (moved && (moved.day > start.day || (moved.time ?? "") > time)) return moved;
+  return clampedRangeEnd({ day: start.day, time }, held);
 }
 
 /** The end a spanning entry keeps when its start moves to `to`.
