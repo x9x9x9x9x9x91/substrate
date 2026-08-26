@@ -236,7 +236,7 @@ the page loads, live reload goes quiet. Keep the two in step when 1420 changes.
 
 ## The `substrate://` scheme (`plugins.deep-link`)
 
-`plugins.deep-link.desktop.schemes` (SUB-1075) is a config surface with a real
+`plugins.deep-link.desktop.schemes` is a config surface with a real
 blast radius: it is what makes the bundler write `CFBundleURLTypes` into
 Info.plist (and the equivalent registry / `.desktop` entries elsewhere), so
 after install **anything on the machine — a web page, a mail client, another

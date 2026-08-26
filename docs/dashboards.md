@@ -764,9 +764,9 @@ Not an app kind any more. It is a **vault-resident kind** (`docs/vault-format.md
 stylesheet, which `dashboard: yield-apr` mounts in a vault that carries it.
 Without the folder the name renders the unknown-kind card like any other value
 this build does not know. It was a single-purpose finance tracker carrying
-headline weight it did not earn (SUB-1407, demoted by SUB-1451); the note
-format it reads and writes is unchanged and still documented at
-`docs/vault-format.md` §5.3.
+headline weight it did not earn, and the move to vault-resident kinds demoted
+it out of app code; the note format it reads and writes is unchanged and still
+documented at `docs/vault-format.md` §5.3.
 
 That leaves `charts` as the one kind that names its renderer outright:
 `src/lib/kinds.ts` reserves the name and `DashboardPane` dispatches it fence or

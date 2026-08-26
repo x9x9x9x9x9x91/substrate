@@ -575,7 +575,8 @@ leaves alone.
 
 - **Wikilink grammar.** `[[Target]]`, exactly `\[\[([^\[\]]+)\]\]`; the inner
   text may carry a heading anchor and a display alias, `[[target#anchor|alias]]`,
-  and resolution still matches the target alone (SUB-1095, `vault-format.md` §3).
+  and resolution still matches the target alone (the anchor/alias split,
+  `vault-format.md` §3).
   **There is no `[[id]]` form and never will be** — a link names a note by its
   name, and an alias changes what you read, not what it points at.
 - **Wikilink resolution.** Case-insensitive title-or-stem, one test not two

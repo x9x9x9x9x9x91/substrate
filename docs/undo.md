@@ -163,10 +163,10 @@ Undo-adjacent but not undo: TrashPane (`TrashPane.tsx:96-119`), HistoryPanel
 snapshot before schema sweeps but **exposes no UI to roll it back**, and swallows
 its own failure with `.catch(console.warn)` at `:1042`).
 
-The yield-board ⌘Z is **live but no longer app code**. SUB-1451 demoted
-`yield-apr` to a vault-resident bundle, and the stack moved with it: the same
-two `{ body, claimed }` arrays capped at 50, now inside the kind's own `mount`
-as a window keydown listener, writing back through the kind API's
+The yield-board ⌘Z is **live but no longer app code**. The move to
+vault-resident kinds demoted `yield-apr` to a bundle, and the stack moved with
+it: the same two `{ body, claimed }` arrays capped at 50, now inside the kind's
+own `mount` as a window keydown listener, writing back through the kind API's
 `ctx.writeBody`/`ctx.setProp` with the same guards. It publishes its
 availability through `ctx.setUndo`, into the same `DashUndoStore` row 4
 registers with — the gate below is what makes that mandatory rather than

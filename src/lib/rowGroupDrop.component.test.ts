@@ -22,7 +22,13 @@
  *       there is ATOMIC — one undo takes back the rows AND the option;
  *    7. what the prompt will accept as a property: not a column that is
  *       already there, not one of the names the app keeps for itself, and
- *       not a kinded column it would have to invent a value for.
+ *       not a kinded column it would have to invent a value for;
+ *    8. the promote door is the whole confirm, not just its option: the
+ *       column's description rides the write, a refusal or a set of rows
+ *       that all fail leaves the vault where it started and records
+ *       nothing, and the app's OWN door — mounted here, not stood in for —
+ *       still hands the confirm back the promise its grouping switch waits
+ *       on.
  *
  *  Harness written up in `docs/component-tests.md`. */
 
@@ -56,7 +62,7 @@ const SCHEMA = {
     say about, then the description */
 type SchemaSave = [string, unknown, unknown, unknown, unknown, unknown, unknown, unknown];
 
-const { vaultCreate, vaultRead } = await import("./ipc.ts");
+const { vaultCreate, vaultRead, vaultSchemaRead } = await import("./ipc.ts");
 
 before(async () => {
   await mockBackend();
@@ -499,38 +505,62 @@ test("promoting a group name into an existing property keeps its description", a
   );
 });
 
+/** what the pane composes for the door: the option list either side of the
+    promote, the kind either side of it, and the description the column
+    already carries */
+type PromoteAdd = {
+  before: SelectOption[];
+  after: SelectOption[];
+  kind: PropKind | null;
+  priorKind: PropKind | null;
+  description?: string;
+};
+
 /** The app's own `onPromoteOption`, small enough to read: the schema lives
     in a box the test can inspect, and the pair rides the real promote door.
     Whatever the pane hands `writeValue` is folded into the ONE entry this
-    records, which is the thing under test. */
+    records, which is the thing under test.
+
+    The box takes the description along with the options because the app's
+    door does: one schema write carries both, so a description dropped on the
+    way in is visible here as a box that lost it. `refuseWrite` is the vault
+    turning that write down, and the swallowed rejection is the app's too —
+    its door ends on a toast, so a refusal reaches the confirm as a promise
+    that resolved having written nothing. */
 function promoteDoor(
-  schemaBox: { options: SelectOption[] },
-  recorded: Omit<UndoEntry, "id">[]
+  schemaBox: { options: SelectOption[]; description?: string },
+  recorded: Omit<UndoEntry, "id">[],
+  over: { refuseWrite?: boolean; onAdd?: (add: PromoteAdd) => void } = {}
 ) {
   return (
     _prop: string,
-    add: {
-      before: SelectOption[];
-      after: SelectOption[];
-      kind: PropKind | null;
-      priorKind: PropKind | null;
-      description?: string;
-    },
+    add: PromoteAdd,
     writeValue: (record: UndoRecorder) => Promise<void>
-  ) =>
-    addOptionAndWriteUndoable({
+  ) => {
+    over.onAdd?.(add);
+    return addOptionAndWriteUndoable({
       store: {
         before: { options: add.before, kind: add.priorKind },
         after: { options: add.after, kind: add.kind },
         write: (state) => {
+          if (over.refuseWrite)
+            return Promise.reject(new Error("the vault will not take that option"));
           schemaBox.options = state.options;
+          schemaBox.description = add.description;
           return Promise.resolve();
         },
         read: () => Promise.resolve(schemaBox.options),
       },
       writeValue,
       record: (e) => recorded.push(e),
+    }).catch((e) => {
+      // the app's door ends on a toast, so a refused write reaches the
+      // confirm as a promise that resolved having written nothing. Only
+      // there: everywhere else a rejection out of the door is a fault this
+      // file wants to hear about, not swallow.
+      if (!over.refuseWrite) throw e;
     });
+  };
 }
 
 test("one undo after a promoted group takes back the rows and the option", async (t) => {
@@ -565,6 +595,120 @@ test("one undo after a promoted group takes back the rows and the option", async
     schemaBox.options,
     [{ value: "Delay" }],
     "undo took the rows back and left the invented option standing in the schema"
+  );
+});
+
+test("a promoted group name carries the column's description through the door", async (t) => {
+  const recorded: Omit<UndoEntry, "id">[] = [];
+  // seeded stale on purpose: a box that already held the right description
+  // would read the same whether the write carried one or not
+  const schemaBox = { options: [{ value: "Delay" }] as SelectOption[], description: "stale" };
+  /* The door path composes its own schema write, so the description the
+     column already carries has to be put ON that write by the pane — the
+     fallback path's description is a different line of code, and the
+     existing description test only ever runs that one. A promote that
+     forgets it wipes the column's description while adding an option. */
+  const seen: PromoteAdd[] = [];
+  const { r } = await twoRows(t, "PromoteDesc", recorded, {
+    onPromoteOption: promoteDoor(schemaBox, recorded, { onAdd: (add) => seen.push(add) }),
+  });
+
+  await dragRowOnto(r, 0, 1);
+  await type("Group name", "Shelved");
+  await press("Group");
+  await r.settle();
+
+  assert.equal(
+    seen[0]?.description,
+    BUNDLE_DESC,
+    "the pane sent the promote door no description, so the door's schema write cleared it"
+  );
+  assert.equal(
+    schemaBox.description,
+    BUNDLE_DESC,
+    "the description did not survive the write that stored the promoted option"
+  );
+  assert.deepEqual(schemaBox.options, [{ value: "Delay" }, { value: "Shelved" }]);
+});
+
+test("a promote the vault refuses writes no rows and leaves the grouping alone", async (t) => {
+  const recorded: Omit<UndoEntry, "id">[] = [];
+  const prefs: Record<string, unknown>[] = [];
+  const schemaBox = { options: [{ value: "Delay" }] as SelectOption[] };
+  /* The door's own suite pins that a refused option write stops before the
+     value. What is pinned HERE is the confirm around it: the rows this
+     gesture had in hand stay unwritten, nothing is takeable back, and the
+     table does not start grouping by a column the schema never took. */
+  const seen: PromoteAdd[] = [];
+  const { r, a, b } = await twoRows(t, "PromoteRefused", recorded, {
+    pref: { view: "table", cols: ["Bundle"] },
+    onPrefChange: (p: Record<string, unknown>) => prefs.push(p),
+    onPromoteOption: promoteDoor(schemaBox, recorded, {
+      refuseWrite: true,
+      onAdd: (add) => seen.push(add),
+    }),
+  });
+
+  await dragRowOnto(r, 0, 1);
+  await type("Group by property", "Bundle");
+  await type("Group name", "Shelved");
+  await press("Group");
+  await r.settle();
+
+  assert.equal(seen.length, 1, "the confirm never reached the promote door to be refused");
+  assert.deepEqual(schemaBox.options, [{ value: "Delay" }], "a refused write reached the schema");
+  assert.equal((await vaultRead(a.path)).props.Bundle, undefined, "a refused promote still wrote a row");
+  assert.equal((await vaultRead(b.path)).props.Bundle, undefined, "a refused promote still wrote a row");
+  assert.equal(recorded.length, 0, "a promote that wrote nothing left an undo entry behind");
+  assert.equal(
+    prefs.some((p) => p.table_group_by === "Bundle"),
+    false,
+    "the table regrouped onto a promote the vault refused"
+  );
+});
+
+test("rows that all fail on the promote door take the invented option back out", async (t) => {
+  const recorded: Omit<UndoEntry, "id">[] = [];
+  const prefs: Record<string, unknown>[] = [];
+  const schemaBox = { options: [{ value: "Delay" }] as SelectOption[] };
+  /* The option is stored first, so a set of rows that ALL refuse the value
+     leaves it standing on its own unless the door takes it back — an option
+     in the column's list that no row carries and no undo can remove. The
+     rollback lives in the door; that it survives the confirm around it,
+     with no entry recorded and no grouping switch, is this. */
+  const seen: PromoteAdd[] = [];
+  const { r, a } = await twoRows(t, "PromoteNoWrite", recorded, {
+    pref: { view: "table", cols: ["Bundle"] },
+    onPrefChange: (p: Record<string, unknown>) => prefs.push(p),
+    onPromoteOption: promoteDoor(schemaBox, recorded, { onAdd: (add) => seen.push(add) }),
+    writeProp: () => Promise.reject(new Error("the vault is read-only")),
+  });
+
+  await dragRowOnto(r, 0, 1);
+  await type("Group by property", "Bundle");
+  await type("Group name", "Shelved");
+  await press("Group");
+  await r.settle();
+
+  /* Every other assertion here is an absence, and an absence reads the same
+     whether the option was stored and taken back out or the confirm never
+     reached the door at all — so the door being entered is asserted first. */
+  assert.deepEqual(
+    seen.map((add) => add.after),
+    [[{ value: "Delay" }, { value: "Shelved" }]],
+    "the confirm never reached the promote door, so what follows proves nothing"
+  );
+  assert.deepEqual(
+    schemaBox.options,
+    [{ value: "Delay" }],
+    "the promoted option stayed in the schema though not one row took the value"
+  );
+  assert.equal(recorded.length, 0, "a promote nothing landed from recorded an undo entry");
+  assert.equal((await vaultRead(a.path)).props.Bundle, undefined);
+  assert.equal(
+    prefs.some((p) => p.table_group_by === "Bundle"),
+    false,
+    "the table regrouped onto a column not one row took"
   );
 });
 
@@ -736,4 +880,69 @@ test("a table grouped by a kinded column normalizes the typed value", async (t) 
   assert.equal((await vaultRead(a.path)).props.Weight, "1234.56");
   assert.equal((await vaultRead(b.path)).props.Weight, "1234.56");
   assert.deepEqual(saves, [], "a kinded column took a select option it has no use for");
+});
+
+/** The last seam this gesture rests on is not in the pane at all. Promoting
+    into an existing property hands the confirm the app's own promote door,
+    and that door has to RETURN the promise it starts: the confirm awaits it,
+    and the grouping switch it makes afterwards fires only once a row is
+    carrying the value. A door that starts its work and hands back nothing
+    leaves every test above green while a promoted drop quietly stops
+    regrouping the table — so this one mounts the whole app and drops a row
+    on a row in a real database, with no stand-in anywhere in the path.
+
+    The mock vault's task database is the fixture: an ungrouped table whose
+    `status` is a kindless select, which is exactly what sends a spelling it
+    has never seen through the promote door. */
+test("the app's own promote door hands the confirm back its grouping switch", async (t) => {
+  const { default: App } = await import("../App.tsx");
+  const r = await renderComponent(t, h(App as never, {} as never));
+
+  const open = r
+    .all(".sidebar button")
+    .find((b) => b.textContent?.trim() === "🎵TasksDB");
+  assert.ok(open, "the sidebar showed no task database to open");
+  await act(async () => {
+    open.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+  });
+  await r.settle();
+
+  assert.equal(
+    r.all("tbody tr.db-group-tr").length,
+    0,
+    "the table was already drawing group sections before the drop"
+  );
+  // the app's rows carry their own paths, which is what the drag payload is
+  mountedPaths = dataRows(r).map((tr) => {
+    const cell = tr.querySelector("td[data-focus-path]");
+    assert.ok(cell, "a table row carried no path for the drag to pick up");
+    return cell.getAttribute("data-focus-path") ?? "";
+  });
+
+  await dragRowOnto(r, 0, 1);
+  assert.ok(prompt(), "the drop raised no prompt in the app");
+  await type("Group by property", "status");
+  // a spelling the column's options have never held: the confirm has to
+  // promote it, and only then switch the table onto the column
+  await type("Group name", "waiting");
+  await press("Group");
+  await r.settle();
+
+  const stored = (await vaultSchemaRead()) as unknown as Record<
+    string,
+    Record<string, { options?: SelectOption[] }>
+  >;
+  assert.ok(
+    stored.task?.status?.options?.some((o) => o.value === "waiting"),
+    "the promoted group name never reached the column's options"
+  );
+  const sections = r.all("tbody tr.db-group-tr");
+  assert.ok(sections.length > 0, "the table never started grouping by the promoted column");
+  assert.ok(
+    sections.some((tr) => (tr.textContent ?? "").includes("waiting")),
+    "the table regrouped without a section for the group the drop just made"
+  );
+  // the app's rows are not this file's rows: anything appended after this
+  // test starts from the pane harness's own paths, not the task database's
+  mountedPaths = [];
 });

@@ -26,6 +26,19 @@ given data* — a prop read, a dispatch on note type, an error path, an empty
 state. Keep the browser spec for anything that needs the real app around it:
 focus, scrolling, keyboard routing, window chrome, multi-pane interaction.
 
+**Mounting `App.tsx` itself is allowed, and is the exception, not the
+pattern.** It renders in about half a second here, so the cost is not the
+argument against it — the argument is that a test which drives the whole app
+through the DOM is an e2e spec with worse tools. Mount it only when the seam
+is something the app hands a surface that a browser spec cannot see: a
+callback's RETURN value, an ordering between two writes, a promise a pane
+awaits. `rowGroupDrop.component.test.ts` does it once, for exactly that —
+the promote door's returned promise, which no rendered pixel reveals until
+the grouping switch that waits on it silently stops happening. Everything a
+screenshot or a click can prove belongs in `e2e/`. A whole-app mount also
+writes to the shared mock vault for the rest of that file's run, so put it
+last and leave module state as it found it.
+
 ## Writing one
 
 Component tests live in `src/lib/*.test.ts` — `scripts/run-node-tests.ts`
@@ -194,8 +207,8 @@ no snapshot framework, no second test runner.
 - **WebCrypto is waited on, not guessed at.** Node's `crypto.subtle` resolves
   from the libuv threadpool, not from JS, so an `importKey`/`decrypt` pair can
   land after any number of zero-length turns when the machine is loaded — that
-  is what made the lens-reader tests flaky on a busy rig (SUB-1442). The
-  harness wraps the subtle methods to keep their promises and `settle()`
+  is what made the lens-reader tests flaky on a busy rig. The harness wraps the
+  subtle methods to keep their promises and `settle()`
   awaits the actual work, looping while more is started (import → decrypt →
   state → render). Nothing is needed in a test; a surface that keeps crypto
   permanently in flight falls back to the two-turn guarantee after 20 rounds

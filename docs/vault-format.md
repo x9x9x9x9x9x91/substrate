@@ -260,7 +260,7 @@ clear:
   convenience copy does not weaken or invalidate the password-protected vault copy.
 - On macOS the data-protection keychain needs an entitlement that only a build
   with an embedded provisioning profile may claim, so builds without one use the
-  legacy file keychain instead (SUB-1103). Honest cost: the legacy item has no
+  legacy file keychain instead. Honest cost: the legacy item has no
   per-item device-lock gating — it lives in the login keychain, readable while
   that keychain is unlocked, rather than only while the device is unlocked. The
   user-presence requirement still applies, so reading it still asks for Touch ID,
@@ -311,7 +311,7 @@ requires the password-protected identity or an authorized device key. iOS uses
 the same marker, recipient and private-key architecture; Face ID is only an
 unlock convenience, never an encryption prerequisite.
 
-A marker only takes effect on a device that has **confirmed** it (SUB-889).
+A marker only takes effect on a device that has **confirmed** it.
 Writing `.substrate-seal` is otherwise an unauthenticated instruction to
 re-encrypt a whole subtree to the recipient in the file *and* to purge the
 matching plaintext out of local history — so a sync pull, a shared folder, or
@@ -521,8 +521,7 @@ External-writer contract:
 ### Wikilinks
 
 `[[Target]]` in the body. The grammar is exactly `\[\[([^\[\]]+)\]\]` — no nested
-brackets. The inner text is `target#anchor|alias`, all three parts optional
-(SUB-1095):
+brackets. The inner text is `target#anchor|alias`, all three parts optional:
 
 - The **alias** is everything past the **first** `|` — the display text. It is
   prose, not a name: a later `|` or `#` inside it is just more prose.
@@ -916,7 +915,7 @@ crypto = SUMIF(bucket, "crypto", value_eur)
 - `FX("USD","EUR")` uses the frankfurter.dev rate, cached app-side
   and refreshed live — the app never writes fx props into notes.
 
-**Per-column notifications — the `columns:` prop (SUB-876).** A sheet has no
+**Per-column notifications — the `columns:` prop.** A sheet has no
 schema (`type: sheet` is functional, §6), so a date column that should fire a
 notification says so in the note's own frontmatter, under a `columns:` map keyed
 by header name:
@@ -1156,7 +1155,7 @@ as a hub:
   where it sits, laying database notes with start/end date properties onto the
   horizontal time view of §5.5d;
 - a callout may name one accent after its kind — `> [!note|teal] Title` — from
-  the same roster §5.4's `accent:` card key takes (SUB-969); the name recolours
+  the same roster §5.4's `accent:` card key takes; the name recolours
   the card's rule (and the same line in the editor) while the kind glyph keeps
   its own hue. An off-roster name is simply not honoured: the line stays a note
   callout rather than degrading to a plain blockquote;
@@ -1340,7 +1339,7 @@ re-write between reads costs nothing (`src/lib/musicwork.ts`,
 `src/components/MusicWorkDashboard.tsx`).
 
 
-`tax` (SUB-736) is a read-only readiness board for one tax year: what is
+`tax` is a read-only readiness board for one tax year: what is
 deductible so far, what evidence is still owed, and whether the year is fit to
 hand over. It reads two sheets and writes to neither — the books off in
 their own tool stay canonical, and this pane is a window onto a derived copy of
@@ -1436,8 +1435,8 @@ exporter reading the books. **The app writes neither**
 The yield board is **not built into the app**. It is a vault-resident kind
 (§5.8) — a `.vault/kinds/yield-apr/` bundle — and `dashboard: yield-apr`
 mounts it only in a vault that carries that folder. It was demoted from a
-built-in by SUB-1451; the note format below is unchanged and is what the
-bundle reads and writes.
+built-in when the yield board moved into the vault; the note format below is
+unchanged and is what the bundle reads and writes.
 
 The board reads and appends to a csv fence in its own note:
 
@@ -1492,7 +1491,7 @@ cards:
   more is clamped to 8
   rather than refused, and anything that isn't a whole number reads as absent;
   the hand-written form (the ` ```cards ` fence) names
-  the bound as an error instead (SUB-1060, and see the strictness note below).
+  the bound as an error instead (see the strictness note below).
 - `emph`: optional, `true` only (anything else reads as absent). Marks the
   card as one of the board's sharp anchors — at most two, first two in card
   order if more are flagged; with none flagged the first card is sharp.
@@ -1634,7 +1633,7 @@ binding) or `series` (summary binding)):
   for averages or negative split values. A split's series encoding replaces
   schema hue on a categorical x-axis.
 - `kind` — `bar` (default) | `line`.
-- `size` — optional bounded style token (SUB-969): `tall`, or absent for the
+- `size` — optional bounded style token: `tall`, or absent for the
   default plot. A NAME from a closed roster, never a height — a fence cannot
   name pixels, and the app owns what `tall` measures. Unlike every binding key
   above, an unknown value is not a parse error: the chart draws at its default
@@ -1955,8 +1954,7 @@ Keys (`src/lib/embeds.ts`):
   (`columns: status, artist`), matched case-insensitively against the
   database's columns and still bounded by the surface's column cap. Wins over
   a `saved:` pin's own curated list.
-- A dotted `relation.property` name in `columns:` or `sort:` is a **join**
-  (SUB-829) — a lookup column showing a stored property of the row this row's
+- A dotted `relation.property` name in `columns:` or `sort:` is a **join** — a lookup column showing a stored property of the row this row's
   relation names: "the date of the release this master points at".
 
   ````markdown
@@ -2092,7 +2090,7 @@ row below the table creates a note of the fence's database — schema defaults,
 template applied, plus the fence query's plain `key: value` equality filters
 seeded so the new row belongs to the table it was added from (negations,
 comparisons and OR-lists seed nothing). Rollup columns and joined
-`relation.property` columns (SUB-829) stay read-only, and no
+`relation.property` columns stay read-only, and no
 board or aggregation footer is rendered. Clicking the embed's padding still
 drops the cursor into the fence and reveals the source for editing.
 
@@ -2348,7 +2346,7 @@ The record itself, keyed by kind id inside `kinds.json`:
 its manifest to a different api is a new decision. `trustUpdates` is absent
 or `false` unless the user turned it on by hand — see below.
 
-**The review pane** (SUB-961). A kind that isn't enabled renders, in the
+**The review pane.** A kind that isn't enabled renders, in the
 dashboard frame rather than a modal, what it is: title, description, author,
 api, the entry file, and the files the hash covers with their sizes. Three
 sentences say what enabling means — full vault access, this vault on this
@@ -2468,7 +2466,7 @@ or `ctx.toast`.
 | `ctx.el` | `HTMLElement` | The same element passed as the first argument, for convenience. |
 | `ctx.note` | `{ path, title, props, body }` | The dashboard note the kind is mounted in: its vault path, title, frontmatter props and raw body. |
 | `ctx.css` | `Record<string, string>` | Sanctioned class names, the full api-1 roster: `dash-metrics`, `dash-metric`, `dash-metric-sub`, `dash-label`, `dash-value`, `dash-sub`, `dash-hero`, `dash-table`, `dash-card`, `dash-cards`, `dash-section-label`, `dash-link`, `dash-foot`. Rendering through these is how a kind speaks in the app's voice and follows its theme; a kind may also ship its own `style.css`. A key not in the map reads as `undefined` — interpolated straight into a template string that becomes `class="undefined"` — so look keys up defensively (`ctx.css["dash-hero"] ?? ""`) and put anything the roster doesn't cover on your own prefixed classes. |
-| `ctx.accents` | `readonly string[]` | The accent roster — `gray`, `blue`, `indigo`, `violet`, `pink`, `red`, `orange`, `yellow`, `green`, `teal`. Put one on `data-accent` on a `dash-card` and the app resolves the hue — that is the one sanctioned class wired for it; an off-roster name paints nothing. Named mood, not CSS: a kind that names `teal` follows the theme when the theme moves. Added inside api 1, so **feature-check it** (`ctx.accents ?? []`) — a build older than SUB-969 mounts the same kind with the member absent. |
+| `ctx.accents` | `readonly string[]` | The accent roster — `gray`, `blue`, `indigo`, `violet`, `pink`, `red`, `orange`, `yellow`, `green`, `teal`. Put one on `data-accent` on a `dash-card` and the app resolves the hue — that is the one sanctioned class wired for it; an off-roster name paints nothing. Named mood, not CSS: a kind that names `teal` follows the theme when the theme moves. Added inside api 1, so **feature-check it** (`ctx.accents ?? []`) — a build older than the accent roster mounts the same kind with the member absent. |
 | `ctx.fx` | `{ table, err, rate(from, to), refresh() }` | Exchange rates, read-only. `table` is the quoted table (`base`, `rates`, `asOf`, `live`) or `null` before any load landed — a copy, so mutating it changes nothing; `err` is the last refresh failure; `rate("USD", "EUR")` converts any pair through the base and returns `null` when either code isn't quoted (render that as "no rate", never as zero); `refresh()` asks for fresh quotes and the redraw arrives through `ctx.onChange`. **A kind never fetches** — rates enter the app through one call behind the `net-fx-rates` switch (§13) and `refresh` is that call, so with the switch off nothing is fetched and the cached table stands, exactly as on the app's own surfaces. Read `table.live` and say "cached" rather than treating a quiet refresh as a failure. Added inside api 1, so **feature-check it** (`ctx.fx?.table`). |
 | `ctx.notes(filter?)` | `⇒ Promise<NoteMeta[]>` | The note index — path, stem, title, folder, props, `updated_ms`, excerpt, `tags` (inline `#hashtags` unioned with the `tags:` prop, deduplicated; optional, so absent on older projections) and `sealed`. **A kind that renders note bodies must read `sealed`**: it says the note is whole-file encrypted on disk, and vault code that ignores it is one more surface emitting plaintext the user sealed. The optional filter is a plain predicate, `(n) => boolean`, applied per note: `ctx.notes((n) => n.props.type === "gear")`. **`props` is `Record<string, unknown>`** — the values are whatever that note's YAML parsed to, and nothing narrows them for you, so coerce before comparing (`Number(n.props.bpm) > 128`, never `n.props.bpm > 128`, which silently becomes a string comparison when a note quoted its number). |
 | `ctx.read(path)` | `⇒ Promise<{ body, props }>` | One note's raw body and its frontmatter props — `props` unknown-typed, same coercion rule as `ctx.notes`. |
@@ -3295,7 +3293,7 @@ one also shows up as `corrupt-config` in the doctor, §15).
   parses as a date, so a prop literally named `lead` still keys and parses
   normally. Lead alerts fire at the value's own `HH:MM`, else 09:00, on
   `due − n` days; they snooze exactly like day-of alerts.
-- A **sheet cell** alert (SUB-876, §5.1's `columns:` map) keys as
+- A **sheet cell** alert (§5.1's `columns:` map) keys as
   `<note path>|<column>#<row>|<YYYY-MM-DD>[|lead]` — the same shape with the
   prop segment split by `#` into the column header and the row. **The row is
   identified by its first-column label cell, never by index**, so a sheet that
@@ -3340,8 +3338,8 @@ one also shows up as `corrupt-config` in the doctor, §15).
   note deleted or moved, prop gone, the `notify` flag (or, for a lead key,
   `notifyBefore`) gone, note completed or
   `calendar: false`, or a `due`/`repeat`/`repeat_until`/`repeat_skip` edit
-  that means the key's day is no longer an occurrence. For a sheet key
-  (SUB-876) the same test reads on the grid: the column left the `columns:`
+  that means the key's day is no longer an occurrence. For a sheet key the same
+  test reads on the grid: the column left the `columns:`
   map or the header row, the labelled row was renamed or deleted, or the
   cell's date changed. (The entry itself
   stays in the map until the 14-day prune — if the vault changes back
@@ -3451,7 +3449,7 @@ Per-database layout choice, same file discipline as schema.json:
   `vault_rename_prop` / `vault_clear_prop` (§4) carry `widths` keys and
   `wrap` entries along like `sorts`/`hidden` — renamed in place (an entry
   already at the new name wins), dropped with the prop.
-- `card_order` (SUB-948): optional; the board's hand-arranged card order —
+- `card_order`: optional; the board's hand-arranged card order —
   vault-relative note PATHS, one flat list covering every column (a column
   reads its own members out of it in sequence, so only relative order within
   a column matters). Written only by a within-column drag on an UNSORTED
@@ -3464,11 +3462,11 @@ Per-database layout choice, same file discipline as schema.json:
   slot it was dragged to; trashing leaves the entry alone — it is inert while
   the note is gone and picks its slot back up if the note is restored to the
   same path. When that path was taken over meanwhile, the restore comes back
-  under a numbered name and retargets the entry to it (SUB-1139), so the slot
+  under a numbered name and retargets the entry to it, so the slot
   follows the note rather than the path. Entries keep their exact spelling, blanks aside: a path's leading
   or trailing spaces are part of the filename. Deliberately NOT a note prop:
   an arrangement is a view's opinion, so it never touches the note files.
-- `grid` (SUB-607): optional; `true`/`false` pins this database's table
+- `grid`: optional; `true`/`false` pins this database's table
   grid lines (vertical column rules) on or off, overriding the global
   `db-grid` setting (§12). Absent = follow the global. The UI clears the key
   when a toggle lands back on the global value, so a database without an
@@ -4226,7 +4224,7 @@ the folder's meaning.
 ## 8c. `.vault/reflexes.json` — file-event rules
 
 A JSON object of rules that say "when this happens to a path that looks like
-this, and these props hold, do this" (SUB-826). **Data, not code**: no
+this, and these props hold, do this". **Data, not code**: no
 expressions, no scripting, no agent in the loop — a closed set of five verbs
 over a closed set of events, so the file syncs, diffs and hand-edits like any
 other config, and the worst a malformed rule can do is not run. Missing file =
@@ -4985,7 +4983,7 @@ Plain notes the app treats specially — all optional, all just files:
   key is still honored as a fallback when `number-locale` is absent, so vaults
   that set `intl` keep their en-style numbers, but nothing writes it any more.
 
-  `date-locale` (SUB-1107, a BCP-47 tag from the same short list the number
+  `date-locale` (a BCP-47 tag from the same short list the number
   dial offers — `de-DE`, the default, writes `31.01.2026, 14:05`; `de-CH` the
   same; `en-GB` and `fr-FR` write `31/01/2026`; `en-US` writes `01/31/2026`
   and is the one 12-hour clock), which is the only dial for the date dialect:
