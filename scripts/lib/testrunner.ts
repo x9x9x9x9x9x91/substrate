@@ -22,6 +22,8 @@
 // call, a shell script), which is the evidence a stalled run otherwise costs a
 // `sample` run to recover.
 
+import { coverageArgs } from "./coverage.ts";
+
 /** Milliseconds allowed for a single test before node cancels it. */
 export const DEFAULT_PER_TEST_MS = 300_000;
 
@@ -101,11 +103,26 @@ export function resolveConcurrency(env: Record<string, string | undefined>): num
   return value;
 }
 
+/**
+ * Where a coverage run writes its raw output, or undefined for a plain run.
+ *
+ * Coverage is opt-in through this one variable and nothing else, so the bare
+ * `npm test` argv is byte-for-byte what it was before coverage existed:
+ * instrumentation costs wall clock, and the suite is already the machine-heavy
+ * half of a gate run. `npm run coverage` sets it; nothing else does.
+ */
+export function resolveCoverageDir(env: Record<string, string | undefined>): string | undefined {
+  const raw = env.SUBSTRATE_COVERAGE_DIR;
+  if (raw === undefined || raw === "") return undefined;
+  return raw;
+}
+
 /** The argv for the `node --test` run, with the per-test bound applied. */
-export function buildNodeArgs(files: string[], budgets: Budgets, concurrency = 0): string[] {
+export function buildNodeArgs(files: string[], budgets: Budgets, concurrency = 0, coverageDir?: string): string[] {
   const args = ["--test"];
   if (budgets.perTestMs > 0) args.push(`--test-timeout=${budgets.perTestMs}`);
   if (concurrency > 0) args.push(`--test-concurrency=${concurrency}`);
+  if (coverageDir !== undefined) args.push(...coverageArgs(coverageDir));
   return [...args, ...files];
 }
 

@@ -49,3 +49,7 @@ dist-ssr
 # Meaning search fetches its ONNX Runtime here (scripts/fetch-onnxruntime.sh):
 # a pinned 38 MB native library, not source.
 /src-tauri/vendor/onnxruntime/
+
+# Coverage reports (scripts/coverage-report.ts). Report-only output, regenerated
+# by `npm run coverage` and published by the nightly pass — never committed.
+/coverage/

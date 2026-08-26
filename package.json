@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "vite",
     "test": "node scripts/run-node-tests.ts",
+    "coverage": "node scripts/coverage-report.ts",
     "lint": "eslint .",
     "e2e": "playwright test",
     "build": "tsc && vite build",

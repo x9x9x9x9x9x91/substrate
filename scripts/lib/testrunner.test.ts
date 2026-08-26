@@ -15,6 +15,7 @@ import {
   parseProcessRows,
   resolveBudgets,
   resolveConcurrency,
+  resolveCoverageDir,
   TIMEOUT_EXIT_CODE,
   type ProcessRow,
 } from "./testrunner.ts";
@@ -102,6 +103,29 @@ test("test concurrency is opt-in and reaches node's argv", () => {
     "a.test.ts",
   ]);
   assert.deepEqual(buildNodeArgs(["a.test.ts"], { perTestMs: 0, suiteMs: 0 }, 0), ["--test", "a.test.ts"]);
+});
+
+// Coverage instrumentation costs wall clock on a suite that is already the
+// machine-heavy half of a gate run, and the gates run it on every branch. So it
+// is opt-in through one variable and `npm run coverage` is the only caller:
+// with the variable unset the argv must be byte-for-byte the pre-coverage one,
+// which is the property below rather than a claim in a comment.
+test("coverage is opt-in and leaves the default argv untouched", () => {
+  assert.equal(resolveCoverageDir({}), undefined);
+  assert.equal(resolveCoverageDir({ SUBSTRATE_COVERAGE_DIR: "" }), undefined);
+  assert.equal(resolveCoverageDir({ SUBSTRATE_COVERAGE_DIR: "coverage" }), "coverage");
+
+  assert.deepEqual(buildNodeArgs(["a.test.ts"], budgets, 0, undefined), [
+    "--test",
+    "--test-timeout=1000",
+    "a.test.ts",
+  ]);
+
+  const instrumented = buildNodeArgs(["a.test.ts"], budgets, 0, "cov");
+  assert.ok(instrumented.includes("--experimental-test-coverage"));
+  assert.ok(instrumented.includes("--test-reporter-destination=cov/lcov.info"));
+  // The files stay last: node reads everything after the flags as test paths.
+  assert.equal(instrumented[instrumented.length - 1], "a.test.ts");
 });
 
 test("process rows parse, skipping the ps header and any malformed line", () => {

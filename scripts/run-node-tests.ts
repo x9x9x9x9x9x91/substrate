@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import {
   buildNodeArgs,
@@ -8,6 +8,7 @@ import {
   parseProcessRows,
   resolveBudgets,
   resolveConcurrency,
+  resolveCoverageDir,
   TIMEOUT_EXIT_CODE,
   type Budgets,
 } from "./lib/testrunner.ts";
@@ -69,7 +70,14 @@ try {
   process.exit(1);
 }
 
-const child = spawn(process.execPath, buildNodeArgs(files, budgets, concurrency), { stdio: "inherit" });
+// Coverage rides the same suite rather than a second definition of it: the
+// roots above are what "the tests" means, and a report measured against a
+// different list would describe a suite nobody runs. Unset — every invocation
+// except `npm run coverage` — the argv is unchanged and so is the wall clock.
+const coverageDir = resolveCoverageDir(process.env);
+if (coverageDir !== undefined) mkdirSync(coverageDir, { recursive: true });
+
+const child = spawn(process.execPath, buildNodeArgs(files, budgets, concurrency, coverageDir), { stdio: "inherit" });
 
 // The suite watchdog. `--test-timeout` alone cannot save a run: a test blocked
 // inside a synchronous child process (execFileSync/spawnSync) never yields the

@@ -226,6 +226,25 @@ Capacities, Affine).*
   vault in a click, copying plain markdown and never overwriting a note that
   is already there. No store, no account, no network — a ready-made board is
   as far away as a copy.
+- **Dashboards you (or your agent) can write, without a plugin store** — a
+  `dashboard:` value can name a folder of code living in the vault itself
+  (`.vault/kinds/<id>/`: a manifest plus an ES module with one `mount(el, ctx)`
+  entry point), shipped in 0.28.0 — the release that moved the built-in Yield
+  APR board out of the app and into a vault bundle. It syncs with the vault like
+  any other file, so a kind written on one machine is there on the next one, and
+  an agent can author one by writing two files — the cookbook ships a worked one
+  (`cookbook/week-numbers/`), bundle and board together, installable in a click.
+  Consent is the whole design: nothing in the vault runs until you read a review
+  of it — what it is, who wrote it, which files, what it can reach — and press
+  enable, and that consent is pinned to those exact bytes, per vault and per
+  device. Change a byte and it stops and asks again; a standing "trust updates to
+  this kind" rider can only ever be granted after the first yes, never as part of
+  it. Settings → Vault lists everything this vault has been told to run and takes
+  it back without deleting anything. Obsidian plugins are global to the app,
+  installed from a store, and unsandboxed with no per-file consent; Notion and
+  Anytype have no local code path at all. One honest limit to keep in the copy:
+  the phone syncs a bundle but cannot run it — desktop only for now
+  (`docs/dashboards.md`, the iOS paragraph).
 - **Global capture** — ⌥Space from any app, menu-bar tray, zero-decision
   Inbox.
 - **A palette that reaches the vault from anywhere** — the same ⌥Space that
@@ -346,24 +365,6 @@ Capacities, Affine).*
   and undistributed. Rides the iOS lane above; same "in development" line.
   (Obsidian mobile has no widget story; Notion's widgets are cloud-bound —
   this one reads the last-synced local vault.)
-- **Dashboards you (or your agent) can write, without a plugin store** — a
-  `dashboard:` value can name a folder of code living in the vault itself
-  (`.vault/kinds/<id>/`: a manifest plus an ES module with one `mount(el, ctx)`
-  entry point). It syncs with the vault like any other file, so a kind written
-  on one machine is there on the next one, and an agent can author one by
-  writing two files — the cookbook ships a worked one (`cookbook/week-numbers/`),
-  bundle and board together, installable in a click. Consent is the whole
-  design: nothing in the vault runs until you read a review of it — what it is,
-  who wrote it, which files, what it can reach — and press enable, and that
-  consent is pinned to those exact bytes, per vault and per device. Change a
-  byte and it stops and asks again; a standing "trust updates to this kind"
-  rider can only ever be granted after the first yes, never as part of it.
-  Settings → Vault lists everything this vault has been told to run and takes
-  it back without deleting anything. Obsidian plugins are global to the app,
-  installed from a store, and unsandboxed with no per-file consent; Notion and
-  Anytype have no local code path at all. Rides the public release line:
-  public-build users get it with the next release — until a
-  release carries it, say "landing", never shipped.
 - **E2E-encrypted sync**: implemented end to end — encrypted blob-store
   transport (XChaCha20-Poly1305 per object, Argon2id passphrase wrap), an
   open-source single-tenant server, and a `blob+https://` remote type in the

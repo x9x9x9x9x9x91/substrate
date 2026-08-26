@@ -87,6 +87,36 @@ engine-tests:
     - cd src-tauri
     - cargo test --lib --locked
 
+# coverage: the node suite again, under V8 coverage, published as an artifact
+# (`coverage/least-covered.md` — the tree ranked by unexercised lines — beside
+# raw lcov). REPORT ONLY: there is no threshold, no floor, and no percentage
+# that can fail a pipeline. `allow_failure` says so structurally — if the suite
+# under instrumentation dies, unit-tests above is the job that reports it, and
+# the partial report is still published rather than lost.
+#
+# It is a second full run of unit-tests' battery, so it does not ride every
+# branch pipeline: the default branch and schedules, manual elsewhere. Nothing
+# a merge waits on reads it.
+#
+# It needs no newer node than the suite itself: the coverage flags it adds are
+# the ones that have been there since v22.5, deliberately not the include-all
+# walk, which is much newer and which the report does not need.
+coverage:
+  extends: .node-job
+  allow_failure: true
+  script:
+    - npm run coverage
+  artifacts:
+    when: always
+    paths:
+      - coverage/
+    expose_as: "Coverage — least covered files"
+    expire_in: 1 month
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - when: manual
+
 # static gates for the TS side: ESLint errors only (warnings are a tracked
 # backlog, see eslint.config.js). Same cache pattern as the other node jobs.
 lint:

@@ -2263,7 +2263,6 @@ grammar is the intersection of what is unambiguous in all three.
   "entry": "index.js",
   "description": "What is plugged into what, by room.",
   "style": "style.css",
-  "icon": "zap",
   "author": "avery"
 }
 ```
@@ -2290,11 +2289,16 @@ grammar is the intersection of what is unambiguous in all three.
   selectors; an unprefixed rule styles the rest of the app for as long as the
   pane is open. The element is removed on unmount, and a style that fails to
   load is not fatal: the kind mounts unstyled rather than not at all.
-- `icon` (optional) resolves through the curated glyph set (§5.2); `author`
-  (optional) is shown on the enable card.
+- `author` (optional) is shown on the enable card.
 
 Anything unrecognized in `kind.json` is ignored, so a future key doesn't
-invalidate a bundle on an older app.
+invalidate a bundle on an older app. One key is a special case of that and
+worth stating: an `icon` key parses without complaint — it is in the list of
+keys the manifest reader knows, so the pane never flags it as ignored — but no
+surface draws it. A custom kind's row takes its mark from the dashboard note's
+own frontmatter `icon:` prop (§5.2); the curated per-kind glyph table covers
+built-ins only. Set the prop on the note, not the key in the manifest, until a
+renderer reads it.
 
 **Built-in kinds always win.** A bundle whose folder name collides with a
 kind the app dispatches itself (§5.2, plus the reserved name `charts`) is
@@ -2314,6 +2318,15 @@ Git-excluding an in-vault consent file would not help: folder-mirroring sync
 tools copy `.vault/` wholesale, so a consent record a synced vault can carry
 is not a consent record. The consequence is deliberate: a second device
 consents again. That is what per-device means.
+
+**iOS syncs a kind's folder and its consent, and still cannot run it.** The
+`substrate-kind:` URI scheme every bundle is served over is registered on every
+target except iOS (`#[cfg(not(target_os = "ios"))]`, `src-tauri/src/lib.rs:888`),
+and `kinds_enable` refuses there outright. So `.vault/kinds/<id>/` rides sync to
+the phone like any other folder, a record consented to on the Mac keeps meaning
+what it says, and the pane still fails to load rather than drawing the board.
+Treat consent as desktop-only when writing for a vault that reaches a phone —
+this is the state of the first TestFlight build, not a permanent design call.
 
 The record pins a **SHA-256 hash over the bundle's files** — the manifest,
 the entry, and the style file when the manifest names one. Filenames sorted
@@ -2458,7 +2471,12 @@ error on whichever kind happened to be mounted. A kind that does async work
 should therefore handle its own rejections and say so through `ctx.setState`
 or `ctx.toast`.
 
-`ctx` members, api 1:
+`ctx` members, api 1. Nothing pins the table below to the code that builds it,
+so read it in lockstep with [`kind-api.d.ts`](kind-api.d.ts) — the typed
+declaration of `mount`, every ctx member and everything ctx hands back, which an
+editor checks a kind against. Where the two disagree the `.d.ts` is the
+authority and this table is behind: a member added inside api 1 lands there
+first, and `docs/dashboards.md` carries the worked examples.
 
 | Member | Shape | What it is |
 | --- | --- | --- |
@@ -5344,6 +5362,10 @@ prefer (`src-tauri/src/lib.rs`, grouped):
   `mount_rows` `mount_annotate` `mount_remove` — `mount_annotate`
   is a mount's only write path into the vault, and every scan is read-only on
   the mounted folder
+- Kinds (§5.8): `kinds_list` — every `.vault/kinds/` bundle with its manifest,
+  hash and this vault's consent record; the read door an agent surveying what a
+  vault can render needs. `kinds_enable` `kinds_disable` `kinds_set_trust` write
+  consent and are the user's gesture at the review card, not an agent's call
 - Files: `path_exists` `file_open` `file_reveal` `file_pick` `file_read_text`
   `vault_folder_files` (the loose files of ONE folder; see §1)
 - History: `history_status` `history_list` `history_diff` `history_restore`
