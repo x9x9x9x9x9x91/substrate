@@ -104,6 +104,7 @@ import {
   AudioWidget,
   CalcResultWidget,
   CheckboxWidget,
+  DashFenceHintWidget,
   FOLLOW_EVENT,
   TABLE_MENU_EVENT,
   FileWidget,
@@ -122,6 +123,7 @@ import {
   type TableMenuRequest,
 } from "../lib/editor-widgets";
 import { setEditorFocus } from "../lib/editorfocus";
+import { dashFenceHint } from "../lib/dashfencehint";
 import { evalCalcDoc, fencedLines, isCalcLine } from "../lib/calc";
 import {
   evalLiveExpr,
@@ -743,6 +745,75 @@ const viewRender = StateField.define<BlockRender>({
   create: computeViewDecorations,
   update: (prev, tr) => blockFieldUpdate(prev, tr, true, computeViewDecorations),
   provide: (f) => EditorView.decorations.from(f, (v) => v.deco),
+});
+
+/** Whether this buffer is a dashboard note's own source. A ```chart in a
+ * dashboard note is already drawing one pane away, so the hint below would be
+ * telling its author something they plainly know; in every other note the
+ * block draws nowhere and the hint is the only thing that says so. Dispatched
+ * in like the vault epoch, rather than read at construction, because a note's
+ * `type:` is edited from the prop chips while the buffer stays mounted. */
+const setDashboardNote = StateEffect.define<boolean>();
+const dashboardNoteField = StateField.define<boolean>({
+  create: () => false,
+  update: (value, tr) => {
+    for (const e of tr.effects) {
+      if (e.is(setDashboardNote)) value = e.value;
+    }
+    return value;
+  },
+});
+
+/** One quiet line under every fence that only draws on a dashboard. Additive
+ * widgets, not replacements, so the fence keeps its code box and its source: a
+ * reader sees exactly what they typed plus a sentence saying where it draws. */
+function computeDashFenceHints(state: EditorState): DecorationSet {
+  if (state.field(dashboardNoteField)) return Decoration.none;
+  const deco: Range<Decoration>[] = [];
+  syntaxTree(state).iterate({
+    enter(node) {
+      if (node.name !== "FencedCode") return;
+      // a fence quoted inside a blockquote draws nowhere, dashboards included
+      // — the boards' own renderer clears these languages in quoted context,
+      // so a hint here would send the author somewhere it still would not draw
+      for (let p = node.node.parent; p; p = p.parent) {
+        if (p.name === "Blockquote") return false;
+      }
+      const info = node.node.getChild("CodeInfo");
+      if (!info) return false;
+      // the info string as typed: first word is the language, the rest the
+      // tail that decides whether a bare-form fence parses at all
+      const text = state.sliceDoc(info.from, info.to);
+      const lang = text.trimStart().split(/\s+/, 1)[0] ?? "";
+      const hint = dashFenceHint(lang, text.slice(text.indexOf(lang) + lang.length));
+      if (hint === null) return false;
+      deco.push(
+        Decoration.widget({
+          widget: new DashFenceHintWidget(hint),
+          block: true,
+          side: 1,
+        }).range(state.doc.lineAt(node.to).to)
+      );
+      return false;
+    },
+  });
+  return Decoration.set(deco, true);
+}
+
+const dashFenceHintRender = StateField.define<DecorationSet>({
+  create: computeDashFenceHints,
+  update: (prev, tr) => {
+    if (tr.docChanged) return computeDashFenceHints(tr.state);
+    // the background parse reaching a fence past the initial window arrives as
+    // a transaction that changes nothing else — same reference compare the
+    // block fields make, true only on those few transactions
+    if (syntaxTree(tr.startState) !== syntaxTree(tr.state)) return computeDashFenceHints(tr.state);
+    if (tr.startState.field(dashboardNoteField) !== tr.state.field(dashboardNoteField)) {
+      return computeDashFenceHints(tr.state);
+    }
+    return prev;
+  },
+  provide: (f) => EditorView.decorations.from(f),
 });
 
 /** A standalone audio embed and its adjacent `annotations` fence render as
@@ -2209,6 +2280,11 @@ interface EditorProps {
   ) => void;
   /** vault epoch — view embeds re-snapshot their data when it bumps */
   vaultEpoch?: number;
+  /** Is this buffer a dashboard note's own source? Chart, heatmap, calendar,
+      timeline, progress and cards blocks draw only where a dashboard renders
+      them, so in every OTHER note each of them gets a quiet line saying so.
+      Defaults false — a caller that doesn't know is editing a plain note. */
+  dashboardNote?: boolean;
   focusRef?: React.MutableRefObject<(() => void) | null>;
   /** whole-doc replace from outside — an external file change landing in a
    * clean buffer. Cursor clamped; dispatched as a non-history
@@ -2291,6 +2367,7 @@ export default function Editor({
   embedRelationCandidates,
   onEmbedCreateRelation,
   vaultEpoch,
+  dashboardNote = false,
   focusRef,
   docRef,
   insertRef,
@@ -2359,6 +2436,7 @@ export default function Editor({
   const embedRelationCandidatesRef = useRef(embedRelationCandidates);
   const onEmbedCreateRelationRef = useRef(onEmbedCreateRelation);
   const vaultEpochRef = useRef(vaultEpoch);
+  const dashboardNoteRef = useRef(dashboardNote);
   // read once at mount; the effect below keeps the live editor in step
   const numberLocaleRef = useRef(numberLocale);
   const calcFxRef = useRef(calcFx);
@@ -2396,6 +2474,7 @@ export default function Editor({
   embedRelationCandidatesRef.current = embedRelationCandidates;
   onEmbedCreateRelationRef.current = onEmbedCreateRelation;
   vaultEpochRef.current = vaultEpoch;
+  dashboardNoteRef.current = dashboardNote;
   numberLocaleRef.current = numberLocale;
   calcFxRef.current = calcFx;
   liveSheetsRef.current = liveSheets;
@@ -2802,6 +2881,8 @@ export default function Editor({
           })
         ),
         vaultEpochField.init(() => vaultEpochRef.current ?? 0),
+        dashboardNoteField.init(() => dashboardNoteRef.current),
+        dashFenceHintRender,
         viewRender,
         audioAnnotationRender,
         flashLine,
@@ -3059,6 +3140,15 @@ export default function Editor({
       effects: readOnlyComp.current.reconfigure(EditorState.readOnly.of(readOnly)),
     });
   }, [readOnly, docKey]);
+
+  // typing `dashboard` into the note's type chip makes its chart fences draw,
+  // so the hints under them retire in place rather than at the next reopen
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    if (view.state.field(dashboardNoteField) === dashboardNote) return;
+    view.dispatch({ effects: setDashboardNote.of(dashboardNote) });
+  }, [dashboardNote, docKey]);
 
   // a vault epoch bump rebuilds view-embed DOM in place — cursor,
   // scroll and undo history ride along untouched

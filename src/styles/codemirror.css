@@ -250,6 +250,31 @@
   padding-bottom: 8px;
 }
 
+/* A ```chart or ```heatmap block sitting in a note that does not draw it. One
+   line under the code box, wearing the boards' calm state rather than a
+   warning: the `.dash-empty` dot-and-sentence, borrowed whole so "nothing is
+   wrong, here is why" looks the same in a note as it does on a board. No frame
+   of its own — a second bordered box under the code box's border would read as
+   an error card, which is the one thing this is not. Aligned with the code
+   text so it hangs off the block it belongs to. */
+.cm-dash-hint {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 5px 0 4px;
+  padding-left: 13px;
+  font: var(--dash-sentence);
+  color: var(--text-3);
+}
+
+.cm-dash-hint-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-4);
+}
+
 .cm-codeblock-line .cm-inline-code {
   background: none;
   border: none;

@@ -1660,6 +1660,11 @@ function NotePane({
     [revealRow, meta.path]
   );
   const noteType = foldedPropStr(props, "type");
+  /* A dashboard note's chart/heatmap/calendar fences draw one pane away, so
+     its source buffer suppresses the hints the editor puts under those blocks
+     everywhere else. Read from the pane's own props copy, like `isSheet`, so
+     the type chip's edit lands here in the same moment it lands on screen. */
+  const isDashboardNote = noteType?.toLowerCase() === "dashboard";
   const noteTypeSchema = noteType ? typeSchemaFor(schema, noteType) : undefined;
   // The + property chip is the only door to a frontmatter-keyed capability —
   // the editor below never sees the block — so the KEY half of the draft is
@@ -2660,6 +2665,7 @@ function NotePane({
               embedRelationCandidates={relationCandidates}
               onEmbedCreateRelation={onEmbedCreateRelation}
               vaultEpoch={vaultEpoch}
+              dashboardNote={isDashboardNote}
               focusRef={editorFocusRef}
               docRef={docReplaceRef}
               insertRef={editorInsertRef}

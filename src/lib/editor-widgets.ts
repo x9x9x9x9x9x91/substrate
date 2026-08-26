@@ -1939,3 +1939,35 @@ export class ImageWidget extends WidgetType {
     return false; // clicks land in the editor and reveal the source
   }
 }
+
+/** The quiet line under a fence that only draws on a dashboard. Wears the
+ * boards' own calm state — a dot and one sentence (`DashNotice`'s `DashEmpty`)
+ * — rather than the failure banner, because nothing here has failed: the block
+ * parses, it is simply in a note that does not draw it.
+ *
+ * Additive, like the calc answer: it replaces nothing, so the fence source
+ * stays exactly as typed and the widget needs no reveal-on-cursor case. */
+export class DashFenceHintWidget extends WidgetType {
+  constructor(readonly text: string) {
+    super();
+  }
+
+  eq(other: DashFenceHintWidget) {
+    return other.text === this.text;
+  }
+
+  toDOM() {
+    const wrap = document.createElement("div");
+    wrap.className = "cm-dash-hint";
+    const dot = document.createElement("span");
+    dot.className = "cm-dash-hint-dot";
+    const label = document.createElement("span");
+    label.textContent = this.text;
+    wrap.append(dot, label);
+    return wrap;
+  }
+
+  ignoreEvent() {
+    return false; // clicks land in the editor, on the line the hint sits under
+  }
+}

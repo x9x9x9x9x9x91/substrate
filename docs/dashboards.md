@@ -939,6 +939,17 @@ A fence that is opened and never closed is a failure, not an absence: the
 board would otherwise count zero fences and say nothing about the one plainly
 written in the note. It gets the banner, naming the missing closing line.
 
+The same split reaches the other way, into ordinary notes. A ` ```chart `,
+` ```cards `, ` ```progress `, ` ```heatmap `, ` ```calendar ` or ` ```timeline `
+block only draws where a dashboard renders it; written into a note that is not
+one, it is a code box and nothing more. So the note hangs one line under it in
+the calm voice — a dot and a sentence, "A heatmap draws on a dashboard note —
+here it stays as text." Never the banner: nothing has failed, the block is
+simply somewhere it does not draw. A ` ```view ` gets no line, because it embeds
+its table in an ordinary note already, and neither does a tailed opener of a
+bare-form language (` ```calendar month `), which draws nowhere at all —
+sending its author to a dashboard would be wrong twice.
+
 ## Workbook pages — tabs at the bottom
 
 Any dashboard can grow pages: add a `pages:` list to its frontmatter and the
