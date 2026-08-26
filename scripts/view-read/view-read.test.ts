@@ -385,6 +385,18 @@ test("--today pins the day relative date filters are measured against", (t) => {
   assert.equal(late.total, 4);
 });
 
+test("a vault with no number dialect reads the same on every machine", (t) => {
+  // the app follows the operating system's locale for a vault that never
+  // chose a dialect; this reader must not, or the same folder would print
+  // `300,50 €` on one machine and `300.50 €` on the next and a diff of two
+  // runs would be about the machine rather than about the vault
+  const vault = fixtureVault(t);
+  writeFileSync(join(vault, "Settings.md"), "---\ncapture-hotkey: alt+space\n---\n");
+  const out = JSON.parse(run(["Open tasks", "--vault", vault, "--today", TODAY], {}));
+  assert.equal(out.reader.numberLocale, "de-DE");
+  assert.equal(out.rows[0].cells.budget.display, "300,50 €");
+});
+
 test("a note this reader could only partly parse is named in the payload", (t) => {
   const vault = fixtureVault(t, {
     "Tasks/Odd.md": "---\ntype: task\nstatus: todo\ncards:\n  label: Cash\n---\nbody\n",

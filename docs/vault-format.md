@@ -3811,7 +3811,9 @@ These are the inputs that can differ, and where each one comes from:
 - **`numberLocale` comes from `Settings.md`** (`number-locale`, with the
   retired `number-format` still honored — §12), read from the vault, not from
   the machine. It is echoed in `reader.numberLocale`. A vault with no key
-  reads as `de-DE`, the app's default.
+  reads as `de-DE` here whatever the machine is set to — the app follows the
+  operating system's locale for a keyless vault, but a reader whose output is
+  diffed and piped has to answer the same everywhere.
 - **`fx: "none"` — currency is never converted headless.** Live exchange
   rates are a session resource the app fetches; a file reader has none, so a
   currency cell renders in the currency it was typed in rather than converted.
@@ -4968,8 +4970,8 @@ Plain notes the app treats specially — all optional, all just files:
   All three degrade to their default on any value the reader can't make
   sense of. Alongside them:
 
-  `number-locale` (a BCP-47 tag from a short list — `de-DE`, the
-  default, writes `1.234,56`; `en-US` and `en-GB` write `1,234.56`; `de-CH`
+  `number-locale` (a BCP-47 tag from a short list — `de-DE`
+  writes `1.234,56`; `en-US` and `en-GB` write `1,234.56`; `de-CH`
   writes `1’234.56` with a typographic apostrophe, which is what ICU
   emits; `fr-FR` writes `1 234,56` with a narrow no-break space), which is
   the *only* dial for the number dialect. It moves both directions:
@@ -5000,8 +5002,14 @@ Plain notes the app treats specially — all optional, all just files:
     never rewritten under any dialect. Everything on disk stays canonical
     dot-decimal — the dialect is a display and input convention only.
 
-  Unset or unrecognized reads as `de-DE`, so a vault that
-  never sets it renders exactly as before. It replaces `number-format`
+  Unset or unrecognized follows the **machine's own locale**, mapped onto
+  whichever of the five families punctuates a number the same way (`en-AU` and
+  `ja-JP` read as `en-US`, `pt-BR` as `de-DE`, `sv-SE` as `fr-FR`); a locale
+  neither the list nor the mapping recognizes reads as `de-DE`. This is decided
+  afresh on **every open of a vault that stores no dialect** — nothing writes
+  the key, so a vault that already stores a dialect keeps it byte-for-byte
+  whatever machine opens it, while a keyless vault follows whichever machine
+  opens it. It replaces `number-format`
   (`de`/`intl`), which reached only calc lines and unit cells; that
   key is still honored as a fallback when `number-locale` is absent, so vaults
   that set `intl` keep their en-style numbers, but nothing writes it any more.

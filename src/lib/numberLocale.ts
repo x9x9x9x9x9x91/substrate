@@ -31,12 +31,69 @@ export const NUMBER_LOCALES = ["de-DE", "de-CH", "en-US", "en-GB", "fr-FR"] as c
 
 export type NumberLocale = (typeof NUMBER_LOCALES)[number];
 
-/** de-DE, unchanged from every shipped version: an existing
- * vault with no `number-locale` key renders byte-identically to before. */
+/** The dialect used when nothing else can decide one: the last resort behind
+ * both the vault's stored key and the machine's own locale, and the value the
+ * pure formatters take when no locale is threaded into them. de-DE, unchanged
+ * from every shipped version, so a call site that passes no locale renders
+ * byte-identically to before. */
 export const DEFAULT_NUMBER_LOCALE: NumberLocale = "de-DE";
 
 export function isNumberLocale(v: unknown): v is NumberLocale {
   return typeof v === "string" && (NUMBER_LOCALES as readonly string[]).includes(v);
+}
+
+/** The tag the machine says it is in — the platform's own answer, through the
+ * one API the web platform has for it, so no dependency and no guessing from
+ * a timezone. Wrapped because a broken ICU build is not worth a white screen
+ * over a formatting default. */
+export function platformLocaleTag(): string {
+  try {
+    return new Intl.NumberFormat().resolvedOptions().locale;
+  } catch {
+    return "";
+  }
+}
+
+/** Which of the five offered dialects a machine locale reads as.
+ *
+ * The list is five grammar families, not an ISO catalogue, so an arbitrary
+ * system tag has to be *mapped* rather than looked up: en-AU has to land on
+ * en-US and de-AT on de-DE, or the answer would be "German" for most of the
+ * world. Two steps, cheapest first:
+ *
+ *  - the tag itself, case-folded, when it is already one of the five;
+ *  - otherwise how that locale actually writes 1234.56, matched against the
+ *    grammars in NUMBER_GRAMMARS. Separators are what this dial moves, so
+ *    two locales that punctuate a number identically are interchangeable here
+ *    whatever else differs about them, and the accepted-separator lists mean
+ *    a locale that groups with a plain nbsp still finds the space-grouped
+ *    family. A locale that does not group a four-figure number at all (es-ES
+ *    writes `1234,56`) is matched on its decimal separator alone.
+ *
+ * Nothing recognizable — an unknown tag, an ICU that refuses it — falls back
+ * to DEFAULT_NUMBER_LOCALE rather than throwing. */
+export function systemNumberLocale(tag: string = platformLocaleTag()): NumberLocale {
+  const lower = tag.trim().toLowerCase();
+  const exact = NUMBER_LOCALES.find((l) => l.toLowerCase() === lower);
+  if (exact) return exact;
+  let sample: string;
+  try {
+    sample = (1234.56).toLocaleString(tag, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  } catch {
+    return DEFAULT_NUMBER_LOCALE;
+  }
+  const marks = sample.replace(/\d/gu, "");
+  if (marks.length === 0) return DEFAULT_NUMBER_LOCALE;
+  const decimal = marks.slice(-1);
+  const group = marks.length > 1 ? marks.slice(0, -1) : null;
+  const hit = NUMBER_LOCALES.find((l) => {
+    const g = NUMBER_GRAMMARS[l];
+    return g.decimal === decimal && (group === null || g.groups.includes(group));
+  });
+  return hit ?? DEFAULT_NUMBER_LOCALE;
 }
 
 /** `number-locale` in Settings.md — a BCP-47 tag from NUMBER_LOCALES.
@@ -44,10 +101,21 @@ export function isNumberLocale(v: unknown): v is NumberLocale {
  * `number-format` is the retired narrower key and is still honored
  * when `number-locale` is absent, so a vault that set `intl` keeps its
  * en-style numbers instead of silently reverting to German: `de` → de-DE,
- * `intl` → en-US. An unset or unrecognized value in either key falls back to
- * the default rather than erroring — a typo must not cost a user their
- * numbers. `number-locale` always wins when both are present. */
-export function numberLocaleSetting(props: Record<string, unknown>): NumberLocale {
+ * `intl` → en-US. `number-locale` always wins when both are present.
+ *
+ * `fallback` is what a vault that has never stored a dialect renders in —
+ * the machine's own locale, resolved once per call, so a **first run** looks
+ * like the country the machine is in rather than like Germany. A vault that
+ * *has* stored a value is untouched by this: the key is read first and
+ * returned exactly, and nothing here writes a key, so no vault is migrated.
+ * An unreadable value in either key lands on the same fallback rather than
+ * erroring — a typo must not cost a user their numbers. The parameter is also
+ * the seam tests inject a machine locale through, so no assertion depends on
+ * the locale of the machine running them. */
+export function numberLocaleSetting(
+  props: Record<string, unknown>,
+  fallback: NumberLocale = systemNumberLocale()
+): NumberLocale {
   const raw = props[foldedPropKey(props, "number-locale")];
   if (typeof raw === "string") {
     const v = raw.trim();
@@ -58,8 +126,14 @@ export function numberLocaleSetting(props: Record<string, unknown>): NumberLocal
     if (hit) return hit;
   }
   const legacy = props[foldedPropKey(props, "number-format")];
-  if (typeof legacy === "string" && legacy.trim().toLowerCase() === "intl") return "en-US";
-  return DEFAULT_NUMBER_LOCALE;
+  if (typeof legacy === "string") {
+    const v = legacy.trim().toLowerCase();
+    if (v === "intl") return "en-US";
+    // `de` was the other value the retired key took — a stored German
+    // choice, so it stays German rather than following the machine
+    if (v === "de") return "de-DE";
+  }
+  return fallback;
 }
 
 /** How a locale writes a number, as the two separators a READER needs

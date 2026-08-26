@@ -34,9 +34,11 @@ export const DATE_LOCALES = ["de-DE", "de-CH", "en-US", "en-GB", "fr-FR"] as con
 
 export type DateLocale = (typeof DATE_LOCALES)[number];
 
-/** de-DE, matching `number-locale`'s default so an unset vault reads as one
- * country rather than two. See the note in `dateLocaleSetting` about what
- * this does and does not leave unchanged. */
+/** de-DE. It was chosen to match `number-locale`'s default; that dial has
+ * since moved to the machine's own locale on a first run and this one has
+ * not, so an unset vault can read as two countries until dates follow suit.
+ * See the note in `dateLocaleSetting` about what this does and does not
+ * leave unchanged. */
 export const DEFAULT_DATE_LOCALE: DateLocale = "de-DE";
 
 export function isDateLocale(v: unknown): v is DateLocale {

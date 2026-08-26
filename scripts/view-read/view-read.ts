@@ -21,7 +21,11 @@ import { statSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { readVault, type VaultRead } from "./vaultread.ts";
 import { evaluateSavedView, type EvaluatedView } from "../../src/lib/vieweval.ts";
-import { numberLocaleSetting, type NumberLocale } from "../../src/lib/numberLocale.ts";
+import {
+  DEFAULT_NUMBER_LOCALE,
+  numberLocaleSetting,
+  type NumberLocale,
+} from "../../src/lib/numberLocale.ts";
 import { todayIso } from "../../src/lib/dates.ts";
 import { byFoldedKey, typeSchemaFor } from "../../src/lib/schemalookup.ts";
 import type { SavedView } from "../../src/lib/types.ts";
@@ -204,7 +208,11 @@ export function run(argv: string[], env: NodeJS.ProcessEnv): string {
 
   const view = pickView(read.views, opts.name, opts.db);
   const typeSchema = typeSchemaFor(read.schema, view.db) ?? {};
-  const locale = numberLocaleSetting(read.settings);
+  // the vault decides the dialect, never the machine: the app falls back to
+  // the operating system's locale for a vault that never chose one, but a
+  // reader whose output is diffed and piped has to answer the same on every
+  // machine, so the keyless fallback is pinned to the shipped default.
+  const locale = numberLocaleSetting(read.settings, DEFAULT_NUMBER_LOCALE);
   const today = opts.today ?? todayIso();
 
   const evaluated = evaluateSavedView(view, read.notes, typeSchema, {

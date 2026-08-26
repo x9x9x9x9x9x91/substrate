@@ -11,7 +11,7 @@ import {
   setDateLocale,
 } from "./dateLocale.ts";
 
-test("default is de-DE — the same country number-locale defaults to", () => {
+test("default is de-DE — dates do not follow the machine, numbers do", () => {
   assert.equal(DEFAULT_DATE_LOCALE, "de-DE");
   assert.equal(dateLocaleSetting({}), "de-DE");
   assert.equal(dateLocale(), "de-DE");

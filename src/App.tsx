@@ -1,4 +1,4 @@
-import { DEFAULT_NUMBER_LOCALE, numberLocaleSetting, setNumberLocale, type NumberLocale } from "./lib/numberLocale";
+import { numberLocaleSetting, setNumberLocale, systemNumberLocale, type NumberLocale } from "./lib/numberLocale";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from "react";
 import { isTauri } from "./lib/tauri";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -390,12 +390,14 @@ export default function App() {
   // the share door, which reads Settings.md for the relay URL anyway.
   const [netLinkTitles, setNetLinkTitles] = useState(true);
   /** `number-locale`: the one dialect every number in the app is
-      written in — de-DE `1.234,56` by default. Held as state as well as in the
+      written in — the machine's own dialect until Settings.md says otherwise,
+      so the first paint of a vault that never chose one already reads like
+      the country it is in. Held as state as well as in the
       numberLocale.ts binding: the surfaces that take it as a prop (db cells,
       calc lines) then repaint on the next vaultEpoch bump rather than waiting
       for whatever else happens to re-render them. Rides the settings read
       below, so a pick in the ⌘, pane reaches both in the same pass. */
-  const [numberLocale, setNumberLocaleState] = useState<NumberLocale>(DEFAULT_NUMBER_LOCALE);
+  const [numberLocale, setNumberLocaleState] = useState<NumberLocale>(systemNumberLocale);
   /** The key picker opened from a sidebar row's "Assign key…" — its
       own state, so the parent menu can close itself around it */
   const [keyPicker, setKeyPicker] = useState<{ target: string; x: number; y: number } | null>(null);
@@ -662,12 +664,16 @@ export default function App() {
         if (!overtaken()) applyAppearance(document.documentElement, DEFAULT_APPEARANCE);
         // the number dialect falls back the same way and for the same reason
         // a settings note we cannot read is not evidence for any
-        // particular dial, and showing the shipped default is both honest and
-        // recoverable — the next successful read restores the chosen dialect.
+        // particular dial, so it falls to the machine's own dialect — the same
+        // answer a vault that never chose one gets, honest and recoverable:
+        // the next successful read restores the chosen dialect.
         // Numbers stay canonical dot-decimal on disk throughout, so a fallback
         // render never rewrites a file.
-        setNumberLocale(DEFAULT_NUMBER_LOCALE);
-        setNumberLocaleState(DEFAULT_NUMBER_LOCALE);
+        {
+          const locale = systemNumberLocale();
+          setNumberLocale(locale);
+          setNumberLocaleState(locale);
+        }
         setDateLocale(DEFAULT_DATE_LOCALE);
       });
   }, [vaultEpoch]);

@@ -1876,7 +1876,15 @@ const mockKinds: { row: KindBundleInfo; files: Record<string, string> }[] = [];
    that flips `show-agent-files` ever sees the row). Parity covers the
    read/set_prop IPC the settings sheet uses plus that list membership. */
 const mockSettings: { props: Record<string, unknown>; body: string; updated_ms: number } = {
-  props: { "capture-hotkey": "alt+space", "close-to-tray": "false" },
+  // `number-locale` is pinned because the fixture has to be a vault that
+  // CHOSE a dialect: a vault with no key follows the machine's own locale, so
+  // without this every asserted `1.234,56` in the suite would read whichever
+  // country the rig — or a developer's laptop — is set to.
+  props: {
+    "capture-hotkey": "alt+space",
+    "close-to-tray": "false",
+    "number-locale": "de-DE",
+  },
   body: "Substrate settings — edit and save; changes apply within a second (⌘, opens the settings form).\n",
   // stable like the other seeds (a Date.now() here would float the row to the
   // top of every list once revealed); writes bump it like real notes

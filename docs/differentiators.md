@@ -304,8 +304,8 @@ Capacities, Affine).*
   `dry_run` to rehearse. Cascades stop themselves (echo window, depth limit,
   per-rule cooldown, a breaker that pauses a rule that keeps failing).
   Automation you can read in a text file and audit after the fact.
-- **The long tail**: pick-your-dialect numbers (`number-locale`, German by
-  default) and dates and times (`date-locale`), date ranges + times, board drag,
+- **The long tail**: pick-your-dialect numbers (`number-locale`, the machine's
+  own on a first run) and dates and times (`date-locale`), date ranges + times, board drag,
   in-place cell edit, broken-frontmatter repair dialog, URL capture with
   credential stripping + background title enrichment, tray agenda popover,
   signed/notarized release pipeline.
