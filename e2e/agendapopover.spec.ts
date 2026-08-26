@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // The tray popover's three defects were all "the window is a plain
 // opaque box". Two of the three fixes are observable in the browser and are

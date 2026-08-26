@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // A changed `capture-hotkey` the backend refuses (won't parse, or
 // the OS says another app owns it) used to be silent outside the log file —

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { openDb, openFilter } from "./nav";
 
 // ⌘F is the pane's find: it opens the on-demand filter row and puts the caret

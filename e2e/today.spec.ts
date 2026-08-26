@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
+import { todayBase } from "./clock";
 
 // The rebuilt Today surface: a day-agenda decision surface — three
 // quiet lanes (Scheduled, Due & overdue, Picked for today), the one verb Pick
@@ -12,10 +13,10 @@ function humanDay(offsetDays = 0): string {
     "Jan", "Feb", "Mar", "Apr", "May", "Jun",
     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
   ];
-  const d = new Date();
+  const d = todayBase();
   d.setDate(d.getDate() + offsetDays);
   const base = `${MONTHS_SHORT[d.getMonth()]} ${d.getDate()}`;
-  return d.getFullYear() === new Date().getFullYear() ? base : `${base}, ${d.getFullYear()}`;
+  return d.getFullYear() === todayBase().getFullYear() ? base : `${base}, ${d.getFullYear()}`;
 }
 
 /** the lane section carrying an eyebrow label */

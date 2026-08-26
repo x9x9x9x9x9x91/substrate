@@ -1,4 +1,5 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
+import { todayBase } from "./clock";
 
 // The week canvas gets a keyboard path. ↑/↓ walk a half-hour time
 // cursor (Shift = quarter-hours) down the focused day's column, rendered as
@@ -9,7 +10,7 @@ import { expect, test } from "@playwright/test";
 
 /** "2026-07-18" — ISO of today +/- offsetDays, local like dates.todayIso */
 function isoDay(offsetDays = 0): string {
-  const d = new Date();
+  const d = todayBase();
   d.setDate(d.getDate() + offsetDays);
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;

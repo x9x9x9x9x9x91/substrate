@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { openSettings } from "./settings";
 
 // The Settings-only grant door. The browser backend models the

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Progress fence — the goal thermometer. A ```progress fence puts one
 // number against the number it should reach, and reads identically on both

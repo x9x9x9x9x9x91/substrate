@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
+import { todayBase } from "./clock";
 
 // Every calendar day cell names itself. Before this, only the little
 // day-number button inside a cell had a label — which names the button ("New
@@ -9,7 +10,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 /** "2026-07-18" — ISO of today +/- offsetDays, local like dates.todayIso */
 function isoDay(offsetDays = 0): string {
-  const d = new Date();
+  const d = todayBase();
   d.setDate(d.getDate() + offsetDays);
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;

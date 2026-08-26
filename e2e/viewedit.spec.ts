@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Editable inline database views: the ```view fence stopped being a
 // read-only snapshot. A non-title cell click opens the same picker the database

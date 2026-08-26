@@ -1,4 +1,5 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
+import { todayBase } from "./clock";
 
 // The week canvas's columns are a real roving-tabindex widget. One
 // column carries tabindex="0" (the focused day) and every other -1, so Tab
@@ -9,7 +10,7 @@ import { expect, test } from "@playwright/test";
 
 /** "2026-07-18" — ISO of today +/- offsetDays, local like dates.todayIso */
 function isoDay(offsetDays = 0): string {
-  const d = new Date();
+  const d = todayBase();
   d.setDate(d.getDate() + offsetDays);
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;

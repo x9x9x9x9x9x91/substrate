@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // An asset save is an IPC round trip. Switching notes while one is in
 // flight destroys the editor view the embed was going to be dispatched into,

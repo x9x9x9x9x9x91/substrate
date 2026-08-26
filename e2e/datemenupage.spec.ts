@@ -1,4 +1,5 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
+import { todayBase } from "./clock";
 
 // PageUp/PageDown in the date picker page the MONTH — and the keyboard cursor
 // must page with it. shiftMonth used to move only the displayed grid, so Enter
@@ -6,7 +7,7 @@ import { expect, test } from "@playwright/test";
 
 /** ISO of today + offsetDays, local like dates.todayIso */
 function isoDay(offsetDays = 0): string {
-  const d = new Date();
+  const d = todayBase();
   d.setDate(d.getDate() + offsetDays);
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;

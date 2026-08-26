@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // The in-app cookbook. It browses recipes that ship inside the app —
 // no network — and installing one copies its files into the vault, never over

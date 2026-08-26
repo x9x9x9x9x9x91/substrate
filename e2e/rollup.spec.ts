@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { openDb } from "./nav";
 
 // rollup property kind: a derived column — follow a relation prop

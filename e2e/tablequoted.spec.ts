@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // A table inside a blockquote keeps its `> ` marks in the source slice. The
 // widget scans each line behind them — before that, the quote marker rendered

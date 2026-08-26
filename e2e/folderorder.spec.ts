@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Root folders in the Folders tree reorder (context-menu Move
 // up/down here, drag covered by the shared reorderIds unit tests) and the

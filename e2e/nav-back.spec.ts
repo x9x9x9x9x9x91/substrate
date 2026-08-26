@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { openDb } from "./nav";
 
 // ⌫ has always popped the view history, but nothing on screen did —

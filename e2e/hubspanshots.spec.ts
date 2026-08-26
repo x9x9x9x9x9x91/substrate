@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // Evidence run only: BEFORE/AFTER shots of a hub card row, with and without a
 // callout that asked for the double-width card. Both grounds — the app has no

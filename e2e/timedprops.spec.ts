@@ -1,4 +1,5 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
+import { todayBase } from "./clock";
 
 // Optional time-of-day on date props: the mock vault seeds
 // "Label sync call" today at 14:00 next to the all-day "Umbra listening
@@ -8,7 +9,7 @@ import { expect, test } from "@playwright/test";
 
 /** "2026-07-18" — ISO of today +/- offsetDays, local like dates.todayIso */
 function isoDay(offsetDays = 0): string {
-  const d = new Date();
+  const d = todayBase();
   d.setDate(d.getDate() + offsetDays);
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { openDb } from "./nav";
 
 // Multi-key sorting: plain header click replaces the sort

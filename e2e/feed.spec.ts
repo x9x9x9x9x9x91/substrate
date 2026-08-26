@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
+import { todayBase } from "./clock";
 
 // Feed dashboard flows over the mock seed: Dashboards/News.md
 // (items: News Items, curated stamp) + the News Items sheet. Seeded rows are
@@ -24,7 +25,7 @@ test("feed: the stream renders newest day first, with the curator's ranking inta
   await expect(page.locator(".dash-state")).toContainText("5 items");
   await expect(page.locator(".dash-state")).toContainText("2 rated");
   // the curated stamp renders verbatim (day-relative seed: today 09:10)
-  await expect(page.locator(".feed-curated")).toHaveText(`last curated ${dayOf(new Date())} 09:10`);
+  await expect(page.locator(".feed-curated")).toHaveText(`last curated ${dayOf(todayBase())} 09:10`);
   // two date groups, 3 items in the newest — intra-day order is the sheet's
   await expect(page.locator(".feed-day")).toHaveCount(2);
   await expect(page.locator(".feed-day").first().locator(".feed-item")).toHaveCount(3);
@@ -102,7 +103,7 @@ test("feed: a stamp older than ~36h reads as a stale warning, not an item count"
   page,
 }) => {
   // the curator died 5 days ago — written by "another process" before open
-  const dead = stampOf(new Date(Date.now() - 5 * 86_400_000 - 60_000));
+  const dead = stampOf(new Date(todayBase().getTime() - 5 * 86_400_000 - 60_000));
   await page.goto("/");
   await page.evaluate((s) => window.__mockEditProp?.("Dashboards/News.md", "curated", s), dead);
   await page.locator(".side-item", { hasText: "News" }).click();

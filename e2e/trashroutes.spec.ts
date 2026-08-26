@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // The trash surfaces outside the note pane (list-row context menu,
 // palette, calendar) share App's post-trash handler — flush of the open

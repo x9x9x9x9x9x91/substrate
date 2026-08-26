@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // ListPane paints only the scroll viewport ± overscan once a list runs
 // past WIN_MIN (60) rows, with spacer divs standing in for the rest. The pane's

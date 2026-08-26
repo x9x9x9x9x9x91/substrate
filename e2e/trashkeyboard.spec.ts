@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // The panes that own the app's irreversible operations were
 // pointer-only — the Trash row menu had no keyboard path, and every row's

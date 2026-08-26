@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // What the engine's result cap does to a filtered query,
 // and whether a quoted query can display what it found. Both run against the

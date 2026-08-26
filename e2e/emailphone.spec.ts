@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { openDb } from "./nav";
 
 // email/phone property kinds: schema'd email/phone props render the

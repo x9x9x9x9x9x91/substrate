@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // Schema edits on a MOUNTED database go through the mount pane's own
 // DatabasePane wiring, not the db-view's — a separate lambda in App.tsx that

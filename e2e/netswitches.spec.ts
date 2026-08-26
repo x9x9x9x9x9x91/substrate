@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { openSettings } from "./settings";
 
 // The three outbound-request switches and the number format row.

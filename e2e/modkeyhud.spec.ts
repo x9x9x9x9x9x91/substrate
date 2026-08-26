@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { mkdirSync } from "node:fs";
 
 // The hold-⌘ HUD against the same deterministic mock backend as

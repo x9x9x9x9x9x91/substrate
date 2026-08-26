@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
+import { todayBase } from "./clock";
 
 // The month grid speaks Notion Calendar's line language now — a
 // tinted identity bar + dim time + title per entry instead of the boxed
@@ -8,7 +9,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 /** "2026-07-18" — ISO of today +/- offsetDays, local like dates.todayIso */
 function isoDay(offsetDays = 0): string {
-  const d = new Date();
+  const d = todayBase();
   d.setDate(d.getDate() + offsetDays);
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
@@ -76,7 +77,7 @@ test("today orients twice: circled day number + sharpened weekday header", async
   ).toBeVisible();
   // the header mark, on exactly one weekday while today is on the grid
   await expect(page.locator(".cal-weekdays .cal-wd-today")).toHaveCount(1);
-  const wd = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][new Date().getDay()];
+  const wd = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][todayBase().getDay()];
   await expect(page.locator(".cal-weekdays .cal-wd-today")).toHaveText(wd);
   // paging away takes the mark with it. Two months, not one: today can sit
   // in the NEXT month's grid as an adjacent-day spill cell (a month-end
@@ -91,7 +92,7 @@ test("the 1st names its month in-grid; other days stay bare numbers", async ({ p
   const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   // the grid always contains at least one month seam; find a 1st that isn't
   // today (today's circle deliberately wins the collision)
-  const now = new Date();
+  const now = todayBase();
   const next1 = new Date(now.getFullYear(), now.getMonth() + 1, 1);
   const p = (n: number) => String(n).padStart(2, "0");
   const nextIso = `${next1.getFullYear()}-${p(next1.getMonth() + 1)}-01`;

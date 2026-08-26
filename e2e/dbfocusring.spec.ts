@@ -1,4 +1,4 @@
-import { expect, test, type Locator } from "@playwright/test";
+import { expect, test, type Locator } from "./fixtures";
 import { openDb, openFilter } from "./nav";
 
 // The database filter and draft-title inputs killed the UA focus

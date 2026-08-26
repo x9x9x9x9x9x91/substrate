@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // The mock backend must recompute a note's excerpt on
 // vault_write_body like the real engine (write_body → reindex_one →

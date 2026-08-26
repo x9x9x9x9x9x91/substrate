@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Sheet row/column delete + reorder via context menu. The mock's
 // Holdings sheet: data columns asset,bucket,units,price_usd; rows GLOW,

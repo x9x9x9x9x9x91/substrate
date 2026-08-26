@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Dashboards over mounts: a chart fence and a metric card can source
 // a mounted folder's live index the way they already source a database or a

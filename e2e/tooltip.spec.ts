@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // The in-app tooltip: hover copy that used to arrive a second later
 // in OS chrome now appears in the app's own bubble, at the app's own timing,

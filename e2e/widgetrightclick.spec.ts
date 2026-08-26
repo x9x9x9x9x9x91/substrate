@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // The table and ```view block widgets drove their whole interaction
 // off a bare `mousedown` that never read `e.button`, so a right-click fired

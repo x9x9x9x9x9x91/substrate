@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // SheetGrid's vim-nav keydown mapped k/h/j/l without checking
 // modifiers — e.key is "k" for ⌘K too — and stop()'d the event, so a focused

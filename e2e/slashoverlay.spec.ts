@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // ⌘/ opens the keyboard-shortcuts overlay. It must NEVER write to the note:
 // CodeMirror's defaultKeymap binds Mod-/ to toggleComment, which silently

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // "New sheet" palette command — sheets are surfaces (no database),
 // so the palette is their creation front door. The typed query becomes the

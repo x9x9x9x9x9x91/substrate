@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // Evidence run only — the visual self-check for the frontmatter affordances
 // (the chip's key suggestions, the workbook strip's add-page field). Not a gate.

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // Opening a calendar entry hands the view to the note, so the pane
 // unmounts. Everything about "where I was reading" used to die with it —

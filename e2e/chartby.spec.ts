@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // `by:` pivots one row measure into a series per distinct value —
 // stacked bars, multi-line, and a legend that names the marks. The tooltip is

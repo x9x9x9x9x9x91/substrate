@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // With the mock's opt-in async dispatch on, IPC completion is never
 // synchronous, so ordering-sensitive flows can actually race in e2e. The

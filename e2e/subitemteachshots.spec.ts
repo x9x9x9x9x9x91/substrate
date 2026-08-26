@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Throwaway evidence run (SHOTS=1): the column menu of a column that CANNOT
 // carry a sub-item tree — a plain text column, and a relation aimed at another

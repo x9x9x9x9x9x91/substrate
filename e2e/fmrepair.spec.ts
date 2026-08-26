@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // A malformed frontmatter block is invisible to read() (stripped)
 // while every prop edit refuses on it — the repair surface makes

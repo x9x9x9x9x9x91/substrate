@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Evidence run, not a gate:
 //   SHOTS=1 SHOT_DIR=/tmp/shots VARIANT=after npx playwright test e2e/accentappwideshots.spec.ts

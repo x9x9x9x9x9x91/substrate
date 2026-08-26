@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { openDb } from "./nav";
 
 // In-cell editing: clicking a table cell puts the input ON the

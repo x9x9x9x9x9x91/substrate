@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 const namedButton = (page: Page, name: string) =>
   page.locator(".sidebar").getByRole("button", { name, exact: true });

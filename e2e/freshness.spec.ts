@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // The freshness column: `age(prop)` beside a value in a view fence, over the
 // mock's review windows (a contact's email is worth re-checking every 90 days,

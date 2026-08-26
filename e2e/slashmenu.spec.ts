@@ -1,4 +1,5 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
+import { todayBase } from "./clock";
 
 // Slash menu: a line-initial `/` opens the insertion palette —
 // /view, /date, /task, /asset — on CodeMirror's own autocompletion extension,
@@ -179,7 +180,7 @@ test("/asset opens the wikilink picker without an extra keystroke", async ({ pag
 test("/date inserts today in ISO form", async ({ page }) => {
   await page.keyboard.type("/date");
   await accept(page, "/date");
-  const today = new Date();
+  const today = todayBase();
   const iso = [
     today.getFullYear(),
     String(today.getMonth() + 1).padStart(2, "0"),

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Dashboards living in a subfolder of their home folder render under
 // a collapsible group header, and a dashboard moves between folders by drag or

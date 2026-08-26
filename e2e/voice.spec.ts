@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // Voice capture from the quick-capture window. The recording itself
 // lives in the backend (there is no microphone in this lane — the mock is a

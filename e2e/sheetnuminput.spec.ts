@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // The sheet grid was the one commit boundary the decimal-comma fix missed —
 // German-typed numbers went into the csv verbatim, so "1.234" evaluated as

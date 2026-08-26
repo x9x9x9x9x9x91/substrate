@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { openDb } from "./nav";
 
 // property descriptions: a schema'd prop may carry a one-line

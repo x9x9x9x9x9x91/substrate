@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // the segmented `.db-switch` idiom is a set of buttons that only
 // mean anything together, and it carried no group role or name on any of its

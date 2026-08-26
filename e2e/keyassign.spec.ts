@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "./fixtures";
 import { openDb, openFilter } from "./nav";
 
 // Assignable keybinds. The ? sheet's "Assign keys…" button opens a

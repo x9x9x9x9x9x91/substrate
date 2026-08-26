@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Dashboard print: the portable kinds — metrics, charts, hub —
 // carry a Print action in DashHead's actions slot. It clones the live pane

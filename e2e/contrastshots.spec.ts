@@ -1,4 +1,4 @@
-import { test } from "@playwright/test";
+import { test } from "./fixtures";
 test.skip(!process.env.SHOTS, "evidence run only");
 const variant = process.env.VARIANT || "current";
 for (const name of ["Portfolio", "Label Books", "Calories"]) {

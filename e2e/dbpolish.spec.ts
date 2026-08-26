@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { openDb, openFilter } from "./nav";
 
 // Design-contract cleanups: the database pane's geometry has to hold

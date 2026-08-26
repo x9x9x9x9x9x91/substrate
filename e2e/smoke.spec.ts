@@ -1,5 +1,6 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { openDb, openFilter } from "./nav";
+import { todayBase } from "./clock";
 
 // Smoke flows against the deterministic mock backend (src/lib/tauri.ts —
 // active whenever the app runs outside Tauri). Each test gets a fresh page,
@@ -869,7 +870,7 @@ test("trash: empty trash can purge all history in one go (SUB-52)", async ({ pag
 
 /** local YYYY-MM-DD, same as the app's todayIso() */
 function todayIso(): string {
-  const t = new Date();
+  const t = todayBase();
   const m = String(t.getMonth() + 1).padStart(2, "0");
   const d = String(t.getDate()).padStart(2, "0");
   return `${t.getFullYear()}-${m}-${d}`;
@@ -1112,7 +1113,7 @@ test("calendar opt-out: a dated note hides and returns via the dots menu (SUB-17
     await page.locator(".side-item:not(.side-folder)", { hasText: "Calendar" }).click();
     await expect(page.locator(".cal")).toBeVisible();
     await page.locator(".cal .db-new", { hasText: "Today" }).click();
-    const now = new Date();
+    const now = todayBase();
     let diff = (2026 - now.getFullYear()) * 12 + (7 - now.getMonth());
     while (diff !== 0) {
       await page

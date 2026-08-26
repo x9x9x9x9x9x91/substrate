@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // The rename lanes an earlier remount fix left open. ⌘Z of a rename and
 // the sheet source view both kept the remount shape (keystroke-loss gap),

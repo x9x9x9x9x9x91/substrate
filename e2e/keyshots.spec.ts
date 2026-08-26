@@ -1,4 +1,4 @@
-import { test, type Page } from "@playwright/test";
+import { test, type Page } from "./fixtures";
 
 // Visual evidence: HUD open, a row wearing a chip, and the sheet's
 // "Your keys" section. Not a merge gate — skipped unless invoked as

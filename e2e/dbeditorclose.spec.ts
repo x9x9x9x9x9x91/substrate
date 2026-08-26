@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { openDb, openFilter } from "./nav";
 
 /* Closing a database cell editor is a hand-off. The editor owns

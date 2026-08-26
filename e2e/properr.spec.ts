@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Prop-write failures against the mock backend's failure hook
 // (window.__mockFail, installed by src/lib/tauri.ts outside Tauri).

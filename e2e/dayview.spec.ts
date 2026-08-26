@@ -1,4 +1,5 @@
-import { expect, test, type Locator } from "@playwright/test";
+import { expect, test, type Locator } from "./fixtures";
+import { todayBase } from "./clock";
 
 // Day is not a third calendar surface — it is the Week canvas with
 // one column. So this spec deliberately reuses Week's selectors (.cal-grid.week,
@@ -8,7 +9,7 @@ import { expect, test, type Locator } from "@playwright/test";
 
 /** "2026-07-18" — ISO of today +/- offsetDays, local like dates.todayIso */
 function isoDay(offsetDays = 0): string {
-  const d = new Date();
+  const d = todayBase();
   d.setDate(d.getDate() + offsetDays);
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
@@ -57,7 +58,7 @@ test("the Day layout is the week canvas rendering one column", async ({ page }) 
   // the header names the weekday the column actually carries
   const names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
   await expect(page.locator(".cal-weekdays span:not(.cal-wk-spacer)")).toHaveText(
-    names[(new Date().getDay() + 6) % 7]
+    names[(todayBase().getDay() + 6) % 7]
   );
 
   // the canvas's own furniture survives at one column: hour gutter, now-line,
@@ -91,7 +92,7 @@ test("day paging steps one day, across a month boundary (buttons and ⌘←/→)
 
   // walk forward to the 1st of next month — every step is exactly one day, and
   // the month rolls over without any month-grid logic getting involved
-  const today = new Date();
+  const today = todayBase();
   const firstNext = new Date(today.getFullYear(), today.getMonth() + 1, 1);
   const steps = Math.round((firstNext.getTime() - new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()) / 86400000);
   let iso = startIso;
@@ -153,7 +154,7 @@ test("a Day block resizes by its bottom-edge grip, exactly as in Week (SUB-1171)
   expect(await heightFrac(block)).toBeCloseTo(1 / 24, 2);
 
   // the grip grows the block and leaves the start exactly where it was
-  await block.locator(".cal-wk-grip").dragTo(col, {
+  await block.locator(".cal-wk-grip:not(.top)").dragTo(col, {
     targetPosition: { x: box.width / 2, y: box.height * 0.2 },
   });
   await expect.poll(() => heightFrac(block)).toBeGreaterThan(2 / 24);

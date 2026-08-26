@@ -1,5 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
-import { applyFakeToday, MONTH_CAP, overflowCount, todayBase } from "./calcells";
+import { expect, test, type Page } from "./fixtures";
+import { MONTH_CAP, overflowCount, todayBase } from "./calcells";
 
 function isoDay(offset = 0): string {
   const d = todayBase();
@@ -17,7 +17,6 @@ function humanDay(offset = 0): string {
 }
 
 async function openCalendar(page: Page) {
-  await applyFakeToday(page);
   await page.goto("/");
   await expect(page.locator(".list-title")).toBeVisible();
   await page.keyboard.press("Meta+4");

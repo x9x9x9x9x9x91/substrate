@@ -18,7 +18,8 @@
  *       table, are refused before any prompt appears;
  *    6. the establish path is ORDERED — the schema write is awaited and a
  *       refusal ends the confirm, and the table only regroups once a row is
- *       carrying the value;
+ *       carrying the value, while promoting into a property that is already
+ *       there is ATOMIC — one undo takes back the rows AND the option;
  *    7. what the prompt will accept as a property: not a column that is
  *       already there, not one of the names the app keeps for itself, and
  *       not a kinded column it would have to invent a value for.
@@ -29,9 +30,11 @@ import assert from "node:assert/strict";
 import { before, test } from "node:test";
 import { act, createElement as h } from "react";
 import { mockBackend, renderComponent } from "./componentHarness.ts";
+import { addOptionAndWriteUndoable } from "./undoschema.ts";
 import { UndoContext } from "./undoContext.ts";
 import type { UndoEntry } from "./undo.ts";
-import type { NoteMeta, PropSchema } from "./types.ts";
+import type { UndoRecorder } from "./undoprops.ts";
+import type { NoteMeta, PropKind, PropSchema, SelectOption } from "./types.ts";
 
 const DB = "RowGroup";
 const NOTE_MIME = "application/x-substrate-note";
@@ -493,6 +496,75 @@ test("promoting a group name into an existing property keeps its description", a
       ],
     ],
     "the promote did not carry the column's own description through"
+  );
+});
+
+/** The app's own `onPromoteOption`, small enough to read: the schema lives
+    in a box the test can inspect, and the pair rides the real promote door.
+    Whatever the pane hands `writeValue` is folded into the ONE entry this
+    records, which is the thing under test. */
+function promoteDoor(
+  schemaBox: { options: SelectOption[] },
+  recorded: Omit<UndoEntry, "id">[]
+) {
+  return (
+    _prop: string,
+    add: {
+      before: SelectOption[];
+      after: SelectOption[];
+      kind: PropKind | null;
+      priorKind: PropKind | null;
+      description?: string;
+    },
+    writeValue: (record: UndoRecorder) => Promise<void>
+  ) =>
+    addOptionAndWriteUndoable({
+      store: {
+        before: { options: add.before, kind: add.priorKind },
+        after: { options: add.after, kind: add.kind },
+        write: (state) => {
+          schemaBox.options = state.options;
+          return Promise.resolve();
+        },
+        read: () => Promise.resolve(schemaBox.options),
+      },
+      writeValue,
+      record: (e) => recorded.push(e),
+    });
+}
+
+test("one undo after a promoted group takes back the rows and the option", async (t) => {
+  const recorded: Omit<UndoEntry, "id">[] = [];
+  const schemaBox = { options: [{ value: "Delay" }] as SelectOption[] };
+  const { r, a, b } = await twoRows(t, "Atomic", recorded, {
+    onPromoteOption: promoteDoor(schemaBox, recorded),
+  });
+
+  await dragRowOnto(r, 0, 1);
+  // a spelling Bundle's schema has never seen: confirming has to invent the
+  // option and write the rows as one action
+  await type("Group name", "Shelved");
+  await press("Group");
+  await r.settle();
+
+  assert.deepEqual(
+    schemaBox.options,
+    [{ value: "Delay" }, { value: "Shelved" }],
+    "the promoted group name never reached the column's options"
+  );
+  assert.equal((await vaultRead(a.path)).props.Bundle, "Shelved");
+  assert.equal((await vaultRead(b.path)).props.Bundle, "Shelved");
+  assert.equal(recorded.length, 1, "the option and the rows recorded two undo steps, not one");
+
+  await act(async () => {
+    await recorded[0].undo();
+  });
+  assert.equal((await vaultRead(a.path)).props.Bundle, undefined, "undo left a row in the group");
+  assert.equal((await vaultRead(b.path)).props.Bundle, undefined, "undo left a row in the group");
+  assert.deepEqual(
+    schemaBox.options,
+    [{ value: "Delay" }],
+    "undo took the rows back and left the invented option standing in the schema"
   );
 });
 

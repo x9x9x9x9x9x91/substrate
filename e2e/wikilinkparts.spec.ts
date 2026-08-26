@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // `[[target#anchor|alias]]`. The link NAMES the target — the anchor
 // says where to land inside it, the alias is what you read. Before this, both

@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./fixtures";
 
 // A rendered block widget used to be unreachable by keyboard —
 // `Decoration.replace({block:true})` hides the positions it covers, so

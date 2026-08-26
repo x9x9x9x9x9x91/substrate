@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Ableton projects on a mounted folder. A `.als` is one gzipped XML document,
 // so the engine reads a set's tempo, key, track count and Live version out of

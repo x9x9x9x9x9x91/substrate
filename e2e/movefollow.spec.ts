@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Moving the OPEN note into a folder outside the current view's
 // scope used to leave the view behind — the selection-guard then snapped the

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { openDb } from "./nav";
 
 // The table half of the list-cell fallback. A cell whose column has no list-shaped

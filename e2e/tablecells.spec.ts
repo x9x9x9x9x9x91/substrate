@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // Rendered markdown tables honor inline marks in cells: the Welcome
 // seed's table carries a wikilink and a **bold** status cell — the block

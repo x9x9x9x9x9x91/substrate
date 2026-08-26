@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { settingsTab } from "./settings";
 
 // The two appearance dials in ⌘, — Glow (0-100) and Accent tone

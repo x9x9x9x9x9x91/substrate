@@ -237,7 +237,7 @@ const stripCell = (r: Grid, iso: string) =>
 const growIntoSpan = async (r: Grid) => {
   const block = fixtureIn(r, `.cal-wk-col[data-iso="${weekDay(0)}"] .cal-wk-block`);
   assert.ok(block, "the fixture should render as a timed block on the week's first day");
-  const grip = block.querySelector(".cal-wk-grip");
+  const grip = block.querySelector(".cal-wk-grip:not(.top)");
   assert.ok(grip, "a timed block carries the duration grip");
   await act(async () => {
     grip.dispatchEvent(dragEvent("dragstart"));
@@ -372,5 +372,73 @@ test("a whole-day slide shows no minute the drop would throw away", async (t) =>
   assert.ok(
     r.one(`.cal-wk-col[data-iso="${weekDay(4)}"]`)?.classList.contains("drop"),
     "but the column it would land on still reads as the drop target"
+  );
+});
+
+test("the end-day picker on an ALL-DAY span picked home drops the end whole", async (t) => {
+  // the D/D value the write would otherwise produce keeps an invisible end:
+  // the chip looks single-day, but the peek's Ends row is gone and the Date
+  // row reads "Aug 10–10". Picking the start's own day means "one day", so
+  // the end goes with it.
+  openGrid("week");
+  win.__mockEditProp(SPAN_PATH, "date", `${weekDay(0)}/${weekDay(1)}`);
+  const r = await renderComponent(t, h(LiveCalendar, {}));
+  await r.settle();
+  const tail = fixtureIn(r, `.cal-wk-cell[data-iso="${weekDay(1)}"] .cal-entry`);
+  assert.ok(tail, "the all-day span's second day should render a chip");
+  await act(async () => {
+    (tail as HTMLElement).click();
+  });
+  await r.settle();
+  const endday = document.body.querySelector(".cal-peek-endday");
+  assert.ok(endday, "the peek should wear the closing day as a button");
+  await act(async () => {
+    (endday as HTMLElement).click();
+  });
+  await r.settle();
+  const cell = document.body.querySelector(`.datemenu [data-iso="${weekDay(0)}"]`);
+  assert.ok(cell, "the end-day picker should offer the start's own day");
+  await act(async () => {
+    (cell as HTMLElement).click();
+  });
+  await r.settle();
+  assert.equal(
+    await storedDate(),
+    weekDay(0),
+    "picking the start's own day on an all-day span drops the end whole"
+  );
+});
+
+test("the end-day picker on a TIMED start with a day-only end picks home clean", async (t) => {
+  // the shape behind an emptied Ends hour: `09:00/nextday` with no closing
+  // clock. Routing the pick through the clamp would GROW the event a day
+  // (the clamp's degeneracy guard) and then go inert — home means the end
+  // drops and the plain timed event remains.
+  openGrid("week");
+  win.__mockEditProp(SPAN_PATH, "date", `${weekDay(0)} 09:00/${weekDay(1)}`);
+  const r = await renderComponent(t, h(LiveCalendar, {}));
+  await r.settle();
+  const tail = fixtureIn(r, `.cal-wk-cell[data-iso="${weekDay(1)}"] .cal-entry`);
+  assert.ok(tail, "the day-only end should render day two as an all-day chip");
+  await act(async () => {
+    (tail as HTMLElement).click();
+  });
+  await r.settle();
+  const endday = document.body.querySelector(".cal-peek-endday");
+  assert.ok(endday, "the peek should wear the closing day as a button");
+  await act(async () => {
+    (endday as HTMLElement).click();
+  });
+  await r.settle();
+  const cell = document.body.querySelector(`.datemenu [data-iso="${weekDay(0)}"]`);
+  assert.ok(cell, "the end-day picker should offer the start's own day");
+  await act(async () => {
+    (cell as HTMLElement).click();
+  });
+  await r.settle();
+  assert.equal(
+    await storedDate(),
+    `${weekDay(0)} 09:00`,
+    "picking home on a timed start drops the day-only end, keeping the clock"
   );
 });

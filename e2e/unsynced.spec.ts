@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Vault sync ships notes but deliberately leaves `.assets/` behind
 // (src-tauri/src/gitsync.rs:233-236), so a synced phone opens a note whose

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Evidence run only: the panes outside the dashboards where a caught failure
 // was printed with its class name still attached. The mock rejects the pane's

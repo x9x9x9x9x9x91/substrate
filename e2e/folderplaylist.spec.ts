@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // A folder of audio IS a playlist. The folder view lists loose
 // (non-.md) files below its notes — audio ones playable through the same

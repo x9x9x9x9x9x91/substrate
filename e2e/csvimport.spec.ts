@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // CSV import: palette action → file pick → column choices → a new
 // database created through the same vault_create_type path as "New database",

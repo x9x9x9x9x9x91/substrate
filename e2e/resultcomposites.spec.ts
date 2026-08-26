@@ -1,4 +1,5 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
+import { applyFakeToday } from "./clock";
 
 test("Search exposes one input-owned listbox and opens the active match", async ({ page }) => {
   await page.goto("/");
@@ -89,6 +90,7 @@ test("phone Search and palette composites stay within their established geometry
     hasTouch: true,
     isMobile: true,
   });
+  await applyFakeToday(page);
   await page.goto("/");
   await page.locator(".mobile-menu").click();
   await page.locator(".side-item", { hasText: /^Search/ }).click();

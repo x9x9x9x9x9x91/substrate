@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // A dashboard kind that no longer exists (retired `waiting`, and the tile
 // board whose span the hub now carries) must get

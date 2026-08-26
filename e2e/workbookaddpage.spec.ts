@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // The workbook tab strip's + : a page used to be addable only by hand-editing
 // `pages:` in the frontmatter. Typing a database or note name appends one

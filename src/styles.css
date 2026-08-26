@@ -14341,20 +14341,28 @@ span.asset-thumb svg {
   overflow: hidden;
 }
 
-/* the duration grip: a band along the block's bottom edge, wide
-   enough to grab on a 30-minute block without swallowing the block's own
-   drag-to-move surface. Invisible until the pointer is on the block, then a
-   short centred bar in the entry's own tint — the same "grab here" language
-   as a window edge. It sits above the block's text, so a grab near the
-   bottom always resizes rather than starting a move. */
+/* the duration grips: a band along the block's bottom edge (the end) and
+   its mirror along the top (the start), wide enough to grab on a 30-minute
+   block without swallowing the block's own drag-to-move surface — on a
+   quarter-hour sliver each band shrinks to a third of the block so a strip
+   of movable middle always survives between them. Invisible until the
+   pointer is on the block, then a short centred bar in the entry's own
+   tint — the same "grab here" language as a window edge. They sit above
+   the block's text, so a grab near an edge always resizes rather than
+   starting a move. */
 .cal-wk-grip {
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
-  height: 7px;
+  height: min(7px, 33%);
   z-index: 2;
   cursor: ns-resize;
+}
+
+.cal-wk-grip.top {
+  top: 0;
+  bottom: auto;
 }
 
 .cal-wk-grip::after {
@@ -14370,6 +14378,11 @@ span.asset-thumb svg {
   background: var(--entry-tint, var(--border-strong));
   opacity: 0;
   transition: opacity 90ms ease-out;
+}
+
+.cal-wk-grip.top::after {
+  top: 2px;
+  bottom: auto;
 }
 
 .cal-entry.cal-wk-block:hover > .cal-wk-grip::after,
@@ -14966,12 +14979,26 @@ button.cal-peek-row:hover {
 }
 
 /* the end's day, shown beside the Ends field only when it isn't the start's
-   — a bare "09:00" on a two-day event would read as day one */
+   — a bare "09:00" on a two-day event would read as day one. A button: it
+   opens a day picker to move the span's close, the peek's way back to a
+   single-day event after an over-drag */
 .cal-peek-endday {
   flex: none;
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-family: var(--font);
   font-size: 11px;
   color: var(--text-3);
   white-space: nowrap;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.cal-peek-endday:hover {
+  color: var(--text-1);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .cal-peek-foot {

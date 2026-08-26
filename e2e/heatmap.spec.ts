@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Heatmap fences: a ```heatmap fence draws one year of day squares
 // over a database or a sheet. This spec covers the three shapes the feature

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Tasks board v3 over the mock seed (Dashboards/Tasks.md, areas
 // Label/Studio/Admin). The board leads with urgency, so the seed lands as:

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { openDb } from "./nav";
 
 // The keyboard button holds one coordinate across every desktop

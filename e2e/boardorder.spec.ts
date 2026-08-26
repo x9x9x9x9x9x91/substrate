@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { openDb, openFilter } from "./nav";
 
 // a board drag lands where the pointer says. On an UNSORTED board a

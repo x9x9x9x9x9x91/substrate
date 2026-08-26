@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 test("sparse note body aligns with the content column and its empty surface focuses", async ({
   page,

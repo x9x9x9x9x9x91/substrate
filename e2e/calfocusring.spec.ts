@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // Month view's day cell is not a tab stop — its day-number button is, and
 // after the focused day quieted to a 2px top mark that button's own outline

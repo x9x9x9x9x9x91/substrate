@@ -125,7 +125,10 @@ interface DatabasePaneProps {
   onSaveSchema: (prop: string, options: SelectOption[], kind: PropKind | null, notify?: boolean, notifyBefore?: number, target?: string, format?: NumberFormat, description?: string, rollup?: RollupConfig | null, review?: string) => void | Promise<boolean>;
   /** "Add “x” to options": stores the option and runs `writeValue` as ONE
       undoable action — the value only lands if the option did, and one ⌘Z
-      takes back both. Absent leaves the promote row off the pickers. */
+      takes back both. Absent leaves the promote row off the pickers.
+      Resolving when the pair has settled lets a caller with a step AFTER the
+      value — the row-onto-row prompt's grouping switch — wait for it; the
+      pickers fire it and forget it. */
   onPromoteOption?: (
     prop: string,
     add: {
@@ -138,7 +141,7 @@ interface DatabasePaneProps {
       description?: string;
     },
     writeValue: (record: UndoRecorder) => Promise<void>
-  ) => void;
+  ) => void | Promise<void>;
   /** entries of a relation column's target database (picker source) */
   relationCandidates: (dbType: string) => RelationCandidate[];
   /** create a new entry of a database inline from the relation picker */
@@ -2474,9 +2477,14 @@ export default function DatabasePane({
      invented here (or a group name the property's schema has never seen)
      lands as a schema option, an ungrouped table starts grouping by that
      column, and the rows take the value through the same bulk write door the
-     section-header drop uses. Only that last part is undoable, so one undo
-     after a confirmed drop takes the group value back off every row it wrote
-     — the property and the grouping stay. */
+     section-header drop uses.
+
+     A group name promoted into a property that already exists rides the
+     promote door, so the invented option and the row values are ONE undoable
+     action: one undo after a confirmed drop takes the value back off every
+     row AND the option back out of the schema. A property invented here has
+     nothing to roll back — undo takes the rows back out and leaves the empty
+     column standing — and the grouping switch is deliberately not undoable. */
   const confirmRowGroup = async (prop: string, value: string, createProp: boolean) => {
     const drop = rowGroupDrop;
     setRowGroupDrop(null);
@@ -2497,48 +2505,78 @@ export default function DatabasePane({
        through untouched. */
     const written = commitText(prop, value);
     const known = options.some((o) => o.value.toLowerCase() === written.toLowerCase());
-    /* A select column is a kindless schema entry with options, so inventing
-       one and promoting a value into an existing one are the same call. The
-       existing entry's description rides along or the promote would silently
-       clear it — the same guard the inline promote in the cell menu makes.
-
-       It goes FIRST and is AWAITED: the engine can refuse a schema write,
-       the refusal reaches the user on the app's toast, and writing rows into
-       a group whose property never landed is a worse table than not writing
-       at all. */
-    if (createProp || (!known && !propSchema?.kind)) {
-      const next = createProp ? [{ value: written }] : [...options, { value: written }];
-      const saved = await onSaveSchema(
-        prop,
-        next,
-        null,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        propSchema?.description
-      );
-      if (saved === false) return;
-    }
-    if (drop.fromSel) clearSel();
     // rows already carrying this value are not rewritten — the same
     // same-value no-op filter the section-header drop makes
     const moving = paths.filter(
       (p) =>
         (foldedPropStr(visible.find((n) => n.path === p)?.props ?? {}, prop) || null) !== written
     );
-    const res = await writePropOn(moving, prop, written);
+    /* The rows, as the step the promote door hangs its option on: the
+       selection only lets go once the write is actually happening, so a
+       refused schema write leaves the rows the user still has in hand. */
+    let res: BulkPropResult | null | undefined;
+    const writeRows = (record: UndoRecorder): Promise<void> => {
+      if (drop.fromSel) clearSel();
+      return writePropOn(moving, prop, written, record).then((r) => {
+        res = r;
+      });
+    };
+    /* A select column is a kindless schema entry with options, so inventing
+       one and promoting a value into an existing one are the same schema
+       write. The existing entry's description rides along or the promote
+       would silently clear it — the same guard the inline promote in the
+       cell menu makes.
+
+       Promoting into a property that is already there goes through the
+       promote door, which stores the option and writes the rows as ONE
+       undoable action: the rows only land if the option did, one undo takes
+       back both, and a value no note accepts takes the option back out with
+       it. A property invented here cannot use that door — the door's rollback
+       is "put the option list back", and there is no list to put back — so it
+       stays a plain schema write, awaited because the engine can refuse a
+       name and writing rows into a group whose property never landed is a
+       worse table than not writing at all.
+
+       Nothing to write is the other case the door has no use for: it records
+       no entry when the value lands on no note, and takes the option back out
+       — but a spelling the schema has never seen, on rows that already carry
+       it, is exactly the option this confirm exists to add. */
+    if (!createProp && !known && !propSchema?.kind && onPromoteOption && moving.length > 0) {
+      await onPromoteOption(
+        prop,
+        {
+          before: options,
+          after: [...options, { value: written }],
+          kind: null,
+          priorKind: propSchema?.kind ?? null,
+          description: propSchema?.description,
+        },
+        writeRows
+      );
+    } else {
+      if (createProp || (!known && !propSchema?.kind)) {
+        const next = createProp ? [{ value: written }] : [...options, { value: written }];
+        const saved = await onSaveSchema(
+          prop,
+          next,
+          null,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          propSchema?.description
+        );
+        if (saved === false) return;
+      }
+      await writeRows(undo.record);
+    }
     /* The grouping switch lands LAST, and only once a row is actually
        carrying the value (`null` = every row already carried it, so nothing
-       needed writing). A table that regroups onto a column no row holds
-       shows every row under "No <prop>" — the gesture reading as a failure
-       when the only thing that failed was the rows.
-
-       Accepted residue: these are three separate writes and only the rows
-       are undoable, so when SOME rows fail the schema option and the rows
-       that did land stay. The toast names the count that failed and undo
-       takes the landed rows back out; nothing rolls the schema back. */
-    if ((res === null || res.ok.length > 0) && tableGroup !== prop)
+       needed writing; `undefined` = the schema write was refused, so the rows
+       never ran). A table that regroups onto a column no row holds shows
+       every row under "No <prop>" — the gesture reading as a failure when the
+       only thing that failed was the rows. */
+    if (res !== undefined && (res === null || res.ok.length > 0) && tableGroup !== prop)
       // the fold set and hand order name sections of the OLD column
       patchPref({
         view: "table",

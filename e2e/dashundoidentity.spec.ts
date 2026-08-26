@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Board undo is per-note identity: leaving a board withdraws its history, so a
 // chord on the next board can never write the previous one's sheet. Vehicled on

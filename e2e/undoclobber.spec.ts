@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // An external edit adopted into a clean buffer used to land in the
 // editor's CodeMirror undo history as a normal entry — the next ⌘Z reverted

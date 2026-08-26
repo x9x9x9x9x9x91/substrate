@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // Wikilink → database fallback: an unresolved [[target]] that names
 // a database opens that database view (the Notion hub-page pattern) instead of

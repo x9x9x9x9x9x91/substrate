@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Live ```view embeds on a hub. The same fence is editable in the editor
 // (e2e/viewedit.spec.ts); on a dashboard it used to render flat grey text. Two claims here: a queried value wears the same pill as the

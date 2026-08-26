@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Contrast discipline on metrics cards (design principle 11): at most
 // two cards keep the sharp voice, chosen by `emph: true` in the note's

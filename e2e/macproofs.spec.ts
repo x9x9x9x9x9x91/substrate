@@ -1,14 +1,13 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { join } from "node:path";
 
 import { openDb } from "./nav";
 
 // Mac screenshot proofs — the OTHER visual tier (docs/visual-tiers.md).
-// visualbaselines.spec.ts answers "did this change?" against committed Linux
-// PNGs and skips itself everywhere else. This file answers nothing by itself:
-// it CAPTURES the same core surfaces on a macOS host and writes them to a
-// directory a person can look at. No baselines, no comparisons — a capture
-// that failed to render at all is the only red it can produce.
+// This file answers nothing by itself: it CAPTURES the same core surfaces on
+// a macOS host and writes them to a directory a person can look at. No
+// baselines, no comparisons — a capture that failed to render at all is the
+// only red it can produce.
 //
 // It exists for the nightly full mac pass: headless Linux pixels are the
 // wrong pixels for judging the shipped app, so the nightly runs this on the

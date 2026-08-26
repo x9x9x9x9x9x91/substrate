@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Evidence run only: the person page's appearances rail on both
 // grounds — screen (the app's own dark ramp) and paper (the print pass, the

@@ -1,4 +1,5 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
+import { todayBase } from "./clock";
 
 // A timed event going back to all-day. The peek's Time row clears to an
 // all-day value, and an event that was drawn on the week canvas (stored as a
@@ -8,7 +9,7 @@ import { expect, test } from "@playwright/test";
 
 /** "2026-07-18" — ISO of today, local like dates.todayIso */
 function todayIso(): string {
-  const d = new Date();
+  const d = todayBase();
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
@@ -110,7 +111,7 @@ test("shot: a two-day timed span reverting to an all-day band", async ({ page })
   test.skip(!process.env.SHOTS, "evidence run only");
   const dir = process.env.SHOTS ?? "";
   const iso = todayIso();
-  const next = new Date();
+  const next = todayBase();
   next.setDate(next.getDate() + 1);
   const p = (n: number) => String(n).padStart(2, "0");
   const tomorrow = `${next.getFullYear()}-${p(next.getMonth() + 1)}-${p(next.getDate())}`;

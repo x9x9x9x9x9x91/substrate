@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Search pane flows against the mock backend (src/lib/tauri.ts — active
 // whenever the app runs outside Tauri). The pane opens globally with ⌘⇧F.

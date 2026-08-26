@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 /* Vault:changed names the paths it changed, so the open note only
    re-reads when it is one of them. Proven the way the pane experiences it —

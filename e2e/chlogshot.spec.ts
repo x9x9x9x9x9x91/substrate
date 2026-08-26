@@ -1,4 +1,4 @@
-import { test } from "@playwright/test";
+import { test } from "./fixtures";
 
 // Visual evidence for the changelog pass — not a gate.
 //   SHOTS=1 npx playwright test e2e/chlogshot.spec.ts

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // The everywhere palette is a third window with its own bundle, and the two
 // things it must never get wrong are both observable in a browser: the frame

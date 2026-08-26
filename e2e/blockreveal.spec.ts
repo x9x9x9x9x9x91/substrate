@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // The table/view block-widget fields no longer recompute on every
 // transaction, and the callout scan is scoped to the viewport. What must

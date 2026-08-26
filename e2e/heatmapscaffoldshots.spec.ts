@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Throwaway evidence run: the fence states this change separates — the
 // untouched slash-menu scaffold, which used to render a parse error and now

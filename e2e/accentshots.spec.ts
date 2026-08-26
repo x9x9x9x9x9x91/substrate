@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // Evidence run only: BEFORE/AFTER shots of the metrics + charts
 // panes on both grounds. The app has no runtime light theme — the only light

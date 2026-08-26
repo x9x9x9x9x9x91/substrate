@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Both shortcut hint surfaces render from held state rather than from a
 // key event, so they used to normalize `typing` away and advertise the

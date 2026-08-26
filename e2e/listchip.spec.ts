@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // A list-valued prop on an UNTYPED note. Untyped notes have no
 // schema, so their chips edit as plain text — and the text a list chip shows

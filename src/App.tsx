@@ -1488,7 +1488,9 @@ export default function App() {
         ).then((s) => {
           setSchema(s);
         });
-      addOptionAndWriteUndoable({
+      // returned, not fired and forgotten: a caller with a step after the
+      // value — the row-onto-row prompt's grouping switch — waits on it
+      return addOptionAndWriteUndoable({
         store: {
           before: { options: add.before, kind: add.priorKind },
           after: { options: add.after, kind: add.kind },

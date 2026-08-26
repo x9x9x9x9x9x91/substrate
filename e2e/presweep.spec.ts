@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { openDb } from "./nav";
 
 /* Every bulk database sweep takes a safety snapshot first. When the

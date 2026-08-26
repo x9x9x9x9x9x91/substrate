@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // The unified keyboard button and its contextual panel
 // against the same deterministic mock backend as shortcuts.spec.ts: registry

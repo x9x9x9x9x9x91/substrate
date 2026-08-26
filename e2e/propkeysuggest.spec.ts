@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // The + property chip suggests the keys the note can actually use: the schema
 // keys of its own database first, then the frontmatter keys the app itself

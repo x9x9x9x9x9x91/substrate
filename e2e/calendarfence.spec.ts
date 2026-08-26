@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Calendar fence: a ```calendar fence draws any database date
 // property as a month grid — standalone on a one-fence dashboard note, or

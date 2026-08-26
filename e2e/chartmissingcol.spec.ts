@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // A binding whose property vanished names it. Renaming a sheet column
 // rewrites the sheet's own formulas, but a chart fence in ANOTHER note keeps

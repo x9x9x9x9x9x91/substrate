@@ -1,6 +1,7 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./fixtures";
 import { readFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { todayBase } from "./clock";
 
 // Cookbook gallery shots — an evidence run, not a gate.
 //   SHOTS=1 npx playwright test e2e/cookbookshots.spec.ts
@@ -95,7 +96,7 @@ function parseProps(fm: string): Record<string, unknown> {
 
 /** Local ISO date, offset in days — the mock seeds' day() idiom. */
 const day = (offset: number) => {
-  const d = new Date(Date.now() + offset * 86_400_000);
+  const d = new Date(todayBase().getTime() + offset * 86_400_000);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
 

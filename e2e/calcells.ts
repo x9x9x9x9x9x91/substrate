@@ -1,4 +1,4 @@
-import { expect, type Locator, type Page } from "@playwright/test";
+import { expect, type Locator } from "@playwright/test";
 
 // Calendar cell density is a function of the calendar, not a constant.
 // The mock vault dates most of its entries relative to the day the app opens
@@ -40,34 +40,7 @@ export async function overflowCount(cell: Locator): Promise<number> {
   return n;
 }
 
-/** Opt-in date travel for the calendar specs: `E2E_TODAY=2026-02-28 npx
-    playwright test e2e/weekview.spec.ts` runs the whole spec as if that were
-    today — the date-independence probe these specs earned the hard way.
-    Everything moves together: `applyFakeToday` pins the page's clock, so the
-    seeds date themselves around the fake day (they read `Date.now()` at module
-    eval), and `todayBase()` gives the spec side the same day to build its
-    expected ISO/label strings from. Unset — every gate run — both are the
-    plain wall clock and this file is inert.
-
-    Local noon, not midnight: far enough from either edge that no local/UTC
-    slice in the app or the fixture lands on the neighbouring day. */
-function fakeToday(): Date | null {
-  const iso = process.env.E2E_TODAY?.trim();
-  if (!iso) return null;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
-    throw new Error(`E2E_TODAY must be YYYY-MM-DD, got ${JSON.stringify(iso)}`);
-  }
-  const [y, m, d] = iso.split("-").map(Number);
-  return new Date(y, m - 1, d, 12, 0, 0);
-}
-
-/** The day the spec should treat as today — the faked one under E2E_TODAY,
-    else now. A fresh Date every call: callers mutate it. */
-export function todayBase(): Date {
-  return fakeToday() ?? new Date();
-}
-
-export async function applyFakeToday(page: Page): Promise<void> {
-  const fake = fakeToday();
-  if (fake) await page.clock.setFixedTime(fake);
-}
+/** The calendar specs build their expected ISO/label strings from the same
+    pinned day the page believes it is, and re-export it so a spec needs one
+    import for cells and dates both. ./clock owns the pin. */
+export { todayBase } from "./clock";

@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
+import { todayBase } from "./clock";
 
 // The feed refresh button over the mock
 // curator: one click runs the configured `feed-curator` command (mock:
@@ -19,7 +20,7 @@ async function openFeed(page: Page) {
   await page.goto("/");
   // the tests assert the stamp bumps on a fresh run: seed it one minute old
   // (fresh — no staleness dot) so the bumped minute always reads different
-  const seeded = stampOf(new Date(Date.now() - 60_000));
+  const seeded = stampOf(new Date(todayBase().getTime() - 60_000));
   await page.evaluate((s) => window.__mockEditProp?.("Dashboards/News.md", "curated", s), seeded);
   await page.locator(".side-item", { hasText: "News" }).click();
   await expect(page.locator(".dash-title")).toHaveText("News");

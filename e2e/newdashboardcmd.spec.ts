@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 
 // "New dashboard…" — the palette's own dashboard creation path.
 //

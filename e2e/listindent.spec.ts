@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // Hanging indent: a list line carries an inline `text-indent: -W` /
 // `padding-inline-start: W` pair with matching magnitudes, so wrapped rows

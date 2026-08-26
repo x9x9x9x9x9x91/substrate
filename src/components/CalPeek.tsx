@@ -50,6 +50,11 @@ interface CalPeekProps {
       the pair, so it returns the time actually stored, which the field shows
       in place of the rejected one. */
   onSetEnd: (time: string | null) => string | null;
+  /** the range's end DAY — the Ends row's day half, a picked ISO day
+      (optionally carrying " HH:MM"). The pane clamps a day before the start
+      onto the start's own day; null drops the end entirely. The way back to
+      a single-day event when an over-drag left it spanning midnight. */
+  onSetEndDay: (iso: string | null) => void;
   onSetStatus: (v: string | null) => void;
   onRepeatPick: (anchor: AnchorRect) => void;
   onSkip: () => void;
@@ -78,37 +83,44 @@ export default function CalPeek({
   onClearDate,
   onSetTime,
   onSetEnd,
+  onSetEndDay,
   onSetStatus,
   onRepeatPick,
   onSkip,
   onEndSeries,
   onTrash,
 }: CalPeekProps) {
-  const [titleDraft, setTitleDraft] = useState(entry.title);
-  const [timeDraft, setTimeDraft] = useState(entry.time ?? "");
-  const [endDraft, setEndDraft] = useState("");
-  const [dateMenu, setDateMenu] = useState<AnchorRect | null>(null);
-  const [statusMenu, setStatusMenu] = useState<AnchorRect | null>(null);
-  const boxRef = useRef<HTMLDivElement>(null);
-
   // the note's actual value on the anchor occurrence — day + optional time
   const rawValue = propStr(note?.props ?? {}, entry.prop) ?? entry.day;
 
-  // a committed time lands on the next refresh — pick it up, but never fight
-  // an in-progress edit (the input shows the normalized value once committed)
-  useEffect(() => setTimeDraft(entry.time ?? ""), [entry.time]);
-
-  // the range's END, read off the note's stored value rather than
-  // the entry: the peek can open on any day a span covers, and the value is
-  // the truth both this row and the write path work from. A drag on the
-  // block's bottom edge commits through the same pane handler, so a resize
-  // shows up here on the next refresh.
+  // the STORED value, read off the note rather than the entry: the peek can
+  // open on any day a span covers, and the value is the truth every row and
+  // write path here works from. A drag on the block's edge grips commits
+  // through the same pane handlers, so a resize shows up here on the next
+  // refresh.
   const stored = splitDateRange(rawValue);
+  // the START's clock, wherever the peek opened: a timed span's continuation
+  // chip renders all-day and carries no time of its own, but the time row
+  // edits the stored start — so show that start, instead of an empty field
+  // implying an all-day event
+  const startTime = entry.time ?? stored?.start.time ?? null;
   const endDay = stored?.end?.day ?? null;
   const endTime = stored?.end?.time ?? null;
   // does the value cross days? A span that does has a closing hour worth
   // giving even when it starts all-day ("the festival runs Fri–Sun, ends 5pm")
   const spanning = !!stored?.end && stored.end.day !== stored.start.day;
+
+  const [titleDraft, setTitleDraft] = useState(entry.title);
+  const [timeDraft, setTimeDraft] = useState(startTime ?? "");
+  const [endDraft, setEndDraft] = useState("");
+  const [dateMenu, setDateMenu] = useState<AnchorRect | null>(null);
+  const [endDayMenu, setEndDayMenu] = useState<AnchorRect | null>(null);
+  const [statusMenu, setStatusMenu] = useState<AnchorRect | null>(null);
+  const boxRef = useRef<HTMLDivElement>(null);
+
+  // a committed time lands on the next refresh — pick it up, but never fight
+  // an in-progress edit (the input shows the normalized value once committed)
+  useEffect(() => setTimeDraft(startTime ?? ""), [startTime]);
   useEffect(() => setEndDraft(endTime ?? ""), [endTime]);
 
   // outside press closes — except while a sub-picker (date/status, or the
@@ -118,13 +130,13 @@ export default function CalPeek({
   // expanded-day collapse listens on the same window mousedown) re-renders
   // us between listeners, the effect re-subscribes mid-dispatch, and the
   // re-added listener misses the very event that should have dismissed us.
-  const dismissRef = useRef({ dateMenu, statusMenu, suppressDismiss, onClose });
-  dismissRef.current = { dateMenu, statusMenu, suppressDismiss, onClose };
+  const dismissRef = useRef({ dateMenu, endDayMenu, statusMenu, suppressDismiss, onClose });
+  dismissRef.current = { dateMenu, endDayMenu, statusMenu, suppressDismiss, onClose };
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
       const cur = dismissRef.current;
       if (boxRef.current?.contains(e.target as Node)) return;
-      if (cur.dateMenu || cur.statusMenu || cur.suppressDismiss) return;
+      if (cur.dateMenu || cur.endDayMenu || cur.statusMenu || cur.suppressDismiss) return;
       cur.onClose();
     };
     window.addEventListener("mousedown", onDown);
@@ -168,15 +180,15 @@ export default function CalPeek({
     const parsed = parseTimeEntry(timeDraft);
     if (parsed.kind === "clear") {
       setTimeDraft("");
-      if (entry.time) onSetTime(null);
+      if (startTime) onSetTime(null);
       return;
     }
     if (parsed.kind === "invalid") {
-      setTimeDraft(entry.time ?? "");
+      setTimeDraft(startTime ?? "");
       return;
     }
     setTimeDraft(parsed.time);
-    if (parsed.time !== entry.time) onSetTime(parsed.time);
+    if (parsed.time !== startTime) onSetTime(parsed.time);
   };
 
   const commitEnd = () => {
@@ -272,7 +284,7 @@ export default function CalPeek({
                     commitTime();
                   } else if (e.key === "Escape") {
                     e.preventDefault();
-                    setTimeDraft(entry.time ?? "");
+                    setTimeDraft(startTime ?? "");
                     e.currentTarget.blur();
                   }
                   e.stopPropagation();
@@ -286,10 +298,12 @@ export default function CalPeek({
                 row is the only way to type it (the date picker stays
                 day-only). Typing an hour on an all-day span leaves the start
                 all-day and closes the span at that clock time; emptying the
-                field again drops only the hour, never the closing day, which
-                stays the date row's to move. When the end falls on a later
-                day the day is shown beside the field, so "09:00" can't read
-                as this morning. */}
+                field again drops only the hour, never the closing day. When
+                the end falls on a later day the day is shown beside the
+                field — so "09:00" can't read as this morning — and is a
+                button: picking an earlier day pulls the end back (clamped to
+                the start), the way home when an over-drag stranded the event
+                across midnight; the picker's Clear drops the end whole. */}
             {(entry.time || spanning) && (
               <div className="cal-peek-row">
                 <span className="cal-peek-key">Ends</span>
@@ -312,9 +326,14 @@ export default function CalPeek({
                   }}
                 />
                 {endDay && endDay !== (stored?.start.day ?? entry.day) && (
-                  <span className="cal-peek-endday">
+                  <button
+                    type="button"
+                    className="cal-peek-endday"
+                    title="Change the day the event ends"
+                    onClick={(e) => setEndDayMenu(anchorFrom(e.currentTarget))}
+                  >
                     {formatDateHuman(endDay)}
-                  </span>
+                  </button>
                 )}
               </div>
             )}
@@ -372,6 +391,24 @@ export default function CalPeek({
             onClearDate();
           }}
           onClose={() => setDateMenu(null)}
+        />
+      )}
+      {/* no `&& endDay` here: the dismiss guard above holds while this menu
+          is open, so a mid-refresh render that blanks the note must not
+          unmount the picker and strand the peek undismissable */}
+      {endDayMenu && (
+        <DateMenu
+          anchor={endDayMenu}
+          value={endDay ?? entry.day}
+          onCommit={(iso) => {
+            setEndDayMenu(null);
+            onSetEndDay(iso);
+          }}
+          onClear={() => {
+            setEndDayMenu(null);
+            onSetEndDay(null);
+          }}
+          onClose={() => setEndDayMenu(null)}
         />
       )}
       {statusMenu && statusSchema && (

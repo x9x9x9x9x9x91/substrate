@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
+import { todayBase } from "./clock";
 
 // Evidence run only: photographs a timed event being pulled into a multi-day
 // span and back, to show that the span keeps its duration grip and stays
@@ -15,7 +16,7 @@ const RANGED = "Cutting room workshop";
 
 /** ISO of today and its neighbours, local like dates.todayIso */
 function dayIso(offset = 0): string {
-  const d = new Date();
+  const d = todayBase();
   d.setHours(12, 0, 0, 0);
   d.setDate(d.getDate() + offset);
   const p = (n: number) => String(n).padStart(2, "0");
@@ -52,9 +53,9 @@ test("shot: single day, span, and back", async ({ page }) => {
   const start = dayIso(0);
   const later = dayIso(1);
 
-  // 1 — the event as it starts: one day, one block, one grip
+  // 1 — the event as it starts: one day, one block, a grip on either edge
   await expect(block(page, start)).toHaveCount(1);
-  await expect(block(page, start).locator(".cal-wk-grip")).toHaveCount(1);
+  await expect(block(page, start).locator(".cal-wk-grip")).toHaveCount(2);
   await showMorning(page);
   // the grip's bar only paints under the pointer — hover the block so the
   // shot shows what a hand on the event sees
@@ -64,10 +65,10 @@ test("shot: single day, span, and back", async ({ page }) => {
   // 2 — pull the grip onto the next day's canvas (the one surface a duration
   // drop aims at): a span, and the grip is still there
   await block(page, start)
-    .locator(".cal-wk-grip")
+    .locator(".cal-wk-grip:not(.top)")
     .dragTo(page.locator(`.cal-wk-col[data-iso="${later}"]`));
   await expect(strip(page, later)).toHaveCount(1);
-  await expect(block(page, start).locator(".cal-wk-grip")).toHaveCount(1);
+  await expect(block(page, start).locator(".cal-wk-grip")).toHaveCount(2);
   await showMorning(page);
   await block(page, start).hover();
   await page.screenshot({ path: `${OUT}/2-span-keeps-grip.png` });
@@ -79,7 +80,7 @@ test("shot: single day, span, and back", async ({ page }) => {
 
   // 4 — pull the grip back onto the start day: single-day again
   await block(page, start)
-    .locator(".cal-wk-grip")
+    .locator(".cal-wk-grip:not(.top)")
     .dragTo(page.locator(`.cal-wk-col[data-iso="${start}"]`));
   await expect(strip(page, later)).toHaveCount(0);
   await expect(block(page, start)).toHaveCount(1);
@@ -96,7 +97,7 @@ test("shot: moving a span by its continuation day and back", async ({ page }) =>
 
   // make it a span again, then grab the day it does NOT start on
   await block(page, start)
-    .locator(".cal-wk-grip")
+    .locator(".cal-wk-grip:not(.top)")
     .dragTo(page.locator(`.cal-wk-col[data-iso="${later}"]`));
   await expect(strip(page, later)).toHaveCount(1);
 
@@ -151,7 +152,7 @@ test("shot: the time ghost, and the slide that has no minute to show", async ({
   // keeps the range's own times, so no minute is offered — but the column it
   // would land on still reads as the target
   await block(page, start)
-    .locator(".cal-wk-grip")
+    .locator(".cal-wk-grip:not(.top)")
     .dragTo(page.locator(`.cal-wk-col[data-iso="${later}"]`));
   await expect(strip(page, later)).toHaveCount(1);
   await showMorning(page);
@@ -168,4 +169,41 @@ test("shot: the time ghost, and the slide that has no minute to show", async ({
   await expect(ghost).toHaveCount(1);
   await grid.screenshot({ path: `${OUT}/8-move-ghost.png` });
   await page.mouse.up();
+});
+
+test("shot: the peek's way home from the day-2 chip", async ({ page }) => {
+  await week(page);
+  const start = dayIso(0);
+  const later = dayIso(1);
+
+  // strand the event the way a hand does: pull its end onto the next day
+  await block(page, start)
+    .locator(".cal-wk-grip:not(.top)")
+    .dragTo(page.locator(`.cal-wk-col[data-iso="${later}"]`));
+  await expect(strip(page, later)).toHaveCount(1);
+
+  // 9 — the chip that reads as "all day there": its peek now says what it
+  // is — the Time row carries the stored start, the Ends row wears the
+  // closing day as a button
+  await strip(page, later).click();
+  await expect(page.locator(".cal-peek")).toBeVisible();
+  await expect(page.locator(".cal-peek-time")).toHaveValue("09:00");
+  // the value settles a beat after the resize write (two observable steps —
+  // see the strand-settle issue); wait for the closing hour so the shot shows
+  // the peek a human reads, not the mid-settle frame
+  await expect(page.locator(".cal-peek-end")).toHaveValue(/^\d{2}:\d{2}$/);
+  await expect(page.locator(".cal-peek-endday")).toHaveCount(1);
+  await page.screenshot({ path: `${OUT}/9-day2-chip-peek.png` });
+
+  // 10 — pick the start day from the end-day button: single-day again,
+  // the kept closing hour riding along
+  await page.locator(".cal-peek-endday").click();
+  await page.locator(".datemenu .selmenu-input").fill(start);
+  await page.locator(".datemenu .selmenu-input").press("Enter");
+  await expect(strip(page, later)).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(block(page, start)).toHaveCount(1);
+  await showMorning(page);
+  await block(page, start).hover();
+  await page.screenshot({ path: `${OUT}/10-pulled-home.png` });
 });

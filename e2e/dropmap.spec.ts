@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 /* An asset import is an IPC round trip — fs::copy under the vault
    mutex can hold seconds on a big file. The drop point was sampled once to set

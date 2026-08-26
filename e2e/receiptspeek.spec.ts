@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // The receipts peek's pointer door: a chip's hover clock glyph must open the
 // peek when CLICKED — in a real browser, where the chip's full-row primary

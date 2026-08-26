@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // The non-drag path to assignable keys. Right-click a
 // sidebar destination → "Assign key…" → pick a chip. Same plumbing as the

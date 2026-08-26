@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // Evidence run only: the two notes this fallback pass separates — a note that
 // says only `type: dashboard` (which used to open whichever board sat first

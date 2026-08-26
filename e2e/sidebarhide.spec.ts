@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // Sidebar collapse — ⌘\ (and the head/rail buttons) hide the
 // sidebar so the content panes take the full width; the slim rail keeps the

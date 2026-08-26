@@ -84,6 +84,7 @@ function peekProps(over: Record<string, unknown> = {}) {
     onClearDate: () => {},
     onSetTime: () => {},
     onSetEnd: () => null,
+    onSetEndDay: () => {},
     onSetStatus: () => {},
     onRepeatPick: () => {},
     onSkip: () => {},
@@ -138,4 +139,32 @@ test("a real time still commits, padded", async (t) => {
   await pressEnter(field);
   assert.deepEqual(wrote, ["09:45"]);
   assert.equal((field as HTMLInputElement).value, "09:45");
+});
+
+test("a continuation chip's Time row carries the stored start, and edits it", async (t) => {
+  // the day-2 chip of a span dragged past midnight renders all-day, so its
+  // entry has no time of its own — but the row edits the stored start, and
+  // an empty field here is what made the stranded event look uneditable
+  const wrote: (string | null)[] = [];
+  const props = peekProps({ onSetTime: (time: string | null) => wrote.push(time) });
+  const { time: _time, ...tail } = props.entry;
+  props.entry = {
+    ...tail,
+    day: "2026-08-11",
+    endDay: "2026-08-11",
+    endTime: "01:00",
+    spanPos: "end",
+  } as CalEntry;
+  props.note = {
+    ...props.note,
+    props: { type: "event", [PROP]: "2026-08-10 20:00/2026-08-11 01:00" },
+  };
+  const { default: CalPeek } = await import("../components/CalPeek.tsx");
+  await renderComponent(t, h(CalPeek, props));
+  const field = one(".cal-peek-time");
+  assert.ok(field, "the Time row renders on the continuation chip");
+  assert.equal((field as HTMLInputElement).value, "20:00", "showing the stored start");
+  await type(field, "19:30");
+  await pressEnter(field);
+  assert.deepEqual(wrote, ["19:30"]);
 });

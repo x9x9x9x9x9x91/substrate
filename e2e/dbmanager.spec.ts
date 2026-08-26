@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // All-databases manager: one surface listing EVERY database —
 // homed and homeless, schema-only zero-note ones included — replacing the

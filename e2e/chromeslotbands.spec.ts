@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // The chrome slot is a desktop-only reservation for the fixed
 // keyboard button. Two widths get it wrong and neither is covered by the

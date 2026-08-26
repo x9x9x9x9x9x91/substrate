@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // the in-grid totals row, in-place summary editing, and the
 // ephemeral selection readout. The mock's Fixed Costs sheet is the fixture:

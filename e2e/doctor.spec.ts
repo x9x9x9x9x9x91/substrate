@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // The vault doctor is a read-only report. The palette opens it, the
 // findings group by kind, note paths click through — and there is deliberately

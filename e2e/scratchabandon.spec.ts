@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // A ⌘N scratch note that stays pristine (Untitled title, empty body,
 // only the created prop) abandons itself on leave — Esc, selection change —

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Evidence run only: the sheet grid before and after "+ row", which is the
 // surface the placeholder change moves. Shot against a build WITHOUT the

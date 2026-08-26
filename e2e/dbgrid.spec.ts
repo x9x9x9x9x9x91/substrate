@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { settingsTab } from "./settings";
 import { openDb } from "./nav";
 

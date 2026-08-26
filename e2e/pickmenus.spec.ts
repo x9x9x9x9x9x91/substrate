@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
+import { applyFakeToday } from "./clock";
 
 // The select and file pickers are input-owned composites — one
 // combobox tab stop, options referenced via aria-activedescendant, no
@@ -146,6 +147,7 @@ test("phone select picker keeps its geometry inside the viewport", async ({ brow
     hasTouch: true,
     isMobile: true,
   });
+  await applyFakeToday(page);
   await page.goto("/");
   await page.locator(".mobile-menu").click();
   await page.locator(".sidebar .side-item", { hasText: "All databases" }).click();

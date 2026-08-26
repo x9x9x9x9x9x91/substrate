@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // A missing-asset embed used to stay missing until the note
 // reloaded — widget identity was name-only, so CodeMirror kept the failed DOM

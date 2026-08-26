@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // The summary bar under a sheet used to render every named summary as
 // one flat wrap — a finance sheet with a dozen of them read as a dump, a single

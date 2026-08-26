@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Evidence run only: the surfaces this error-band pass adds a sentence to —
 // a bundle shadowed by a built-in kind, a ctx call the app refused, a manifest

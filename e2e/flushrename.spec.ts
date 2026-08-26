@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // App-level rename/move of the OPEN note must wait out the pane's
 // pending debounced save. Without the flush the pane's late cleanup flush

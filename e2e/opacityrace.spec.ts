@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { settingsTab } from "./settings";
 
 /* The window-opacity dial previews on the drag and writes on the

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // The in-app release history. The button lives beside the info-view
 // ? in the lower-left cluster; the pane is read-only and vault-free.

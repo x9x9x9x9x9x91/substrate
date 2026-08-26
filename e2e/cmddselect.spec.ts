@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // ⌘D is the daily-note hotkey, and only that. @codemirror/search's
 // keymap carries its own Mod-d → selectNextOccurrence, so one press used to

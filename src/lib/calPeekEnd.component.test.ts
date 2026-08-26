@@ -71,6 +71,7 @@ function peekProps(value: string, entry: Partial<CalEntry>, over: Record<string,
     onClearDate: () => {},
     onSetTime: () => {},
     onSetEnd: () => null,
+    onSetEndDay: () => {},
     onSetStatus: () => {},
     onRepeatPick: () => {},
     onSkip: () => {},
@@ -154,4 +155,42 @@ test("the field shows the end that was STORED, not the one that was typed", asyn
   await pressEnter(field);
   assert.deepEqual(wrote, ["07:00"]);
   assert.equal((field as HTMLInputElement).value, "09:15");
+});
+
+test("the end's day is a button — a picked day reaches onSetEndDay bare", async (t) => {
+  // the day-2 chip of a span dragged past midnight: the closing day beside
+  // the Ends field opens a day picker, and picking the start day is the way
+  // back to a single-day event — the pane clamps and keeps the hour
+  const wrote: (string | null)[] = [];
+  await render(
+    t,
+    "2026-08-10 20:00/2026-08-11 01:00",
+    { day: "2026-08-11", endDay: "2026-08-11", endTime: "01:00", spanPos: "end" },
+    { onSetEndDay: (iso: string | null) => wrote.push(iso) },
+  );
+  const btn = one(".cal-peek-endday");
+  assert.ok(btn, "the closing day renders beside the Ends field");
+  assert.equal(btn?.tagName, "BUTTON");
+  await act(async () => (btn as HTMLButtonElement).click());
+  const cell = one('.datemenu [data-iso="2026-08-10"]');
+  assert.ok(cell, "the day picker opens on the end's own month");
+  await act(async () => (cell as HTMLElement).click());
+  assert.deepEqual(wrote, ["2026-08-10"]);
+});
+
+test("the picker's Clear drops the end whole", async (t) => {
+  const wrote: (string | null)[] = [];
+  await render(
+    t,
+    "2026-08-10 20:00/2026-08-11 01:00",
+    { day: "2026-08-11", endDay: "2026-08-11", endTime: "01:00", spanPos: "end" },
+    { onSetEndDay: (iso: string | null) => wrote.push(iso) },
+  );
+  await act(async () => (one(".cal-peek-endday") as HTMLButtonElement).click());
+  const clear = Array.from(document.body.querySelectorAll(".datemenu .selmenu-btn")).find(
+    (b) => b.textContent === "Clear",
+  );
+  assert.ok(clear, "the picker offers Clear");
+  await act(async () => (clear as HTMLElement).click());
+  assert.deepEqual(wrote, [null]);
 });

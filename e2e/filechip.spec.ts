@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // File chips: any embed that is neither audio nor image renders a
 // named chip; click / Enter opens the file externally (the mock file_open

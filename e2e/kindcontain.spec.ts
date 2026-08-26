@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Containment: the three ways a mounted kind used to reach past the element it
 // was handed and take the pane with it. A mount that never settles left the

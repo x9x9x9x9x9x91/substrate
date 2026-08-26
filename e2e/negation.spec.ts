@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { openDb, openFilter } from "./nav";
 
 // Negated query filters against the mock backend, like the other

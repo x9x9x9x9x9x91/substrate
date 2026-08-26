@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // The seeded AGENTS.md/CLAUDE.md stay real files (the mock indexes
 // them like the engine does) but the app conceals them until Settings.md says

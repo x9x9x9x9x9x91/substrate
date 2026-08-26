@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Evidence run only (SHOTS=1): the sub-item tree on both grounds — table
 // expanded and collapsed, and the board — so the chevron, the indent and the

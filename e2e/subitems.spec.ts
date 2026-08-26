@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Sub-items: a relation prop pointing back at its own database can be
 // MARKED as the parent link from that column's header menu, after which the

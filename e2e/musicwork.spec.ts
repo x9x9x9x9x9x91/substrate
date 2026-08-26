@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Music work board flows over the mock seed: Dashboards/Music
 // Work.md (index: Work Index) + the Work Index sheet — 8 jobs across 3 years,

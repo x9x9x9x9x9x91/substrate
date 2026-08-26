@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // A wikilink has three parts and an embed has two, but only the first ever
 // completed — past a `#` or a `|` you were typing from memory, and callout

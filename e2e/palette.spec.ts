@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // ⌘K ranking against the mock backend: the vault has a "release"
 // database plus notes whose bodies mention "release". Before the fix the

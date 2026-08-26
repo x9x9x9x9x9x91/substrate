@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "./fixtures";
 
 // A plain note (no database, no `type: dashboard`) can hold a sidebar
 // row. That row lives UNDER the note's home folder in the Folders

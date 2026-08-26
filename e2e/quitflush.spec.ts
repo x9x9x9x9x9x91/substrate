@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // The pane's 500ms save debounce is a loss window against anything
 // that ends the session without unmounting the pane. On macOS ⌘Q reaches

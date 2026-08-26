@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // Every empty state renders through one shell — a glyph from the
 // existing icon set, the line, the quiet hint, and where the hint names a

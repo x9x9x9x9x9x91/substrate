@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Narrowing a search used to land the selection on the LAST surviving
 // row instead of the top hit, so Enter opened a note the user never picked.

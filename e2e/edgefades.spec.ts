@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { openDb as openDbRow } from "./nav";
 
 // Edge fades reflect actual scrollability, driven by two gate

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // Evidence run only, not a gate: the search pane answering with a picture, and
 // the picture opened where it was found.

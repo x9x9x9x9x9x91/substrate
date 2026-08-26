@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Deleting an orphaned asset used to unlink it — the one delete in the
 // app with no recovery path. Now it moves into `.trash/<ms>/.assets/<name>`,

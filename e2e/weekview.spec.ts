@@ -1,5 +1,5 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
-import { ALLDAY_CAP, applyFakeToday, overflowCount, todayBase } from "./calcells";
+import { expect, test, type Locator, type Page } from "./fixtures";
+import { ALLDAY_CAP, overflowCount, todayBase } from "./calcells";
 
 // Week is a time grid — a pinned all-day strip of entry
 // cards (.cal-grid.week .cal-day[data-iso]) over a scrollable 24h canvas
@@ -25,7 +25,6 @@ function addDaysIso(iso: string, n: number): string {
 }
 
 test.beforeEach(async ({ page }) => {
-  await applyFakeToday(page);
   await page.goto("/");
   // the list's first paint doubles as the "app is live" barrier (cold open
   // lands on Notes — Today is a destination)
@@ -298,7 +297,7 @@ test("drag a block's bottom edge sets the event's end (SUB-1171)", async ({ page
 
   // drag the grip down to ~20% of the day (≈ 04:45): the block grows, the
   // START stays exactly where it was
-  await block.locator(".cal-wk-grip").dragTo(col, {
+  await block.locator(".cal-wk-grip:not(.top)").dragTo(col, {
     targetPosition: { x: box.width / 2, y: box.height * 0.2 },
   });
   await expect.poll(() => heightFrac(block)).toBeGreaterThan(2 / 24);
@@ -315,7 +314,7 @@ test("drag a block's bottom edge sets the event's end (SUB-1171)", async ({ page
 
   // dragged UP past its own start, the end clamps to the first slot after it
   // — never flipping the event around
-  await block.locator(".cal-wk-grip").dragTo(col, {
+  await block.locator(".cal-wk-grip:not(.top)").dragTo(col, {
     targetPosition: { x: box.width / 2, y: box.height * 0.05 },
   });
   await expect.poll(() => heightFrac(block)).toBeLessThan(1 / 24);
@@ -373,4 +372,120 @@ test("the peek's Ends field writes the duration, clamping a reversed pair (SUB-1
   await endsField(page).press("Enter");
   await closePeek(page);
   await expect.poll(() => heightFrac(block)).toBeCloseTo(1 / 24, 2);
+});
+
+test("drag a block's top edge sets the event's start, holding the end (SUB-1514)", async ({
+  page,
+}) => {
+  await page.locator(".cal-wk-scroll").evaluate((el) => (el.scrollTop = 0));
+  const col = page.locator(`.cal-wk-col[data-iso="${isoDay(0)}"]`);
+  const box = (await col.boundingBox())!;
+  await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height * 0.1);
+  const draft = page.locator(".cal-wk-draft .cal-draft-input");
+  await expect(draft).toBeVisible();
+  await draft.fill("Start grip probe");
+  await draft.press("Enter");
+  const block = col.locator(".cal-wk-block", { hasText: "Start grip probe" });
+  await expect(block).toBeVisible();
+  const start = (await block.locator(".cal-entry-time").textContent())!;
+  const min = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+
+  // give it a real end first, a few hours down the canvas
+  await block.locator(".cal-wk-grip:not(.top)").dragTo(col, {
+    targetPosition: { x: box.width / 2, y: box.height * 0.3 },
+  });
+  await expect.poll(() => heightFrac(block)).toBeGreaterThan(2 / 24);
+  await block.click();
+  await expect(endsField(page)).toHaveValue(/^\d{2}:(00|15|30|45)$/);
+  const end = await endsField(page).inputValue();
+  await closePeek(page);
+
+  // pull the TOP edge down to ~20% of the day (≈ 04:45): the start moves
+  // onto the drop's quarter-hour, the END stays exactly where it was
+  await block.locator(".cal-wk-grip.top").dragTo(col, {
+    targetPosition: { x: box.width / 2, y: box.height * 0.2 },
+  });
+  await expect
+    .poll(async () => min((await block.locator(".cal-entry-time").textContent())!))
+    .toBeGreaterThan(min(start));
+  const moved = (await block.locator(".cal-entry-time").textContent())!;
+  expect(min(moved)).toBeLessThan(min(end));
+  await block.click();
+  await expect(endsField(page)).toHaveValue(end);
+  await closePeek(page);
+
+  // dropped ON its own end's minute — inside the 15-minute floor — the
+  // start clamps to the last slot before the end: never flipping the event
+  // around, never moving the end. (The drop stays at 0.3 of the day: any
+  // deeper y sits below the 720px viewport and the release would land off
+  // the canvas, which is deliberately a no-op.)
+  await block.locator(".cal-wk-grip.top").dragTo(col, {
+    targetPosition: { x: box.width / 2, y: box.height * 0.3 },
+  });
+  await expect
+    .poll(async () => min((await block.locator(".cal-entry-time").textContent())!))
+    .toBe(min(end) - 15);
+  await block.click();
+  await expect(endsField(page)).toHaveValue(end);
+});
+
+test("the peek's end-day button pulls an over-dragged event back to its start day (SUB-1515)", async ({
+  page,
+}) => {
+  await page.locator(".cal-wk-scroll").evaluate((el) => (el.scrollTop = 0));
+  // the over-drag needs a NEXT column inside the same week — when today is
+  // the week's last day, probe on yesterday instead
+  const dow = new Date().getDay(); // 0 = Sunday, the rendered week's last column
+  const base = dow === 0 ? isoDay(-1) : isoDay(0);
+  const next = dow === 0 ? isoDay(0) : isoDay(1);
+  const col = page.locator(`.cal-wk-col[data-iso="${base}"]`);
+  const box = (await col.boundingBox())!;
+  // compose early in the day — deeper y sits below the viewport
+  await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height * 0.1);
+  const draft = page.locator(".cal-wk-draft .cal-draft-input");
+  await expect(draft).toBeVisible();
+  await draft.fill("Overdrag probe");
+  await draft.press("Enter");
+  const block = col.locator(".cal-wk-block", { hasText: "Overdrag probe" });
+  await expect(block).toBeVisible();
+  const start = (await block.locator(".cal-entry-time").textContent())!;
+
+  // drag the end past midnight: the continuation renders as an all-day chip
+  // on the next day — the exact trap this issue documents
+  await block
+    .locator(".cal-wk-grip:not(.top)")
+    .dragTo(page.locator(`.cal-wk-col[data-iso="${next}"]`), {
+      targetPosition: { x: box.width / 2, y: box.height * 0.25 },
+    });
+  const chip = page.locator(
+    `.cal-grid.week .cal-day[data-iso="${next}"] .cal-entry`,
+    { hasText: "Overdrag probe" },
+  );
+  await expect(chip).toHaveCount(1);
+
+  // the chip's peek says what it is: the Time row carries the STORED start,
+  // never an empty field implying an all-day event. The Ends value settles a
+  // beat after the write — the toHaveValue retry rides that out.
+  await chip.click();
+  await expect(page.locator(".cal-peek")).toBeVisible();
+  await expect(page.locator(".cal-peek-time")).toHaveValue(start);
+  await expect(endsField(page)).toHaveValue(/^\d{2}:(00|15|30|45)$/);
+  const endHour = await endsField(page).inputValue();
+
+  // the end's day beside the Ends field is a button — pick the start day
+  // to pull the event home (typed, so the month grid's edges don't matter)
+  await page.locator(".cal-peek-endday").click();
+  await expect(page.locator(".datemenu")).toBeVisible();
+  await page.locator(".datemenu .selmenu-input").fill(base);
+  await page.locator(".datemenu .selmenu-input").press("Enter");
+  await expect(chip).toHaveCount(0);
+
+  // single-day again on its own start, the closing hour riding home whole —
+  // it sits after the start here, so nothing needed clamping
+  await closePeek(page);
+  await expect(block.locator(".cal-entry-time")).toHaveText(start);
+  await block.click();
+  await expect(page.locator(".cal-peek")).toBeVisible();
+  await expect(page.locator(".cal-peek-endday")).toHaveCount(0);
+  await expect(endsField(page)).toHaveValue(endHour);
 });

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { openDb } from "./nav";
 
 // Evidence run only: SHOTS=1 npx playwright test e2e/groupsectionshots.spec.ts

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // The sidebar's folder tree hard-clipped its last visible row against
 // the fixed bottom zone (Vault sync/Trash) when it overflowed. The scroller now

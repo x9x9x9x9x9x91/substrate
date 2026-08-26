@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { openDb, openFilter } from "./nav";
 
 // A saved view can be exported as a folder of links other apps can

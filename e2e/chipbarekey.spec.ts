@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // Enter on a bare key in the + property input is a commit gesture mid-format,
 // not a cancel: the draft used to be discarded silently — the one lane where

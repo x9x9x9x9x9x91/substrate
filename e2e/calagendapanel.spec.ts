@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { settingsTab } from "./settings";
 
 // The Upcoming panel's three moving parts, in the gate suite rather than in a

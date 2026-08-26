@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { openDb, openFilter } from "./nav";
 
 test("removing an unpopulated property cleans its saved query without a strip dialog", async ({

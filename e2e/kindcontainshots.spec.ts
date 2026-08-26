@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Evidence run only: the surfaces containment changes — a healthy custom kind
 // (unchanged, the regression check), the card a stalled mount now gets instead

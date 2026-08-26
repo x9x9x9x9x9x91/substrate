@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { openDb, openFilter } from "./nav";
 
 // Evidence run only: the database filter row carrying a mixed query — a value

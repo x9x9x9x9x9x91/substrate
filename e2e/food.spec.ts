@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
+import { todayBase } from "./clock";
 
 // Food dashboard flows over the mock seed: Dashboards/Calories.md
 // (band 1900–2300) + the Food Log sheet. Seeded today: Chicken bowl 650/45g +
@@ -250,7 +251,7 @@ test("food: delete removes only its row", async ({ page }) => {
 const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 /** the pane's dayLabel for a day offset from the run date */
 function labelFor(offset: number): string {
-  const t = new Date();
+  const t = todayBase();
   t.setDate(t.getDate() + offset);
   return `${WD[t.getDay()]} ${t.getDate()}`;
 }

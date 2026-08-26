@@ -12,6 +12,15 @@ PNGs committed under `e2e/__screenshots__/linux/`.
 notes, the database manager, a database table, three dashboards, the calendar
 month grid, search results, and the print (light-ramp) surface.
 
+**Reading this in the public source mirror?** This tier is not there. A
+baseline is a full-frame render of the development tree, so the PNGs picture
+surfaces the mirror deliberately withholds — the spec and the whole
+`e2e/__screenshots__/` directory are excluded, and `npm run e2e` on that
+snapshot runs the structural specs without a pixel tier. Everything below
+describes the tier as it runs where it lives; recording a baseline set from the
+stripped tree would be the work needed to bring it across, and nobody has done
+it.
+
 
 What it is for: catching a rendering change nothing else in the suite can see.
 The other ~265 e2e specs assert structure — text, counts, classes — so a

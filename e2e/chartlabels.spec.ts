@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Long categorical labels and low bars used to change each column's
 // total height. That lifted some bar baselines, wrapped date/category tokens,

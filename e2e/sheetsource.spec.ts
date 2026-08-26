@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Resolution — the "stale sheet source view" was live-preview
 // concealment, not staleness. The original repro's element-center click

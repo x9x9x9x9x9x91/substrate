@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // View-fence joins: a dotted `relation.prop` column in a ```view
 // fence shows a stored property of the row the relation names. That value

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Editor half: an inline `#tag` is a live thing in prose — it wears
 // a mark, it opens its collection on click (folder or no folder), and typing

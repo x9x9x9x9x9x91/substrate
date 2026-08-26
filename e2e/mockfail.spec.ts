@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
+import { todayBase } from "./clock";
 
 // Error surfaces and external-change lanes against the
 // mock backend's e2e hooks (window.__mock*, installed by src/lib/tauri.ts
@@ -122,7 +123,7 @@ test("a ghost day whose create fails while you're away is toasted, and Reopen ha
 }) => {
   // ISO of today - 1, local, like dates.todayIso / the journal's day-step
   const p2 = (n: number) => String(n).padStart(2, "0");
-  const d = new Date();
+  const d = todayBase();
   d.setDate(d.getDate() - 1);
   const yesterday = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
 
@@ -148,7 +149,7 @@ test("a ghost day whose create fails while you're away is toasted, and Reopen ha
     day: "numeric",
     month: "long",
     year: "numeric",
-  }).format(new Date());
+  }).format(todayBase());
   await expect(page.locator(".note-title-daily")).toHaveText(humanToday);
   await expect(rows).toHaveCount(1); // the failed create made no file
 

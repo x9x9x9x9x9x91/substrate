@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // Paging the calendar far back used to empty Today and Upcoming. The
 // pane asked for ONE entries window spanning the grid AND the 14-day upcoming

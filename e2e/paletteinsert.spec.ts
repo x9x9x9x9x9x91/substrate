@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // Content matches arrive on a debounce, after the synchronous note
 // and command rows. Inserting that section pushes every row below it down —

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Workbook pages: a dashboard with a `pages:` frontmatter list
 // renders an Excel-style tab strip at the bottom of the pane. Fixture:

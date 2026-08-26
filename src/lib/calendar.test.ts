@@ -9,6 +9,7 @@ import {
   calendarTypes,
   cellDayLabel,
   clampedRangeEnd,
+  clampedRangeStart,
   datePropFor,
   dateRangeValue,
   dayColumn,
@@ -1161,6 +1162,102 @@ test("clampedRangeEnd: the floor rolls past midnight when the start is late (SUB
   const v = dateRangeValue("2026-08-10", "23:55", { day: "2026-08-11", time: "00:10" });
   assert.equal(v, "2026-08-10 23:55/2026-08-11 00:10");
   assert.ok(splitDateRange(v));
+});
+
+test("clampedRangeStart: a start at or past its end settles one slot before it (SUB-1514)", () => {
+  const end = { day: "2026-08-10", time: "17:00" };
+  // a top-edge drag pulled down through the end — clamped, never flipped
+  assert.deepEqual(clampedRangeStart({ day: "2026-08-10", time: "18:00" }, end), {
+    day: "2026-08-10",
+    time: "16:45",
+  });
+  // exactly on the end is still too short
+  assert.deepEqual(clampedRangeStart({ day: "2026-08-10", time: "17:00" }, end), {
+    day: "2026-08-10",
+    time: "16:45",
+  });
+  // one step in is already legal and passes through untouched
+  assert.deepEqual(clampedRangeStart({ day: "2026-08-10", time: "16:45" }, end), {
+    day: "2026-08-10",
+    time: "16:45",
+  });
+  // an earlier day is legal even at a later clock time
+  assert.deepEqual(clampedRangeStart({ day: "2026-08-09", time: "23:00" }, end), {
+    day: "2026-08-09",
+    time: "23:00",
+  });
+  // a later day never survives — it collapses back just before the end
+  assert.deepEqual(clampedRangeStart({ day: "2026-08-11", time: "02:00" }, end), {
+    day: "2026-08-10",
+    time: "16:45",
+  });
+});
+
+test("clampedRangeStart: the ceiling rolls back past midnight when the end is early (SUB-1514)", () => {
+  assert.deepEqual(
+    clampedRangeStart({ day: "2026-08-11", time: "01:00" }, { day: "2026-08-11", time: "00:10" }),
+    { day: "2026-08-10", time: "23:55" }
+  );
+  // the clamped value round-trips as a real range
+  const v = dateRangeValue("2026-08-10", "23:55", { day: "2026-08-11", time: "00:10" });
+  assert.equal(v, "2026-08-10 23:55/2026-08-11 00:10");
+  assert.ok(splitDateRange(v));
+});
+
+test("clampedRangeStart: day-only endpoints compare by whole days (SUB-1514)", () => {
+  // a TIMED start may never share a day-only end's day: dateRangeValue would
+  // copy the clock onto the end and write a zero-minute range. On or past
+  // the end's day, the start settles on the day BEFORE it (review, 26.08)
+  assert.deepEqual(
+    clampedRangeStart({ day: "2026-08-13", time: "09:00" }, { day: "2026-08-12" }),
+    { day: "2026-08-11", time: "09:00" }
+  );
+  assert.deepEqual(
+    clampedRangeStart({ day: "2026-08-12", time: "09:00" }, { day: "2026-08-12" }),
+    { day: "2026-08-11", time: "09:00" }
+  );
+  // and the clamped pair round-trips as a real, non-degenerate range
+  const v = dateRangeValue("2026-08-11", "09:00", { day: "2026-08-12" });
+  assert.equal(v, "2026-08-11 09:00/2026-08-12");
+  assert.ok(splitDateRange(v));
+  // strictly before the end's day passes through, its clock riding along
+  assert.deepEqual(
+    clampedRangeStart({ day: "2026-08-11", time: "14:00" }, { day: "2026-08-12" }),
+    { day: "2026-08-11", time: "14:00" }
+  );
+  // a day-only start has no clock to collide — it collapses onto the end's day
+  assert.deepEqual(
+    clampedRangeStart({ day: "2026-08-13" }, { day: "2026-08-12" }),
+    { day: "2026-08-12", time: undefined }
+  );
+  assert.deepEqual(
+    clampedRangeStart({ day: "2026-08-10" }, { day: "2026-08-12", time: "17:00" }),
+    { day: "2026-08-10", time: undefined }
+  );
+});
+
+test("clampedRangeEnd: a day-only end never lands on a timed start's day (SUB-1515)", () => {
+  // reachable since the peek's end-day picker: value `D1 09:00/D3`, pick D1
+  // — the end settles on the day AFTER the start instead of writing
+  // `D1 09:00/D1 09:00`
+  const start = { day: "2026-08-10", time: "09:00" };
+  assert.deepEqual(clampedRangeEnd(start, { day: "2026-08-10" }), {
+    day: "2026-08-11",
+    time: undefined,
+  });
+  // and the composed value stays a real range, not a zero-minute pair
+  const v = dateRangeValue(start.day, start.time, { day: "2026-08-11" });
+  assert.equal(v, "2026-08-10 09:00/2026-08-11");
+  assert.ok(splitDateRange(v));
+  assert.deepEqual(clampedRangeEnd(start, { day: "2026-08-09" }), {
+    day: "2026-08-11",
+    time: undefined,
+  });
+  // a later day-only end is already legal
+  assert.deepEqual(clampedRangeEnd(start, { day: "2026-08-12" }), {
+    day: "2026-08-12",
+    time: undefined,
+  });
 });
 
 test("an all-day span takes a closing hour without inventing a start time", () => {

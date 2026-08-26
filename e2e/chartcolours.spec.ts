@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // a `by:` split's ramp slots are keyed on the series' identity and on
 // the chart's, so a series keeps its colour ACROSS renders — when the rows

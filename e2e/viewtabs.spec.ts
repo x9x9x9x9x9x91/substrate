@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { openDb, openFilter } from "./nav";
 
 // The database header's second row is the Notion-style view tab bar: "All"

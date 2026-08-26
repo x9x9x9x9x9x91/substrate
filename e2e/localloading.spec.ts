@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Two panes that read purely local data still rendered a loading
 // word — the cookbook a "Loading recipes…" line that mounted and unmounted

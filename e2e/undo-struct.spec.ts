@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Slice 2: the structural actions are on the app's undo stack
 // (docs/undo.md §6.3). Trash and rename each record an inverse, the trash

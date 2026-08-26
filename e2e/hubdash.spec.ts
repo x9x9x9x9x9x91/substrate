@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Hub dashboard: a `dashboard: hub` note renders its ordinary
 // markdown body column-first — `##` headings become section labels,

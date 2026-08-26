@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // With the mock's opt-in own-write echo on, a completed save echoes
 // vault:changed exactly like the engine's watcher — and the open editor must

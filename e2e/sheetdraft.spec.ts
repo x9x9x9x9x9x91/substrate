@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // An uncommitted SheetGrid cell draft vs an external change to the
 // sheet's own body. The vault:changed lane (NotePane) only guards on

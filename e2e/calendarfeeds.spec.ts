@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 test("external ICS subscriptions render read-only and toggle per feed (SUB-821)", async ({ page }) => {
   await page.goto("/");

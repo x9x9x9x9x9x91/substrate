@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 test.skip(!process.env.SHOTS, "evidence run only");
 const menu = ".cm-tooltip-autocomplete";

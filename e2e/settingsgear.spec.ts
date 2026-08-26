@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { openSettings, settingsTab } from "./settings";
 // the sheet's declared tabs, not a copy: a seventh tab has to be walked by
 // these guards, and a copy is exactly what would quietly skip it

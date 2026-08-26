@@ -1,4 +1,5 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
+import { todayBase } from "./clock";
 
 // The Journal surface: ⌘D and the sidebar row open today's
 // journal; day-stepping back opens past days as ghosts — no file until the
@@ -7,7 +8,7 @@ import { expect, test } from "@playwright/test";
 
 /** "Saturday, 18 July 2026" — the journal note's fixed header (journal.humanDate) */
 function humanDay(offsetDays = 0): string {
-  const d = new Date();
+  const d = todayBase();
   d.setDate(d.getDate() + offsetDays);
   return new Intl.DateTimeFormat("en-GB", {
     weekday: "long",
@@ -20,7 +21,7 @@ const humanToday = () => humanDay(0);
 
 /** "2026-07-18" — ISO of today +/- offsetDays, local like dates.todayIso */
 function isoDay(offsetDays = 0): string {
-  const d = new Date();
+  const d = todayBase();
   d.setDate(d.getDate() + offsetDays);
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;

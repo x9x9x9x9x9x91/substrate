@@ -1,5 +1,6 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { openDb } from "./nav";
+import { todayBase } from "./clock";
 
 // The folder header carries a "+" that births a note in the open
 // folder — the ⌘N fork made clickable (and reachable on touch): a
@@ -49,7 +50,7 @@ test("Journal folder: + opens today's daily, no Untitled litter (SUB-593)", asyn
     day: "numeric",
     month: "long",
     year: "numeric",
-  }).format(new Date());
+  }).format(todayBase());
 
   const plus = page.locator(".list-new");
   await expect(plus).toHaveAttribute("aria-label", "Open today’s entry");

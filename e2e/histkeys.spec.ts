@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
+import { applyFakeToday, todayBase } from "./clock";
 
 // History snapshots are a real listbox — options carry names,
 // selection, and roving focus; arrows move both focus and the loaded diff.
@@ -89,7 +90,7 @@ test("trim date picks through DateMenu; a future date is refused inline", async 
     "Jan", "Feb", "Mar", "Apr", "May", "Jun",
     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
   ];
-  const now = new Date();
+  const now = todayBase();
   const todayHuman = `${months[now.getMonth()]} ${now.getDate()}, ${now.getFullYear()}`;
 
   const dateBtn = page.locator(".hist-purge-date");
@@ -150,6 +151,7 @@ test("phone history keeps its stacked list and diff geometry", async ({ browser 
     hasTouch: true,
     isMobile: true,
   });
+  await applyFakeToday(page);
   await page.goto("/");
   await page.locator(".mobile-menu").click();
   await page.locator(".sidebar .side-item", { hasText: /^Notes/ }).click();

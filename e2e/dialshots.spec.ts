@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { settingsTab } from "./settings";
 
 // Evidence run only: the Settings pane carrying the two dials, and

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { openSettings } from "./settings";
 
 // "Send as link" — a note rendered to a self-contained HTML

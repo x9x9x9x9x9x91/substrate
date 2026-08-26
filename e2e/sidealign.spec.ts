@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // One vertical icon column down the whole rail. Every navigable row in
 // the scroll area — the fixed top zone, flat dashboards, grouped-dashboard

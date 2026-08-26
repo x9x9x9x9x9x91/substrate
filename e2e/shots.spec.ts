@@ -1,4 +1,4 @@
-import { test } from "@playwright/test";
+import { test } from "./fixtures";
 
 // Phase-3 evidence run: full-page screenshots of every dashboard
 // against the mock backend. Not a merge gate — skipped unless invoked as

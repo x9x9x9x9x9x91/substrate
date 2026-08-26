@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { openSettingsByKey } from "./settings";
 
 // The window-opacity dial rides an AppKit material only the macOS

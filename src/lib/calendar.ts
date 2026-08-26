@@ -264,7 +264,9 @@ const MIN_RANGE_MIN = 15;
     clamps here first. A reversed timed pair lands `minMinutes` after the
     start, rolling into the next day when the start sits near midnight; when
     either endpoint is day-only there is nothing finer than whole days to
-    compare, so an earlier end simply collapses onto the start's day. */
+    compare, so an earlier end collapses onto the start's day — except a
+    day-only end against a TIMED start, which settles on the following day
+    instead (the degeneracy guard below). */
 export function clampedRangeEnd(
   start: { day: string; time?: string | null },
   end: { day: string; time?: string | null },
@@ -278,12 +280,70 @@ export function clampedRangeEnd(
   const startMin = start.time ? timeToMinutes(start.time) : null;
   const endMin = end.time ? timeToMinutes(end.time) : null;
   if (startMin === null || endMin === null) {
+    // a day-only end may not land on (or before) a timed start's day — see
+    // the guard's doc. Reachable since the peek's end-day picker: pick the
+    // start's own day while the stored end carries no hour.
+    if (timedStartMeetsDayOnlyEnd(startMin, endMin, dayDelta))
+      return { day: isoDay(addDays(from, 1)), time: endTime };
     return { day: dayDelta < 0 ? start.day : end.day, time: endTime };
   }
   const floor = startMin + minMinutes;
   if (dayDelta * DAY_MIN + endMin >= floor) return { day: end.day, time: endTime };
   const roll = Math.floor(floor / DAY_MIN);
   return { day: isoDay(addDays(from, roll)), time: minutesToTime(floor - roll * DAY_MIN) };
+}
+
+/** Shared degeneracy guard for the day-only clamp branches. A TIMED start
+    against a DAY-ONLY end may never share the end's day: `dateRangeValue`
+    copies the start's clock onto a same-day day-only end (the reversed-pair
+    rule above), which would write a zero-minute range. At day granularity
+    the honest clamp is a full day of clearance — the analogue of the timed
+    pair's `minMinutes`.
+
+    Deliberately NOT covering two day-only endpoints: those collapse onto one
+    day, which composes to a same-day `D/D` value with an end no surface can
+    show. Today's callers never feed that in (the peek's end-day handler
+    drops the end whole first, and the top grip always carries a time) — a
+    NEW caller of either clamp must keep that promise or widen this guard. */
+const timedStartMeetsDayOnlyEnd = (
+  startMin: number | null,
+  endMin: number | null,
+  dayDelta: number,
+) => startMin !== null && endMin === null && dayDelta <= 0;
+
+/** The start a resize commits, never at or past its end — the top-edge
+    grip's twin of `clampedRangeEnd`. Dragging an event's top edge down
+    through its own bottom must not turn the event inside out either: a
+    reversed timed pair settles `minMinutes` before the end, rolling back
+    into the previous day when the end sits just past midnight; when either
+    endpoint is day-only a start later than the end collapses onto the
+    end's day — except a TIMED start against a day-only end, which settles
+    on the day before it instead (the degeneracy guard above). */
+export function clampedRangeStart(
+  start: { day: string; time?: string | null },
+  end: { day: string; time?: string | null },
+  minMinutes = MIN_RANGE_MIN
+): { day: string; time?: string } {
+  const from = parseDay(start.day);
+  const target = parseDay(end.day);
+  const startTime = start.time ?? undefined;
+  if (!from || !target) return { day: end.day, time: startTime };
+  const dayDelta = Math.round((target.getTime() - from.getTime()) / 86400000);
+  const startMin = start.time ? timeToMinutes(start.time) : null;
+  const endMin = end.time ? timeToMinutes(end.time) : null;
+  if (startMin === null || endMin === null) {
+    // a timed start may not land on (or past) a day-only end's day — see
+    // the guard's doc. The top grip is the first caller that can aim an
+    // arbitrary day at this branch.
+    if (timedStartMeetsDayOnlyEnd(startMin, endMin, dayDelta))
+      return { day: isoDay(addDays(target, -1)), time: startTime };
+    return { day: dayDelta < 0 ? end.day : start.day, time: startTime };
+  }
+  if (dayDelta * DAY_MIN + endMin - startMin >= minMinutes)
+    return { day: start.day, time: startTime };
+  const ceil = endMin - minMinutes;
+  const roll = Math.floor(ceil / DAY_MIN);
+  return { day: isoDay(addDays(target, roll)), time: minutesToTime(ceil - roll * DAY_MIN) };
 }
 
 /** Parse a date prop value, range-aware. The grammar is the date value,

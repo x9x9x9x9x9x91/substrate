@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 /* The auto-sync lane: push debounced off edits settling, pull on
    app open / focus / interval, parked conflicts pause everything, and a

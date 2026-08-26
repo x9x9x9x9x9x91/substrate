@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Unknown dashboard kinds: a `dashboard:` value the build doesn't
 // render is an honest inline card naming the typo and the kinds that DO

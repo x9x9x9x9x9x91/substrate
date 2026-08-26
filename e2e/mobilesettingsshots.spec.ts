@@ -1,4 +1,4 @@
-import { test, type Page } from "@playwright/test";
+import { test, type Page } from "./fixtures";
 
 // Evidence run — not a gate.
 //   SHOTS=1 SHOT_DIR=/tmp/settings-mobile npx playwright test e2e/mobilesettingsshots.spec.ts

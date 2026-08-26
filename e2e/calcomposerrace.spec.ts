@@ -1,4 +1,5 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
+import { todayBase } from "./clock";
 
 // An open create-composer used to swallow clicks on the same day's
 // entry chips. The input committed on blur, which unmounted the composer
@@ -12,7 +13,7 @@ import { expect, test } from "@playwright/test";
 
 /** "2026-07-18" — ISO of today, local like dates.todayIso */
 function isoDay(): string {
-  const d = new Date();
+  const d = todayBase();
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }

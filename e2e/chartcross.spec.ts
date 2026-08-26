@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // A chart over a sheet whose computed column reads ANOTHER sheet.
 // ChartsDashboard used to call evaluateSheet without the cross-sheet loader,

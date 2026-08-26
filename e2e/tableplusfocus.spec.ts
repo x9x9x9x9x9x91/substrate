@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // The "+" that grows a table has to work on the very first click, before the
 // editor has been touched at all. The button focuses the editor as part of

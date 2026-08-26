@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Embed size modifiers: `![[cover.png|300]]` caps the width,
 // `|300x200` boxes the image, and every other modifier — floats included —

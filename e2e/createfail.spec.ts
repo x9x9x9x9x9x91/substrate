@@ -1,5 +1,6 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { openDb } from "./nav";
+import { todayBase } from "./clock";
 
 // A create the engine refuses used to clear the draft and say
 // nothing — the row never appeared, no toast, only a console line the user
@@ -38,7 +39,7 @@ test("a refused calendar day create surfaces on the toast (SUB-564)", async ({ p
     window.__mockFail = new Set(["vault_create"]);
   });
 
-  const d = new Date();
+  const d = todayBase();
   const p = (n: number) => String(n).padStart(2, "0");
   const iso = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
   const today = page.locator(`.cal-day[data-iso="${iso}"]`);

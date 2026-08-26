@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
+import { pinnedInstant } from "./clock";
 
 // ⌘N is the flagship capture moment — the user hits it and types
 // immediately, faster than the ~80ms title-focus handoff. An earlier fix made that
@@ -55,8 +56,10 @@ test("with the list focused, a non-printable key after ⌘N is not yanked into t
   // Fake time removes the race: the handoff timer cannot fire while the
   // clock is paused, so the arrow provably lands inside the window, and
   // advancing the clock afterwards proves the focus was cancelled outright
-  // rather than merely not yet due.
-  await page.clock.install();
+  // rather than merely not yet due. On a pinned run the fixture's clock is
+  // already installed and flowing — installing again with no time would
+  // silently re-seed it at the wall clock — so only a live run installs.
+  if (!pinnedInstant()) await page.clock.install();
   await openNotes(page);
   // arrow-key selection active: the list, not the void, owns the keyboard
   await page.locator(".sidebar-title").click();
@@ -64,7 +67,11 @@ test("with the list focused, a non-printable key after ⌘N is not yanked into t
   const selected = page.locator(".list .row.selected");
   const before = await selected.getAttribute("data-path");
 
-  await page.clock.pauseAt(Date.now() + 1000);
+  // read off the page, not the runner: the suite's clock started on the
+  // pinned day and has been flowing since, so a runner-side stamp is already
+  // behind it and pauseAt refuses to travel backwards
+  const pageNow = await page.evaluate(() => Date.now());
+  await page.clock.pauseAt(pageNow + 1000);
   await page.keyboard.press("Meta+n");
   // let the mock create resolve (≤25ms of fake time) without coming near
   // the 80ms handoff; the seeded row appearing proves the deferred focus

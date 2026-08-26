@@ -26,6 +26,7 @@ import {
   calendarTypes,
   cellDayLabel,
   clampedRangeEnd,
+  clampedRangeStart,
   compareEntryTime,
   datePropFor,
   dateRangeValue,
@@ -438,9 +439,10 @@ export default function CalendarPane({
         range rather than collapsing it to the new start day */
     endDay?: string;
     endTime?: string;
-    /** a bottom-edge RESIZE, not a move: the same drag machinery,
-        but the drop rewrites the range's END and holds the start where it is */
-    resize?: boolean;
+    /** an edge RESIZE, not a move: the same drag machinery, but the
+        drop rewrites one endpoint and holds the other — "end" is the
+        bottom grip, "start" the top one */
+    resize?: "start" | "end";
     /** which day of a span the gesture actually took hold of, when that is
         not the range's start. The payload above always describes the whole
         range (measured from its stored start), so the drop needs this to
@@ -1133,6 +1135,17 @@ export default function CalendarPane({
       ? `“${title}” → ${start.time}–${end.time}`
       : `“${title}” → ends ${formatDateHuman(end.day)}${end.time ? ` ${end.time}` : ""}`;
 
+  /** its start-side twin, for the top grip: the same interval-or-day rule,
+      keyed to the OPENING day */
+  const startLabel = (
+    title: string,
+    start: { day: string; time?: string },
+    end: { day: string; time?: string } | null,
+  ) =>
+    end && end.day === start.day && start.time && end.time
+      ? `“${title}” → ${start.time}–${end.time}`
+      : `“${title}” → starts ${formatDateHuman(start.day)}${start.time ? ` ${start.time}` : ""}`;
+
   /** Set an entry's range END, holding its start. Both duration
       paths — the block's bottom-edge drag and the peek's end-time field —
       land here, so they share one write, one clamp and one undo shape.
@@ -1174,7 +1187,7 @@ export default function CalendarPane({
       next,
       next
         ? resizeLabel(title, start, next)
-        : `“${title}” → ${formatDateHuman(start.day)}`,
+        : `“${title}” → ${formatDateHuman(start.day)}, end removed`,
       quiet,
     );
     return next;
@@ -1202,6 +1215,60 @@ export default function CalendarPane({
     return setEntryEnd(e, next, true)?.time ?? null;
   };
 
+  /** Set an entry's range START, holding its end — the top grip's write,
+      the mirror of `setEntryEnd`. The end comes off the note's STORED value
+      for the same reason the start does there, and `clampedRangeStart`
+      runs first so a start dragged through its own end settles just before
+      it instead of letting `dateRangeValue` swap the pair and silently
+      move the end. An event with no stored end has nothing to hold: the
+      drop simply retimes it, exactly what the peek's time row would write. */
+  const setEntryStart = (
+    e: { path: string; prop: string; day: string; time?: string | null },
+    start: { day: string; time: string },
+  ) => {
+    const stored = storedRange(e);
+    const end = stored?.end
+      ? { day: stored.end.day, time: stored.end.time ?? undefined }
+      : null;
+    const cur = stored?.start ?? { day: e.day, time: e.time ?? null };
+    const next = end ? clampedRangeStart(start, end) : start;
+    // a drag that lands back on its own edge: no write, no toast, no undo
+    if (next.day === cur.day && (next.time ?? null) === (cur.time ?? null))
+      return;
+    const title = noteByPath.get(e.path)?.title ?? e.path;
+    moveEntryTo(e.path, e.prop, next.day, next.time, end, startLabel(title, next, end));
+  };
+
+  /** the peek's end-DAY: the day half of the Ends row. A picked day keeps
+      the stored closing hour (a typed one wins), funnelled through the same
+      clamp as every other end write; null drops the end entirely — the
+      one-click way back to a single-day event after an over-drag stranded
+      it across midnight. */
+  const movePeekEndDay = (e: CalEntry, iso: string | null) => {
+    if (!iso) {
+      setEntryEnd(e, null);
+      return;
+    }
+    const picked = splitDateRange(iso);
+    if (!picked) return;
+    // the picker's Range toggle can hand back a pair — the CLOSING day is
+    // the one this row is about, so a range commits its far end
+    const day = picked.end ?? picked.start;
+    const stored = storedRange(e);
+    const time = day.time ?? stored?.end?.time ?? undefined;
+    const start = stored?.start ?? { day: e.day, time: e.time ?? null };
+    // a pick with no closing hour landing on (or before) the start's day
+    // means "one day": the end goes WHOLE. Writing it through the clamp
+    // instead would either leave a D/D value with an invisible end (all-day
+    // span) or grow the event a day past the start and then go inert (timed
+    // start against a day-only end) — both found in review.
+    if (!time && day.day <= start.day) {
+      setEntryEnd(e, null);
+      return;
+    }
+    setEntryEnd(e, { day: day.day, time });
+  };
+
   /** where a range's START lands for a drop — pure math in calendar.ts,
       unit-tested there beside the rest of the span arithmetic. */
   const droppedStart = droppedRangeStart;
@@ -1215,8 +1282,8 @@ export default function CalendarPane({
     setDrag(null);
     setDropIso(null);
     if (!d) return;
-    // a bottom-edge resize released anywhere but the timed canvas does
-    // nothing — the all-day strip and month cells have no end to
+    // an edge resize released anywhere but the timed canvas does
+    // nothing — the all-day strip and month cells have no minute to
     // aim at, and silently MOVING the event there would be a nasty surprise
     if (d.resize) return;
     // Grabbing a continuation day is a request to slide the range by days.
@@ -1249,16 +1316,18 @@ export default function CalendarPane({
     );
   };
 
-  /** A bottom-edge resize dropped on the timed canvas: the same
-      drag state, the same snapped minute the move path uses, but the value's
-      END follows the pointer while the start stays put. Returns false when
-      the release wasn't a resize, so the canvas can fall through to a move. */
+  /** An edge resize dropped on the timed canvas: the same drag state, the
+      same snapped minute the move path uses, but only the grabbed endpoint
+      follows the pointer — the bottom grip's END, the top grip's START —
+      while the other stays put. Returns false when the release wasn't a
+      resize, so the canvas can fall through to a move. */
   const resizeDropOn = (day: string, time: string): boolean => {
     const d = drag;
     if (!d?.resize) return false;
     setDrag(null);
     setDropIso(null);
-    setEntryEnd(d, { day, time });
+    if (d.resize === "start") setEntryStart(d, { day, time });
+    else setEntryEnd(d, { day, time });
     return true;
   };
 
@@ -2244,6 +2313,45 @@ export default function CalendarPane({
     // same overdue rule as every other entry surface
     const isOverdue = entryOverdue(e);
     const tip = entryTip(e);
+    const grip = (which: "start" | "end") => (
+      <span
+        className={which === "start" ? "cal-wk-grip top" : "cal-wk-grip"}
+        aria-hidden="true"
+        title={
+          which === "start"
+            ? spans
+              ? "Drag to set when the event starts"
+              : "Drag to set the start time"
+            : spans
+              ? "Drag to set where the event ends"
+              : "Drag to set the end time"
+        }
+        draggable
+        onDragStart={(ev) => {
+          ev.stopPropagation();
+          ev.dataTransfer.setData("text/plain", e.path);
+          ev.dataTransfer.effectAllowed = "move";
+          setDrag({
+            path: e.path,
+            prop: e.prop,
+            day: e.day,
+            time: e.time,
+            endDay: e.endDay,
+            endTime: e.endTime,
+            resize: which,
+          });
+        }}
+        onDragEnd={(ev) => {
+          ev.stopPropagation();
+          setDrag(null);
+          setDropIso(null);
+          setDropMin(null);
+        }}
+        // a grab that never became a drag must not open the peek behind it
+        onClick={(ev) => ev.stopPropagation()}
+        onDoubleClick={(ev) => ev.stopPropagation()}
+      />
+    );
     return (
       <button
         type="button"
@@ -2302,51 +2410,19 @@ export default function CalendarPane({
           {e.repeating && <RepeatIcon />}
         </span>
         <span className="cal-entry-title">{e.title}</span>
-        {/* the duration grip: a thin band on the block's bottom
-            edge, dragged with the very machinery that moves an event — same
+        {/* the duration grips: thin bands on the block's top and bottom
+            edges, dragged with the very machinery that moves an event — same
             drag state, same quarter-hour snap, same ghost line, same undoable
-            write — only the drop rewrites the range's END. Pointer-only and
-            hidden from assistive tech on purpose: the keyboard path to a
-            duration is the peek's Ends field, which is a typed time rather
-            than a pixel. `stopPropagation` on dragstart keeps the parent
-            block's move-drag from firing too, and its own `onDragEnd` settles
-            the drag without leaning on a parent that may have re-rendered
-            under the gesture. */}
-        {canResize && (
-          <span
-            className="cal-wk-grip"
-            aria-hidden="true"
-            title={
-              spans
-                ? "Drag to set where the event ends"
-                : "Drag to set the end time"
-            }
-            draggable
-            onDragStart={(ev) => {
-              ev.stopPropagation();
-              ev.dataTransfer.setData("text/plain", e.path);
-              ev.dataTransfer.effectAllowed = "move";
-              setDrag({
-                path: e.path,
-                prop: e.prop,
-                day: e.day,
-                time: e.time,
-                endDay: e.endDay,
-                endTime: e.endTime,
-                resize: true,
-              });
-            }}
-            onDragEnd={(ev) => {
-              ev.stopPropagation();
-              setDrag(null);
-              setDropIso(null);
-              setDropMin(null);
-            }}
-            // a grab that never became a drag must not open the peek behind it
-            onClick={(ev) => ev.stopPropagation()}
-            onDoubleClick={(ev) => ev.stopPropagation()}
-          />
-        )}
+            write — only the drop rewrites the grabbed endpoint: the bottom
+            grip the range's END, the top grip its START. Pointer-only and
+            hidden from assistive tech on purpose: the keyboard path to the
+            endpoints is the peek's Time and Ends rows, typed times rather
+            than pixels. `stopPropagation` on dragstart keeps the parent
+            block's move-drag from firing too, and each grip's own `onDragEnd`
+            settles the drag without leaning on a parent that may have
+            re-rendered under the gesture. */}
+        {canResize && grip("start")}
+        {canResize && grip("end")}
       </button>
     );
   };
@@ -3069,6 +3145,7 @@ export default function CalendarPane({
           }
           onSetTime={(t) => setEntryTime(peekEntry, t)}
           onSetEnd={(t) => setPeekEnd(peekEntry, t)}
+          onSetEndDay={(iso) => movePeekEndDay(peekEntry, iso)}
           onSetStatus={(v) => setEntryStatus(peekEntry, v)}
           onRepeatPick={(anchor) => setRepeatMenu({ entry: peekEntry, anchor })}
           onSkip={() => skipOccurrence(peekEntry)}

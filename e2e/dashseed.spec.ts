@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // A dashboard re-reads its own note on every mount, and until that
 // read lands the pane draws nothing — so leaving a board and coming straight

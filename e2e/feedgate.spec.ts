@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // The feed refresh button runs the vault's own `feed-curator` command
 // (Settings.md), so it is not a universal affordance — it only

@@ -1,5 +1,6 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { openDb } from "./nav";
+import { applyFakeToday } from "./clock";
 
 function propertyRow(page: Page, key: string) {
   return page.locator(".prop-row.chip").filter({
@@ -115,6 +116,7 @@ test("phone property actions keep the established full-width row geometry", asyn
     hasTouch: true,
     isMobile: true,
   });
+  await applyFakeToday(page);
   await page.goto("/");
   await page.locator(".mobile-menu").click();
   await page.locator(".sidebar .side-item", { hasText: "All databases" }).click();

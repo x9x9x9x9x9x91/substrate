@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Evidence run only: the two dialects this pass corrects — the Vault sync
 // pane's failure, which spoke a red line of its own where every board speaks

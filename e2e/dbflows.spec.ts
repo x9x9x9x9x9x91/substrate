@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // The sidebar's two database-into-tree flows. The Folders "+" is an
 // add menu — plain inline folder create, a database that lands in the tree

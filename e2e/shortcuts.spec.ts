@@ -1,11 +1,12 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
+import { todayBase } from "./clock";
 
 // The shortcut-registry lanes against the same
 // deterministic mock backend as smoke.spec.ts.
 
 /** "Saturday, 18 July 2026" — the journal note's fixed header (journal.humanDate) */
 function humanDay(offsetDays = 0): string {
-  const d = new Date();
+  const d = todayBase();
   d.setDate(d.getDate() + offsetDays);
   return new Intl.DateTimeFormat("en-GB", {
     weekday: "long",

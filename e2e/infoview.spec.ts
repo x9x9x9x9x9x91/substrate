@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // The route to the canonical shortcut sheet plus the persistent,
 // Ableton-style pointer help dock. The route moved: the app-level

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Tag folders — a saved tag rule that sits inline with the real
 // folders and ACCEPTS WORK. Building one is chips + any/all + "but not …",

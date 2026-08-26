@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // "Mount a folder…": show a real folder on disk as a database —
 // every matching file is a row read from a live index, nothing is imported and

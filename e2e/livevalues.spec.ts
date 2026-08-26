@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Live values in prose: an inline code span that starts with `=` renders as the
 // value it computes, read out of the sheets. These specs drive the whole chain

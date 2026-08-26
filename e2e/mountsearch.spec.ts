@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { openFilter } from "./nav";
 
 // What a mounted file SAYS is searchable, not just what it is

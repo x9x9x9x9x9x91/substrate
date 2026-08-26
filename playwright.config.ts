@@ -35,13 +35,6 @@ if (workerEnv && !/^[1-9][0-9]*$/.test(workerEnv)) {
 }
 export default defineConfig({
   testDir: "./e2e",
-  // Visual-regression baselines are keyed by PLATFORM, and only the Linux set
-  // is committed. macOS and Linux disagree on font hinting and subpixel
-  // geometry by more than any real regression costs, so one shared baseline
-  // would either fail on every host or be loosened until it proves nothing.
-  // e2e/visualbaselines.spec.ts skips itself off Linux for the same reason;
-  // the template is what keeps a stray capture elsewhere from landing on top
-  // of the Linux PNGs. docs/visual-tiers.md says which tier proves what.
   snapshotPathTemplate: "{testDir}/__screenshots__/{platform}/{arg}{ext}",
   timeout: ci ? 120_000 : 60_000,
   expect: { timeout: ci ? 15_000 : 5_000 },

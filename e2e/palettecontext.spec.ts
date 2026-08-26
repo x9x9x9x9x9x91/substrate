@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 // Context-bound capture in the everywhere palette — the same chip quick
 // capture wears, in the other window a global chord summons. The snapshot

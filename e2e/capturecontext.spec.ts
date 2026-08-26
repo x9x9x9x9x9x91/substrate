@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { openSettings } from "./settings";
 
 // Context-bound capture. What the chip does in the window it lives
