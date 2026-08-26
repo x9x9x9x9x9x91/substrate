@@ -77,6 +77,7 @@ export function parseTimelineConfig(inner: string): TimelineConfig {
     if (!match) throw new Error(`can't parse line: ${line}`);
     const key = match[1].toLowerCase();
     if (!KNOWN_KEYS.has(key)) throw new Error(`unknown key "${match[1]}"`);
+    if (kv.has(key)) throw new Error(`duplicate key "${match[1]}"`);
     kv.set(key, match[2].trim());
   }
   for (const key of ["source", "start", "label"]) {

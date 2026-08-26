@@ -111,3 +111,62 @@ test("6: an unrelated external change leaves undo entries alive", () => {
   assert.equal(s.entries[0].stale, undefined);
   assert.equal(undoStack.peekUndo(s)?.label, "status on A", "⌘Z reaches the entry below it");
 });
+
+/* ACCEPTANCE 3 — a bulk sweep is one gesture to the user and one event to the
+   watcher, which coalesces the whole burst and emits ~300ms after its LAST
+   write. A sweep slower than the window had its early paths' stamps expire
+   before that single event arrived, so its own echo read as somebody else's
+   edit and staled the entry it had just recorded — the next ⌘Z ran an older
+   one, under the newer one's name. */
+test("7: a sweep longer than the window is still its own echo when the event lands", async () => {
+  const { setPropUndoableBulk } = await import("./undoprops.ts");
+  const paths = ["Sweep A.md", "Sweep B.md", "Sweep C.md"];
+
+  // the write door stamps per IPC return; this sweep is slow enough that the
+  // first stamps are already outside the window when the last write lands
+  const write = async (path: string) => {
+    noteOwnWrite([path], Date.now() - 2 * ECHO_WINDOW_MS);
+    return { meta: { path } as never, prior: null };
+  };
+  let recorded: { paths: string[] } | null = null;
+  const res = await setPropUndoableBulk({
+    paths,
+    key: "status",
+    value: "done",
+    record: (e) => (recorded = e as { paths: string[] }),
+    write,
+  });
+  assert.deepEqual(res.ok.map((o) => o.path), paths);
+  assert.deepEqual(recorded!.paths, paths);
+
+  const split = splitEcho(paths);
+  assert.deepEqual(split.external, [], "the sweep's own echo is not somebody else's edit");
+  assert.deepEqual(split.own, paths);
+  assert.equal(split.unknown, false, "the reach stays named — this is not a counting sweep");
+});
+
+/* The same sweep run backwards. ⌘Z over 50 notes replays the identical
+   sequential burst, and the entry it pushes onto the redo side is as staleable
+   as the one the forward sweep recorded. */
+test("8: undoing a bulk sweep is its own echo too", async () => {
+  const { setPropUndoableBulk } = await import("./undoprops.ts");
+  const paths = ["Undo Sweep A.md", "Undo Sweep B.md"];
+  const write = async (path: string) => {
+    noteOwnWrite([path], Date.now() - 2 * ECHO_WINDOW_MS);
+    return { meta: { path } as never, prior: "todo" };
+  };
+  let recorded: { undo: () => Promise<void> } | null = null;
+  await setPropUndoableBulk({
+    paths,
+    key: "status",
+    value: "done",
+    record: (e) => (recorded = e as unknown as { undo: () => Promise<void> }),
+    write,
+  });
+
+  __resetOwnWrites();
+  await recorded!.undo();
+  const split = splitEcho(paths);
+  assert.deepEqual(split.external, [], "the undo's own echo read as somebody else's edit");
+  assert.deepEqual(split.own, paths);
+});

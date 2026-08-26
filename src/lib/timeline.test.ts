@@ -33,6 +33,20 @@ test("parseTimelineConfig reads the strict fence contract", () => {
   assert.throws(() => parseTimelineConfig("source: {{Plan}}\nstart: start\nlabel: title"), /database type/);
 });
 
+test("a key given twice is refused, not silently last-wins", () => {
+  // Two `start:` lines drew whichever came last, so the band on the page and
+  // the band in the fence could disagree with nothing said about it.
+  assert.throws(
+    () => parseTimelineConfig("source: release\nstart: start\nlabel: title\nstart: begins"),
+    /duplicate key "start"/
+  );
+  // the key is folded before the map write, so the duplicate is too
+  assert.throws(
+    () => parseTimelineConfig("source: release\nstart: start\nlabel: title\nStart: begins"),
+    /duplicate key "Start"/
+  );
+});
+
 test("timelineDate accepts ISO days and date-times only", () => {
   assert.equal(timelineDate("2026-08-03"), "2026-08-03");
   assert.equal(timelineDate("2026-08-03 10:30"), "2026-08-03");

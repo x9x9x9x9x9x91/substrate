@@ -56,7 +56,10 @@ function harness(opts: {
   conflicted?: string[];
   enabled?: () => boolean;
   fail?: boolean;
+  /** the status read itself refuses — a remote that cannot be reached at all */
+  statusThrows?: boolean;
   pullLatch?: { promise: Promise<void>; release: () => void };
+  pushLatch?: { promise: Promise<void>; release: () => void };
   statusLatch?: { promise: Promise<void>; release: () => void };
   timings?: typeof TIMINGS;
 }) {
@@ -70,6 +73,7 @@ function harness(opts: {
       status: async (): Promise<VaultSyncStatus> => {
         counts.status++;
         if (opts.statusLatch) await opts.statusLatch.promise;
+        if (opts.statusThrows) throw new Error("no route to host");
         return {
           configured: opts.configured ?? true,
           last_result: null,
@@ -87,6 +91,7 @@ function harness(opts: {
       },
       push: async () => {
         calls.push("push");
+        if (opts.pushLatch) await opts.pushLatch.promise;
         if (opts.fail) throw new Error("offline");
       },
       pull: async () => {
@@ -188,6 +193,111 @@ test("offline is quiet: failures log, never throw, and the lane retries", async 
   assert.deepEqual(calls, ["pull", "pull"], "a failed tick must not stop the interval");
   assert.equal(logs.length, 2);
   assert.match(logs[0], /quietly/);
+  sync.stop();
+});
+
+/* The push half of "retried next tick", which only the pull half ever had:
+   the settle timer clears itself and the dirty stamp BEFORE the attempt, so a
+   push that failed or was skipped left the change unpushed with nothing armed
+   to try again. Nothing surfaces it either — the pane carries no dirty state —
+   so a laptop that was offline at the settle moment stayed unpushed until the
+   user happened to edit again. */
+const pushes = (calls: string[]) => calls.filter((c) => c === "push").length;
+
+test("a push that failed offline goes out once the network is back", async () => {
+  const opts = { fail: true };
+  const { sync, calls, clock } = harness(opts);
+  sync.start();
+  await tick();
+
+  sync.notifyChanged();
+  await clock.advance(TIMINGS.pushDebounceMs);
+  assert.equal(pushes(calls), 1, "the settle push fired");
+
+  opts.fail = false; // wifi again — and no new edit, which is the whole point
+  await clock.advance(TIMINGS.pullIntervalMs);
+  assert.equal(pushes(calls), 2, "the change stayed unpushed with nothing to retry it");
+
+  // …and a push that landed does not re-arm: the lane goes quiet again
+  await clock.advance(TIMINGS.pullIntervalMs * 3);
+  assert.equal(pushes(calls), 2, "a successful push kept re-pushing on every tick");
+  sync.stop();
+});
+
+test("a push parked behind a conflict is owed, and goes out once the merge is done", async () => {
+  const opts: { conflicted?: string[] } = { conflicted: ["Notes/Merge me.md"] };
+  const { sync, calls, clock } = harness(opts);
+  sync.start();
+  await tick();
+
+  sync.notifyChanged();
+  await clock.advance(TIMINGS.pushDebounceMs);
+  assert.equal(pushes(calls), 0, "the lane pushed over a parked merge");
+
+  opts.conflicted = []; // the Sync pane's resolution flow finished it
+  await clock.advance(TIMINGS.pullIntervalMs);
+  assert.equal(pushes(calls), 1, "the change the conflict paused never went out");
+  sync.stop();
+});
+
+test("a push whose status read refused is owed, not dropped", async () => {
+  const opts = { statusThrows: true };
+  const { sync, calls, clock } = harness(opts);
+  sync.start();
+  await tick();
+
+  sync.notifyChanged();
+  await clock.advance(TIMINGS.pushDebounceMs);
+  assert.equal(pushes(calls), 0, "a status we cannot read says nothing about the remote");
+
+  opts.statusThrows = false;
+  await clock.advance(TIMINGS.pullIntervalMs);
+  assert.equal(pushes(calls), 1, "the edit stayed unpushed behind an unreadable status");
+  sync.stop();
+});
+
+test("a push still in the air when the lane stops owes the next session nothing", async () => {
+  // stop/start is a fresh session: it opens with a pull and learns what is
+  // dirty from the vault's own events, so an owe recorded by a leg that was
+  // already in flight would make the restart write on behalf of the lane the
+  // user just switched off
+  let release!: () => void;
+  const latch = { promise: new Promise<void>((r) => (release = r)), release: () => release() };
+  const opts = { fail: true, pushLatch: latch };
+  const { sync, calls, clock } = harness(opts);
+  sync.start();
+  await tick();
+
+  sync.notifyChanged();
+  await clock.advance(TIMINGS.pushDebounceMs);
+  assert.equal(pushes(calls), 1, "the settle push is in the air");
+
+  sync.stop();
+  latch.release(); // …and only now does it fail
+  await tick();
+
+  opts.fail = false;
+  sync.start();
+  await tick();
+  await clock.advance(TIMINGS.pullIntervalMs * 2);
+  assert.equal(pushes(calls), 1, "the restart pushed on behalf of the stopped lane");
+  sync.stop();
+});
+
+test("a push skipped while the toggle was off is not lost", async () => {
+  let on = true;
+  const { sync, calls, clock } = harness({ enabled: () => on });
+  sync.start();
+  await tick();
+
+  sync.notifyChanged();
+  on = false;
+  await clock.advance(TIMINGS.pushDebounceMs);
+  assert.equal(pushes(calls), 0, "the lane pushed while it was switched off");
+
+  on = true;
+  await clock.advance(TIMINGS.pullIntervalMs);
+  assert.equal(pushes(calls), 1, "the edit made before the toggle went off never went out");
   sync.stop();
 });
 

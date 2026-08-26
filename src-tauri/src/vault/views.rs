@@ -562,6 +562,13 @@ impl Engine {
         // older one up first. Reads above already succeeded either way.
         crate::vaultfmt::prepare_write(&self.root, crate::vaultfmt::VaultFile::Views)?;
         let abs = self.root.join(ViewPref::REL_PATH);
+        // an unreadable file reads as empty above, so this map is missing every
+        // pref and every reserved key the file still holds — including the
+        // sidebar's own order
+        super::refuse_unreadable_overwrite::<serde_json::Map<String, serde_json::Value>>(
+            &abs,
+            ViewPref::REL_PATH,
+        )?;
         if let Some(dir) = abs.parent() {
             fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         }
@@ -1277,6 +1284,47 @@ impl Engine {
 mod tests {
     use super::super::testutil::*;
     use super::*;
+
+    #[test]
+    fn view_prefs_are_never_flattened_by_a_file_nobody_could_read() {
+        // `views_file()` reads corrupt as empty, so a pref edit on top of it
+        // carries neither the other databases' prefs nor the reserved keys —
+        // the sidebar's own order among them. Refuse rather than write that.
+        let (e, dir) = temp_vault("views-unreadable");
+        fs::create_dir_all(dir.join(".vault")).unwrap();
+        fs::write(dir.join(ViewPref::REL_PATH), "{ half a file").unwrap();
+        let err = e
+            .set_view_pref(
+                "release", "table", None, None, None, None, None, None, None, None, None, None,
+                None, None, None,
+            )
+            .unwrap_err();
+        assert!(err.contains("unreadable"), "says what it refused: {err}");
+        assert_eq!(
+            fs::read_to_string(dir.join(ViewPref::REL_PATH)).unwrap(),
+            "{ half a file",
+            "the file nobody could read is still there"
+        );
+        // a JSON array parses, but not as the object every read expects —
+        // it reads as empty just the same, so it is refused just the same
+        fs::write(dir.join(ViewPref::REL_PATH), "[]").unwrap();
+        assert!(e
+            .set_view_pref(
+                "release", "table", None, None, None, None, None, None, None, None, None, None,
+                None, None, None,
+            )
+            .is_err());
+        // blank holds nothing to lose
+        fs::write(dir.join(ViewPref::REL_PATH), "").unwrap();
+        let map = e
+            .set_view_pref(
+                "release", "table", None, None, None, None, None, None, None, None, None, None,
+                None, None, None,
+            )
+            .unwrap();
+        assert_eq!(map["release"].view, "table");
+        let _ = fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn views_roundtrip_merge_and_validate() {
@@ -2060,17 +2108,20 @@ mod tests {
         let (e, dir) = temp_vault("viewsbad");
         fs::create_dir_all(dir.join(".vault")).unwrap();
         fs::write(dir.join(ViewPref::REL_PATH), "not json {{").unwrap();
-        assert!(e.views().is_empty());
-        // …and a fresh set recovers by overwriting the garbage
-        let map = e
-            .set_view_pref(
+        assert!(e.views().is_empty(), "reads stay lenient — the app still opens");
+        // …but a write on top of that empty read does not "recover" the file,
+        // it replaces every pref and reserved key the unreadable bytes still
+        // held with this one edit. Clearing the file is what starts over.
+        let set = |e: &Engine| {
+            e.set_view_pref(
                 "release", "table", None, None, None, None, None, None, None, None, None, None,
-                None,
-                None,
-                None,
+                None, None, None,
             )
-            .unwrap();
-        assert_eq!(map["release"].view, "table");
+        };
+        let err = set(&e).unwrap_err();
+        assert!(err.contains("unreadable"), "{err}");
+        fs::remove_file(dir.join(ViewPref::REL_PATH)).unwrap();
+        assert_eq!(set(&e).unwrap()["release"].view, "table");
         let _ = fs::remove_dir_all(&dir);
     }
 

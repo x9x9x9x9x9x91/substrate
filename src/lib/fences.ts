@@ -118,9 +118,13 @@ export function isTailedBareFence(lang: string, tail: string): boolean {
 }
 
 /** The app parsers' fence semantics: "```<lang>\n" anywhere opens, the next
-    "```" (or EOF) closes — the same regex shape the view/chart/sheet/csv
-    parsers use. User code fences (```ts, ```python foo, …) are prose and stay
-    searchable, tail and all. Tails are accepted for the live-dispatch
+    "```" (or EOF) closes — the same regex shape the view/chart parsers use.
+    The sheet pair (csv/formulas) is NARROWER: `findFence` takes an opener only
+    at the start of a line, so an indented ```csv is prose there while this
+    pattern still strips it. Deliberate — stripping a block no parser renders
+    costs a little config searchability, and the reverse leaks machine content
+    into the index. User code fences (```ts, ```python foo, …) are prose and
+    stay searchable, tail and all. Tails are accepted for the live-dispatch
     languages only, and a tail may not contain a backtick — an inline prose
     mention of a fence opener (`` ```chart `` in running text) must never
     swallow the rest of its line and blank prose to the next fence
@@ -209,7 +213,12 @@ function blankQuotedFences(body: string): string {
       (```js) both close a fence for "match to the next ```", so neither may
       raise a banner over a fence the board just drew;
     - openers are looked for anywhere the parsers' unanchored patterns find
-      them, indented ones included;
+      them, indented ones included. That is WIDER than the sheet parsers now
+      read: `findFence` (sheet.ts) requires the opener to start its line, so an
+      indented ```csv/```formulas block is prose to it. The width is kept on
+      purpose — this banner and the strip pass may only ever err toward saying
+      less and stripping more, and narrowing it would put a banner over an
+      indented block no parser reads plus leave its config in the search index;
     - only openers of THIS language are looked for, so an unrelated block
       left open elsewhere in the note is not this fence's problem;
     - the opener tolerates trailing spaces (```chart␠), the likeliest way to
@@ -217,7 +226,7 @@ function blankQuotedFences(body: string): string {
       trailing-space fence that never closes is this banner's, and a closed one
       simply renders.
 
-    `foldCase` follows the parser's own opener — heatmap dispatches
+    `foldCase` follows the parser's own opener — heatmap and calendar dispatch
     case-insensitively, the rest do not. */
 export function hasUnclosedFence(body: string, lang: string, foldCase = false): boolean {
   const want = foldCase ? lang.toLowerCase() : lang;

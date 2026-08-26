@@ -299,7 +299,7 @@ A store whose history was replaced by a purge or trim carries one more field
 and is stamped version 2:
 
 ```json
-{"version":2,"branch":"main","head":"…","superseded":["40-hex-git-oid","…"]}
+{"version":2,"branch":"main","head":"…","superseded":["40-hex-git-oid","…"],"purge_epoch":3}
 ```
 
 `superseded` lists, oldest first and at most 32, the heads a replacing push
@@ -312,8 +312,36 @@ forward by every later push. The stamp is version 2 only while the list is
 non-empty, so a store that was never purged stays readable by clients that
 predate the field, and one that was purged refuses them by version rather than
 letting them republish what the purge removed. A version-1 document carrying
-the field is refused as invalid. The cap is what bounds the ref envelope: a
-device stranded from before a vault's 33rd purge is no longer recognised.
+either field is refused as invalid.
+
+The cap is what bounds the ref envelope, and `purge_epoch` is what keeps the cap
+from costing a purge. It counts replacing pushes from the store's first and is
+never reset or trimmed; each device records the epoch it last stood on beside
+its tracking ref, and an ordinary push whose recorded epoch is behind the
+store's — while the store carries any boundary at all — is refused into the same
+pause and adopt door. So the list stays the precise check for a device stranded
+inside the window, and the epoch catches the one whose boundary the cap has
+already dropped. A device with no recorded epoch counts as behind, which costs a
+vault upgraded across a replacement one answerable pause per device.
+
+The refusal is not the push's alone: a device standing behind the store's epoch
+is refused at PULL as well, into the same pause and the same adopt door. That
+leg matters more than it looks, because a stranded device reads as already up to
+date — the purge collapsed the store's head onto one of its own ancestors — so a
+pull that took its no-op shortcut would record the store's current epoch on the
+way out and leave the next push nothing to refuse. Only a leg that does not
+refuse records the number, which is what keeps a device that is genuinely
+current from ever pausing: it adopts or idles, records, and syncs on.
+
+A device that has never taken a position from this store is exempt on the pull
+leg, on the same reasoning that makes a first join not a replacement: it holds
+nothing a purge could have removed, so there is nothing to refuse it over and
+its pull lands normally. Its push is a separate question — a first join's
+history is not one the store can fast-forward to, and it is refused whichever
+check answers first.
+
+Both fields are omitted while they are empty and zero, and the epoch is only
+ever non-zero alongside a non-empty list.
 
 ### Passphrase wrap `SBK1`
 

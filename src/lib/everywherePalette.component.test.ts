@@ -122,6 +122,26 @@ test("nothing armed, no chip — the flag-off palette is the palette it always w
   assert.deepEqual(lastFiledProps(), []);
 });
 
+/* This window has no settings state of its own, and the command fetches the
+   page title unless told not to — so a vault that had turned link titles off
+   still reached the site every time a link was filed from here. */
+test("a pasted link carries the page-title switch this window read", async (t) => {
+  win.__mockEditProp?.("Settings.md", "net-link-titles", "false");
+  t.after(() => win.__mockEditProp?.("Settings.md", "net-link-titles", null));
+
+  const r = await palette(t, null);
+  const input = r.one(".palette-input")!;
+  await typeInto(input, "https://example.com/a-page");
+  await r.settle();
+  await fileIt(r);
+
+  const captures = (win.__mockReadCommandTrace?.() ?? []).filter(
+    (e) => (e as { cmd: string }).cmd === "url_capture"
+  ) as { enrich?: boolean }[];
+  assert.equal(captures.length, 1, "the link was captured");
+  assert.equal(captures[0].enrich, false, "the closed switch reached the command");
+});
+
 test("a pasted link keeps the chip out of the way — url_capture carries no props", async (t) => {
   const r = await palette(t, ABLETON);
   const input = r.one(".palette-input")!;

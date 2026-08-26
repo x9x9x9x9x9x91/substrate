@@ -4,7 +4,7 @@ import "@fontsource-variable/inter";
 import "./styles.css";
 import { invoke } from "./lib/tauri";
 import { resetCaptureBox } from "./lib/captureprefill";
-import { capturePivotPalette } from "./lib/ipc";
+import { capturePivotPalette, urlCaptureGated } from "./lib/ipc";
 import {
   contextChipIcon,
   contextChipLabel,
@@ -291,7 +291,7 @@ function CaptureApp() {
     setError(null);
     // a pasted link becomes a reference note; the page title arrives in the background
     try {
-      if (looksLikeUrl(title)) await invoke<NoteMeta>("url_capture", { url: title });
+      if (looksLikeUrl(title)) await urlCaptureGated(title);
       else
         await invoke<NoteMeta>("vault_create", {
           title,

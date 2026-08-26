@@ -283,6 +283,9 @@ impl Engine {
             }
         }
         let abs = self.root.join(TagFolder::REL_PATH);
+        // a list this build could not read comes back as none, so writing the
+        // caller's list over it would drop every folder still in the file
+        super::refuse_unreadable_overwrite::<Vec<TagFolder>>(&abs, TagFolder::REL_PATH)?;
         if let Some(dir) = abs.parent() {
             fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         }
@@ -478,6 +481,36 @@ mod tests {
             extra: Default::default(),
         }];
         assert!(e.write_tag_folders(&blank).is_err());
+    }
+
+    #[test]
+    fn tag_folders_are_never_flattened_by_a_file_nobody_could_read() {
+        // `tag_folders()` reads corrupt as none, so the list a caller edits is
+        // missing every folder still in the file — writing it back would
+        // delete them on a call that reports success.
+        let (e, dir) = temp_vault("tagfolders-unreadable");
+        fs::create_dir_all(dir.join(".vault")).unwrap();
+        fs::write(dir.join(TagFolder::REL_PATH), "{ not an array").unwrap();
+        let one = vec![TagFolder {
+            id: "tf1".into(),
+            name: "Demos".into(),
+            tags: vec!["demo".into()],
+            match_mode: TagMatch::Any,
+            exclude: vec![],
+            icon: None,
+            extra: Default::default(),
+        }];
+        let err = e.write_tag_folders(&one).unwrap_err();
+        assert!(err.contains("unreadable"), "says what it refused: {err}");
+        assert_eq!(
+            fs::read_to_string(dir.join(TagFolder::REL_PATH)).unwrap(),
+            "{ not an array",
+            "the file nobody could read is still there"
+        );
+        // blank or absent holds nothing to lose
+        fs::remove_file(dir.join(TagFolder::REL_PATH)).unwrap();
+        assert_eq!(e.write_tag_folders(&one).unwrap(), one);
+        assert_eq!(e.tag_folders(), one, "and a readable file still rewrites");
     }
 
     #[test]

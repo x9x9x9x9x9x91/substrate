@@ -35,8 +35,12 @@ impl Grid {
 
 /// The inner text of the first ` ```<lang> ` fence in `body`.
 ///
-/// Twin of `findFence`. The closing ``` must start a line (or end the body)
-/// and sit OUTSIDE quote state: a ``` inside a quoted CSV cell is data. When
+/// Twin of `findFence`. The opening ` ```<lang> ` must start a line, because
+/// the closer must: an indented fenced example closes itself indented, that
+/// closer is skipped, and the fence would otherwise run on to the next opener
+/// and swallow the prose in between. The closing ``` must start a line (or
+/// end the body) and sit OUTSIDE quote state: a ``` inside a quoted CSV cell
+/// is data. When
 /// no quote-balanced close exists (a cell with an unclosed quote), the first
 /// closing-shaped ``` is taken anyway, so a malformed sheet still yields the
 /// rows above the damage instead of nothing.
@@ -56,6 +60,11 @@ pub fn find_fence<'a>(body: &'a str, lang: &str) -> Option<&'a str> {
     let multiline = lang == "csv";
     let mut from = body.find(&open)?;
     loop {
+        if from != 0 && bytes[from - 1] != b'\n' {
+            // indented or mid-line: no opener — look for a real one after it
+            from = body[from + 1..].find(&open).map(|k| from + 1 + k)?;
+            continue;
+        }
         let mut inner_start = from + open.len();
         while matches!(bytes.get(inner_start), Some(&b' ') | Some(&b'\t')) {
             inner_start += 1;
@@ -263,6 +272,31 @@ mod tests {
         let g = grid("```csv raw\nnope\n```\n\n```csv\nname\na\n```\n");
         assert_eq!(g.headers, ["name"]);
         assert!(sheet_grid("```csv raw\nname,note\na,x\n```\n").is_none());
+    }
+
+    #[test]
+    fn an_indented_opener_is_prose_here_too() {
+        // Lockstep twin of "an opener has to start its line, the way its
+        // closer does" in src/lib/sheet.test.ts - same corpora. An indented
+        // example closes itself indented; taking it as an opener would run the
+        // fence on to the next one and hand the pane the prose in between.
+        let body = "Notes:\n\n- inventory:\n  ```csv\n  item,qty\n  bolt,4\n  ```\n\nSome prose that must survive.\n\n```csv\nitem,qty\nnut,7\n```\n";
+        let g = grid(body);
+        assert_eq!(g.headers, ["item", "qty"]);
+        assert_eq!(g.rows, [["nut", "7"]]);
+        // and with no top-level fence below it there is no grid at all
+        assert!(sheet_grid(
+            "Notes:\n\n- inventory:\n  ```csv\n  item,qty\n  bolt,4\n  ```\n\nSome prose that must survive.\n"
+        )
+        .is_none());
+        // The one shape the end-of-body closer used to rescue: `i + 3 ==
+        // bytes.len()` accepts a closer wherever it sits, so an indented
+        // example ending the note - no trailing newline - read as a grid while
+        // the same block one line higher did not. The opener rule decides both
+        // the same way now.
+        let at_eof = "Notes:\n\n- inventory:\n  ```csv\n  item,qty\n  bolt,4\n  ```";
+        assert!(at_eof.ends_with("  ```"));
+        assert!(sheet_grid(at_eof).is_none());
     }
 
     #[test]

@@ -217,6 +217,24 @@ test("bucketByProp: non-numeric cells in a number column keep their own bucket",
   assert.deepEqual(take("0"), [c]);
 });
 
+test("bucketByProp: a number column keeps a tagged spelling out of the parsed bucket", () => {
+  const a = note("a", { price: "1200" });
+  const b = note("b", { price: "#1200" });
+  const { take } = bucketByProp([a, b], "price", NUM_SCHEMA);
+  assert.deepEqual(take("1200"), [a], "the number bucket holds only what parsed");
+  assert.deepEqual(take("#1200"), [b], "the junk cell keeps its own bucket and spelling");
+});
+
+test("tableGroups: a tagged spelling is its own section beside the number it names", () => {
+  const rows = [note("a", { price: "1200" }), note("b", { price: "#1200" })];
+  const groups = tableGroups(rows, "price", [], NUM_SCHEMA);
+  assert.deepEqual(groups.map((g) => g.value), ["#1200", "1200"]);
+  assert.deepEqual(
+    groups.map((g) => g.notes.map((n) => n.title)),
+    [["b"], ["a"]]
+  );
+});
+
 test("tableGroups: a number column yields one section per value (SUB-639)", () => {
   const rows = [
     note("a", { price: "1200" }),

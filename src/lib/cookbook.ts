@@ -20,6 +20,10 @@ export interface CookbookRecipe {
   files: string[];
   /** cookbook-relative screenshot path, e.g. `shots/food-log.png` */
   shot: string;
+  /** kept out of public builds — the Rust side drops these from the index
+      before a non-debug build ever hands it over, so a pane running against a
+      release build never sees one */
+  private: boolean;
 }
 
 export interface Cookbook {
@@ -48,6 +52,7 @@ function parseRecipe(raw: unknown): CookbookRecipe | null {
     expects: { sheets: strArray(expects.sheets), databases: strArray(expects.databases) },
     files,
     shot: str("shot"),
+    private: r.private === true,
   };
 }
 

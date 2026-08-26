@@ -3,7 +3,14 @@ import ReactDOM from "react-dom/client";
 import "@fontsource-variable/inter";
 import "./styles.css";
 import { invoke, listen } from "./lib/tauri";
-import { paletteOpenNote, paletteOpenView, paletteSeedQuery, vaultList, vaultSearch } from "./lib/ipc";
+import {
+  paletteOpenNote,
+  paletteOpenView,
+  paletteSeedQuery,
+  urlCaptureGated,
+  vaultList,
+  vaultSearch,
+} from "./lib/ipc";
 import { CAPTURE_ROW_ID, everywhereRows, type EverywhereRow } from "./lib/everywhere";
 import { createLatestGuard } from "./lib/latest";
 import { foldedPropStr, type NoteMeta, type SearchHit } from "./lib/types";
@@ -192,7 +199,7 @@ export function PaletteApp() {
     setError(null);
     try {
       // a pasted link becomes a reference note, exactly as in quick capture
-      if (looksLikeUrl(text)) await invoke("url_capture", { url: text });
+      if (looksLikeUrl(text)) await urlCaptureGated(text);
       else
         await invoke("vault_create", {
           title: text,

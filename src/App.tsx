@@ -2330,8 +2330,15 @@ export default function App() {
           return;
         }
         if (!isPristineScratch(path, content.body, content.props)) return;
-        scratchPaths.current.delete(path);
-        await vaultDelete(path).catch(() => {});
+        // untrack only once the note is really gone: dropping it first made a
+        // failed delete permanent, since the guard above turns every later
+        // leave into a no-op and nothing else sweeps pristine scratch notes
+        try {
+          await vaultDelete(path);
+          scratchPaths.current.delete(path);
+        } catch {
+          // still tracked, so the next leave tries the delete again
+        }
         refresh();
       } finally {
         abandonBusy.current.delete(path);

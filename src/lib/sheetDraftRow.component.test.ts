@@ -127,3 +127,95 @@ test("an abandoned “+ row” leaves the note alone", async (t) => {
   assert.deepEqual(written, [], "an empty commit writes nothing at all");
   assert.equal(dataRows().length, 3, "the placeholder stays put, ready for a value");
 });
+
+test("a row arriving under an open “+ row” is appended past, never written over", async (t) => {
+  const { default: SheetGrid } = await import("../components/SheetGrid.tsx");
+  const written: string[] = [];
+  const docRef: { current: ((body: string) => void) | null } = { current: null };
+  const r = await renderComponent(
+    t,
+    h(SheetGrid, {
+      meta,
+      initial: BODY,
+      vaultEpoch: 0,
+      onChange: (body: string) => written.push(body),
+      onFollowLink: () => {},
+      docRef,
+    })
+  );
+
+  const dataRows = () => r.all("tbody tr:not(.sheet-addrow):not(.sheet-totals)");
+  await r.click(".sheet-addrow button");
+  const firstCell = dataRows()[2].querySelector(".sheet-cell");
+  assert.ok(firstCell, "the placeholder is there");
+  await fire(firstCell, new MouseEvent("dblclick", { bubbles: true, cancelable: true }));
+  const input = r.one(".sheet-input");
+  assert.ok(input, "double-click opened the cell editor");
+  await type(input, "SOL");
+
+  /* The other writer — a sync landing, or a second pane — appends a row while
+     the placeholder's editor is open. The placeholder is the row after the
+     note's last one, and the note just grew one. */
+  assert.ok(docRef.current, "the grid published its adoption hook");
+  await act(async () => {
+    docRef.current!(BODY.replace("ETH,2026-08-22\n", "ETH,2026-08-22\nDOT,2026-08-25\n"));
+  });
+
+  const reopened = r.one(".sheet-input");
+  assert.ok(reopened, "the editor survived the adoption");
+  await fire(reopened, new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  await r.settle();
+
+  assert.equal(written.length, 1, "one write");
+  assert.match(written[0], /\nDOT,2026-08-25\n/, "the arrived row is untouched");
+  assert.match(written[0], /\nSOL,\n/, "and the draft became a row of its own");
+  assert.equal(dataRows().length, 4, "four rows: the note's two, the arrival, and the draft");
+});
+
+test("clicking away commits the same way — the draft still lands past the arrivals", async (t) => {
+  const { default: SheetGrid } = await import("../components/SheetGrid.tsx");
+  const written: string[] = [];
+  const docRef: { current: ((body: string) => void) | null } = { current: null };
+  const r = await renderComponent(
+    t,
+    h(SheetGrid, {
+      meta,
+      initial: BODY,
+      vaultEpoch: 0,
+      onChange: (body: string) => written.push(body),
+      onFollowLink: () => {},
+      docRef,
+    })
+  );
+
+  const dataRows = () => r.all("tbody tr:not(.sheet-addrow):not(.sheet-totals)");
+  await r.click(".sheet-addrow button");
+  const firstCell = dataRows()[2].querySelector(".sheet-cell");
+  assert.ok(firstCell, "the placeholder is there");
+  await fire(firstCell, new MouseEvent("dblclick", { bubbles: true, cancelable: true }));
+  const input = r.one(".sheet-input");
+  assert.ok(input, "double-click opened the cell editor");
+  await type(input, "SOL");
+
+  /* Two rows this time, so "appended past" can only be read one way. */
+  assert.ok(docRef.current, "the grid published its adoption hook");
+  await act(async () => {
+    docRef.current!(
+      BODY.replace("ETH,2026-08-22\n", "ETH,2026-08-22\nDOT,2026-08-25\nXMR,2026-08-26\n")
+    );
+  });
+
+  /* The commit a user makes by clicking somewhere else. React listens for the
+     bubbling `focusout`, and the cell editor routes it into the same
+     `commitEdit` Enter takes — so the placeholder rule has to hold on both. */
+  const reopened = r.one(".sheet-input");
+  assert.ok(reopened, "the editor survived the adoption");
+  await fire(reopened, new Event("focusout", { bubbles: true }));
+  await r.settle();
+
+  assert.equal(written.length, 1, "one write");
+  assert.match(written[0], /\nDOT,2026-08-25\n/, "the first arrival is untouched");
+  assert.match(written[0], /\nXMR,2026-08-26\n/, "so is the second");
+  assert.match(written[0], /\nXMR,2026-08-26\nSOL,\n/, "and the draft landed after both");
+  assert.equal(dataRows().length, 5, "the note's two, both arrivals, and the draft");
+});

@@ -911,6 +911,39 @@ test("the database/property bulk sweeps record an unnamed own-write (SUB-660)", 
   }
 });
 
+/* A bulk delete's reach IS nameable — the engine answers one entry per input
+   path, in order — so it must not fall through to the unnamed default the
+   counting sweeps take. Unnamed, a neighbour's edit landing in the same window
+   read as ours: the undo stack kept an entry the vault no longer agreed with,
+   and the re-read waited for the trailing timer. */
+test("a bulk delete names the notes it vacated, minus the ones that failed", async () => {
+  const a = await invoke<NoteMeta>("vault_create", { title: "BulkDel One", folder: "" });
+  const b = await invoke<NoteMeta>("vault_create", { title: "BulkDel Two", folder: "" });
+  __resetOwnWrites();
+
+  const per = await invoke<{ Ok?: string; Err?: string }[]>("vault_delete_many", {
+    paths: [a.path, b.path],
+  });
+  assert.equal(per.length, 2);
+
+  const split = splitEcho([a.path, b.path, "BulkDel Neighbour.md"]);
+  assert.equal(split.unknown, false, "the reach is named, not 'we wrote, can't say where'");
+  assert.ok(split.own.includes(a.path) && split.own.includes(b.path), "both vacated paths are ours");
+  assert.deepEqual(
+    split.external,
+    ["BulkDel Neighbour.md"],
+    "somebody else's edit in the same window still reads external"
+  );
+
+  // a partial failure attributes only what really moved
+  const c = await invoke<NoteMeta>("vault_create", { title: "BulkDel Three", folder: "" });
+  __resetOwnWrites();
+  await invoke("vault_delete_many", { paths: [c.path, "BulkDel Missing.md"] });
+  const partial = splitEcho([c.path, "BulkDel Missing.md"]);
+  assert.deepEqual(partial.own, [c.path]);
+  assert.deepEqual(partial.external, ["BulkDel Missing.md"], "the refused path was never our write");
+});
+
 test("vault_schema_set normalizes the lead time like the engine does (SUB-842)", async () => {
   const set = (args: Record<string, unknown>) =>
     invoke<SchemaConfig>("vault_schema_set", { dbType: "lead842", prop: "due", ...args });

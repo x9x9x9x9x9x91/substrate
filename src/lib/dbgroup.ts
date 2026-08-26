@@ -46,12 +46,16 @@ function propGroupValues(props: Record<string, unknown>, key: string): string[] 
     `parseStrictNumber` coercion sort and the footer aggregates already agree
     with. A cell that isn't a number in a number column can't be bucketed by
     value; it keeps its own case-folded key, so junk stays visible instead of
-    collapsing into one nameless heap. */
+    collapsing into one nameless heap. The two namespaces carry disjoint
+    prefixes: a cell spelled like a tagged number (`#1200`) is junk here, and
+    without the prefixes its key would be the one `1200` parses to, draining
+    the junk row into a section it isn't in. Keys are internal to one render —
+    the collapse set and hand order are remembered by `groupKey` instead. */
 function groupKeyer(numeric: boolean): (v: string) => string {
   if (!numeric) return (v) => v.toLowerCase();
   return (v) => {
     const n = parseStrictNumber(v);
-    return n === null ? v.toLowerCase() : `#${n}`;
+    return n === null ? `s:${v.toLowerCase()}` : `n:${n}`;
   };
 }
 

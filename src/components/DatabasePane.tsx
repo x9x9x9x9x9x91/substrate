@@ -2464,7 +2464,12 @@ export default function DatabasePane({
   const onDropRowOnRow = (path: string, target: string) => {
     setRowGroupDropAt(null);
     if (!path || !target || path === target) return;
-    const own = (p: string) => rows.some((n) => n.path === p);
+    // this table's own rows, filter and all — against `visible` and not the
+    // painted `rows`, because a folded section contributes nothing to the
+    // paint while its notes stay selected (the selection prune keeps them on
+    // purpose). Reading the painted set here dropped exactly the members a
+    // fold was hiding, and the bulk bar went on counting them.
+    const own = (p: string) => visible.some((n) => n.path === p);
     if (!own(path) || !own(target)) return;
     const fromSel = sel.has(path);
     const held = fromSel ? [...sel].filter(own) : [path];
@@ -2494,7 +2499,7 @@ export default function DatabasePane({
        made is made again here. Writing the grouping property into the
        frontmatter of a note this database no longer shows is exactly the
        fault the foreign-drag guard refuses at the drop. */
-    const paths = drop.paths.filter((p) => rows.some((n) => n.path === p));
+    const paths = drop.paths.filter((p) => visible.some((n) => n.path === p));
     if (paths.length === 0) return;
     const propSchema = byFoldedKey(typeSchema, prop);
     const options = propSchema?.options ?? [];
@@ -2764,10 +2769,16 @@ export default function DatabasePane({
       if (isTyping(e.target) || editCell || titleEdit) return;
       // Every table cell that holds an editor of its own: the data columns,
       // and the Name column wherever the vault owns the rename. Where it does
-      // not — a mounted folder — column 0 is read-only text, and the keys
-      // below keep the meaning they have on every other editor-less surface.
+      // not — a mounted folder, a checkbox that toggles, a rollup the schema
+      // derives — the cell holds no editor, and the keys below keep the
+      // meaning they have on every other editor-less surface.
+      const focusedKey = layout === "table" && focus && focus.c > 0 ? shown[focus.c - 1] : undefined;
+      const focusedKind = focusedKey ? byFoldedKey(typeSchema, focusedKey)?.kind : undefined;
       const onEditableCell =
-        layout === "table" && !!focus && (focus.c > 0 || (focus.r >= 0 && !!onRenameNote));
+        layout === "table" &&
+        !!focus &&
+        ((focus.c > 0 && focusedKind !== "checkbox" && focusedKind !== "rollup") ||
+          (focus.c === 0 && focus.r >= 0 && !!onRenameNote));
       // Option is a character modifier on macOS, not a command one —
       // a German layout types `@` as ⌥L and `[` as ⌥5, and those have to open a
       // cell editor like any other character. So an Option chord is let through

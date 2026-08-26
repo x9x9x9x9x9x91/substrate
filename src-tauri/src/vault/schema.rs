@@ -796,18 +796,12 @@ impl Engine {
         // refuse to rewrite a file a newer app wrote
         crate::vaultfmt::prepare_write(&self.root, crate::vaultfmt::VaultFile::Schema)?;
         let abs = self.root.join(SCHEMA_REL_PATH);
-        // A file that failed to parse reads as an EMPTY schema, so a mutation
-        // on top of it would flatten every database's icons, homes, kinds,
-        // options and rollups into `{}`. Writing nothing over a file that
-        // still holds something we could not read is the one write worth
-        // refusing: an empty map only ever lands on a file that is absent,
-        // blank, or a schema that read cleanly.
-        if map.is_empty() {
-            let raw = fs::read_to_string(&abs).unwrap_or_default();
-            if !raw.trim().is_empty() && serde_json::from_str::<SchemaConfig>(&raw).is_err() {
-                return Err("refusing to overwrite an unreadable .vault/schema.json".into());
-            }
-        }
+        // A file that failed to parse reads as an EMPTY schema, so ANY mutation
+        // on top of it flattens every database's icons, homes, kinds, options
+        // and rollups down to whatever this one edit carries. What lands here
+        // only ever lands on a file that is absent, blank, or a schema that
+        // read cleanly.
+        super::refuse_unreadable_overwrite::<SchemaConfig>(&abs, SCHEMA_REL_PATH)?;
         if let Some(dir) = abs.parent() {
             fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         }
@@ -4232,10 +4226,13 @@ mod tests {
         let (e, dir) = temp_vault("schemabad");
         fs::create_dir_all(dir.join(".vault")).unwrap();
         fs::write(dir.join(SCHEMA_REL_PATH), "nope [").unwrap();
-        assert!(e.schema().is_empty());
-        // …and a fresh set recovers by overwriting the garbage
-        let map = e
-            .set_schema_prop(
+        assert!(e.schema().is_empty(), "reads stay lenient — the app still opens");
+        // …but a write on top of that empty read does not "recover" the file,
+        // it replaces whatever the unreadable bytes still held with this one
+        // edit. The write is refused so the user can repair the file first;
+        // clearing it is what actually starts over.
+        let set = |e: &Engine| {
+            e.set_schema_prop(
                 "release",
                 "status",
                 vec![opt("live", None)],
@@ -4248,7 +4245,11 @@ mod tests {
                 None,
                 None,
             )
-            .unwrap();
+        };
+        let err = set(&e).unwrap_err();
+        assert!(err.contains("unreadable"), "{err}");
+        fs::remove_file(dir.join(SCHEMA_REL_PATH)).unwrap();
+        let map = set(&e).unwrap();
         assert_eq!(map["release"].props["status"].options.len(), 1);
         let _ = fs::remove_dir_all(&dir);
     }
@@ -4583,18 +4584,68 @@ mod tests {
     #[test]
     fn schema_never_flattens_a_file_it_could_not_read() {
         // The belt to the leniency above: whatever makes a schema unreadable,
-        // writing `{}` over it is the one write worth refusing.
+        // writing over it is the one write worth refusing — and the size of the
+        // outgoing map is no defence. An edit that ADDS a home still arrives on
+        // top of the empty map the failed parse produced, so it flattens every
+        // other database exactly as `{}` would.
         let (e, dir) = temp_vault("schemaunreadable");
         fs::create_dir_all(dir.join(".vault")).unwrap();
         fs::write(dir.join(SCHEMA_REL_PATH), "nope [").unwrap();
 
-        let err = e.set_schema_home("task", None).unwrap_err();
-        assert!(err.contains("unreadable"), "says what it refused: {err}");
+        for err in [
+            e.set_schema_home("task", None).unwrap_err(),
+            e.set_schema_home("task", Some("Areas/Ops".into())).unwrap_err(),
+            e.set_schema_icon("task", Some("check".into()), None, None).unwrap_err(),
+        ] {
+            assert!(err.contains("unreadable"), "says what it refused: {err}");
+        }
         assert_eq!(
             fs::read_to_string(dir.join(SCHEMA_REL_PATH)).unwrap(),
             "nope [",
             "the file nobody could read is still there"
         );
+
+        // a byte that is not UTF-8, hidden inside an otherwise valid JSON
+        // string: `read_to_string` on the read side gives up on the whole file
+        // and reports no schema, so a lossy check here would parse around the
+        // damage and wave through the write that flattens it
+        let mut bytes = br#"{"task":{"home":"Areas/"#.to_vec();
+        bytes.extend_from_slice(&[0xff, b'"', b'}', b'}']);
+        fs::write(dir.join(SCHEMA_REL_PATH), &bytes).unwrap();
+        assert!(e.schema().is_empty(), "the read side sees nothing there");
+        let err = e.set_schema_home("task", Some("Areas/Ops".into())).unwrap_err();
+        assert!(err.contains("unreadable"), "{err}");
+        assert_eq!(fs::read(dir.join(SCHEMA_REL_PATH)).unwrap(), bytes, "left as found");
+
+        // a file that exists but will not open is content nobody can see, not
+        // an empty one — the same position a failed parse leaves it in
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let path = dir.join(SCHEMA_REL_PATH);
+            fs::write(&path, "{}").unwrap();
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).unwrap();
+            // root reads straight through the mode bits, so on a runner that
+            // is root the wedge does not exist and there is nothing to assert
+            // — prove nothing rather than pretend the file is unopenable
+            let unopenable = fs::read(&path).is_err();
+            let refused = unopenable.then(|| e.set_schema_home("task", Some("Areas/Ops".into())));
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+            if let Some(refused) = refused {
+                assert!(
+                    refused.is_err_and(|e| e.contains("unreadable")),
+                    "an unreadable file is not an absent one"
+                );
+            }
+        }
+
+        // a file that is absent or blank holds nothing to lose, so it writes
+        fs::write(dir.join(SCHEMA_REL_PATH), "  \n").unwrap();
+        e.set_schema_home("task", Some("Areas/Ops".into())).unwrap();
+        assert_eq!(e.schema()["task"].home.as_deref(), Some("Areas/Ops"));
+        // …and so does one that reads cleanly
+        e.set_schema_home("task", Some("Areas/Later".into())).unwrap();
+        assert_eq!(e.schema()["task"].home.as_deref(), Some("Areas/Later"));
         let _ = fs::remove_dir_all(&dir);
     }
 

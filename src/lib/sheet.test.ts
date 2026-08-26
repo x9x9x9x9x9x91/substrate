@@ -11,6 +11,7 @@ import {
   addSheetColumn,
   addSheetRow,
   deleteSheetColumn,
+  findFence,
   deleteSheetFormula,
   deleteSheetRow,
   moveSheetColumn,
@@ -1033,6 +1034,69 @@ test("an opener with a stray trailing space is found, and a write normalizes it"
   assert.deepEqual(parseSheet(next).rows, [["a", "z"]]);
   // a real second word is still a plain code box
   assert.equal(parseSheet("```csv raw\nname\na\n```\n").hasCsv, false);
+});
+
+describe("an opener has to start its line, the way its closer does", () => {
+  const EXAMPLE = ["- inventory:", "  ```csv", "  item,qty", "  bolt,4", "  ```"].join("\n");
+  const PROSE = "Some prose that must survive.";
+  const body = ["Notes:", "", EXAMPLE, "", PROSE, "", "```csv", "item,qty", "nut,7", "```", ""].join(
+    "\n"
+  );
+
+  test("the top-level fence is the one found, not the indented example", () => {
+    const fence = findFence(body, "csv")!;
+    assert.equal(fence.inner, "item,qty\nnut,7\n", "the indented block is prose");
+    const m = parseSheet(body);
+    assert.deepEqual(m.headers, ["item", "qty"]);
+    assert.deepEqual(m.rows, [["nut", "7"]]);
+  });
+
+  test("a grid edit leaves the example and the prose between byte-identical", () => {
+    // the indented closer used to be skipped, so the fence ran on to the next
+    // opener and every edit rewrote the span it had swallowed
+    const dropped = deleteSheetColumn(body, "item");
+    assert.ok(dropped.includes(PROSE), "prose survives a column delete");
+    assert.ok(dropped.includes(EXAMPLE), "the example survives it too");
+    assert.deepEqual(parseSheet(dropped).rows, [["7"]]);
+    const edited = setSheetCell(body, 0, 1, "9");
+    assert.ok(edited.includes(PROSE) && edited.includes(EXAMPLE));
+    assert.deepEqual(parseSheet(edited).rows, [["nut", "9"]]);
+  });
+
+  test("a note whose only csv fence is indented holds no grid", () => {
+    const only = ["Notes:", "", EXAMPLE, "", PROSE, ""].join("\n");
+    assert.equal(findFence(only, "csv"), null);
+    assert.equal(parseSheet(only).hasCsv, false);
+  });
+
+  test("an indented example closed at the very end of the body is prose too", () => {
+    // The one shape the end-of-body closer used to rescue: `i + 3 ===
+    // body.length` accepts a closer wherever it sits, so an indented example
+    // ending the note — no trailing newline — read as a grid while the same
+    // block one line higher did not. The opener rule decides it now, and it
+    // decides both the same way.
+    const atEof = ["Notes:", "", EXAMPLE].join("\n");
+    assert.equal(atEof.endsWith("  ```"), true, "the closer really is the last thing in the body");
+    assert.equal(findFence(atEof, "csv"), null);
+    assert.equal(parseSheet(atEof).hasCsv, false);
+  });
+
+  test("the rule is the fence grammar's, not the csv parser's — formulas too", () => {
+    // findFence serves every lang, and the closer symmetry that motivates the
+    // rule is the same one for each: an indented ```formulas example closes
+    // itself indented, so accepting its opener would run the fence on.
+    const example = ["- like so:", "  ```formulas", "  total = SUM(qty)", "  ```"].join("\n");
+    const withReal = [example, "", "```formulas", "total = SUM(qty)", "```", ""].join("\n");
+    assert.equal(findFence(withReal, "formulas")!.inner, "total = SUM(qty)\n");
+    assert.equal(findFence(example, "formulas"), null, "the indented example alone is prose");
+    // and through the parser: the note's summaries come from the real fence
+    const m = parseSheet(["```csv", "qty", "4", "```", "", withReal].join("\n"));
+    assert.deepEqual(
+      m.formulas.map((f) => f.name),
+      ["total"],
+      "the example's line was not parsed a second time"
+    );
+  });
 });
 
 test("classification: forward references resolve against the whole fence (SUB-218)", () => {

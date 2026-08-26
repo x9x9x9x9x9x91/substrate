@@ -749,6 +749,93 @@ test("a dragged row that is selected carries the whole selection into the group"
   assert.equal(r.all("tbody tr.is-selected").length, 0, "the selection outlived the drop");
 });
 
+/** The pane's pref is fed from outside, so a fold only takes effect when the
+    caller feeds the new pref back — which is what App does. */
+async function mountFoldable(
+  t: Parameters<typeof renderComponent>[0],
+  notes: NoteMeta[],
+  recorded: Omit<UndoEntry, "id">[],
+  initialPref: Record<string, unknown>
+): Promise<Pane> {
+  const { default: DatabasePane } = await import("../components/DatabasePane.tsx");
+  const { useState } = await import("react");
+  const Host = () => {
+    const [pref, setPref] = useState<Record<string, unknown>>(initialPref);
+    return h(
+      DatabasePane as never,
+      paneProps(notes, {
+        pref,
+        onPrefChange: (next: Record<string, unknown>) => setPref(next),
+      }) as never
+    );
+  };
+  return renderComponent(
+    t,
+    h(
+      UndoContext.Provider,
+      { value: { record: (e: Omit<UndoEntry, "id">) => recorded.push(e), runById: () => {} } },
+      h(Host)
+    )
+  );
+}
+
+/** fold the section a header names, through the disclosure the user clicks */
+async function foldSection(r: Pane, label: string): Promise<void> {
+  const disclose = () =>
+    r
+      .all("tr.db-group-tr button.db-group-disclose")
+      .find((b) => (b.textContent ?? "").trim() === label);
+  const head = disclose();
+  assert.ok(head, `no “${label}” section header to fold`);
+  await r.click(head);
+  await r.settle();
+  assert.equal(
+    disclose()?.getAttribute("aria-expanded"),
+    "false",
+    `the “${label}” section did not fold`
+  );
+}
+
+test("a selection reaching into a folded section is grouped whole", async (t) => {
+  const recorded: Omit<UndoEntry, "id">[] = [];
+  /* Two sections: Delay holds the pair the drag happens between, Reverb holds
+     the row that will be folded away while still selected. */
+  const a = await vaultCreate("Row Group Fold A", "", DB, [["Bundle", "Delay"]], "");
+  const b = await vaultCreate("Row Group Fold B", "", DB, [["Bundle", "Delay"]], "");
+  const c = await vaultCreate("Row Group Fold C", "", DB, [["Bundle", "Reverb"]], "");
+  const notes = [a, b, c].map((n, i) => ({
+    ...n,
+    props: { ...n.props, Bundle: i < 2 ? "Delay" : "Reverb" },
+  }));
+  mountedPaths = notes.map((n) => n.path);
+  const r = await mountFoldable(t, notes, recorded, {
+    view: "table",
+    cols: ["Bundle"],
+    table_group_by: "Bundle",
+  });
+
+  await selectRow(r, 0); // Delay
+  await selectRow(r, 2); // Reverb — the one about to be hidden
+  await foldSection(r, "Reverb");
+
+  /* Folding is a view state, not a filter: the selection deliberately keeps
+     the rows a fold hides (the prune runs against the unfolded set), so the
+     gesture has to carry them too. Reading the PAINTED rows dropped exactly
+     the members the fold was hiding. */
+  mountedPaths = [notes[0].path, notes[1].path];
+  await dragRowOnto(r, 0, 1);
+
+  assert.ok(prompt(), "the drop raised no prompt");
+  assert.match(prompt()!.textContent ?? "", /Group these 3 rows/, "the folded row was counted out");
+  await type("Group name", "Shelved");
+  await press("Group");
+  await r.settle();
+
+  for (const n of notes)
+    assert.equal((await vaultRead(n.path)).props.Bundle, "Shelved", `${n.path} missed the group`);
+  assert.equal(recorded.length, 1, "three rows grouped, and not one undoable action");
+});
+
 test("a row dropped on another row of the same selection is refused", async (t) => {
   const { r } = await threeRows(t, "SelSame");
 

@@ -21,15 +21,23 @@ export interface CellSpan {
   to: number;
 }
 
-/** Every chunk between pipes, outer edges included — the shared scan. */
+/** Every chunk between pipes, outer edges included — the shared scan.
+ *
+ * A backslash escapes the character after it, itself included, so what ends a
+ * cell is decided by the PARITY of the backslash run in front of the pipe:
+ * `a\|b` is one cell holding a pipe, `a\\|b` is an escaped backslash and then
+ * a real delimiter — two cells. Reading the run as one flat "backslash before
+ * pipe means escape" merged those two cells into one and disagreed with the
+ * markdown parser the rendered table is built from. Only `\\` and `\|` resolve
+ * here; a backslash before anything else is content (`\alpha` stays whole). */
 function scanRow(line: string): CellSpan[] {
   const out: CellSpan[] = [];
   let start = 0;
   let text = "";
   for (let i = 0; i < line.length; i++) {
     const ch = line[i];
-    if (ch === "\\" && line[i + 1] === "|") {
-      text += "|";
+    if (ch === "\\" && (line[i + 1] === "|" || line[i + 1] === "\\")) {
+      text += line[i + 1];
       i++;
     } else if (ch === "|") {
       out.push({ text, from: start, to: i });
@@ -121,11 +129,14 @@ function width(lines: string[]): number {
 
 /** `\|` inside a cell is a literal pipe, not a delimiter, so a row ending in
  * one (`| a | b \|`) is an unclosed row and needs its closing pipe before the
- * new cell. Same boundary rule `splitRow` reads by — a backslash immediately
- * before a pipe escapes it — so the two halves of this module agree on where
- * a row ends. */
+ * new cell. Same boundary rule `splitRow` reads by — an ODD run of backslashes
+ * escapes the pipe, an even run leaves it a delimiter — so the two halves of
+ * this module agree on where a row ends. */
 function endsWithClosingPipe(line: string): boolean {
-  return line.endsWith("|") && line[line.length - 2] !== "\\";
+  if (!line.endsWith("|")) return false;
+  let run = 0;
+  for (let i = line.length - 2; i >= 0 && line[i] === "\\"; i--) run++;
+  return run % 2 === 0;
 }
 
 function appendCell(line: string, cell: string): string {
@@ -278,9 +289,17 @@ export function tableWithAlignment(source: string, col: number, align: CellAlign
 
 /** Cell text on its way back into the source: a pipe would end the cell, and a
  * newline would end the row, so both are neutralised rather than allowed to
- * reshape the table from inside a cell editor. */
+ * reshape the table from inside a cell editor. Backslashes are doubled FIRST,
+ * or typed text ending in one would escape the pipe written after it and eat
+ * the cell boundary — and the run the scanner reads back has to have the same
+ * parity the text was written with, or a round trip through the cell editor
+ * grows a backslash on every pass. */
 export function escapeCell(text: string): string {
-  return text.replace(/\s+/g, " ").replace(/\|/g, "\\|").trim();
+  return text
+    .replace(/\s+/g, " ")
+    .replace(/\\/g, "\\\\")
+    .replace(/\|/g, "\\|")
+    .trim();
 }
 
 /** One cell's text replaced, every other character of the table left alone.

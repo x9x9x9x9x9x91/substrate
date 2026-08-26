@@ -2939,10 +2939,25 @@ feeds. The app never creates it by default. Each entry has exactly this shape:
 
 Per-type property schemas. Notes keep plain YAML values; this file only drives
 pickers, option order, dot colors, and database icons in the UI — deleting it
-loses no data. Missing or corrupt JSON reads as empty; the next write recreates
-it (pretty-printed, 2-space indent; key order unspecified — it's a hash map).
-A corrupt file is additionally reported by `vault_doctor` as `corrupt-config`
-(§15) — the fallback is silent to the reader, not to the user.
+loses no data. A **missing** file reads as empty and the next write creates it
+(pretty-printed, 2-space indent; key order unspecified — it's a hash map).
+
+A **corrupt** file is different, and the difference is deliberate: it still
+reads as empty, so a mangled sidecar can never lock anyone out — but it is
+never written over. A failed parse means the map every writer starts from is
+missing every database's icon, home, kinds, options and rollups, so persisting
+it would flatten all of them; the size of the outgoing edit is no defence,
+because a one-key write drops the rest just as thoroughly as an empty one. So
+**writes are refused** while the file is unreadable, with an error naming the
+file. The way back is to fix the JSON or to clear the file — blanking or
+deleting it makes the next write a fresh start, on purpose rather than by
+accident. `vault_doctor` reports the file as `corrupt-config` (§15) and says
+that changes are being refused, which is the only place that half is visible.
+
+"Unreadable" here means what the reader means by it: bytes that are not UTF-8,
+text that is not JSON, **or** JSON that is not a schema map (`{"release": 5}`
+parses as JSON and still reads as no schema). A file that exists but cannot be
+opened at all counts too — content nobody can see is not an empty file.
 
 Exact shape — `{ "<type>": { "icon"?: <DbIcon>, "home"?: <folder path>, "<prop>": <PropSchema> } }`:
 
@@ -3356,7 +3371,12 @@ one also shows up as `corrupt-config` in the doctor, §15).
 
 ## 7. `.vault/views.json` — layout preferences, sidebar order, saved views
 
-Per-database layout choice, same file discipline as schema.json:
+Per-database layout choice, same file discipline as schema.json — including
+the refusal: a file this build cannot read still reads as empty, and is never
+written over. This one carries more than layout (the reserved `$sidebar`,
+`$folders` and `$views` keys live here too), so a write on top of an empty
+read would take the sidebar's own order with it. Fix the JSON or clear the
+file; `vault_doctor` names it and says changes are being refused.
 
 ```json
 {
@@ -4178,10 +4198,13 @@ A JSON array of saved tag queries. Each one shows in the sidebar next to real
 folders with a tag icon, and opens the notes matching its rule. **No note
 moves on disk for a tag folder** — the folder is a query, not a location. The
 app never creates the file by default; folders are built in-app (Folders "+"
-→ "New tag folder…") or edited by hand. Same file discipline as the rest of
-§6–§8: missing or corrupt reads as no folders — and a corrupt one is reported
-by `vault_doctor` as `corrupt-config` (§15), so the folders vanishing is never
-silent even though nothing errors.
+→ "New tag folder…") or edited by hand. Same file discipline as §6: missing
+reads as no folders, and a **corrupt** one reads as no folders too but is
+never written over — writing the list a caller edited on top of an empty read
+would delete every folder still in the file. Writes are refused until the JSON
+is fixed or the file is cleared, and `vault_doctor` reports it as
+`corrupt-config` (§15) naming both halves, so neither the folders vanishing nor
+the writes being declined is silent.
 
 ```json
 [
@@ -5359,7 +5382,7 @@ order, so two scans of an unchanged vault produce byte-identical JSON.
 | `broken-embed` | `![[file]]` with no file behind it — under `.assets/` (error) or linked in place (warn: the volume may just be unmounted, §3) | error / warn |
 | `broken-view-ref` | a ` ```view ` fence (§5.6) naming a `saved:` view that was deleted, or a `type:` that is not a database | error |
 | `ambiguous-target` | two or more notes share a title or filename stem, so a wikilink to that name resolves to whichever the index reached first — create-dedupe is per-folder, so this is how cross-folder collisions surface (§3) | warn |
-| `corrupt-config` | a `.vault/*.json` file whose bytes are not JSON (including bytes that aren't UTF-8 text at all). Reader fallbacks are unchanged — most read as empty, so a mangled file can never lock anyone out (§5b, §6–§8b), while `calendars.json` surfaces a config error instead (§5c) — but the loss is no longer silent: one finding per unreadable file, naming the file and the consequence the file's own reader actually has. An absent or empty file is the normal state of a fresh vault and is never reported | error |
+| `corrupt-config` | a `.vault/*.json` file this build cannot read: bytes that aren't UTF-8, text that isn't JSON, or — for the files read as a concrete shape (`schema.json`, `views.json`, `tagfolders.json`) — valid JSON that isn't that shape, like `views.json` holding `[]`. Reader fallbacks are unchanged: most read as empty, so a mangled file can never lock anyone out (§5b, §6–§8b), while `calendars.json` surfaces a config error instead (§5c). One finding per unreadable file, naming the file and its reader's real consequence — and, for the three whose writers refuse rather than flatten (§6, §7, §8b), saying that changes to it are being refused, which is the half nothing else surfaces. An absent or empty file is the normal state of a fresh vault and is never reported | error |
 | `stale-config` | `.vault/*.json` pointing at something gone: a schema type with zero notes, a `home`/folder-mapping path that no longer exists, a views or saved-view entry for an unknown type. A mount that is unbound on this machine, or whose bound folder is gone, is a **warn** and never an error: its board still renders from the last-known index and "Locate folder…" fixes it (§8) | warn / error |
 | `invalid-prop` | a `date` or `number` prop whose value does not parse under the schema's kind — the value is reported, never rewritten | error |
 | `broken-reflex` | a rule in `.vault/reflexes.json` (§8c) that does not run: the file failed to load (one finding for the whole file), a rule failed validation, or the circuit breaker paused a rule after repeated failures. Runtime state, so it is appended by the command rather than found by the scan — a breaker pause exists only in the running app | error |

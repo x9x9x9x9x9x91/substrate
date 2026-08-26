@@ -7,7 +7,8 @@
 //! is ready, so opening or paging the calendar never waits on a feed.
 
 use chrono::{
-    Datelike, Duration as ChronoDuration, Local, NaiveDate, NaiveDateTime, TimeZone, Timelike,
+    DateTime, Datelike, Duration as ChronoDuration, Local, NaiveDate, NaiveDateTime, TimeZone,
+    Timelike,
 };
 use icalendar::{Calendar, CalendarDateTime, Component, DatePerhapsTime, EventLike, EventStatus};
 use serde::{Deserialize, Serialize};
@@ -525,16 +526,10 @@ fn events_from_feed(
         let tz = rules.get_dt_start().timezone();
         let after_day = window_start - ChronoDuration::days(overlap_back);
         let before_day = window_end + ChronoDuration::days(1);
-        let Some(after) = tz
-            .with_ymd_and_hms(after_day.year(), after_day.month(), after_day.day(), 0, 0, 0)
-            .single()
-        else {
+        let Some(after) = zoned_day_bound(&tz, after_day, Widen::Backwards) else {
             continue;
         };
-        let Some(before) = tz
-            .with_ymd_and_hms(before_day.year(), before_day.month(), before_day.day(), 0, 0, 0)
-            .single()
-        else {
+        let Some(before) = zoned_day_bound(&tz, before_day, Widen::Forwards) else {
             continue;
         };
         let result =
@@ -591,6 +586,39 @@ fn events_from_feed(
         }
     }
     Ok(out)
+}
+
+/// Which way a window bound is allowed to move when the zone has no such local
+/// time to give.
+#[derive(Clone, Copy)]
+enum Widen {
+    Backwards,
+    Forwards,
+}
+
+/// Local midnight on `day`, read in the feed's own zone.
+///
+/// Midnight is not a time every zone has on every date: one that springs
+/// forward at 00:00 skips it outright, and one that falls back has two of it.
+/// These bounds only pre-filter an expansion that `occupies_window` trims
+/// exactly afterwards, so a midnight that will not resolve has to WIDEN the
+/// window — refusing it drops the whole event for the whole expansion span,
+/// which is a year at a time.
+fn zoned_day_bound<Z: TimeZone>(tz: &Z, day: NaiveDate, widen: Widen) -> Option<DateTime<Z>> {
+    let midnight = day.and_hms_opt(0, 0, 0)?;
+    // A skipped midnight is usually a gap of an hour or two, so the first step
+    // out of it already lands on a real local time. It is not always: a zone
+    // that moves across the date line skips a whole calendar DAY (Pacific/Apia
+    // has no 2011-12-30 at all), and every hour of that day answers None. The
+    // walk has to be able to clear one, so the bound is two days rather than
+    // half of one — a bound, not an expectation.
+    (0..=48i64).find_map(|hours| {
+        let step = ChronoDuration::hours(hours);
+        match widen {
+            Widen::Backwards => tz.from_local_datetime(&(midnight - step)).earliest(),
+            Widen::Forwards => tz.from_local_datetime(&(midnight + step)).latest(),
+        }
+    })
 }
 
 /// The span a window is expanded over: whole calendar years, so paging month
@@ -800,6 +828,68 @@ mod tests {
         assert_eq!(weekly[0].start_time.as_deref(), Some(start.as_str()));
         assert_eq!(weekly[0].end_time.as_deref(), Some(end.as_str()));
         assert_eq!(weekly[0].location.as_deref(), Some("Studio"));
+    }
+
+    /// A zone that springs forward at 00:00 has dates with no local midnight at
+    /// all, and the expansion bounds are read at midnight. A bound that would
+    /// not resolve used to drop the whole event for the whole expansion span —
+    /// a year at a time — so it widens instead.
+    #[test]
+    fn a_feed_zone_without_a_local_midnight_keeps_its_events() {
+        // Havana springs forward at 00:00 on 2026-03-08: that date has no
+        // 00:00, and it is exactly where the lower bound lands here.
+        let raw = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:daily\r\nDTSTART;TZID=America/Havana:20260310T090000\r\nDTEND;TZID=America/Havana:20260310T100000\r\nRRULE:FREQ=DAILY;COUNT=3\r\nSUMMARY:Havana standup\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:earlier\r\nDTSTART;TZID=America/Havana:20260305T090000\r\nDTEND;TZID=America/Havana:20260305T100000\r\nSUMMARY:Days before the window\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+        let events = events_from_feed(
+            &feed(),
+            raw,
+            NaiveDate::from_ymd_opt(2026, 3, 8).unwrap(),
+            NaiveDate::from_ymd_opt(2026, 3, 14).unwrap(),
+        )
+        .unwrap();
+        let standups = events.iter().filter(|e| e.title == "Havana standup").count();
+        assert_eq!(standups, 3, "the skipped midnight dropped the event: {events:?}");
+        // The widened bound is a pre-filter, not the window itself: what sits
+        // days outside still never reaches the grid.
+        assert!(
+            !events.iter().any(|e| e.title == "Days before the window"),
+            "widening the bound let an event outside the window through"
+        );
+    }
+
+    /// The other half of the same refusal: a zone falling back through midnight
+    /// has two of them, which is no more a single local time than none is.
+    #[test]
+    fn a_feed_zone_with_a_doubled_local_midnight_keeps_its_events() {
+        // Havana falls back at 01:00 on 2026-11-01, so local 00:00 happens
+        // twice that day — and that is where the upper bound lands here.
+        let raw = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:daily\r\nDTSTART;TZID=America/Havana:20261028T090000\r\nDTEND;TZID=America/Havana:20261028T100000\r\nRRULE:FREQ=DAILY;COUNT=2\r\nSUMMARY:Havana standup\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+        let events = events_from_feed(
+            &feed(),
+            raw,
+            NaiveDate::from_ymd_opt(2026, 10, 25).unwrap(),
+            NaiveDate::from_ymd_opt(2026, 10, 31).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(events.len(), 2, "the doubled midnight dropped the event: {events:?}");
+    }
+
+    /// The largest version of the same hole: a zone that crossed the date line
+    /// has a calendar day that never happened, so every hour of it answers
+    /// "no such local time" and an hours-long walk would still come back
+    /// empty-handed. Pacific/Apia skipped 2011-12-30 outright.
+    #[test]
+    fn a_feed_zone_missing_a_whole_local_day_keeps_its_events() {
+        // The upper bound is `window_end + 1 day`, so ending the window on the
+        // 29th lands it squarely on the day that does not exist.
+        let raw = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:daily\r\nDTSTART;TZID=Pacific/Apia:20111227T090000\r\nDTEND;TZID=Pacific/Apia:20111227T100000\r\nRRULE:FREQ=DAILY;COUNT=2\r\nSUMMARY:Apia standup\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+        let events = events_from_feed(
+            &feed(),
+            raw,
+            NaiveDate::from_ymd_opt(2011, 12, 25).unwrap(),
+            NaiveDate::from_ymd_opt(2011, 12, 29).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(events.len(), 2, "the missing calendar day dropped the event: {events:?}");
     }
 
     #[test]

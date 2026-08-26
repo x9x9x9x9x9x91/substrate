@@ -62,6 +62,108 @@ fn safe_rel(rel: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Recipes the repo keeps private are marked `"private": true` in
+/// `cookbook/index.json`, and this is the door that acts on the flag.
+///
+/// A debug build serves everything — it is the private tree, and the recipes
+/// are the point of working on them. Any other build serves only the public
+/// set, and does so at every door rather than by hoping the bundle was pruned:
+/// `bundle.resources` stages `cookbook/` wholesale, so a build that stripped
+/// the folder would still be one edited resource line away from shipping it.
+///
+/// The answer is a `cfg!`, but nothing below reads it directly: each door
+/// takes it as a plain `serve_private` argument and the commands pass this in,
+/// because a cargo test build is a debug build and the release shape would
+/// otherwise be the one shape no test could ever run.
+fn serves_private_recipes() -> bool {
+    cfg!(debug_assertions)
+}
+
+fn is_private(recipe: &serde_json::Value) -> bool {
+    recipe.get("private").and_then(serde_json::Value::as_bool).unwrap_or(false)
+}
+
+/// The index minus its private recipes. Pure, so the filter is testable
+/// without a build of either shape.
+///
+/// An index that carries no private recipes comes back with the same recipes
+/// it arrived with — which is the public mirror's cookbook, where the entries
+/// were already dropped from the snapshot.
+pub(crate) fn public_index(json: &str) -> Result<String, String> {
+    let mut doc: serde_json::Value = serde_json::from_str(json).map_err(|e| e.to_string())?;
+    if let Some(recipes) = doc.get_mut("recipes").and_then(serde_json::Value::as_array_mut) {
+        recipes.retain(|r| !is_private(r));
+    }
+    serde_json::to_string(&doc).map_err(|e| e.to_string())
+}
+
+/// `(id, shot)` of every recipe a build of this shape serves — everything in
+/// the index when `serve_private`, the public entries otherwise.
+pub(crate) fn served_entries(
+    json: &str,
+    serve_private: bool,
+) -> Result<Vec<(String, String)>, String> {
+    let doc: serde_json::Value = serde_json::from_str(json).map_err(|e| e.to_string())?;
+    let recipes = doc.get("recipes").and_then(serde_json::Value::as_array);
+    let field = |r: &serde_json::Value, k: &str| {
+        r.get(k).and_then(serde_json::Value::as_str).unwrap_or_default().to_string()
+    };
+    Ok(recipes
+        .map(|list| {
+            list.iter()
+                .filter(|r| serve_private || !is_private(r))
+                .map(|r| (field(r, "id"), field(r, "shot")))
+                .collect()
+        })
+        .unwrap_or_default())
+}
+
+/// The shot door, as an allowlist: a build that does not serve the private
+/// recipes reads exactly the `shot` paths the served entries declare, and
+/// nothing else under the cookbook folder.
+///
+/// A deny list was the wrong shape here. `safe_rel` keeps a path inside the
+/// cookbook, so denying the withheld recipes' own shot strings still left
+/// every other file readable — a private recipe's markdown
+/// (`sync/Dashboards/Sync.md`), `index.json` itself, and on a case-insensitive
+/// filesystem the same shot under a different case (`shots/Sync.png`), which
+/// no byte-exact deny can catch. An allowlist answers all three the same way:
+/// a path that is not a served recipe's declared shot is simply not there.
+///
+/// The index is the same file `cookbook_index` reads, so the pane and a caller
+/// invoking the command straight get one answer; an index that will not parse
+/// refuses rather than serving, because the alternative is a build deciding
+/// nothing is private on a bad read.
+pub(crate) fn allow_shot(json: &str, rel: &str, serve_private: bool) -> Result<(), String> {
+    if serve_private {
+        return Ok(());
+    }
+    let served = served_entries(json, false)?;
+    if served.iter().any(|(_, shot)| !shot.is_empty() && shot == rel) {
+        return Ok(());
+    }
+    Err(format!("unknown recipe shot: {rel}"))
+}
+
+/// The install door, same allowlist shape: a non-private-serving build copies
+/// files out of a served recipe's folder or none at all. `safe_id` alone let
+/// any lowercase folder name through — `shots` is not a recipe id, so a deny
+/// list of private ids never saw it, and the copy read the fenced screenshots.
+pub(crate) fn allow_install(json: &str, id: &str, serve_private: bool) -> Result<(), String> {
+    if serve_private {
+        return Ok(());
+    }
+    let served = served_entries(json, false)?;
+    if served.iter().any(|(rid, _)| !rid.is_empty() && rid == id) {
+        return Ok(());
+    }
+    Err(format!("unknown recipe: {id}"))
+}
+
+fn index_json(src: &std::path::Path) -> Result<String, String> {
+    std::fs::read_to_string(src.join("index.json")).map_err(|e| e.to_string())
+}
+
 /// The raw `index.json`, handed to the frontend to parse — the shape lives in
 /// TypeScript (`src/lib/cookbook.ts`) and the gate that pins it is
 /// `scripts/cookbook.test.ts`, so re-declaring it in Rust would just be a
@@ -69,7 +171,11 @@ fn safe_rel(rel: &str) -> Result<(), String> {
 #[tauri::command]
 pub(crate) fn cookbook_index(app: tauri::AppHandle) -> Result<String, String> {
     let src = source_or_err(&app)?;
-    std::fs::read_to_string(src.join("index.json")).map_err(|e| e.to_string())
+    let json = index_json(&src)?;
+    if serves_private_recipes() {
+        return Ok(json);
+    }
+    public_index(&json)
 }
 
 /// A recipe's screenshot, base64 — same shape `vault_read_asset` hands back,
@@ -80,6 +186,7 @@ pub(crate) fn cookbook_shot(app: tauri::AppHandle, rel: String) -> Result<String
     use base64::Engine as _;
     safe_rel(&rel)?;
     let src = source_or_err(&app)?;
+    allow_shot(&index_json(&src)?, &rel, serves_private_recipes())?;
     let bytes = std::fs::read(src.join(&rel)).map_err(|e| e.to_string())?;
     Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
 }
@@ -215,6 +322,7 @@ pub(crate) fn cookbook_install(
     files: Vec<String>,
 ) -> Result<InstallResult, String> {
     let cookbook = source_or_err(&app)?;
+    allow_install(&index_json(&cookbook)?, &id, serves_private_recipes())?;
     let root = state.0.lock().unwrap().root.clone();
     let out = install_recipe(&cookbook, &root, &id, &files)?;
     dirty.mark();
@@ -241,6 +349,91 @@ mod tests {
         std::fs::write(dir.join("demo/Food Log.md"), "---\ntype: sheet\n---\nlog\n").unwrap();
         dir
     }
+
+    const INDEX_FIXTURE: &str = r#"{
+      "version": 1,
+      "recipes": [
+        { "id": "food-log", "shot": "shots/food-log.png" },
+        { "id": "sync", "private": true, "shot": "shots/sync.png" },
+        { "id": "jobs", "private": true, "shot": "shots/jobs.png" }
+      ]
+    }"#;
+
+    fn served_ids(json: &str) -> Vec<String> {
+        let doc: serde_json::Value = serde_json::from_str(json).unwrap();
+        doc["recipes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["id"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn a_public_index_keeps_only_the_recipes_that_are_not_private() {
+        let out = public_index(INDEX_FIXTURE).unwrap();
+        assert_eq!(served_ids(&out), vec!["food-log".to_string()]);
+        assert!(!out.contains("shots/sync.png"), "no trace of a withheld recipe: {out}");
+    }
+
+    #[test]
+    fn an_index_with_nothing_private_survives_the_filter_whole() {
+        // the public mirror's cookbook: the entries were dropped from the
+        // snapshot, so the filter has nothing left to do
+        let mirror = r#"{ "version": 1, "recipes": [ { "id": "food-log" }, { "id": "tax" } ] }"#;
+        assert_eq!(served_ids(&public_index(mirror).unwrap()), vec!["food-log", "tax"]);
+    }
+
+    #[test]
+    fn served_entries_names_each_recipe_of_this_builds_shape_and_its_shot() {
+        assert_eq!(
+            served_entries(INDEX_FIXTURE, false).unwrap(),
+            vec![("food-log".to_string(), "shots/food-log.png".to_string())]
+        );
+        assert_eq!(
+            served_entries(INDEX_FIXTURE, true).unwrap().len(),
+            3,
+            "a build that serves the private recipes serves all three"
+        );
+    }
+
+    #[test]
+    fn an_unreadable_index_errors_rather_than_reporting_nothing_private() {
+        assert!(public_index("{ not json").is_err());
+        assert!(served_entries("{ not json", false).is_err());
+    }
+
+    /// The attack calls, run at the shape a stranger downloads: `serve_private`
+    /// false is what `serves_private_recipes()` answers in a release build.
+    #[test]
+    fn a_release_shot_door_serves_only_the_public_recipes_own_shots() {
+        // a fenced recipe's markdown — under the cookbook, so `safe_rel` likes
+        // it, and it matched no private `shot` string when this was a deny list
+        assert!(allow_shot(INDEX_FIXTURE, "sync/Dashboards/Sync.md", false).is_err());
+        // the same fenced screenshot in another case: a case-insensitive
+        // filesystem opens it, a byte-exact deny never saw it
+        assert!(allow_shot(INDEX_FIXTURE, "shots/Sync.png", false).is_err());
+        assert!(allow_shot(INDEX_FIXTURE, "shots/sync.png", false).is_err());
+        // and the whole index, private entries and all, through the shot door
+        assert!(allow_shot(INDEX_FIXTURE, "index.json", false).is_err());
+
+        assert!(allow_shot(INDEX_FIXTURE, "shots/food-log.png", false).is_ok(), "public shot");
+        assert!(allow_shot(INDEX_FIXTURE, "shots/sync.png", true).is_ok(), "debug serves the lot");
+        assert!(allow_shot("{ not json", "shots/food-log.png", false).is_err(), "bad read refuses");
+    }
+
+    #[test]
+    fn a_release_install_door_copies_only_out_of_a_public_recipes_folder() {
+        // `shots` passes `safe_id` and is not a recipe id, so a deny list of
+        // private ids let the install copy the fenced screenshots into a vault
+        assert!(allow_install(INDEX_FIXTURE, "shots", false).is_err());
+        assert!(allow_install(INDEX_FIXTURE, "sync", false).is_err());
+
+        assert!(allow_install(INDEX_FIXTURE, "food-log", false).is_ok(), "public recipe");
+        assert!(allow_install(INDEX_FIXTURE, "sync", true).is_ok(), "debug serves the lot");
+        assert!(allow_install("{ not json", "food-log", false).is_err(), "bad read refuses");
+    }
+
 
     #[test]
     fn a_free_path_is_used_as_is() {

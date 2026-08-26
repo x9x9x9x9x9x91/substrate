@@ -2451,6 +2451,9 @@ type MockTraceEntry = {
   /** create-time props, as the caller passed them — what a spec asserting
       "the note was filed WITH its context" (or without) has to see */
   props?: [string, string][];
+  /** a capture's page-title flag, as the caller passed it — the seam a spec
+      asserting "the switch reached the command" has to see */
+  enrich?: boolean;
   doneMs?: number;
   ok?: boolean;
   err?: string;
@@ -2601,6 +2604,16 @@ function writtenPathsFor(
     case "vault_delete":
       // the file left this path; the watcher sees the removal there
       return path ? [path] : [];
+    case "vault_delete_many": {
+      // same removal, once per selected note. The result is one entry per
+      // input path in order, so a partial failure names only what really
+      // moved; the .trash/ destination is a dot-path the watcher ignores
+      const asked = Array.isArray(args?.paths) ? (args.paths as unknown[]) : [];
+      const per = Array.isArray(result) ? (result as { Ok?: unknown }[]) : [];
+      return asked.filter(
+        (p, i): p is string => typeof p === "string" && per[i]?.Ok !== undefined
+      );
+    }
     case "cookbook_install": {
       // every file the recipe wrote — post-rename paths, which is what the
       // watcher will see
@@ -2748,6 +2761,7 @@ function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<unknow
     mockCmdTrace &&
     (/^vault_(write_body|rename|create|read)$/.test(cmd) ||
       cmd === "fx_rates" ||
+      cmd === "url_capture" ||
       cmd === "file_open" ||
       cmd === "file_reveal")
   ) {
@@ -2759,6 +2773,7 @@ function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<unknow
         typeof args?.body === "string" ? (args.body as string).slice(-40) : undefined,
       expectedNull: args && "expectedBody" in args ? args.expectedBody === null : undefined,
       props: Array.isArray(args?.props) ? (args.props as [string, string][]) : undefined,
+      enrich: typeof args?.enrich === "boolean" ? args.enrich : undefined,
     };
     mockCmdTrace.push(entry);
     return mockInvokeTraced(cmd, args, entry);

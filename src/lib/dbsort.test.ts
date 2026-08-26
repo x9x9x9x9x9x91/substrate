@@ -94,6 +94,23 @@ test("sortCmpFor: a date key sorts chronologically across both separators (SUB-5
   );
 });
 
+test("sortCmpFor: a date key keeps undated cells last in both directions", () => {
+  const schema: Record<string, PropSchema> = { due: { options: [], kind: "date" } };
+  const rows = () => [
+    note("junk", { due: "soonish" }),
+    note("early", { due: "2026-08-01" }),
+    note("blank", {}),
+    note("late", { due: "2026-09-01" }),
+    note("alsojunk", { due: "TBD" }),
+  ];
+  const asc = sortCmpFor([{ key: "due", dir: 1 }], schema)!;
+  assert.deepEqual(titles(asc, rows()), ["early", "late", "junk", "alsojunk", "blank"]);
+  // "newest first" must not lead with cells that hold no date: dir flips the
+  // order WITHIN the dated class, never the classification itself
+  const desc = sortCmpFor([{ key: "due", dir: -1 }], schema)!;
+  assert.deepEqual(titles(desc, rows()), ["late", "early", "alsojunk", "junk", "blank"]);
+});
+
 test("sortCmpFor: a date range sorts by its start, never its end (SUB-596)", () => {
   const schema: Record<string, PropSchema> = { due: { options: [], kind: "date" } };
   const cmp = sortCmpFor([{ key: "due", dir: 1 }], schema)!;

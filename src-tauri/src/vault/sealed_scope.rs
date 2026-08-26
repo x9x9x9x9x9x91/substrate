@@ -1005,6 +1005,138 @@ mod tests {
         assert!(created.sealed);
     }
 
+    /// The seal has to survive a folder move whose BOOKKEEPING fails, not just
+    /// a happy one. The marker rides inside the folder, but the confirmation
+    /// that makes it enforceable lives in `.vault/seal-trust.json` and is
+    /// keyed on the exact path — so if a sidebar or views write refuses
+    /// between the move and the retarget, the marker sits at the new path
+    /// unconfirmed, enforcement goes quiet, and every note written into the
+    /// folder afterwards lands in the clear. Worse, the stale entry is then
+    /// pruned as an orphan, so re-running the move cannot repair it.
+    #[test]
+    fn a_sealed_folder_keeps_its_confirmation_when_the_config_writes_refuse() {
+        for lane in ["rename", "move"] {
+            let (mut engine, root) =
+                crate::vault::testutil::temp_vault(&format!("sealed-move-refuse-{lane}"));
+            engine.create_folder("Private").unwrap();
+            // give the folder the cosmetic records whose writes come between
+            // the move and the retarget — without them there is nothing for a
+            // refused config write to fail on
+            engine
+                .set_folder_icon(
+                    "Private",
+                    Some(crate::vault::DbIcon {
+                        glyph: Some("lock".into()),
+                        emoji: None,
+                        tint: None,
+                    }),
+                )
+                .unwrap();
+            let mut order = engine.sidebar_order();
+            order.folders = vec!["Private".into()];
+            engine.set_sidebar_order(&order).unwrap();
+            engine.prepare_seal_scope("Private", Some("correct horse")).unwrap();
+            engine.finish_seal_scope().unwrap();
+
+            crate::vault::testutil::refuse_config_writes(&root);
+            assert!(
+                engine.set_folder_icon("Private", None).is_err(),
+                "{lane}: the config writes really do refuse now"
+            );
+            let (landed, moved) = match lane {
+                "rename" => ("Secrets".to_string(), engine.rename_folder("Private", "Secrets")),
+                _ => {
+                    fs::create_dir_all(root.join("Areas")).unwrap();
+                    ("Areas/Private".to_string(), engine.move_folder("Private", "Areas"))
+                }
+            };
+            assert!(root.join(&landed).join(SCOPE_MARKER).is_file(), "{lane}: marker moved");
+
+            // asserted before the call's own result, because it holds either
+            // way: the directory is already at its new path, so the seal has
+            // to be too, whatever the bookkeeping did afterwards
+            let scopes = engine.sealed_scopes();
+            let seal = scopes
+                .iter()
+                .find(|s| s.path == landed)
+                .unwrap_or_else(|| panic!("{lane}: no seal at {landed}, got {scopes:?}"));
+            assert!(seal.confirmed, "{lane}: the confirmation followed the folder");
+            assert!(engine.note_in_sealed_scope(&format!("{landed}/New.md")).unwrap());
+            let created =
+                engine.create_full("After move", &landed, None, None, Some("needle")).unwrap();
+            assert!(created.sealed, "{lane}: a new note in the folder is still sealed");
+            // and the move itself reports what it did: the directory had
+            // already landed before any of those writes ran, so a refused one
+            // must not come back as a failed move
+            assert_eq!(moved.as_deref(), Ok(landed.as_str()), "{lane}");
+            let _ = fs::remove_dir_all(&root);
+        }
+    }
+
+    /// And when the retarget itself cannot land, the move goes back.
+    ///
+    /// Ordering alone leaves one posture unfixed: the directory has already
+    /// moved when the trust write fails, so returning that error tells the
+    /// caller "nothing happened" about a folder that did move — and the seal
+    /// it outran governs nothing at its new path. Undoing the rename is what
+    /// makes the error true.
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_whose_seal_cannot_follow_is_moved_back() {
+        use std::os::unix::fs::PermissionsExt;
+        for lane in ["rename", "move"] {
+            let (mut engine, root) =
+                crate::vault::testutil::temp_vault(&format!("sealed-move-undo-{lane}"));
+            engine.create_folder("Private").unwrap();
+            engine.prepare_seal_scope("Private", Some("correct horse")).unwrap();
+            engine.finish_seal_scope().unwrap();
+            let sealed_before =
+                engine.create_full("Before", "Private", None, None, Some("needle")).unwrap();
+            assert!(sealed_before.sealed);
+
+            // the trust file stays readable; only writing a new one fails
+            let vault_dir = root.join(".vault");
+            let opened = fs::metadata(&vault_dir).unwrap().permissions().mode();
+            fs::set_permissions(&vault_dir, fs::Permissions::from_mode(0o555)).unwrap();
+            let writable = fs::write(vault_dir.join("probe"), "x").is_ok();
+            if writable {
+                // running as a user the mode bits do not bind (root in a
+                // container); the wedge cannot be built, so prove nothing
+                let _ = fs::remove_file(vault_dir.join("probe"));
+                fs::set_permissions(&vault_dir, fs::Permissions::from_mode(opened)).unwrap();
+                let _ = fs::remove_dir_all(&root);
+                continue;
+            }
+
+            let moved = match lane {
+                "rename" => engine.rename_folder("Private", "Secrets"),
+                _ => {
+                    fs::create_dir_all(root.join("Areas")).unwrap();
+                    engine.move_folder("Private", "Areas")
+                }
+            };
+            fs::set_permissions(&vault_dir, fs::Permissions::from_mode(opened)).unwrap();
+
+            let err = moved.unwrap_err();
+            assert!(err.contains("left where it was"), "{lane}: says what it did: {err}");
+            assert!(!root.join("Secrets").exists(), "{lane}: the folder did not stay moved");
+            assert!(!root.join("Areas/Private").exists(), "{lane}");
+            assert!(root.join("Private").join(SCOPE_MARKER).is_file(), "{lane}: back with its marker");
+
+            // and the seal it never left is still enforced where it always was
+            let scopes = engine.sealed_scopes();
+            let seal = scopes
+                .iter()
+                .find(|s| s.path == "Private")
+                .unwrap_or_else(|| panic!("{lane}: no seal at Private, got {scopes:?}"));
+            assert!(seal.confirmed, "{lane}: confirmation intact");
+            let after =
+                engine.create_full("After", "Private", None, None, Some("needle two")).unwrap();
+            assert!(after.sealed, "{lane}: notes still land sealed");
+            let _ = fs::remove_dir_all(&root);
+        }
+    }
+
     /// The read-only membership question, whose answer decides whose
     /// plaintext a history purge is allowed to remove. Every arm matters: a
     /// note outside the scope must answer false however sealed its neighbours

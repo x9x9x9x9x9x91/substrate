@@ -9,6 +9,7 @@
    changed the prop since, the undo is refused instead of clobbering it. */
 
 import { vaultNoteAddTags, vaultRead, vaultSetProp } from "./ipc.ts";
+import { noteOwnWrite } from "./ownwrites.ts";
 import { foldedPropKey } from "./types.ts";
 import type { NoteMeta, PropValue, SetPropResult } from "./types.ts";
 import type { UndoEntry, UndoScope } from "./undo.ts";
@@ -238,6 +239,22 @@ export async function setPropUndoableBulk(opts: {
     }
   }
   if (priors.length === 0) return out;
+  /* Re-stamp the whole burst at its end. The watcher coalesces the sweep into
+     ONE event ~300ms after its LAST write, so a sweep that runs longer than
+     the echo window had its early paths' stamps expire before their own echo
+     arrived: they read as somebody else's edit, and the invalidate that
+     followed staled the entry recorded just below — the next ⌘Z silently ran
+     an OLDER one. Stamp age has to be measured from the end of the burst.
+
+     Known trade, accepted: an external write to an early path DURING the sweep
+     is coalesced into the same event, and the tail stamp makes it read as ours,
+     so the invalidate it should have caused never fires. The stack is not the
+     last guard against that — every inverse below is a guarded write (`{ value }`
+     = "only if the prop is still what we wrote"), so an undo over a prop
+     somebody else moved is refused at apply time rather than clobbering it. A
+     narrower rule (own only while a stamp inside the window post-dates the
+     burst's start) would keep both, and belongs with the echo layer, not here. */
+  noteOwnWrite(out.ok.map((o) => o.path));
   const n = priors.length;
   record({
     label:
@@ -245,13 +262,19 @@ export async function setPropUndoableBulk(opts: {
     scope: opts.scope ?? "vault",
     at: Date.now(),
     paths: priors.map((p) => p.path),
+    // both directions replay the same sequential sweep, so both need the same
+    // tail stamp: a 50-note ⌘Z that outruns the echo window would otherwise
+    // read as external when its coalesced event lands and stale the very entry
+    // it just pushed onto the other side of the stack
     undo: async () => {
       for (const { path, key: actualKey, prior } of priors)
         await vaultSetProp(path, actualKey, prior, { value });
+      noteOwnWrite(priors.map((p) => p.path));
     },
     redo: async () => {
       for (const { path, key: actualKey, prior } of priors)
         await vaultSetProp(path, actualKey, value, { value: prior });
+      noteOwnWrite(priors.map((p) => p.path));
     },
   });
   return out;

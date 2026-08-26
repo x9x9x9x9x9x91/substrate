@@ -96,9 +96,18 @@ export function parseCalendarConfig(inner: string): CalendarConfig {
 
     A trailing space on the opener (```calendar␠) opens the fence like the
     bare form — the commonest hand-typed slip, and refusing it drew a board of
-    zero calendars over a note that plainly holds one. */
+    zero calendars over a note that plainly holds one.
+
+    The opener folds case (```Calendar opens a fence) because the hub's
+    renderMarkdown lowercases the lang before dispatching, so a mixed-case
+    opener draws a month grid there; matching only the lowercase spelling here
+    made the SAME note render a calendar on the hub and "nothing configured" in
+    the dashboard pane. The strip pass already follows the wider spelling
+    (CASE_FOLDING_BARE_LANGS in fences.ts), so a mixed-case fence's config is
+    out of the search index either way. Still bare-form: a tailed opener
+    (```Calendar month) is refused as before. */
 export function parseCalendarBlocks(body: string): CalendarBlock[] {
-  const re = /```calendar[ \t]*\r?\n([\s\S]*?)```/g;
+  const re = /```calendar[ \t]*\r?\n([\s\S]*?)```/gi;
   const out: CalendarBlock[] = [];
   let m: RegExpExecArray | null;
   while ((m = re.exec(body)) !== null) {
@@ -110,7 +119,7 @@ export function parseCalendarBlocks(body: string): CalendarBlock[] {
   }
   // an opener with no closing line matched nothing above, so the board would
   // have counted zero and said nothing; the fence gets a banner instead
-  if (hasUnclosedFence(body, "calendar"))
+  if (hasUnclosedFence(body, "calendar", true))
     out.push({ config: null, error: "This ```calendar fence is never closed — add a closing ``` line so the calendar can be read." });
 
   return out;

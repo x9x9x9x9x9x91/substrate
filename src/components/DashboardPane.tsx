@@ -264,6 +264,11 @@ export default function DashboardPane(props: DashboardPaneProps) {
   if (parsePages(props.meta.props).length > 0) {
     return (
       <WorkbookPane
+        // which page is open belongs to the note being read, like the body
+        // below: unkeyed, opening a second workbook landed on whatever tab
+        // index the first was left on — its third page, or its last one where
+        // the second workbook is shorter
+        key={props.meta.path}
         meta={props.meta}
         notes={props.notes}
         vaultEpoch={props.vaultEpoch}
@@ -274,6 +279,7 @@ export default function DashboardPane(props: DashboardPaneProps) {
         onFollowLink={props.onFollowLink}
         onOpenView={props.onOpenView}
         embedEdit={props.embedEdit}
+        onToast={props.onToast}
         stepRef={props.pageStepRef}
         renderDashboard={(m) => <DashboardBody key={m.path} {...props} meta={m} />}
       >

@@ -23,8 +23,9 @@ const collate = (a: string, b: string): number => sortCollator.compare(a, b);
     their raw text, and "T" lands after " ", so the earlier T-form fell BELOW a
     later space-form on the same day. Normalizing the separator makes the
     remaining comparison plain ISO order, which is already chronological.
-    Values that aren't date-shaped pass through untouched and keep collating
-    among themselves.
+    Values that aren't date-shaped pass through untouched; the comparator
+    classifies them out before ever asking for a normalized form, so they
+    collate among themselves behind every real date.
 
     A range sorts by its START: `splitDayTime` returns the opening
     endpoint, so a span and a single date on the same day sit together and the
@@ -40,7 +41,7 @@ function normalizeDateSortValue(v: string): string {
     `localeCompare` (numeric, base sensitivity). Returns null for an empty
     list, so callers can skip the sort pass entirely.
 
-    ONE POLICY for every typed key (number, rollup, select): a cell is first
+    ONE POLICY for every typed key (number, rollup, select, date): a cell is first
     CLASSIFIED — orderable by the column's own scheme, or not — and only then
     compared. `dir` flips comparisons WITHIN a class; it never flips the
     classification. So descending means "the orderable rows reversed", with
@@ -108,7 +109,12 @@ export function sortCmpFor(
       const order = optionOrder.get(key);
       let c: number;
       if (dateKeys.has(key)) {
-        c = collate(normalizeDateSortValue(av), normalizeDateSortValue(bv));
+        const ad = splitDayTime(av);
+        const bd = splitDayTime(bv);
+        if (ad && bd) c = collate(normalizeDateSortValue(av), normalizeDateSortValue(bv));
+        else if (ad) return -1; // dates before cells that aren't dates
+        else if (bd) return 1;
+        else c = collate(av, bv);
       } else if (numericKeys.has(key)) {
         const an = parseStrictNumber(av);
         const bn = parseStrictNumber(bv);

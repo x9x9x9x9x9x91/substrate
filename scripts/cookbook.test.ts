@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 // machine-readable index agents read) against what is actually on disk, and
 // keeps the landing page's cookbook section honest.
 
+
 const COOKBOOK = fileURLToPath(new URL("../cookbook", import.meta.url));
 const VAULT = fileURLToPath(new URL("../examples/vault", import.meta.url));
 
@@ -25,6 +26,8 @@ interface Recipe {
   expects: { sheets: string[]; databases: string[] };
   files: string[];
   shot: string;
+  /** withheld from every non-debug build (see the cookbook commands in src-tauri) */
+  private?: boolean;
 }
 
 const index = JSON.parse(readFileSync(join(COOKBOOK, "index.json"), "utf8")) as {
@@ -126,3 +129,4 @@ test("the landing page's cookbook section exists and points at the repo folder",
     "site/shot-cookbook.png drifted from cookbook/shots/food-log.png — re-copy"
   );
 });
+

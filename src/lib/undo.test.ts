@@ -232,6 +232,38 @@ test("9b: bulk writes and undo keep each note's existing property casing", async
   assert.equal((await vaultRead(lower)).props.status, "todo");
 });
 
+/* The stack is not the last guard against a clobber, and this is why the
+   bulk sweep's tail stamp can afford to mask an external write that landed
+   mid-sweep: every inverse is a GUARDED write ("only if the prop is still what
+   we wrote"). So an undo over a prop somebody else moved is refused when it is
+   applied, whether or not the echo layer marked the entry stale. */
+test("9c: an undo whose prop moved under it is refused at apply time", async () => {
+  const a = await freshNote("Undo Guard A");
+  const b = await freshNote("Undo Guard B");
+  let recorded: Omit<import("./undo.ts").UndoEntry, "id"> | null = null;
+  await setPropUndoableBulk({
+    paths: [a, b],
+    key: "status",
+    value: "done",
+    record: (e) => (recorded = e),
+  });
+
+  // an editor that isn't us moves the prop on one of the swept notes — the
+  // case the sweep-end stamp can hide from the invalidate pass
+  (globalThis as { __mockEditProp?: (p: string, k: string, v: unknown) => void }).__mockEditProp?.(
+    a,
+    "status",
+    "in review"
+  );
+
+  await assert.rejects(() => recorded!.undo(), /changed|conflict|expected/i);
+  assert.equal(
+    (await vaultRead(a)).props.status,
+    "in review",
+    "the undo wrote over an edit it did not make"
+  );
+});
+
 test("10: a multi-key write that fails halfway is still undoable for the keys that landed", async () => {
   const path = await freshNote("Undo Multi Partial");
   await vaultSetProp(path, "repeat", "weekly");

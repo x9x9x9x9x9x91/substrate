@@ -173,6 +173,12 @@ pub struct FmState {
 /// search index. The regex follows
 /// the app parsers' semantics (```<lang>\n anywhere … next ``` or EOF);
 /// user code fences (```ts, ```python foo, …) stay searchable, tail and all.
+/// One lang pair is narrower than "anywhere" on the parser side: csv and
+/// formulas open only at the start of a line (find_fence in vault::sheetcsv,
+/// and its TS twin), so an indented ```csv block is prose to the sheet while
+/// this pattern still strips it. The strip stays the wider of the two on
+/// purpose - stripping a block nothing renders costs a little config
+/// searchability, while the reverse leaks machine content into the index.
 /// The LIVE-DISPATCH languages (view, chart, progress, cards) also take an info-string
 /// tail (```view table, ```chart compact, a trailing space): the editor and
 /// hub dispatch on the FIRST WORD of the info string, so a tailed opener is
@@ -726,11 +732,37 @@ fn parse_props(fm: Option<&str>) -> serde_json::Map<String, serde_json::Value> {
     }
 }
 
+/// One matched pair of surrounding quotes off a raw frontmatter key. YAML
+/// resolves `foo:` and `"foo":` to the same key, so a scan that compares the
+/// raw text counts them as two — and the duplicate the scan exists to catch
+/// walks straight through. Anything else is returned untouched: a key with
+/// only one quote, or quotes inside it, is not the same key as its bare
+/// spelling.
+fn unquote_key(key: &str) -> &str {
+    let mut chars = key.chars();
+    match (chars.next(), chars.next_back()) {
+        // an empty inner slice would be dropped by the caller's is_empty skip,
+        // so `""` would stop counting as a key at all — leave it as raw text,
+        // where two of them still collide
+        (Some(open @ ('"' | '\'')), Some(close)) if close == open && !chars.as_str().is_empty() => {
+            chars.as_str()
+        }
+        _ => key,
+    }
+}
+
 /// Duplicate top-level keys in a raw frontmatter block: serde_yaml accepts
 /// them last-wins, so the next prop edit would persist the silent dedupe —
 /// the write lanes treat them as unparseable instead. Only
 /// column-0 `key:` lines count; indented lines and `- ` items belong to
 /// values, `#` starts a comment.
+///
+/// This reads text, not YAML, and the split is at the FIRST colon — so a
+/// quoted key that contains one is truncated, and `"a:b":` and `"a:c":` are
+/// reported as the same key. Erring toward the refusal is the safe direction
+/// here (the write is declined, nothing is lost), and the shapes a text scan
+/// cannot see at all — `? foo` explicit keys, flow maps, escape spellings —
+/// need the parser, not a wider regex.
 fn has_duplicate_top_level_keys(fm: &str) -> bool {
     let mut seen = HashSet::new();
     for line in fm.lines() {
@@ -742,7 +774,7 @@ fn has_duplicate_top_level_keys(fm: &str) -> bool {
             continue;
         }
         let Some((key, _)) = line.split_once(':') else { continue };
-        let key = key.trim();
+        let key = unquote_key(key.trim());
         if key.is_empty() {
             continue;
         }
@@ -1050,6 +1082,52 @@ pub(crate) fn with_registry_lock<T>(path: &Path, body: impl FnOnce() -> T) -> T 
     body()
 }
 
+/// Whether two paths name the SAME file on disk.
+///
+/// A case-only rename (`demos` → `Demos`) points at a destination the source
+/// already occupies on a case-insensitive filesystem, so the collision guards
+/// have to let it through. Deciding that by comparing folded paths is what
+/// makes it dangerous: on a case-sensitive filesystem — the one every Linux
+/// and iOS build runs on — both spellings can exist as two different files,
+/// and `fs::rename` silently unlinks whichever one it lands on. Identity is
+/// the question the guard means to ask, so ask it.
+fn same_file(a: &Path, b: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        match (fs::metadata(a), fs::metadata(b)) {
+            (Ok(x), Ok(y)) => x.dev() == y.dev() && x.ino() == y.ino(),
+            _ => false,
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        match (a.canonicalize(), b.canonicalize()) {
+            (Ok(x), Ok(y)) => x == y,
+            _ => false,
+        }
+    }
+}
+
+/// Whether this exact path is a symlink, without following it.
+fn is_symlink(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink())
+}
+
+/// A real file at this exact path, not a symlink to one. `Path::is_file`
+/// follows links, so the watcher would index a planted link's TARGET as a note
+/// — content from outside the vault, under a name inside it — while the
+/// startup scan, which walks with links unfollowed, skips the same file.
+fn is_regular_file(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_file())
+}
+
+/// A real directory at this exact path, not a symlink to one — `Path::is_dir`
+/// follows links exactly as `is_file` does, one level up.
+fn is_regular_dir(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_dir())
+}
+
 pub(crate) fn write_atomic(path: &Path, bytes: impl AsRef<[u8]>) -> Result<(), String> {
     let dir = path.parent().ok_or("invalid path")?;
     let name = path.file_name().ok_or("invalid path")?.to_string_lossy();
@@ -1077,6 +1155,47 @@ pub(crate) fn write_atomic(path: &Path, bytes: impl AsRef<[u8]>) -> Result<(), S
     #[cfg(unix)]
     if let Ok(d) = fs::File::open(dir) {
         let _ = d.sync_all();
+    }
+    Ok(())
+}
+
+/// Refuse to write over a `.vault/` config file whose current bytes this build
+/// could not parse.
+///
+/// Every one of these files reads leniently — a parse failure comes back as an
+/// empty map, because a broken preferences file must never stop the app from
+/// opening. That leniency is exactly what makes the next write dangerous: the
+/// map handed here was built on top of "empty", so writing it persists the
+/// emptiness over content nobody could see. One truncated or half-synced file
+/// then costs every database its icon, home, kinds, options and rollups, on a
+/// write that reports success. The size of the outgoing map is no defence — a
+/// one-key write flattens the rest as thoroughly as an empty one does.
+///
+/// Only a file that is genuinely ABSENT counts as nothing to lose. A file that
+/// exists but will not open — no read permission, a bad sector, a mount that
+/// went away mid-session — holds content this build cannot see, which is the
+/// same position a parse failure leaves it in; treating the failed read as
+/// "blank, go ahead" would flatten exactly the file it is protecting. Decoding
+/// is strict for the same reason: the readers use `read_to_string`, so a
+/// single invalid byte makes the whole file read as empty over there, while a
+/// lossy decode here can still parse cleanly around it and wave the write
+/// through.
+///
+/// Absent, blank, and cleanly-parsing files write as normal; anything this
+/// build cannot read is left exactly as found for the user to repair.
+fn refuse_unreadable_overwrite<T: serde::de::DeserializeOwned>(
+    abs: &Path,
+    rel: &str,
+) -> Result<(), String> {
+    let refuse = || Err(format!("refusing to overwrite an unreadable {rel}"));
+    let raw = match fs::read(abs) {
+        Ok(raw) => raw,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(_) => return refuse(),
+    };
+    let Ok(text) = String::from_utf8(raw) else { return refuse() };
+    if !text.trim().is_empty() && serde_json::from_str::<T>(&text).is_err() {
+        return refuse();
     }
     Ok(())
 }
@@ -1117,6 +1236,11 @@ fn walk_md_files(dir: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     for entry in WalkDir::new(dir)
         .follow_links(false)
+        // `follow_links(false)` covers what the walk FINDS; the walk's own
+        // starting point is a separate switch that defaults to following. A
+        // reindex aimed at a symlinked folder would otherwise walk straight
+        // through it and index whatever it points at.
+        .follow_root_links(false)
         .into_iter()
         .filter_entry(|e| e.depth() == 0 || !e.file_name().to_string_lossy().starts_with('.'))
         .flatten()
@@ -1838,9 +1962,9 @@ impl Engine {
                 }
                 continue;
             }
-            if path.is_dir() {
+            if is_regular_dir(path) {
                 touched.extend(self.reindex_dir_detailed(path));
-            } else if path.is_file() {
+            } else if is_regular_file(path) {
                 if path.extension().map(|x| x.eq_ignore_ascii_case("md")).unwrap_or(false) {
                     let known = self.notes.contains_key(&rel);
                     self.reindex_one(&rel);
@@ -1986,9 +2110,36 @@ impl Engine {
         Err("path escapes the vault".into())
     }
 
+    /// Escape check for READ paths. `abs()` catches only textual escapes, so a
+    /// symlink planted in the vault still resolves outside it — and every
+    /// write door asked `ensure_inside_root` while no read door did, which
+    /// made reading the one direction the boundary did not hold.
+    ///
+    /// The entry itself is asked about too, not just its ancestors: a
+    /// symlinked note is refused rather than read through. That is already the
+    /// startup scan's stance — `walk_md_files` walks with links unfollowed, so
+    /// such a file is not a note there — and the watcher now agrees.
+    fn ensure_read_inside_root(&self, abs: &Path) -> Result<(), String> {
+        if is_symlink(abs) {
+            return Err("path escapes the vault".into());
+        }
+        self.ensure_inside_root(abs)
+    }
+
+    /// The one door that turns bytes on disk into an index row, which is why
+    /// the containment question is asked HERE and not only upstream. Every
+    /// caller's own check looks at the final path component, so a symlinked
+    /// ANCESTOR walks past all of them — and what lands in `notes`, in the
+    /// excerpt, and in the search rows is then a file from outside the vault
+    /// wearing a name inside it. A symlink that stays under the root is
+    /// somebody's own shortcut and still indexes; only the ones that leave
+    /// are refused.
     fn index_file(&mut self, path: &Path) {
         let rel = self.rel(path);
         if hidden_rel(&rel) {
+            return;
+        }
+        if self.ensure_read_inside_root(path).is_err() {
             return;
         }
         match self.enforce_sealed_scope(&rel) {
@@ -2091,6 +2242,7 @@ impl Engine {
     }
 
     fn read_note_bytes(&self, rel: &str, abs: &Path) -> Result<Vec<u8>, String> {
+        self.ensure_read_inside_root(abs)?;
         let bytes = fs::read(abs).map_err(|e| e.to_string())?;
         if !sealed::is_sealed(&bytes) {
             return Ok(bytes);
@@ -2198,7 +2350,7 @@ impl Engine {
     fn reindex_one(&mut self, rel: &str) {
         self.deindex_note(rel);
         if let Ok(abs) = self.abs(rel) {
-            if abs.is_file() {
+            if is_regular_file(&abs) {
                 self.index_file(&abs.clone());
             }
         }
@@ -2986,7 +3138,11 @@ impl Engine {
         };
         let old_abs = self.abs(rel)?;
         let new_abs = self.abs(&new_rel)?;
-        if new_rel.to_lowercase() != rel.to_lowercase() && new_abs.exists() {
+        // a case-only rename (meeting → Meeting) lands on the path the source
+        // already occupies where the filesystem folds case — allowed, because
+        // the destination IS the source. Where it does not fold, that same
+        // path can hold a DIFFERENT note, and fs::rename would unlink it.
+        if new_abs.exists() && !same_file(&old_abs, &new_abs) {
             return Err(format!("a note named “{}” already exists here", slug));
         }
 
@@ -3392,6 +3548,41 @@ impl Engine {
         self.notes.get(&new_rel).cloned().ok_or_else(|| "move failed".into())
     }
 
+    /// Carry a moved folder's seal confirmation to its new path, putting the
+    /// move back if that fails.
+    ///
+    /// The confirmation is keyed on the folder's exact path, so one left
+    /// behind confirms nothing: the marker that rode along inside the folder
+    /// governs nothing, every note written into it afterwards lands in the
+    /// clear, and the next listing prunes the stale entry as an orphan — which
+    /// makes re-running the move unable to repair it. Reporting an error over
+    /// a directory that HAS moved is its own kind of lie, so the move is
+    /// undone and the caller's reading of the error becomes true.
+    fn move_scope_trust_or_undo(
+        &self,
+        old_rel: &str,
+        new_rel: &str,
+        old_abs: &Path,
+        new_abs: &Path,
+    ) -> Result<(), String> {
+        let Err(why) = self.move_scope_trust(old_rel, Some(new_rel)) else { return Ok(()) };
+        match fs::rename(new_abs, old_abs) {
+            Ok(()) => Err(format!(
+                "could not move this folder's seal confirmation ({why}) — \
+                 the folder was left where it was"
+            )),
+            // Both halves failed, so the folder is somewhere its seal does not
+            // reach and nothing here can fix that. Say exactly what to do:
+            // an unconfirmed marker is silent, not loud, and a user who reads
+            // this as "it half worked" would write plaintext into it.
+            Err(undo) => Err(format!(
+                "this folder moved to “{new_rel}”, but its seal confirmation could not \
+                 follow ({why}) and the move could not be undone ({undo}) — confirm the \
+                 seal on the folder at its new path before writing notes into it"
+            )),
+        }
+    }
+
     /// Rename a folder in place; notes inside keep their filenames, so links
     /// survive. Only the affected subtree is reindexed. Returns the new path.
     pub fn rename_folder(&mut self, old_rel: &str, new_name: &str) -> Result<String, String> {
@@ -3423,24 +3614,34 @@ impl Engine {
             return Ok(old_rel.to_string());
         }
         let new_abs = self.abs(&new_rel)?;
-        // a case-only rename (demos → Demos) "collides" with itself on
-        // case-insensitive filesystems — same self-exception the note
-        // rename lane has
-        if new_rel.to_lowercase() != old_rel.to_lowercase() && new_abs.exists() {
+        // a case-only rename (demos → Demos) lands on the path the source
+        // already occupies where the filesystem folds case — the same
+        // same-file exception the note rename lane makes, and for the same
+        // reason: an empty directory at that path is one fs::rename replaces
+        if new_abs.exists() && !same_file(&old_abs, &new_abs) {
             return Err(format!("a folder named “{}” already exists here", name));
         }
         fs::rename(&old_abs, &new_abs).map_err(|e| e.to_string())?;
+        // The seal marker rides along inside the folder, so its confirmation
+        // has to as well — and it goes FIRST, directly behind the move that
+        // makes it necessary. A trust file still naming the old path leaves
+        // the marker unconfirmed, an unconfirmed marker enforces nothing, and
+        // every note written into the renamed folder then lands as plaintext.
+        // No bookkeeping write is allowed to cost the seal that, and if the
+        // retarget itself cannot land, the rename goes back rather than
+        // leaving a moved folder its seal no longer reaches.
+        self.move_scope_trust_or_undo(old_rel, &new_rel, &old_abs, &new_abs)?;
         self.relock_moved_sealed_subtree(old_rel, &new_rel);
         self.remove_subtree(old_rel);
         self.reindex_dir(&new_abs);
-        self.move_folder_meta(old_rel, Some(&new_rel))?;
-        self.move_schema_homes(old_rel, Some(&new_rel))?;
-        self.move_sidebar_folders(old_rel, Some(&new_rel))?;
-        self.move_sidebar_keys_folder(old_rel, Some(&new_rel))?;
-        // The seal marker rides along inside the folder, so its confirmation
-        // has to as well — otherwise renaming a sealed folder would
-        // quietly leave the seal unconfirmed and unenforced.
-        self.move_scope_trust(old_rel, Some(&new_rel))?;
+        // the rest describes a directory that has already moved, so an
+        // unwritable config must not turn a completed rename into an Err the
+        // caller reads as "nothing happened" — the same discipline the trash
+        // lanes keep
+        self.move_folder_meta(old_rel, Some(&new_rel)).ok();
+        self.move_schema_homes(old_rel, Some(&new_rel)).ok();
+        self.move_sidebar_folders(old_rel, Some(&new_rel)).ok();
+        self.move_sidebar_keys_folder(old_rel, Some(&new_rel)).ok();
         // every board card inside the folder keeps its slot
         self.move_card_order(old_rel, &new_rel)?;
         Ok(new_rel)
@@ -3482,10 +3683,10 @@ impl Engine {
             return Err("folder not found".into());
         }
         let new_abs = self.abs(&new_rel)?;
-        // a case-only move (Areas/demos → areas/demos) "collides" with itself on
-        // a case-insensitive filesystem — the same self-exception rename_folder
-        // carries
-        if new_rel.to_lowercase() != old_rel.to_lowercase() && new_abs.exists() {
+        // a case-only move (Areas/demos → areas/demos) lands on the path the
+        // source already occupies where the filesystem folds case — the same
+        // same-file exception rename_folder carries
+        if new_abs.exists() && !same_file(&old_abs, &new_abs) {
             let where_ = if parent.is_empty() { "the vault root".to_string() } else { parent };
             return Err(format!("“{name}” already exists in {where_}"));
         }
@@ -3494,17 +3695,20 @@ impl Engine {
             fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         }
         fs::rename(&old_abs, &new_abs).map_err(|e| e.to_string())?;
+        // first, and for the reason rename_folder puts it first: a seal whose
+        // confirmation stayed behind at the old path enforces nothing, and the
+        // notes that follow the folder are written in the clear. Same undo,
+        // too — a folder that outran its own seal goes back.
+        self.move_scope_trust_or_undo(old_rel, &new_rel, &old_abs, &new_abs)?;
         self.relock_moved_sealed_subtree(old_rel, &new_rel);
         self.remove_subtree(old_rel);
         self.reindex_dir(&new_abs);
-        self.move_folder_meta(old_rel, Some(&new_rel))?;
-        self.move_schema_homes(old_rel, Some(&new_rel))?;
-        self.move_sidebar_folders(old_rel, Some(&new_rel))?;
-        self.move_sidebar_keys_folder(old_rel, Some(&new_rel))?;
-        // The seal marker rides along inside the folder, so its confirmation
-        // has to as well — otherwise renaming a sealed folder would
-        // quietly leave the seal unconfirmed and unenforced.
-        self.move_scope_trust(old_rel, Some(&new_rel))?;
+        // bookkeeping about a directory that has already moved — best-effort,
+        // so an unwritable config cannot report a completed move as a failure
+        self.move_folder_meta(old_rel, Some(&new_rel)).ok();
+        self.move_schema_homes(old_rel, Some(&new_rel)).ok();
+        self.move_sidebar_folders(old_rel, Some(&new_rel)).ok();
+        self.move_sidebar_keys_folder(old_rel, Some(&new_rel)).ok();
         // every board card inside the folder keeps its slot
         self.move_card_order(old_rel, &new_rel)?;
         Ok(new_rel)
@@ -4360,12 +4564,17 @@ mod tests {
         // every prop edit and leave the file byte-identical — re-serializing
         // the empty parse would silently wipe every other key.
         let (mut e, dir) = temp_vault("fmguard");
-        let cases: [(&str, &str); 5] = [
+        let cases: [(&str, &str); 7] = [
             ("tab.md", "---\ntype: release\n\tstatus: in review\n---\nBody text.\n"),
             ("unclosed.md", "---\ntype: release\ntags: [a, b\n---\nBody text.\n"),
             ("alias.md", "---\ntype: release\nref: *missing\n---\nBody text.\n"),
             ("bignum.md", "---\ntype: release\nn: 99999999999999999999999999\n---\nBody text.\n"),
             ("dupkeys.md", "---\ntype: release\nstatus: a\nstatus: b\n---\nBody text.\n"),
+            // a quoted twin is the SAME key to YAML — serde_yaml resolves both
+            // to `status` and keeps the last, so a raw-text scan that reads
+            // them as two identities lets the silent dedupe reach disk
+            ("dupquoted.md", "---\ntype: release\nstatus: a\n\"status\": b\n---\nBody text.\n"),
+            ("dupsingle.md", "---\ntype: release\nstatus: a\n'status': b\n---\nBody text.\n"),
         ];
         for (name, content) in cases {
             fs::write(dir.join(name), content).unwrap();
@@ -4388,7 +4597,7 @@ mod tests {
             // reads stay lenient: the note still opens, body intact
             let read = e.read(name).unwrap();
             assert_eq!(read.body, "Body text.\n", "{name}: read still works");
-            if name == "dupkeys.md" {
+            if name.starts_with("dup") {
                 // duplicate keys still read last-wins (lenient read path)…
                 assert_eq!(prop_str(&read.props, "status").as_deref(), Some("b"));
                 let err = e.set_prop(name, "x", Some("y")).unwrap_err();
@@ -4398,6 +4607,40 @@ mod tests {
                 assert!(read.props.is_empty(), "{name}: lenient read = zero props");
             }
         }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn distinct_keys_stay_writable_however_their_values_are_quoted() {
+        // The other half of the quoted-key check: unquoting must decide
+        // IDENTITY only, and quoting a VALUE must not change the key's. A note
+        // that refuses every prop edit is as lost to the user as one that
+        // silently drops a key, so the widened scan has to leave this shape
+        // alone. (A quoted key that itself contains a colon is a different
+        // question, and one this text scan does not answer — see
+        // `has_duplicate_top_level_keys`.)
+        let (mut e, dir) = temp_vault("fmquoted");
+        let content = "---\ntype: release\n\"a\": \"x: 1\"\n'b': 'y: 2'\n---\nBody text.\n";
+        fs::write(dir.join("quoted.md"), content).unwrap();
+        e.rescan();
+        assert!(fm_diagnosis("type: release\n\"a\": \"x: 1\"\n'b': 'y: 2'\n").is_none());
+        e.set_prop("quoted.md", "status", Some("live")).unwrap();
+        let read = e.read("quoted.md").unwrap();
+        assert_eq!(prop_str(&read.props, "status").as_deref(), Some("live"));
+        assert_eq!(prop_str(&read.props, "a").as_deref(), Some("x: 1"), "value kept verbatim");
+        assert_eq!(prop_str(&read.props, "b").as_deref(), Some("y: 2"));
+        // a lone quote is not a quoted key either — `"a` and `a` are two
+        // spellings the parser itself would not agree on
+        assert_eq!(unquote_key("\"a\""), "a");
+        assert_eq!(unquote_key("'a'"), "a");
+        assert_eq!(unquote_key("\"a"), "\"a");
+        assert_eq!(unquote_key("\""), "\"");
+        assert_eq!(unquote_key("\"a'"), "\"a'");
+        // an empty pair keeps its quotes: unquoting it to "" would meet the
+        // caller's empty-key skip and stop counting as a key at all
+        assert_eq!(unquote_key("\"\""), "\"\"");
+        assert_eq!(unquote_key("''"), "''");
+        assert!(has_duplicate_top_level_keys("\"\": a\n\"\": b\n"), "two blank keys still collide");
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -4890,6 +5133,66 @@ mod tests {
             planted,
             "the file outside the vault is byte-identical"
         );
+
+        // READING is the other direction of the same boundary. A note-shaped
+        // symlink hands back a file outside the vault under a name inside it,
+        // and the watcher's index would carry its first bytes into the note
+        // list and the search rows — where the full rescan, which walks with
+        // links unfollowed, never put them.
+        let secret = "ssh-ed25519 AAAA not-yours\n";
+        fs::write(outside.join("secret.txt"), secret).unwrap();
+        std::os::unix::fs::symlink(outside.join("secret.txt"), dir.join("leak.md")).unwrap();
+        assert!(e.read("leak.md").is_err(), "a symlinked note is not readable");
+        assert!(e.fm_raw("leak.md").is_err());
+        assert!(e.read("Evil/x.md").is_err(), "nor is one under a symlinked folder");
+        e.apply_changes(&[dir.join("leak.md")]);
+        assert!(!e.notes.contains_key("leak.md"), "and the watcher never indexes it");
+        assert!(
+            e.search("not-yours", None, false).is_empty(),
+            "no search row carries the outside file's bytes"
+        );
+        e.rescan();
+        assert!(!e.notes.contains_key("leak.md"), "the full scan agrees");
+        assert_eq!(fs::read_to_string(outside.join("secret.txt")).unwrap(), secret);
+
+        // One level up is the same escape and a wider one: a symlinked FOLDER
+        // is a whole tree of notes the vault does not own. Every per-path
+        // check looks at the final component, so the ancestor walks past all
+        // of them — the watcher event names the directory, and the reindex
+        // walks through it unless the walk's own starting point is refused.
+        fs::write(outside.join("theirs.md"), "---\ntype: note\n---\nnot yours either\n").unwrap();
+        e.apply_changes(&[dir.join("Evil")]);
+        assert!(
+            !e.notes.keys().any(|k| k.starts_with("Evil/")),
+            "nothing under a symlinked folder is a note: {:?}",
+            e.notes.keys().collect::<Vec<_>>()
+        );
+        assert!(e.search("not yours either", None, false).is_empty(), "and no search row");
+        e.apply_changes(&[dir.join("Evil/theirs.md")]);
+        assert!(!e.notes.contains_key("Evil/theirs.md"), "nor by naming the file directly");
+        e.rescan();
+        assert!(!e.notes.keys().any(|k| k.starts_with("Evil/")), "the full scan agrees");
+        // the walk aimed AT the link, asserted at its own level: `follow_links`
+        // governs what a walk finds, and the starting point is a separate
+        // switch that defaults to following. The containment check downstream
+        // would catch the result either way — this holds the line before the
+        // outside tree is ever read.
+        assert!(
+            walk_md_files(&dir.join("Evil")).is_empty(),
+            "a walk rooted at a symlink yields nothing"
+        );
+        assert!(!walk_md_files(&dir).iter().any(|p| p.starts_with(dir.join("Evil"))));
+
+        // a symlinked folder that stays INSIDE the vault is somebody's own
+        // shortcut: it leads nowhere the vault does not already own, so
+        // reading through it keeps working and a note reached that way is
+        // still indexable. Containment is the question, not symlinks.
+        fs::create_dir_all(dir.join("Real")).unwrap();
+        fs::write(dir.join("Real/Note.md"), "---\ntype: note\n---\ninside\n").unwrap();
+        std::os::unix::fs::symlink(dir.join("Real"), dir.join("Shortcut")).unwrap();
+        assert_eq!(e.read("Shortcut/Note.md").unwrap().body, "inside\n");
+        e.apply_changes(&[dir.join("Shortcut/Note.md")]);
+        assert!(e.notes.contains_key("Shortcut/Note.md"), "an in-vault shortcut still indexes");
 
         let _ = fs::remove_dir_all(&dir);
         let _ = fs::remove_dir_all(&outside);
@@ -5527,6 +5830,59 @@ mod tests {
         assert_eq!(m.path, "Dolomites Hut Tour.md");
         assert_eq!(m.title, "Dolomites: Hut/Tour");
         assert_eq!(m.props.get("title").and_then(|v| v.as_str()), Some("Dolomites: Hut/Tour"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// True when this vault's filesystem keeps `A` and `a` apart. Linux and
+    /// iOS do; macOS's default APFS does not, and the case-only collision only
+    /// exists where it does.
+    fn case_sensitive(dir: &Path) -> bool {
+        let probe = dir.join(".case-probe-A");
+        let _ = fs::remove_file(dir.join(".case-probe-a"));
+        fs::write(&probe, "x").unwrap();
+        let folds = dir.join(".case-probe-a").exists();
+        let _ = fs::remove_file(&probe);
+        !folds
+    }
+
+    #[test]
+    fn a_case_only_rename_moves_the_same_file_and_never_replaces_another() {
+        // The recase has to work — "meeting" → "Meeting" is a legitimate edit,
+        // and where the filesystem folds case its destination IS its source.
+        // But folded-equal paths are not the same file everywhere: where they
+        // are two files, fs::rename unlinks one of them with no trash entry
+        // and nothing to undo, so the guard asks about identity, not spelling.
+        let (mut e, dir) = temp_vault("recasenote");
+        e.create("meeting", "", None).unwrap();
+        let m = e.rename("meeting.md", "Meeting").unwrap();
+        assert_eq!(m.path, "Meeting.md");
+        assert_eq!(e.read("Meeting.md").is_ok(), true, "the note survived its own recase");
+
+        if case_sensitive(&dir) {
+            // a second, different note at the folded-equal path
+            fs::write(dir.join("meeting.md"), "---\ntype: note\n---\nthe other one\n").unwrap();
+            e.rescan();
+            let err = e.rename("Meeting.md", "meeting").unwrap_err();
+            assert!(err.contains("already exists"), "{err}");
+            assert!(dir.join("Meeting.md").is_file(), "source untouched");
+            assert_eq!(
+                fs::read_to_string(dir.join("meeting.md")).unwrap(),
+                "---\ntype: note\n---\nthe other one\n",
+                "and the note it would have unlinked is byte-identical"
+            );
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn same_file_is_identity_not_spelling() {
+        let (_e, dir) = temp_vault("samefile");
+        fs::write(dir.join("one.md"), "a").unwrap();
+        fs::write(dir.join("two.md"), "a").unwrap();
+        assert!(same_file(&dir.join("one.md"), &dir.join("one.md")));
+        assert!(!same_file(&dir.join("one.md"), &dir.join("two.md")), "same bytes, two files");
+        assert!(!same_file(&dir.join("one.md"), &dir.join("gone.md")), "a missing path is nobody");
+        assert!(!same_file(&dir.join("gone.md"), &dir.join("gone.md")));
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -6383,6 +6739,26 @@ mod tests {
         let err = e.rename_folder("Demos", "Archive").unwrap_err();
         assert!(err.contains("already exists"), "{err}");
         assert!(dir.join("Demos").is_dir(), "untouched on real collision");
+
+        // and where the filesystem keeps the two spellings apart, a
+        // folded-equal name is a DIFFERENT folder — an empty one is exactly
+        // what fs::rename would replace, taking the seal marker and the
+        // subtree's identity with it
+        if case_sensitive(&dir) {
+            fs::create_dir_all(dir.join("demos")).unwrap();
+            let err = e.rename_folder("Demos", "demos").unwrap_err();
+            assert!(err.contains("already exists"), "{err}");
+            assert!(dir.join("Demos/Draft A.md").is_file(), "subtree untouched");
+            assert!(dir.join("demos").is_dir(), "and so is the folder it would have replaced");
+
+            // the move lane carries the same exception, so it carries the
+            // same hole: Areas/demos → areas/demos is folded-equal too
+            e.create("Draft B", "Areas/demos", None).unwrap();
+            fs::create_dir_all(dir.join("areas/demos")).unwrap();
+            let err = e.move_folder("Areas/demos", "areas").unwrap_err();
+            assert!(err.contains("already exists"), "{err}");
+            assert!(dir.join("Areas/demos/Draft B.md").is_file(), "subtree untouched");
+        }
         let _ = fs::remove_dir_all(&dir);
     }
 

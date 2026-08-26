@@ -44,11 +44,18 @@ fn patterns() -> &'static [String] {
 /// as anything else. That makes it blunter than Tauri's glob — and blunter is
 /// the safe direction for a deny list: it can only ever refuse more.
 pub fn is_denied(path: &Path) -> bool {
+    is_denied_under(path, &std::env::var("HOME").unwrap_or_default())
+}
+
+/// [`is_denied`] against a home directory the caller already resolved. A walk
+/// asks this question once per directory it enters, and every one of its other
+/// path questions is answered against a home it carries — re-reading the
+/// environment per directory would let the two disagree.
+pub fn is_denied_under(path: &Path, home: &str) -> bool {
     let text = path.to_string_lossy();
-    let home = std::env::var("HOME").unwrap_or_default();
     patterns().iter().any(|pattern| {
         let expanded =
-            if home.is_empty() { pattern.clone() } else { pattern.replace("$HOME", &home) };
+            if home.is_empty() { pattern.clone() } else { pattern.replace("$HOME", home) };
         glob_match(&expanded, &text)
     })
 }

@@ -24,6 +24,32 @@ test("splitRow: outer pipes drop out, escaped pipes stay content", () => {
   assert.deepEqual(splitRow("| a \\| b | c |"), ["a | b", "c"]);
 });
 
+test("splitRow: the backslash run before a pipe decides by parity", () => {
+  // odd run — the pipe is content
+  assert.deepEqual(splitRow("| a\\|b | c |"), ["a|b", "c"]);
+  // even run — an escaped backslash, then a real delimiter
+  assert.deepEqual(splitRow("| a\\\\|b | c |"), ["a\\", "b", "c"]);
+  // odd again, the pair resolving to one backslash ahead of the literal pipe
+  assert.deepEqual(splitRow("| a\\\\\\|b | c |"), ["a\\|b", "c"]);
+  // a backslash before anything else is content, not an escape
+  assert.deepEqual(splitRow("| \\alpha | b |"), ["\\alpha", "b"]);
+});
+
+test("cellSpans: a row closed by an escaped-backslash pipe is closed", () => {
+  // `b\|` ends in a literal pipe — the row is still open
+  assert.equal(cellSpans("| a | b\\|").closed, false);
+  // `b\\|` is an escaped backslash and then the closing pipe
+  assert.equal(cellSpans("| a | b\\\\|").closed, true);
+});
+
+test("escapeCell: text round-trips through the cell editor unchanged", () => {
+  const table = (cell: string) => ["| " + cell + " | z |", "| --- | --- |"].join("\n");
+  for (const typed of ["a|b", "a\\b", "a\\|b", "a\\\\|b", "trailing\\"]) {
+    const source = table(escapeCell(typed));
+    assert.deepEqual(splitRow(source.split("\n")[0]), [typed, "z"], typed);
+  }
+});
+
 test("tableWithRow: one empty row at the bottom, as wide as the table", () => {
   const next = tableWithRow(TABLE);
   const lines = next.source.split("\n");

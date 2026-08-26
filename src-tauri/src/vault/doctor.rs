@@ -97,6 +97,9 @@ impl Engine {
     /// repaired or written** — repair is a later slice, and the tests assert
     /// the vault is byte-identical afterwards.
     ///
+    /// (see `shape_problem` and `writes_refuse_on_corrupt` below the impl for
+    /// the corrupt-config half of this report.)
+    ///
     /// `bindings` is this machine's mount id → path map. It has to
     /// come from the caller because it lives outside the vault, in the app
     /// config: the same vault is healthy on one machine and unbound on
@@ -439,16 +442,23 @@ impl Engine {
                 // start life; it reads as empty because it IS empty, not
                 // because it was mangled
                 Ok(raw) if raw.trim().is_empty() => None,
-                Ok(raw) => {
-                    serde_json::from_str::<serde_json::Value>(&raw).err().map(|e| e.to_string())
-                }
+                Ok(raw) => match serde_json::from_str::<serde_json::Value>(&raw) {
+                    Err(e) => Some(format!("isn’t valid JSON ({e})")),
+                    // Valid JSON of the WRONG SHAPE reads as empty exactly
+                    // like a syntax error does — `views.json` holding `[]`,
+                    // a schema entry that is a number — so asking only "is
+                    // this JSON" leaves the user with a clean bill of health
+                    // over a file that has stopped working.
+                    Ok(_) => shape_problem(f, &raw)
+                        .map(|e| format!("is valid JSON but not a {} file ({e})", f.label())),
+                },
                 // a half-synced or truncated restore can leave bytes that
                 // aren't even text — the most corrupt case must not be the
                 // one case that stays quiet
-                Err(_) => Some("the bytes aren't UTF-8 text".to_string()),
+                Err(_) => Some("isn’t valid JSON (the bytes aren’t UTF-8 text)".to_string()),
             };
-            if let Some(e) = problem {
-                let consequence = if f.reads_empty_on_corrupt() {
+            if let Some(what) = problem {
+                let mut consequence = if f.reads_empty_on_corrupt() {
                     format!(
                         "your {} are being read as empty until it is fixed or replaced",
                         f.label()
@@ -456,12 +466,18 @@ impl Engine {
                 } else {
                     format!("your {} are showing a config error until it is fixed", f.label())
                 };
+                // the half a user cannot see anywhere else: for these files a
+                // corrupt read is not only invisible, every change to them is
+                // declined rather than written over what could not be read
+                if writes_refuse_on_corrupt(f) {
+                    consequence.push_str(", and changes to it are refused until then");
+                }
                 findings.push(DoctorFinding {
                     kind: DoctorKind::CorruptConfig,
                     severity: DoctorSeverity::Error,
                     paths: vec![f.rel_path().to_string()],
                     subject: f.rel_path().to_string(),
-                    detail: format!("{} isn’t valid JSON ({e}) — {consequence}", f.rel_path()),
+                    detail: format!("{} {what} — {consequence}", f.rel_path()),
                 });
             }
         }
@@ -652,6 +668,39 @@ fn device_key_finding(
             "device unlock is not enrolled for this vault, though another vault folder on this device has enrolled it — so Touch ID cannot unlock this vault's sealed notes. That is what a moved or copied vault folder looks like, and also what a second vault kept alongside the first looks like. Either way: unlock once with your vault password to enrol device unlock here."
                 .into(),
     })
+}
+
+/// The shape a `.vault/` file is READ as, for the ones whose reader
+/// deserializes into a concrete type rather than into free-form JSON.
+///
+/// "Is this valid JSON" is the wrong question for those: `views.json` holding
+/// `[]`, or a schema whose entry is a number, parses perfectly and still reads
+/// as EMPTY — the same loss a syntax error causes, with none of the evidence.
+/// Asking the reader's own question is what lets the doctor name exactly the
+/// files the write door refuses. `None` for the rest: their readers take
+/// free-form JSON, so valid JSON really is all they need.
+fn shape_problem(f: crate::vaultfmt::VaultFile, raw: &str) -> Option<String> {
+    use crate::vaultfmt::VaultFile;
+    fn parse<T: serde::de::DeserializeOwned>(raw: &str) -> Option<String> {
+        serde_json::from_str::<T>(raw).err().map(|e| e.to_string())
+    }
+    match f {
+        VaultFile::Schema => parse::<super::schema::SchemaConfig>(raw),
+        VaultFile::Views => parse::<serde_json::Map<String, serde_json::Value>>(raw),
+        VaultFile::TagFolders => parse::<Vec<TagFolder>>(raw),
+        _ => None,
+    }
+}
+
+/// The files whose writers refuse rather than overwrite bytes they could not
+/// read. For these, a corrupt file costs more than the silent empty read every
+/// `.vault/` file shares: every change to it is declined until it is repaired
+/// or cleared, and a caller that discards the write error just looks like an
+/// app that quietly stopped remembering things. The doctor is the only place
+/// that can say so.
+fn writes_refuse_on_corrupt(f: crate::vaultfmt::VaultFile) -> bool {
+    use crate::vaultfmt::VaultFile;
+    matches!(f, VaultFile::Schema | VaultFile::Views | VaultFile::TagFolders)
 }
 
 #[cfg(test)]
@@ -1154,6 +1203,50 @@ mod tests {
         assert!(engine.views().is_empty());
         assert!(engine.folder_mappings().is_empty());
         assert!(engine.schema().is_empty());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Valid JSON of the wrong shape is the corruption a syntax check cannot
+    /// see, and it is the one that hurts most: the file reads as empty AND
+    /// every write to it is now refused, so without this the user gets a clean
+    /// bill of health from an app that has quietly stopped remembering things.
+    #[test]
+    fn doctor_names_a_config_file_that_is_json_but_not_its_own_shape() {
+        let (mut engine, dir) = temp_vault("doctor-shape");
+        fs::create_dir_all(dir.join(".vault")).unwrap();
+        // each one is valid JSON, and each one reads as empty
+        fs::write(dir.join(ViewPref::REL_PATH), "[]").unwrap();
+        fs::write(dir.join(SCHEMA_REL_PATH), r#"{"release": 5}"#).unwrap();
+        fs::write(dir.join(TagFolder::REL_PATH), r#"{"id": "tf1"}"#).unwrap();
+        engine.rescan();
+
+        let report = engine.doctor(&Default::default()).unwrap();
+        let corrupt = findings_of(&report, DoctorKind::CorruptConfig);
+        for rel in [ViewPref::REL_PATH, SCHEMA_REL_PATH, TagFolder::REL_PATH] {
+            let found = corrupt
+                .iter()
+                .find(|c| c.paths == vec![rel.to_string()])
+                .unwrap_or_else(|| panic!("no finding names {rel}: {corrupt:?}"));
+            assert_eq!(found.severity, DoctorSeverity::Error);
+            assert!(
+                found.detail.contains("valid JSON but not a"),
+                "names the real problem: {}",
+                found.detail
+            );
+            // the half only this report can tell them
+            assert!(
+                found.detail.contains("changes to it are refused"),
+                "names the write refusal: {}",
+                found.detail
+            );
+        }
+        // the readers are unchanged — still empty, still not erroring
+        assert!(engine.views().is_empty());
+        assert!(engine.schema().is_empty());
+        assert!(engine.tag_folders().is_empty());
+        // and the doctor's claim is true: the writes really are refused
+        assert!(engine.set_schema_home("task", Some("Areas/Ops".into())).is_err());
+        assert!(engine.write_tag_folders(&[]).is_err());
         let _ = fs::remove_dir_all(&dir);
     }
 

@@ -119,10 +119,23 @@ pub(super) fn save_password_key(
     let mut out = Vec::with_capacity(KEY_MAGIC.len() + ciphertext.len());
     out.extend_from_slice(KEY_MAGIC);
     out.extend_from_slice(&ciphertext);
-    if let Some(parent) = key_path(root).parent() {
+    let path = key_path(root);
+    if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    super::write_atomic(&key_path(root), out)
+    super::write_atomic(&path, out)?;
+    // The passphrase around this key is the whole lock, so nobody else on the
+    // machine gets to hold the ciphertext and grind at it offline. The mode
+    // goes on the FINAL path after the rename: `write_atomic` gives the temp
+    // file the umask's mode, and a create-time mode would anyway leave a
+    // key written by an older build group- and world-readable forever.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 pub(super) fn load_password_key(root: &Path, password: &str) -> Result<SecretString, String> {
@@ -440,6 +453,32 @@ mod tests {
         );
         assert!(!String::from_utf8_lossy(&fs::read(key_path(dir.path())).unwrap())
             .contains(identity.expose_secret()));
+    }
+
+    /// The passphrase is the only thing between this file and every sealed
+    /// note in the vault, so on disk it is owner-only — the same treatment the
+    /// letterbox registry and the lens keys get.
+    #[cfg(unix)]
+    #[test]
+    fn the_sealed_key_file_is_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let identity = generate_identity();
+        save_password_key(dir.path(), &identity, "correct horse").unwrap();
+        let mode = || fs::metadata(key_path(dir.path())).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(), 0o600, "nobody else on this machine grinds at the ciphertext");
+
+        // A key file that is ALREADY there and readable by everyone — written
+        // by a build that set no mode, or restored from a backup — is the case
+        // a create-time mode cannot reach: the open does not create it.
+        fs::set_permissions(key_path(dir.path()), fs::Permissions::from_mode(0o644)).unwrap();
+        save_password_key(dir.path(), &identity, "correct horse").unwrap();
+        assert_eq!(mode(), 0o600, "a loose key file is tightened, not left as found");
+        assert_eq!(
+            load_password_key(dir.path(), "correct horse").unwrap().expose_secret(),
+            identity.expose_secret(),
+            "and it still opens"
+        );
     }
 
     /// the protected keychain is chosen by the presence of the

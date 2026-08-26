@@ -1,5 +1,5 @@
 import { invoke, setHistoryReadOnly } from "./tauri.ts";
-import { isAppFile, SETTINGS_PATH } from "./settings.ts";
+import { isAppFile, netAllowed, SETTINGS_PATH } from "./settings.ts";
 import { freshCache } from "./freshcache.ts";
 import { forgetFreshnessFailures } from "./agefill.ts";
 import type { KindBundleInfo } from "./kinds.ts";
@@ -352,6 +352,18 @@ export const reflexesReceipts = () => invoke<ReflexReceipt[]>("reflexes_receipts
     keeping the bare URL as its title when the fetch is off. */
 export const urlCapture = (url: string, enrich = true) =>
   invoke<NoteMeta>("url_capture", { url, enrich });
+/** The same capture for the standalone windows — quick capture and the
+    everywhere palette — which hold no settings state to read the switch from.
+    They called the command straight, so a vault that had turned page-title
+    fetches off still reached the site from those two doors. An unreadable
+    Settings.md leaves the documented default rather than silently dropping a
+    feature, the same rule `netAllowed` follows. */
+export const urlCaptureGated = async (url: string) => {
+  const enrich = await vaultRead(SETTINGS_PATH)
+    .then((c) => netAllowed(c.props, "link-titles"))
+    .catch(() => true);
+  return urlCapture(url, enrich);
+};
 /** Today's USD→EUR reference rate. Engine-side because the shipped
     CSP allows no remote origin — a browser fetch here only ever worked in the
     browser lane. Rejects rather than reporting a rate it isn't sure of. */

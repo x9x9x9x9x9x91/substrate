@@ -460,6 +460,27 @@ test("parseCalendarBlocks: an opener with a stray trailing space still parses", 
   );
 });
 
+test("parseCalendarBlocks: a mixed-case opener parses, like the hub's dispatcher", () => {
+  // the hub lowercases the lang before dispatching, so ```Calendar drew a
+  // month grid there while the pane said "nothing configured" over the same
+  // note — and the strip pass took the config out of the search index anyway.
+  for (const open of ["```Calendar", "```CALENDAR", "```CaLeNdAr "]) {
+    const blocks = parseCalendarBlocks(open + "\nsource: release\ndate: released\n```");
+    assert.equal(blocks.length, 1, open);
+    assert.equal(blocks[0].error, null, open);
+  }
+  // the tail rule is a separate axis: folding case must not widen it
+  assert.equal(
+    parseCalendarBlocks("```Calendar month\nsource: release\ndate: released\n```").length,
+    0
+  );
+  // and the banner has to agree with the parser about which openers count
+  assert.match(
+    parseCalendarBlocks("```Calendar\nsource: release\ndate: released\n")[0]?.error ?? "",
+    /never closed/
+  );
+});
+
 test("parseCalendarBlocks: an unclosed fence is a banner, not a silent zero", () => {
   const blocks = parseCalendarBlocks("```calendar\nsource: release\ndate: released\n");
   assert.equal(blocks.length, 1);

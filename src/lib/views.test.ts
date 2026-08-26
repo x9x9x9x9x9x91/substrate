@@ -397,6 +397,30 @@ test("isPristineScratch: only an untouched ⌘N note qualifies (SUB-264)", () =>
   assert.equal(isPristineScratch("Inbox/Untitled.md", "", {}), true);
 });
 
+/* The abandon flow is the predicate's only consumer, and it lives inside
+   App.tsx's `useCallback` — nothing exports it, so the ordering it depends on
+   is read from the source, the way the CSV picker's defaults are. What is
+   guarded here is one-way: the entry guard turns every later leave into a
+   no-op for an untracked path, and no other sweep looks for pristine scratch
+   notes, so untracking before a delete that fails leaves the note behind for
+   good with nothing left to retry it. */
+test("a pristine scratch note is untracked only after the delete lands", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { fileURLToPath } = await import("node:url");
+  const app = readFileSync(fileURLToPath(new URL("../App.tsx", import.meta.url)), "utf8");
+  const body = /const abandonScratch = useCallback\(([\s\S]*?)\n {2}\);/.exec(app)?.[1] ?? "";
+  assert.ok(body, "the abandon callback moved — retarget this test");
+
+  // the pristine branch: everything after the emptiness read
+  const branch = body.slice(body.indexOf("isPristineScratch"));
+  const deleted = branch.indexOf("await vaultDelete(path)");
+  const untracked = branch.indexOf("scratchPaths.current.delete(path)");
+  assert.ok(deleted >= 0, "the delete moved — retarget this test");
+  assert.ok(untracked >= 0, "the untrack moved — retarget this test");
+  assert.ok(deleted < untracked, "the note is untracked before the delete is even attempted");
+  assert.doesNotMatch(branch, /vaultDelete\(path\)\.catch/, "a swallowed delete cannot be retried");
+});
+
 /* The pane passes its type schema through, so a number column
    filters by value end to end — including the mid-typing stub, which is where
    the old text semantics silently let every row through. */

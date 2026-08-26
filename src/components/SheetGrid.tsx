@@ -159,7 +159,14 @@ export default function SheetGrid({
       Display-only: nothing about a selection is ever written to the note. */
   const [anchor, setAnchor] = useState<CellPos | null>(null);
   const [sumEdit, setSumEdit] = useState<SummaryEdit | null>(null);
-  const [editing, setEditing] = useState<(CellPos & { draft: string }) | null>(null);
+  /** `placeholder` is decided when the session OPENS and carried, never
+      re-derived from the row index at commit: an external write landing while
+      the editor is open moves the note's last row under it, and a placeholder
+      that re-asks "am I past the end?" answers no and overwrites the row that
+      just arrived. */
+  const [editing, setEditing] = useState<
+    (CellPos & { draft: string; placeholder: boolean }) | null
+  >(null);
   /** "+ row" showing an empty row below the data that the note does not carry
       yet. It becomes a real row the moment a cell is committed into it, and
       never before: a row of empty cells written on the tap outlives the tap
@@ -517,6 +524,9 @@ export default function SheetGrid({
         // the "+ row" placeholder sits one past the note's last row on purpose
         const rows = m.rows.length + (draftRowRef.current ? 1 : 0);
         if (ed.r >= rows || ed.c >= m.headers.length) setEditing(null);
+        // rows arrived under an open placeholder: it belongs past the last of
+        // them, not on top of the newest one
+        else if (ed.placeholder && ed.r < m.rows.length) setEditing({ ...ed, r: m.rows.length });
       }
       setBody(next);
       invalidatePaint();
@@ -554,7 +564,7 @@ export default function SheetGrid({
     if (c >= dataCols) return; // computed columns are read-only
     setAnchor(null);
     pendingFocus.current = true;
-    setEditing({ r, c, draft: model.rows[r]?.[c] ?? "" });
+    setEditing({ r, c, draft: model.rows[r]?.[c] ?? "", placeholder: r >= model.rows.length });
   };
 
   const commitEdit = useCallback(
@@ -575,16 +585,20 @@ export default function SheetGrid({
       // first cell anyone actually fills — an empty draft leaves it a
       // placeholder, so tapping "+ row" and walking away writes nothing.
       // Moving on across it works the same either way.
-      const placeholder = ed.r >= model.rows.length;
+      const placeholder = ed.placeholder;
+      // a placeholder is always the row after the note's last one, so its own
+      // index is stale the moment another writer appends: append here rather
+      // than write at where the row used to sit
+      const row = placeholder ? model.rows.length : ed.r;
       if (!placeholder || draft.trim() !== "") {
         if (placeholder) setDraftRow(false);
-        applyBody(setSheetCell(placeholder ? addSheetRow(body) : body, ed.r, ed.c, draft));
+        applyBody(setSheetCell(placeholder ? addSheetRow(body) : body, row, ed.c, draft));
       }
       pendingFocus.current = true;
-      if (moveDir === "down") setFocus({ r: Math.min(ed.r + 1, rowCount - 1), c: ed.c });
+      if (moveDir === "down") setFocus({ r: Math.min(row + 1, rowCount - 1), c: ed.c });
       else if (moveDir === "right")
-        setFocus(ed.c + 1 < cols ? { r: ed.r, c: ed.c + 1 } : { r: ed.r, c: ed.c });
-      else setFocus({ r: ed.r, c: ed.c });
+        setFocus(ed.c + 1 < cols ? { r: row, c: ed.c + 1 } : { r: row, c: ed.c });
+      else setFocus({ r: row, c: ed.c });
     },
     [body, applyBody, rowCount, cols, model]
   );

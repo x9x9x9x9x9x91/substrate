@@ -16,10 +16,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import type { NoteMeta, SavedView, SchemaConfig } from "../lib/types";
 import { foldedPropStr, foldedTypeName } from "../lib/types";
-import { vaultFmRaw, vaultFmWrite, vaultRead, vaultResolve, vaultWriteBody } from "../lib/ipc";
+import {
+  onHistoryLeave,
+  vaultFmRaw,
+  vaultFmWrite,
+  vaultRead,
+  vaultResolve,
+  vaultWriteBody,
+} from "../lib/ipc";
 import { parsePages, type PageEntry } from "../lib/pages";
 import { appendPage } from "../lib/pagesedit";
 import { embedQueryFor, type EmbedResult } from "../lib/embeds";
+import { errText } from "../lib/errtext";
 import { DashHead } from "./DashHead";
 import { PlusIcon } from "./Icons";
 import InlineEdit from "./InlineEdit";
@@ -40,6 +48,8 @@ export interface WorkbookProps {
   onOpenView?: (dbType: string, savedId?: string) => void;
   /** the write path a view page's cells commit through */
   embedEdit?: EmbedEdit;
+  /** the app's toast, for a page whose save failed after it was left */
+  onToast?: (msg: string, action?: { label: string; run: () => void }) => void;
   /** ⌃⇥ / ⌃⇧⇥ from the app-level dispatcher steps pages through this ref */
   stepRef?: MutableRefObject<((dir: 1 | -1) => void) | null>;
   /** page 0, rendered by the caller (the note's own dashboard kind) */
@@ -63,6 +73,62 @@ function PageError({ label, error }: { label: string; error: string }) {
   );
 }
 
+/** What a failed write left behind: the text, and the disk body that write was
+    guarded against. Held by the note's path (NotePane's `orphanedEdits`,
+    scaled down) because the page's buffer is a ref and dies with the tab
+    switch that unmounts it. Reopening the page takes both back; a save that
+    lands clears them.
+
+    `base` travels WITH the text and is not refreshed on reopen. Rebasing held
+    text onto whatever is on disk now would make the next flush — the debounce,
+    a retry, or the unmount — overwrite an edit that arrived in between with
+    nobody deciding to: the guard would pass because it was handed the newer
+    body it was supposed to be protecting. Kept as it was, a note that moved
+    under the buffer refuses again and the page can say so. */
+const heldSheetEdits = new Map<
+  string,
+  { body: string; base: string; kind: SaveFailure["kind"]; error: string }
+>();
+
+/** How a write was refused, which decides what the page can offer:
+    - `conflict` — the note changed on disk under the buffer. Two doors, both
+      the reader's: read the note as it is now (dropping the held text), or
+      overwrite it with the held text deliberately.
+    - `gone` — the note is no longer there; nothing to retry against, the text
+      is held so it can be copied out.
+    - `past` — the read-only guard refused it, which is not a save failure at
+      all: the write was right and only the moment was wrong.
+    - `other` — anything else, where retrying the same write is the answer. */
+interface SaveFailure {
+  kind: "conflict" | "gone" | "past" | "other";
+  error: string;
+}
+
+/** Drop every held sheet buffer when the app leaves the past. A sheet page
+    renders the HISTORICAL body while a projection is on screen, and typing in
+    it produces a write the read-only guard refuses — so without this, text
+    derived from an old version is held by path and the reopened page in the
+    present lands it on the live file. Losing a genuinely-live buffer here is
+    the safe trade NotePane's `dropOrphanedEdits` already makes: leaving the
+    past reloads every pane from disk anyway. Registered at module scope so a
+    new holder cannot forget the hook. */
+onHistoryLeave(() => heldSheetEdits.clear());
+
+/* The three refusals a sheet write can be told apart by, spelled the way
+   NotePane spells them — the engine's own message prefixes. */
+const errMsg = (e: unknown) => String(e instanceof Error ? e.message : e);
+const isPastErr = (e: unknown) => errMsg(e).startsWith("viewing the past is read-only");
+const isConflictErr = (e: unknown) => errMsg(e).startsWith("conflict:");
+const isGoneErr = (e: unknown) => errMsg(e).startsWith("note no longer exists");
+
+function failureFor(err: unknown): SaveFailure {
+  const error = errText(err);
+  if (isPastErr(err)) return { kind: "past", error };
+  if (isConflictErr(err)) return { kind: "conflict", error };
+  if (isGoneErr(err)) return { kind: "gone", error };
+  return { kind: "other", error };
+}
+
 /** A `note:` page pointing at a sheet — the editable grid, NotePane's
     debounced-save discipline scaled down: 500ms flush, expectedBody guard,
     external changes adopted only while no edit is pending. */
@@ -71,33 +137,111 @@ function SheetPage({
   vaultEpoch,
   onMutated,
   onFollowLink,
+  onToast,
 }: {
   meta: NoteMeta;
   vaultEpoch: number;
   onMutated: () => void;
   onFollowLink: (name: string) => void;
+  onToast?: (msg: string, action?: { label: string; run: () => void }) => void;
 }) {
   const [loaded, setLoaded] = useState<{ path: string; body: string; nonce: number } | null>(null);
+  /** what the last write refused with, and which door the page can offer for it */
+  const [failure, setFailure] = useState<SaveFailure | null>(null);
   const base = useRef<string>("");
   const pending = useRef<string | null>(null);
   const timer = useRef<number | undefined>(undefined);
+  const alive = useRef(true);
+  const onToastRef = useRef(onToast);
+  onToastRef.current = onToast;
+  // set on the way IN as well as cleared on the way out: StrictMode mounts,
+  // unmounts and remounts in development, and a flag only ever cleared would
+  // stay false for the rest of that page's life — the pill would never render
+  // and every failure would leave through the toast instead
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
 
   const flush = useCallback(() => {
     window.clearTimeout(timer.current);
     const body = pending.current;
     if (body === null) return;
     pending.current = null;
-    vaultWriteBody(meta.path, body, base.current)
+    // the disk body THIS write is guarded against, remembered before the round
+    // trip: whatever it turns out to be, the held text belongs with it
+    const expected = base.current;
+    vaultWriteBody(meta.path, body, expected)
       .then(() => {
         base.current = body;
+        heldSheetEdits.delete(meta.path);
+        if (alive.current) setFailure(null);
         onMutated();
       })
-      .catch(() => {
-        // conflict or gone: disk truth wins — the epoch-driven reload below
-        // re-reads and remounts (pending is already cleared)
-        setLoaded(null);
+      .catch((err) => {
+        // A failed write must never be silent. Re-reading disk here — which is
+        // what "disk truth wins" did — remounts the grid on the disk body and
+        // takes every unsaved cell off the screen with nothing said, so the
+        // text goes back to the buffer instead and the grid stays as typed.
+        // Not over a NEWER buffer, though: keystrokes typed while this write
+        // was in flight already contain this text, and restoring the snapshot
+        // over them is the same loss one step later.
+        const failed = failureFor(err);
+        if (failed.kind === "past") {
+          /* The grid is showing a HISTORICAL body, so this text belongs to a
+             version that is not the file. Holding it — or even re-arming the
+             buffer — would put past text on the live note the moment the page
+             is reopened in the present, which is the one outcome time travel
+             must never have. Nothing is parked; leaving the past reloads the
+             page from disk. */
+          if (alive.current) setFailure(failed);
+          return;
+        }
+        if (pending.current === null) pending.current = body;
+        // held by path as well, because a tab switch unmounts this page
+        // mid-write — with the base it was written against, never a fresher one
+        heldSheetEdits.set(meta.path, {
+          body: pending.current,
+          base: expected,
+          kind: failed.kind,
+          error: failed.error,
+        });
+        if (alive.current) setFailure(failed);
+        // gone: the page that would have shown the pill is unmounted, so the
+        // app toast is the only surface left to say the text is not lost
+        else onToastRef.current?.(`Couldn’t save ${meta.title} — your text is held`);
       });
-  }, [meta.path, onMutated]);
+  }, [meta.path, meta.title, onMutated]);
+
+  /** Drop the held text and read the note as it stands. Discarding is the
+      reader's call, never a failure's: this is the only path that loses it. */
+  const reloadFromDisk = useCallback(() => {
+    heldSheetEdits.delete(meta.path);
+    pending.current = null;
+    window.clearTimeout(timer.current);
+    setFailure(null);
+    setLoaded(null);
+  }, [meta.path]);
+
+  /** The conflict's second door: adopt the note as it is now as the base, then
+      write the held text over it. The reader is choosing to win — which is why
+      nothing else in this component ever moves the base under held text. */
+  const overwrite = useCallback(() => {
+    const held = heldSheetEdits.get(meta.path);
+    const body = pending.current ?? held?.body;
+    if (body === undefined) return;
+    vaultRead(meta.path)
+      .then((c) => {
+        base.current = c.body;
+        pending.current = body;
+        flush();
+      })
+      .catch((err) => {
+        if (alive.current) setFailure(failureFor(err));
+      });
+  }, [meta.path, flush]);
 
   useEffect(() => {
     let gone = false;
@@ -106,8 +250,18 @@ function SheetPage({
     if (pending.current !== null) return;
     vaultRead(meta.path).then((c) => {
       if (gone) return;
-      base.current = c.body;
-      setLoaded((l) => ({ path: meta.path, body: c.body, nonce: (l?.nonce ?? 0) + 1 }));
+      // text a failed save is holding for this page comes back with the page,
+      // still armed to retry — dropping it on reopen is the silent loss the
+      // catch above exists to prevent. It comes back on ITS OWN base, not on
+      // the body just read: a note that moved in the meantime must refuse this
+      // text again rather than let a retry swallow the newer edit.
+      const held = heldSheetEdits.get(meta.path);
+      base.current = held ? held.base : c.body;
+      if (held) {
+        pending.current = held.body;
+        setFailure({ kind: held.kind, error: held.error });
+      }
+      setLoaded((l) => ({ path: meta.path, body: held?.body ?? c.body, nonce: (l?.nonce ?? 0) + 1 }));
     });
     return () => {
       gone = true;
@@ -122,6 +276,67 @@ function SheetPage({
   return (
     <div className="note">
       <div className="note-inner note-inner-sheet">
+        {failure && (
+          <div className="note-feedback">
+            {failure.kind === "past" && (
+              // no retry and no reload: nothing is held to retry, and the page
+              // returns to the live note on its own when the app leaves the past
+              <span className="save-error" title={failure.error}>
+                <span className="err-dot" />
+                viewing the past — this edit was not saved
+              </span>
+            )}
+            {failure.kind === "conflict" && (
+              /* Retrying is not on offer here: the same write would be refused
+                 for the same reason, forever. What the reader is asked is whose
+                 version wins, and both answers are one click. */
+              <>
+                <span className="save-error" title={failure.error}>
+                  <span className="err-dot" />
+                  this note changed on disk — your cells are held
+                </span>
+                <button type="button" className="save-error" onClick={reloadFromDisk}>
+                  reload from disk
+                </button>
+                <button type="button" className="save-error" onClick={overwrite}>
+                  overwrite with mine
+                </button>
+              </>
+            )}
+            {failure.kind === "gone" && (
+              <>
+                <span className="save-error" title={failure.error}>
+                  <span className="err-dot" />
+                  this note is gone — your cells are held here
+                </span>
+                <button type="button" className="save-error" onClick={reloadFromDisk}>
+                  discard
+                </button>
+              </>
+            )}
+            {failure.kind === "other" && (
+              <>
+                <button
+                  type="button"
+                  className="save-error"
+                  title={failure.error}
+                  onClick={() => flush()}
+                >
+                  <span className="err-dot" />
+                  save failed — click to retry
+                </button>
+                <button
+                  type="button"
+                  className="save-error"
+                  title="Discard the unsaved cells and read the note as it is on disk"
+                  onClick={reloadFromDisk}
+                >
+                  reload from disk
+                </button>
+              </>
+            )}
+          </div>
+        )}
         <SheetGrid
           key={`${loaded.path}@${loaded.nonce}`}
           meta={meta}
@@ -133,6 +348,7 @@ function SheetPage({
             timer.current = window.setTimeout(flush, 500);
           }}
           onFollowLink={onFollowLink}
+          onToast={onToast}
         />
       </div>
     </div>
@@ -212,6 +428,9 @@ interface PageCtx {
   onFollowLink: (name: string) => void;
   onOpenView?: (dbType: string, savedId?: string) => void;
   embedEdit?: EmbedEdit;
+  /** the app's toast — the one surface that outlives a page, so a save that
+      failed on the way out of a tab can still say the text is held */
+  onToast?: (msg: string, action?: { label: string; run: () => void }) => void;
   renderDashboard: (meta: NoteMeta) => ReactNode;
 }
 
@@ -272,6 +491,7 @@ function NotePage({
         vaultEpoch={vaultEpoch}
         onMutated={ctx.onMutated}
         onFollowLink={ctx.onFollowLink}
+        onToast={ctx.onToast}
       />
     );
   if (type === "dashboard") {
@@ -391,6 +611,7 @@ export default function WorkbookPane(props: WorkbookProps & {
     onFollowLink: followLink,
     onOpenView: props.onOpenView,
     embedEdit: props.embedEdit,
+    onToast: props.onToast,
     renderDashboard: props.renderDashboard,
   };
   const entry = cur === 0 ? null : pages[cur - 1];

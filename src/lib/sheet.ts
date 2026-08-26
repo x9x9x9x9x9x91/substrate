@@ -103,6 +103,12 @@ export interface Fence {
   inner: string;
 }
 
+// The opening ```csv must start a line too, and for the same reason the
+// closer must: an indented ```csv (a fenced example under a bullet) closes
+// itself indented, that closer is skipped, and the fence then runs on to the
+// next opener — swallowing the prose between them, which the next grid edit
+// rewrites or drops. A note whose only csv fence is indented reads as prose
+// and shows no grid, which is the visible half of the same rule.
 // The closing ``` must sit on its own line — at the start of a line or at the
 // very end of the body — and outside a quoted cell: a ``` inside a quoted CSV
 // cell is data, not the end of the fence. CRLF is tolerated after the opening
@@ -116,6 +122,10 @@ export function findFence(body: string, lang: string): Fence | null {
   const multiline = lang === "csv";
   let from = body.indexOf(open);
   while (from >= 0) {
+    if (from !== 0 && body[from - 1] !== "\n") {
+      from = body.indexOf(open, from + 1); // indented or mid-line: no opener
+      continue;
+    }
     let innerStart = from + open.length;
     while (body[innerStart] === " " || body[innerStart] === "\t") innerStart++;
     if (body.startsWith("\r\n", innerStart)) innerStart += 2;

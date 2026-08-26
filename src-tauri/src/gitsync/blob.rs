@@ -61,6 +61,12 @@ const MAX_PENDING_EDGES: usize = 4 * MAX_LIST_OBJECTS;
 /// history-rewrite marker in the vault's git directory.
 const LISTING_CACHE_FILE: &str = "substrate-sync-blob-listing";
 const LISTING_CACHE_HEADER: &str = "substrate hosted-sync listing cache v1";
+/// Where a device records how many times the store it syncs with had been
+/// replaced the last time it stood on that store. Beside the listing cache, and
+/// per-store for the same reason: a vault pointed at a different store must not
+/// read this one's number as its own.
+const PURGE_EPOCH_FILE: &str = "substrate-sync-blob-purge-epoch";
+const PURGE_EPOCH_HEADER: &str = "substrate hosted-sync purge epoch v1";
 /// How the client answers a store that says "not now" (429/503) on an
 /// idempotent data-plane request.
 ///
@@ -75,9 +81,11 @@ const RETRY_FIRST_DELAY: Duration = Duration::from_secs(1);
 const RETRY_MAX_DELAY: Duration = Duration::from_secs(30);
 const RETRY_BUDGET: Duration = Duration::from_secs(180);
 /// `Retry-After` is the server's own number and is preferred over the client's
-/// backoff, but it is still remote input: a proxy asking for an hour would
-/// otherwise hang a push behind a wall nobody can see. Past this, the client
-/// uses its own schedule and lets the budget end the attempt.
+/// backoff whenever it asks for longer, but it is still remote input: a proxy
+/// asking for an hour would otherwise hang a push behind a wall nobody can see.
+/// Past this, the client uses its own schedule and lets the budget end the
+/// attempt. The other end of that range is floored at the client's schedule
+/// rather than capped — see [`HttpBlobStore::call_retrying`].
 const RETRY_AFTER_CEILING: Duration = Duration::from_secs(60);
 
 const ARGON_MEMORY_KIB: u32 = 65_536;
@@ -509,8 +517,15 @@ impl HttpBlobStore {
             let Err(ureq::Error::Status(status @ (429 | 503), refusal)) = result else {
                 return result;
             };
+            // Floored at the schedule this loop already reached. A header
+            // naming less than the client's own wait — zero above all, which
+            // is a syntactically valid delay-seconds an edge proxy really does
+            // emit — carries no instruction the client needs, and taking it
+            // literally turns a store that refuses for the whole budget into a
+            // re-request loop running at round-trip rate.
             let wait = retry_after(&refusal)
                 .filter(|asked| *asked <= self.retry.retry_after_ceiling)
+                .map(|asked| asked.max(delay))
                 .unwrap_or(delay);
             // Checked against the elapsed time *plus* the wait, so the budget
             // is a bound on how long the caller is held rather than on when the
@@ -577,6 +592,10 @@ fn http_status(
 /// own backoff is a better answer than a wait computed from a skewed one. A
 /// header that is absent, a date, negative, or not a number all mean the same
 /// thing here — no instruction — and the caller falls back to its schedule.
+///
+/// A zero is a number and comes back as one. Deciding what too short a wait
+/// means belongs with the schedule it is measured against, so the caller floors
+/// it rather than this reader rejecting it.
 fn retry_after(response: &ureq::Response) -> Option<Duration> {
     let seconds: u64 = response.header("Retry-After")?.trim().parse().ok()?;
     Some(Duration::from_secs(seconds))
@@ -1005,6 +1024,50 @@ fn store_listing_cache(path: &Path, cache: &ListingCache) {
     }
 }
 
+fn purge_epoch_path(repo: &Repository) -> PathBuf {
+    repo.path().join(PURGE_EPOCH_FILE)
+}
+
+/// The store epoch this device last stood on, for THIS store.
+///
+/// Every anomaly answers `None` — no file, another store, an unreadable number,
+/// a vault that synced before the field existed — and the push reads `None` as
+/// older than any epoch a replacement has reached. That is the expensive
+/// direction on purpose: a device wrongly told to pause has a door to answer
+/// with, and one wrongly waved through republishes what a purge removed.
+fn load_purge_epoch(repo: &Repository, store: &str) -> Option<u64> {
+    let text = fs::read_to_string(purge_epoch_path(repo)).ok()?;
+    let mut lines = text.lines();
+    if lines.next()? != PURGE_EPOCH_HEADER {
+        return None;
+    }
+    if lines.next()? != store {
+        return None;
+    }
+    lines.next()?.trim().parse().ok()
+}
+
+/// Record where this device now stands with the store, best effort in the same
+/// sense as the listing cache: a number that cannot be written costs the next
+/// push a pause it can answer, never a push that publishes something it should
+/// not.
+///
+/// The ordering that follows from that is deliberate — this runs AFTER the CAS,
+/// so a crash in between leaves even the publisher of a replacing push one
+/// epoch behind the store it just wrote. Its own next ordinary push then pauses
+/// once into the adopt door, which is the harmless direction: the device that
+/// did the purge is being asked about a history it already holds. Writing the
+/// number first would trade that for the reverse, where a CAS that never landed
+/// leaves a device believing it is current.
+fn store_purge_epoch(repo: &Repository, store: &str, epoch: u64) {
+    let path = purge_epoch_path(repo);
+    let temporary = path.with_extension("tmp");
+    let body = format!("{PURGE_EPOCH_HEADER}\n{store}\n{epoch}\n");
+    if fs::write(&temporary, body.as_bytes()).is_err() || fs::rename(&temporary, &path).is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+}
+
 /// The store identity as it is written into the cache. Hashed rather than
 /// stored because the file only ever has to answer "is this the same store as
 /// last time", and a fixed-width digest is a smaller thing to parse than a URL.
@@ -1054,11 +1117,26 @@ fn listing_ceiling_warning(objects: usize) -> String {
 
 /// Push reachable objects first, then publish the encrypted branch head with
 /// CAS. Orphaned uploads after a race are harmless immutable ciphertext.
+///
+/// `gate` is taken TWICE, for the reason [`pull`]'s note gives on its own side:
+/// the read block needs it, and so does the publish. Everything between them is
+/// network, and a purge landing in there rewrites the history this push is
+/// about to name — the objects are already uploaded by then, so the CAS would
+/// put the pre-purge head back on the server and, from the next pull, on every
+/// device. The re-check under the second guard is what makes that impossible,
+/// and it only holds while `gate` acquires the same exclusion the purge path
+/// runs under (the app's history+engine mutexes).
+///
+/// What sits inside that second guard is the publish and nothing else: the CAS
+/// round trip, the tracking-ref write, and the marker clear, which have to be
+/// one step against the purge writer. It is a single small request — a ref
+/// envelope, not the object loop — so the vault is held for one round trip, not
+/// for an upload.
 pub(crate) fn push<G>(
     root: &Path,
     key: &MasterKey,
     transport: &impl BlobTransport,
-    gate: impl FnOnce() -> G,
+    gate: impl FnMut() -> G,
 ) -> Result<SyncReport, String> {
     push_inner(root, key, transport, gate, Replace::No)
 }
@@ -1080,7 +1158,7 @@ pub(crate) fn push_replacing_remote<G>(
     root: &Path,
     key: &MasterKey,
     transport: &impl BlobTransport,
-    gate: impl FnOnce() -> G,
+    gate: impl FnMut() -> G,
 ) -> Result<SyncReport, String> {
     push_inner(root, key, transport, gate, Replace::Yes)
 }
@@ -1096,31 +1174,38 @@ fn push_inner<G>(
     root: &Path,
     key: &MasterKey,
     transport: &impl BlobTransport,
-    gate: impl FnOnce() -> G,
+    mut gate: impl FnMut() -> G,
     replace: Replace,
 ) -> Result<SyncReport, String> {
     let repo = owned_repo(root)?;
-    let (branch, local_oid, pushed) = {
+    let (branch, local_oid, pushed, rewritten_at_entry) = {
         let _guard = gate();
         ensure_clean(&repo)?;
         let (branch, local_oid) = current_branch(&repo)?;
         let tracking_ref = format!("refs/remotes/{REMOTE}/{branch}");
         let previous = repo.find_reference(&tracking_ref).ok().and_then(|value| value.target());
         let pushed = exclusive_commit_count(&repo, local_oid, previous)?;
-        (branch, local_oid, pushed)
+        // Read here rather than before the publish alone: a marker already
+        // standing is the state a fast-forwardable push is meant to CLEAR, and
+        // only a marker that appears while this push is on the wire is a purge
+        // racing it.
+        (branch, local_oid, pushed, history_rewritten(&repo))
     };
 
     let tracking_ref = format!("refs/remotes/{REMOTE}/{branch}");
+    let store_key = cache_store_key(&transport.store_identity());
     let current_ref = transport.read_ref(MAX_REF_ENVELOPE_BYTES)?;
     // Carried forward by every push, whatever it does: the store is the only
     // place every device looks, so a boundary dropped by one ordinary push is
     // a purge that stops holding for everyone.
     let mut superseded: Vec<Oid> = Vec::new();
+    let mut purge_epoch: u64 = 0;
     if let Some(remote_ref) = current_ref.as_ref() {
         let document = decrypt_ref(key, &remote_ref.bytes)?;
         require_branch(&branch, &document.branch)?;
         let remote_oid = parse_oid(&document.head)?;
         superseded = document.superseded_oids()?;
+        purge_epoch = document.purge_epoch;
         // The purge boundary, and the one refusal that has to come before
         // `diverged` is even consulted. A device that never rewrote anything
         // but synced before the purge holds the removed note in its own
@@ -1136,6 +1221,27 @@ fn push_inner<G>(
             return Err(replaced_store_pause_error(
                 HeldLocally::measure(&repo, remote_oid).ok().as_ref(),
             ));
+        }
+        // The same refusal, for the device the list above can no longer see.
+        // The list is capped, so the oldest boundaries drain — and a device
+        // stranded from before a drained one holds the pre-purge copy while its
+        // push still reads as an ordinary fast-forward, which is the exact
+        // shape the check above exists to stop. The epoch does not drain: a
+        // device that has not stood on this store since its last replacement is
+        // sent to the pause and its adopt door instead of being fast-forwarded.
+        //
+        // A device with no recorded epoch counts as behind. It costs a vault
+        // upgraded across a replacement one pause per device, answerable from
+        // the pane, and every ordinary pull records the number, so the state
+        // does not persist.
+        if replace == Replace::No && !superseded.is_empty() {
+            let stood_on = load_purge_epoch(&repo, &store_key).unwrap_or(0);
+            if stood_on < purge_epoch {
+                super::mark_store_replaced(&repo, remote_oid)?;
+                return Err(replaced_store_pause_error(
+                    HeldLocally::measure(&repo, remote_oid).ok().as_ref(),
+                ));
+            }
         }
         let diverged = remote_oid != local_oid
             && (repo.find_commit(remote_oid).is_err()
@@ -1208,11 +1314,14 @@ fn push_inner<G>(
             // would fast-forward from. Written down here because the store is
             // the only thing all of them read.
             record_purge_boundary(&mut superseded, remote_oid);
+            // Counted where the boundary is, so the two can never disagree
+            // about whether a replacement happened — one is the precise record
+            // of WHICH head, the other the record that survives the cap.
+            purge_epoch = purge_epoch.saturating_add(1);
         }
     }
 
     let cache_path = listing_cache_path(&repo);
-    let store_key = cache_store_key(&transport.store_identity());
     let cached = load_listing_cache(&cache_path, &store_key);
     let previous_cursor = cached.as_ref().map(|cached| cached.cursor.clone());
     let listing = transport.list_objects_since(previous_cursor.as_deref(), MAX_LIST_OBJECTS)?;
@@ -1263,19 +1372,58 @@ fn push_inner<G>(
         branch: branch.clone(),
         head: local_oid.to_string(),
         superseded: superseded.iter().map(|oid| oid.to_string()).collect(),
+        purge_epoch,
     };
     let encrypted_ref = encrypt_ref(key, &document)?;
     let expected = current_ref.as_ref().map(|value| value.version.as_str());
-    match transport.compare_and_swap_ref(expected, &encrypted_ref)? {
-        CasResult::Updated(_) => {}
-        CasResult::Mismatch => {
-            return Err("hosted sync push raced another device; pull and merge first".into())
+    {
+        // The gate again, and the check that makes taking it twice worth it.
+        // Everything since the first guard was network, and a purge landing in
+        // that window rewrote the history this document names — the objects it
+        // reaches are already uploaded, so the CAS below would publish the
+        // PRE-purge head and the clear below would drop the marker that is the
+        // only local evidence a rewrite happened.
+        //
+        // The question asked of HEAD is whether it still BUILDS ON the head
+        // being published, not whether it is still that head. A snapshot
+        // landing mid-transfer moves the branch to a child, and publishing the
+        // parent is right: the CAS names a commit the store can fast-forward
+        // from, and the next push carries the child. Only a branch that walked
+        // off this history — which is what a rewrite leaves — is refused. The
+        // marker is the second half of the same question, for a rewrite that
+        // happens to keep parentage.
+        //
+        // Nothing has been published at this point, so the refusal costs an
+        // attempt and no more — the next push describes the history the vault
+        // actually has.
+        let _guard = gate();
+        let left_this_history = match current_branch_state(&repo) {
+            Ok((now, Some(oid))) => {
+                now != branch
+                    || (oid != local_oid
+                        && !repo.graph_descendant_of(oid, local_oid).unwrap_or(false))
+            }
+            // An unborn branch reaches nothing, and an unreadable HEAD is not
+            // an answer this may guess at.
+            Ok((_, None)) | Err(_) => true,
+        };
+        if left_this_history || (history_rewritten(&repo) && !rewritten_at_entry) {
+            return Err(vault_moved_during_push_error());
         }
-    }
+        match transport.compare_and_swap_ref(expected, &encrypted_ref)? {
+            CasResult::Updated(_) => {}
+            CasResult::Mismatch => {
+                return Err("hosted sync push raced another device; pull and merge first".into())
+            }
+        }
 
-    repo.reference(&tracking_ref, local_oid, true, "hosted sync push updated tracking ref")
-        .map_err(|error| format!("hosted sync tracking update failed: {error}"))?;
-    clear_history_rewritten(&repo)?;
+        repo.reference(&tracking_ref, local_oid, true, "hosted sync push updated tracking ref")
+            .map_err(|error| format!("hosted sync tracking update failed: {error}"))?;
+        clear_history_rewritten(&repo)?;
+        // This device now stands on exactly the document it just published,
+        // its own replacement included.
+        store_purge_epoch(&repo, &store_key, purge_epoch);
+    }
 
     // Written only after the ref is published, so a push that failed part way
     // never leaves behind a cache claiming a position it never reached.
@@ -1532,6 +1680,11 @@ fn pull_inner<G>(
     require_branch(&branch, &document.branch)?;
     let remote_oid = parse_oid(&document.head)?;
     let superseded = document.superseded_oids()?;
+    // Every leg below that leaves this device standing on the store records
+    // this, and the ordinary auto-sync tick is one of them — which is what
+    // keeps the push-side epoch check from pausing devices that are simply up
+    // to date. A leg that refuses records nothing: it did not adopt anything.
+    let store_key = cache_store_key(&transport.store_identity());
 
     // HEAD is re-read after the network leg: the local snapshot thread runs it
     // ahead of the remote constantly during editing, and those ticks bring
@@ -1551,17 +1704,35 @@ fn pull_inner<G>(
     // there is nothing to do: a deadlock with a green tick on it, and no door.
     let crosses =
         local_oid.map(|local| crosses_purge_boundary(&repo, &superseded, local)).unwrap_or(false);
-    if integrated && !crosses {
+    let tracking_ref = format!("refs/remotes/{REMOTE}/{branch}");
+    // The boundary list is capped, so the drain the epoch exists for reaches
+    // this shortcut too — and reaches it FIRST. A device whose boundary has
+    // drained reads as integrated here, records the store's current epoch on
+    // the way out, and hands its own next push a number that says it is
+    // current. The app pulls before it pushes on open, on focus and on every
+    // interval, so leaving this leg to the list alone launders exactly the
+    // stranding the push-side check was added to catch. A device standing
+    // behind the store's epoch is therefore not idle: it goes to the same
+    // pause and the same adopt door the push sends it to.
+    //
+    // A device that never took anything from this store is exempt, on the same
+    // reasoning [`store_was_replaced`] gives for the position it does not have:
+    // a first join holds nothing a purge could have removed, so there is
+    // nothing here to refuse it over.
+    let epoch_behind = !superseded.is_empty()
+        && last_seen_position(&repo, &tracking_ref).is_some()
+        && load_purge_epoch(&repo, &store_key).unwrap_or(0) < document.purge_epoch;
+    if integrated && !crosses && !epoch_behind {
         // A store this device already stands on is not one it can still owe an
         // answer about, so an older refusal's marker goes here too.
         super::clear_store_replaced(&repo)?;
+        store_purge_epoch(&repo, &store_key, document.purge_epoch);
         return idle_pull(&repo, local_oid.unwrap_or(remote_oid), gate);
     }
 
-    // Read before the fetch and before the tracking ref moves: it is the
-    // position this device last took from the store, and the only evidence
-    // that says whether the store MOVED or was REPLACED.
-    let tracking_ref = format!("refs/remotes/{REMOTE}/{branch}");
+    // Read before the fetch and before the tracking ref moves: the position
+    // this device last took from the store is the only evidence that says
+    // whether the store MOVED or was REPLACED.
     {
         let _guard = gate();
         // Re-checked under the gate for the same reason it is checked at all,
@@ -1584,6 +1755,7 @@ fn pull_inner<G>(
             super::store_replaced(&repo) && seen.is_none() && history_rewritten(&repo);
         if pause_stands_on_marker
             || crosses
+            || epoch_behind
             || store_left_this_device_behind(&repo, seen, remote_oid)
         {
             let held = HeldLocally::measure(&repo, remote_oid)?;
@@ -1604,6 +1776,7 @@ fn pull_inner<G>(
                 "hosted sync pull adopted a replaced store",
             )
             .map_err(|error| format!("hosted sync tracking update failed: {error}"))?;
+            store_purge_epoch(&repo, &store_key, document.purge_epoch);
             return adopt_replaced_history(&repo, &branch, remote_oid, &held);
         }
         // Reaching here means both arms just answered "the store is ordinary
@@ -1623,6 +1796,7 @@ fn pull_inner<G>(
     }
     repo.reference(&tracking_ref, remote_oid, true, "hosted sync pull updated tracking ref")
         .map_err(|error| format!("hosted sync tracking update failed: {error}"))?;
+    store_purge_epoch(&repo, &store_key, document.purge_epoch);
     pull_local_phase(&repo, &branch, remote_oid)
 }
 
@@ -2048,6 +2222,16 @@ fn rewritten_history_pull_error() -> String {
 }
 
 /// The same state, met by a push instead of a pull.
+/// The refusal for a push whose own vault moved under it while its objects were
+/// on the wire — a purge, a trim, a snapshot. Ordinary and retryable on
+/// purpose: the branch head is the one thing a push publishes, nothing was
+/// published, and the next push names the history the vault has now.
+fn vault_moved_during_push_error() -> String {
+    "hosted sync push stopped: this vault's history changed while the push was in flight; \
+     nothing was published — try again"
+        .to_string()
+}
+
 fn rewritten_history_push_error() -> String {
     "hosted sync is paused: this vault's history was rewritten here by a purge or trim, and the \
      server still holds the history from before it, which this push cannot build on. Replacing \
@@ -2275,7 +2459,10 @@ const REF_VERSION_SUPERSEDED: u8 = 2;
 /// [`MAX_REF_ENVELOPE_BYTES`] and each boundary costs 43 bytes of it, so the
 /// list cannot grow without end. Trimming the oldest is what that costs: a
 /// device stranded from before the 33rd purge in a vault's life is no longer
-/// recognised as stranded, and its push republishes what that purge removed.
+/// recognised as stranded BY THIS LIST, and its push is an ordinary
+/// fast-forward. What catches it instead is [`RefDocument::purge_epoch`], which
+/// is one number rather than a list and so never has to be trimmed; the list
+/// stays the precise check for everything inside the window.
 const MAX_SUPERSEDED_HEADS: usize = 32;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -2293,6 +2480,20 @@ struct RefDocument {
     /// document it always did.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     superseded: Vec<String>,
+    /// How many replacing pushes this store has taken, counted from its first
+    /// and never reset. Eight bytes that do not drain, beside a boundary list
+    /// that does: the list stays the precise check for a device stranded inside
+    /// the window, and this catches the one the cap has already forgotten.
+    ///
+    /// Skipped when zero for the same reason as the list, and it is only ever
+    /// non-zero alongside a non-empty list, so it never appears in a document
+    /// an older client would otherwise have read.
+    #[serde(default, skip_serializing_if = "is_unpurged")]
+    purge_epoch: u64,
+}
+
+fn is_unpurged(epoch: &u64) -> bool {
+    *epoch == 0
 }
 
 impl RefDocument {
@@ -2400,10 +2601,12 @@ fn decrypt_ref(key: &MasterKey, envelope: &[u8]) -> Result<RefDocument, String> 
     }
     let document: RefDocument = serde_json::from_slice(&plaintext)
         .map_err(|_| "hosted sync ref has an invalid payload".to_string())?;
-    // Boundaries under a v1 stamp are a ref that contradicts itself: the stamp
-    // says "any build may push to me", the contents say a purge has to hold.
-    // Refuse it rather than pick the half that loses the purge.
-    if document.version == 1 && !document.superseded.is_empty() {
+    // Either purge field under a v1 stamp is a ref that contradicts itself: the
+    // stamp says "any build may push to me", the contents say a purge has to
+    // hold. Refuse it rather than pick the half that loses the purge. Both
+    // fields, not just the list — an epoch alone is what a build that dropped
+    // the boundaries would leave, and it is the field that outlives the cap.
+    if document.version == 1 && (!document.superseded.is_empty() || document.purge_epoch != 0) {
         return Err("hosted sync ref has an invalid payload".into());
     }
     parse_oid(&document.head)?;
@@ -2752,6 +2955,7 @@ mod tests {
             branch: "main".into(),
             head: head.to_string(),
             superseded: Vec::new(),
+            purge_epoch: 0,
         };
         let envelope = encrypt_ref(key, &document).unwrap();
         assert!(matches!(
@@ -3083,6 +3287,129 @@ mod tests {
         assert!(!b.join("Secret.md").exists());
     }
 
+    /// The push-side twin of `pull_rechecks_the_purge_marker_under_the_write_gate`.
+    /// Everything between the read block and the CAS is network, and the cheap
+    /// checks all happened before it. A purge landing in that window rewrites
+    /// the history this push is about to name — its objects already uploaded —
+    /// so a CAS with no second look publishes the PRE-purge head over the
+    /// store, and the marker clear that follows erases the only local evidence
+    /// the purge ever happened.
+    #[test]
+    fn push_rechecks_the_purge_marker_before_publishing_the_head() {
+        let scratch = TempDir::new().unwrap();
+        let a = scratch.path().join("vault-a");
+        let history_a = vault(&a);
+        let store = FileBlobStore::new(scratch.path().join("blob-store")).unwrap();
+        let key = MasterKey::from_bytes([51; 32]);
+        let head_of =
+            |root: &Path| Repository::open(root).unwrap().head().unwrap().target().unwrap();
+        let store_head = || {
+            let bytes = store.read_ref(MAX_REF_ENVELOPE_BYTES).unwrap().unwrap().bytes;
+            decrypt_ref(&key, &bytes).unwrap()
+        };
+
+        write_note(&a, "Keep.md", "keep me\n");
+        history_a.snapshot("keep").unwrap();
+        push(&a, &key, &store, || ()).unwrap();
+        let published = head_of(&a);
+
+        write_note(&a, "Secret.md", "erase me everywhere\n");
+        history_a.snapshot("secret").unwrap();
+        let secret_head = head_of(&a);
+
+        // The gate stands in for the app's history+engine mutexes, which is
+        // what the purge path takes: it can only land between this push's two
+        // acquisitions, and that is precisely the window the objects go up in.
+        let mut acquisitions = 0;
+        let error = push(&a, &key, &store, || {
+            acquisitions += 1;
+            if acquisitions == 2 {
+                fs::remove_file(a.join("Secret.md")).unwrap();
+                history_a.purge_files(&["Secret.md"]).unwrap();
+            }
+        })
+        .unwrap_err();
+
+        assert_eq!(acquisitions, 2, "the publish never took the gate a second time");
+        assert!(error.contains("changed while the push was in flight"), "{error}");
+        assert_ne!(
+            store_head().head,
+            secret_head.to_string(),
+            "the CAS published the head the purge had just rewritten away"
+        );
+        assert_eq!(
+            store_head().head,
+            published.to_string(),
+            "the store moved off the head it held before this push"
+        );
+        let repo = Repository::open(&a).unwrap();
+        assert!(
+            history_rewritten(&repo),
+            "the push cleared the rewrite marker the purge had just written"
+        );
+        assert!(
+            repo.find_reference("refs/remotes/substrate/main").is_err(),
+            "the push recreated the tracking ref the purge deleted"
+        );
+    }
+
+    /// The other side of that re-check, and the reason it asks about ANCESTRY
+    /// rather than identity: the auto-snapshot thread moves HEAD to a child
+    /// every fifteen seconds while someone is typing. The head being published
+    /// is still a commit the store can fast-forward from, so the push is
+    /// correct and must land; the snapshot rides the next one.
+    #[test]
+    fn a_snapshot_landing_mid_push_does_not_fail_a_push_that_is_still_true() {
+        let scratch = TempDir::new().unwrap();
+        let a = scratch.path().join("vault-a");
+        let history_a = vault(&a);
+        let store = FileBlobStore::new(scratch.path().join("blob-store")).unwrap();
+        let key = MasterKey::from_bytes([54; 32]);
+        let head_of =
+            |root: &Path| Repository::open(root).unwrap().head().unwrap().target().unwrap();
+        let store_head = || {
+            let bytes = store.read_ref(MAX_REF_ENVELOPE_BYTES).unwrap().unwrap().bytes;
+            decrypt_ref(&key, &bytes).unwrap()
+        };
+
+        write_note(&a, "Keep.md", "keep me\n");
+        history_a.snapshot("keep").unwrap();
+        push(&a, &key, &store, || ()).unwrap();
+
+        write_note(&a, "Second.md", "second\n");
+        history_a.snapshot("second").unwrap();
+        let published = head_of(&a);
+
+        // Exactly what the fifteen-second snapshot tick does, landing in the
+        // window the objects went up in.
+        let mut acquisitions = 0;
+        let report = push(&a, &key, &store, || {
+            acquisitions += 1;
+            if acquisitions == 2 {
+                write_note(&a, "Typed.md", "typed while the push was on the wire\n");
+                history_a.snapshot("typed").unwrap();
+            }
+        })
+        .unwrap();
+
+        assert_eq!(acquisitions, 2, "the publish never took the gate a second time");
+        assert_eq!(
+            store_head().head,
+            published.to_string(),
+            "the push published something other than the head it read"
+        );
+        assert_eq!(report.head, published.to_string());
+        let repo = Repository::open(&a).unwrap();
+        assert!(
+            repo.graph_descendant_of(head_of(&a), published).unwrap(),
+            "the fixture did not leave HEAD on a child of the published commit"
+        );
+        // The snapshot the window caught is simply still ahead, and the next
+        // push is the ordinary fast-forward that carries it.
+        push(&a, &key, &store, || ()).unwrap();
+        assert_eq!(store_head().head, head_of(&a).to_string());
+    }
+
     /// The push-side twin of the pull refusal: a rewritten vault whose remote
     /// still holds the old history must be told about the purge, not handed
     /// the generic divergence message that reads like ordinary contention.
@@ -3360,6 +3687,9 @@ mod tests {
         history_a.purge_files(&["Secret.md"]).unwrap();
         push_replacing_remote(&a, &key, &store, || ()).unwrap();
         assert_eq!(store_head().superseded, vec![secret_head.to_string()]);
+        // A store that HAS been replaced, so the epoch check below is live
+        // rather than trivially satisfied by a store that never was.
+        assert_eq!(store_head().purge_epoch, 1);
 
         // This device joins the store as it is after the purge, then goes away.
         pull(&d, &key, &store, || ()).unwrap();
@@ -3389,6 +3719,160 @@ mod tests {
             "the catch-up push dropped the boundary"
         );
         assert!(!d.join("Secret.md").exists(), "the purged note came back through the catch-up");
+    }
+
+    /// What the boundary cap costs, and the thing that has to outlive it. The
+    /// list holds 32 heads, so the 33rd replacement drains the oldest — and a
+    /// device stranded from before THAT one stops being recognised by the list
+    /// while its push is still an ordinary fast-forward onto the head the purge
+    /// collapsed back onto. The epoch does not drain, so the refusal stands.
+    #[test]
+    fn a_purge_holds_against_a_device_stranded_before_the_boundary_list_drained() {
+        let scratch = TempDir::new().unwrap();
+        let a = scratch.path().join("vault-a");
+        let b = scratch.path().join("vault-b");
+        let history_a = vault(&a);
+        let history_b = vault(&b);
+        let store = FileBlobStore::new(scratch.path().join("blob-store")).unwrap();
+        let key = MasterKey::from_bytes([52; 32]);
+        let head_of =
+            |root: &Path| Repository::open(root).unwrap().head().unwrap().target().unwrap();
+        let store_head = || {
+            let bytes = store.read_ref(MAX_REF_ENVELOPE_BYTES).unwrap().unwrap().bytes;
+            decrypt_ref(&key, &bytes).unwrap()
+        };
+
+        write_note(&a, "Keep.md", "keep me\n");
+        history_a.snapshot("keep").unwrap();
+        push(&a, &key, &store, || ()).unwrap();
+        let kept = head_of(&a);
+
+        write_note(&a, "Secret.md", "erase me everywhere\n");
+        history_a.snapshot("secret").unwrap();
+        push(&a, &key, &store, || ()).unwrap();
+        let secret_head = head_of(&a);
+
+        // The device about to be stranded: up to date at the wrong moment, then
+        // working on. It rewrites nothing and races nothing.
+        pull(&b, &key, &store, || ()).unwrap();
+        assert!(b.join("Secret.md").is_file(), "the fixture never gave device B the note");
+        write_note(&b, "Later.md", "written on b after the sync\n");
+        history_b.snapshot("later").unwrap();
+
+        // The purge that strands it, then `MAX_SUPERSEDED_HEADS` more of the
+        // same shape — one more than the list can hold, so the first drains.
+        fs::remove_file(a.join("Secret.md")).unwrap();
+        history_a.purge_files(&["Secret.md"]).unwrap();
+        assert_eq!(head_of(&a), kept, "the fixture is not the ancestor-head shape");
+        push_replacing_remote(&a, &key, &store, || ()).unwrap();
+        for round in 0..MAX_SUPERSEDED_HEADS {
+            let note = format!("Filler{round}.md");
+            write_note(&a, &note, "filler\n");
+            history_a.snapshot("filler").unwrap();
+            push(&a, &key, &store, || ()).unwrap();
+            fs::remove_file(a.join(&note)).unwrap();
+            history_a.purge_files(&[note.as_str()]).unwrap();
+            assert_eq!(head_of(&a), kept, "round {round} left the fixture off the shared head");
+            push_replacing_remote(&a, &key, &store, || ()).unwrap();
+        }
+
+        let published = store_head();
+        assert_eq!(published.head, kept.to_string());
+        assert_eq!(published.superseded.len(), MAX_SUPERSEDED_HEADS);
+        assert!(
+            !published.superseded.contains(&secret_head.to_string()),
+            "the fixture never drained the boundary this device was stranded by"
+        );
+        assert_eq!(
+            published.purge_epoch,
+            MAX_SUPERSEDED_HEADS as u64 + 1,
+            "the epoch was trimmed along with the list"
+        );
+
+        // The list can no longer see this device. The epoch can, and the answer
+        // is the same pause with the same door.
+        //
+        // The PULL comes first because that is the order the app syncs in — on
+        // open, on focus and on every interval — and the store's head is an
+        // ancestor of this device's, so the pull reads as "already integrated".
+        // A pull that took that shortcut would record the store's current epoch
+        // on the way out and leave the push below with nothing to refuse.
+        let paused = pull(&b, &key, &store, || ()).unwrap_err();
+        assert!(paused.contains("hosted sync is paused"), "{paused}");
+        assert!(paused.contains("Vault sync pane"), "{paused}");
+        assert!(b.join("Secret.md").is_file(), "the refusal already moved device B");
+
+        let refused = push(&b, &key, &store, || ()).unwrap_err();
+        assert!(refused.contains("hosted sync is paused"), "{refused}");
+        assert!(refused.contains("Vault sync pane"), "{refused}");
+        assert_eq!(
+            store_head().head,
+            kept.to_string(),
+            "the stranded device republished the history the purge removed"
+        );
+    }
+
+    /// The same drained-boundary device, reached the way the app actually
+    /// reaches it: pull first, then push. Kept apart from the case above so a
+    /// pull leg that stops refusing cannot be hidden by the push leg still
+    /// refusing — here the only thing asserted is that the store head never
+    /// moves across the pair.
+    #[test]
+    fn a_pull_before_the_push_does_not_launder_a_drained_purge_boundary() {
+        let scratch = TempDir::new().unwrap();
+        let a = scratch.path().join("vault-a");
+        let b = scratch.path().join("vault-b");
+        let history_a = vault(&a);
+        let history_b = vault(&b);
+        let store = FileBlobStore::new(scratch.path().join("blob-store")).unwrap();
+        let key = MasterKey::from_bytes([53; 32]);
+        let head_of =
+            |root: &Path| Repository::open(root).unwrap().head().unwrap().target().unwrap();
+        let store_head = || {
+            let bytes = store.read_ref(MAX_REF_ENVELOPE_BYTES).unwrap().unwrap().bytes;
+            decrypt_ref(&key, &bytes).unwrap()
+        };
+
+        write_note(&a, "Keep.md", "keep me\n");
+        history_a.snapshot("keep").unwrap();
+        push(&a, &key, &store, || ()).unwrap();
+        let kept = head_of(&a);
+        write_note(&a, "Secret.md", "erase me everywhere\n");
+        history_a.snapshot("secret").unwrap();
+        push(&a, &key, &store, || ()).unwrap();
+
+        pull(&b, &key, &store, || ()).unwrap();
+        assert!(b.join("Secret.md").is_file(), "the fixture never gave device B the note");
+        write_note(&b, "Later.md", "written on b after the sync\n");
+        history_b.snapshot("later").unwrap();
+
+        fs::remove_file(a.join("Secret.md")).unwrap();
+        history_a.purge_files(&["Secret.md"]).unwrap();
+        push_replacing_remote(&a, &key, &store, || ()).unwrap();
+        for round in 0..MAX_SUPERSEDED_HEADS {
+            let note = format!("Filler{round}.md");
+            write_note(&a, &note, "filler\n");
+            history_a.snapshot("filler").unwrap();
+            push(&a, &key, &store, || ()).unwrap();
+            fs::remove_file(a.join(&note)).unwrap();
+            history_a.purge_files(&[note.as_str()]).unwrap();
+            push_replacing_remote(&a, &key, &store, || ()).unwrap();
+        }
+        assert_eq!(store_head().head, kept.to_string());
+
+        // Whatever these two legs answer, the one thing that may not happen is
+        // the purged history arriving back on the server.
+        let _ = pull(&b, &key, &store, || ());
+        let _ = push(&b, &key, &store, || ());
+        assert_eq!(
+            store_head().head,
+            kept.to_string(),
+            "a pull followed by a push put the purged history back on the store"
+        );
+        assert!(
+            !store_head().superseded.is_empty(),
+            "the pair dropped the store's purge boundaries"
+        );
     }
 
     /// What the pause is priced against: the replacement head, and nothing
@@ -3644,6 +4128,58 @@ mod tests {
         assert!(parse_oid("abc").is_err());
         assert!(parse_oid(&"A".repeat(40)).is_err());
         assert!(parse_oid(&"a".repeat(40)).is_ok());
+    }
+
+    /// A v1 stamp is a promise that any build may push to this store, and
+    /// either purge field is a promise that one may not. A ref carrying both is
+    /// refused rather than read for whichever half is present, because every
+    /// way of picking one loses a purge: honour the stamp and an old build
+    /// republishes what was removed; honour the field and the version gate
+    /// stops meaning anything. The epoch half matters most — it is the field
+    /// that outlives the boundary cap.
+    #[test]
+    fn a_v1_ref_carrying_either_purge_field_is_refused() {
+        let key = MasterKey::from_bytes([55; 32]);
+        let head = "a".repeat(40);
+        let honest = RefDocument {
+            version: 1,
+            branch: "main".into(),
+            head: head.clone(),
+            superseded: Vec::new(),
+            purge_epoch: 0,
+        };
+        // The control: the same document without either field reads fine, so
+        // the refusals below are about the fields and not the shape.
+        let envelope = encrypt_ref(&key, &honest).unwrap();
+        assert_eq!(decrypt_ref(&key, &envelope).unwrap().head, head);
+
+        let with_boundary = RefDocument {
+            version: 1,
+            branch: "main".into(),
+            head: head.clone(),
+            superseded: vec!["b".repeat(40)],
+            purge_epoch: 0,
+        };
+        let envelope = encrypt_ref(&key, &with_boundary).unwrap();
+        assert_eq!(
+            decrypt_ref(&key, &envelope).unwrap_err(),
+            "hosted sync ref has an invalid payload",
+            "a v1 stamp carrying a purge boundary was read instead of refused"
+        );
+
+        let with_epoch = RefDocument {
+            version: 1,
+            branch: "main".into(),
+            head,
+            superseded: Vec::new(),
+            purge_epoch: 7,
+        };
+        let envelope = encrypt_ref(&key, &with_epoch).unwrap();
+        assert_eq!(
+            decrypt_ref(&key, &envelope).unwrap_err(),
+            "hosted sync ref has an invalid payload",
+            "a v1 stamp carrying a purge epoch was read instead of refused"
+        );
     }
 
     #[test]
@@ -5288,10 +5824,15 @@ mod tests {
 
     impl ThrottlingProxy {
         /// `refuse` object PUTs are answered 429 before any is let through.
-        /// Every `retry_after_every`th refusal carries `Retry-After: 1`, so one
-        /// run covers both halves of the contract: the wait the server names
-        /// and the wait the client picks for itself.
-        fn start(upstream: std::net::SocketAddr, refuse: usize, retry_after_every: usize) -> Self {
+        /// Every `retry_after_every`th refusal carries `Retry-After:
+        /// asked_seconds`, so one run covers both halves of the contract: the
+        /// wait the server names and the wait the client picks for itself.
+        fn start(
+            upstream: std::net::SocketAddr,
+            refuse: usize,
+            retry_after_every: usize,
+            asked_seconds: u64,
+        ) -> Self {
             let listener = TcpListener::bind("127.0.0.1:0").unwrap();
             let address = listener.local_addr().unwrap();
             let put_attempts = Arc::new(AtomicUsize::new(0));
@@ -5324,9 +5865,9 @@ mod tests {
                         if attempt <= refuse {
                             let count = refused.fetch_add(1, Ordering::SeqCst) + 1;
                             let asked = if count % retry_after_every == 0 {
-                                "Retry-After: 1\r\n"
+                                format!("Retry-After: {asked_seconds}\r\n")
                             } else {
-                                ""
+                                String::new()
                             };
                             let _ = client.write_all(
                                 format!(
@@ -5377,7 +5918,7 @@ mod tests {
         let server = serve(&storage);
         // Four refusals, every second one naming its own wait — so this run
         // covers `Retry-After` and the client's own schedule at once.
-        let proxy = ThrottlingProxy::start(server.address(), 4, 2);
+        let proxy = ThrottlingProxy::start(server.address(), 4, 2, 1);
         let transport = proxy.store(patient_retry());
 
         let a = scratch.path().join("vault-a");
@@ -5434,7 +5975,7 @@ mod tests {
         let server = serve(&scratch.path().join("server-storage"));
         // Never lets an object PUT through, and never names a wait — the
         // client's own schedule and budget are what end this.
-        let proxy = ThrottlingProxy::start(server.address(), usize::MAX, usize::MAX);
+        let proxy = ThrottlingProxy::start(server.address(), usize::MAX, usize::MAX, 1);
         let transport = proxy.store(brisk_retry());
 
         let a = scratch.path().join("vault-a");
@@ -5451,6 +5992,42 @@ mod tests {
         assert!(
             proxy.put_attempts.load(Ordering::SeqCst) > 1,
             "the push gave up on the first refusal instead of backing off"
+        );
+    }
+
+    /// A store that answers `Retry-After: 0` is asking to be re-requested as
+    /// fast as the wire allows. The client's own schedule is the floor, so what
+    /// bounds the attempt is the doubling backoff and not the round-trip time —
+    /// the assertion is the attempt COUNT, because elapsed time looks identical
+    /// either way once the budget ends both.
+    #[test]
+    fn a_retry_after_of_zero_is_floored_at_the_clients_own_backoff() {
+        let scratch = TempDir::new().unwrap();
+        let server = serve(&scratch.path().join("server-storage"));
+        // Never lets an object PUT through, and names zero on every refusal.
+        let proxy = ThrottlingProxy::start(server.address(), usize::MAX, 1, 0);
+        let transport = proxy.store(brisk_retry());
+
+        let a = scratch.path().join("vault-a");
+        let history_a = vault(&a);
+        let key = MasterKey::from_bytes([50; 32]);
+        write_note(&a, "Hot.md", "not a spin loop\n");
+        history_a.snapshot("a1").unwrap();
+
+        let error = push(&a, &key, &transport, || ()).unwrap_err();
+        assert!(
+            error.contains(&status_error("object upload", 429)),
+            "the budget did not end in today's message: {error}"
+        );
+        // `brisk_retry` waits 5ms, 10ms, then 20ms to its ceiling inside a
+        // 120ms budget: eight attempts or so. The bound is loose enough not to
+        // time a machine and far below the hundreds a zero-length wait fits in
+        // the same budget on loopback.
+        let attempts = proxy.put_attempts.load(Ordering::SeqCst);
+        assert!(attempts > 1, "the push gave up on the first refusal: {attempts} attempts");
+        assert!(
+            attempts <= 20,
+            "the zero wait was honoured as written: {attempts} attempts inside the budget"
         );
     }
 

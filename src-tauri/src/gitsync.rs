@@ -82,6 +82,16 @@ pub(crate) const STAGING_REF: &str = "refs/substrate/sync-staging";
 const HEAD_MOVED: &str =
     "vault sync: the vault changed while the merge was being finished; try again";
 
+/// The refusal when the vault FOLDER gained a file while a conflict resolution
+/// was being assembled. Kept apart from [`HEAD_MOVED`] deliberately: the
+/// history did not move, something outside this process wrote into the vault,
+/// and "try again" on its own would walk straight back into the same delete.
+/// The recorded choices survive the refusal, so finishing again after the file
+/// is out of the way costs nothing.
+const TREE_CHANGED_DURING_MERGE: &str =
+    "vault sync: a file appeared in the vault while the merge was being finished, and finishing \
+     would delete it. Your choices are kept — move or snapshot that file, then finish again";
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct HeadPlan {
     branch: String,
@@ -1320,24 +1330,32 @@ pub fn sync_push(root: &Path, credentials_path: &Path) -> Result<SyncReport, Str
 /// app: the engine `MutexGuard`) held while the working tree is inspected and
 /// the commit range is computed. The network push runs after the guard drops,
 /// so a slow link never blocks vault writes.
+///
+/// It is taken a second time for the tracking-ref write and the marker clear —
+/// the two local writes that follow the network leg and describe what it
+/// published. A purge landing while the transfer was in flight leaves this
+/// vault on a different history, and recording success against it would drop
+/// the rewrite marker that is the only local evidence the purge happened.
 pub fn sync_push_gated<G>(
     root: &Path,
     credentials_path: &Path,
-    gate: impl FnOnce() -> G,
+    mut gate: impl FnMut() -> G,
 ) -> Result<SyncReport, String> {
     let repo = owned_repo(root)?;
     if let Some(base) = hosted_remote_base(&repo) {
         let (transport, key) = hosted_transport(root, credentials_path, &base)?;
         return blob::push(root, &key, &transport, gate);
     }
-    let (branch, local_oid, pushed) = {
+    let (branch, local_oid, pushed, rewritten_at_entry) = {
         let _guard = gate();
         ensure_clean(&repo)?;
         let (branch, local_oid) = current_branch(&repo)?;
         let tracking_ref = format!("refs/remotes/{REMOTE}/{branch}");
         let previous = repo.find_reference(&tracking_ref).ok().and_then(|r| r.target());
         let pushed = exclusive_commit_count(&repo, local_oid, previous)?;
-        (branch, local_oid, pushed)
+        // A marker already standing is what a push the remote accepts is meant
+        // to clear; only one that appears mid-flight is a purge racing it.
+        (branch, local_oid, pushed, history_rewritten(&repo))
     };
     let tracking_ref = format!("refs/remotes/{REMOTE}/{branch}");
     let auth = read_auth(root, credentials_path)?;
@@ -1353,8 +1371,36 @@ pub fn sync_push_gated<G>(
     if !rejected.is_empty() {
         return Err(push_rejection_error(&repo, &rejected));
     }
+    let _guard = gate();
     repo.reference(&tracking_ref, local_oid, true, "vault sync push updated remote tracking ref")
         .map_err(|e| format!("vault sync push tracking update failed: {e}"))?;
+    // A purge landing while the transfer was in flight left this vault on a
+    // history the remote has not been given, so the marker still describes
+    // something true and clearing it here would throw away the only local
+    // record that the rewrite ever happened. The transfer above cannot be taken
+    // back; the tracking ref is written because the remote really does hold
+    // `local_oid`, and the marker stands until a push describes what this vault
+    // has now. Unlike the hosted arm there is no force-push door for a plain
+    // remote, so that push is one the user has to make possible themselves.
+    //
+    // Asked as "does the branch still build on what was sent", not "is it still
+    // exactly that": a snapshot landing mid-transfer moves HEAD to a child, and
+    // the transfer was still a complete, truthful push of its parent. Reporting
+    // that as a failure would be a lie about work that landed.
+    let left_this_history = match current_branch_state(&repo) {
+        Ok((now, Some(oid))) => {
+            now != branch
+                || (oid != local_oid && !repo.graph_descendant_of(oid, local_oid).unwrap_or(false))
+        }
+        Ok((_, None)) | Err(_) => true,
+    };
+    if left_this_history || (history_rewritten(&repo) && !rewritten_at_entry) {
+        return Err(
+            "vault sync push stopped: this vault's history changed while the push was in \
+             flight; the remote has what was sent — push again to send the rest"
+                .into(),
+        );
+    }
     // The remote now holds this vault's history, rewritten or not — the
     // rewrite marker's job is done.
     clear_history_rewritten(&repo)?;
@@ -1381,7 +1427,7 @@ pub fn sync_push_gated<G>(
 pub fn sync_replace_hosted_gated<G>(
     root: &Path,
     credentials_path: &Path,
-    gate: impl FnOnce() -> G,
+    gate: impl FnMut() -> G,
 ) -> Result<SyncReport, String> {
     let repo = owned_repo(root)?;
     let Some(base) = hosted_remote_base(&repo) else {
@@ -2019,16 +2065,15 @@ pub fn sync_resolve_finish(root: &Path) -> Result<SyncReport, String> {
 /// is local-only. The HEAD re-read remains a defensive check for external git
 /// and ungated library callers.
 ///
-/// KNOWN LIMITATION: the gate only covers writers inside this
-/// process. A file created in the vault by anything else — Finder, an editor,
-/// a sync daemon — during the sub-second window between [`ensure_clean`] and
-/// the checkout below is untracked when the checkout runs, and
-/// `remove_untracked(true)` deletes it without a conflict prompt. Left as is
-/// deliberately: dropping the flag would instead leave a half-merged tree
-/// carrying files the merge decided against, which is the worse failure. A
-/// real fix means re-statting immediately before checkout and aborting on any
-/// new path; that changes conflict-resolution semantics and needs its own
-/// issue.
+/// The gate only covers writers inside this process, so a file created in the
+/// vault by anything else — Finder, an editor, a sync daemon — during the
+/// window between [`ensure_clean`] and the checkout is untracked when the
+/// checkout runs, and `remove_untracked(true)` would delete it without a
+/// prompt. The tree is therefore re-read immediately before the checkout and
+/// the finish refuses on anything that appeared, with the recorded choices
+/// kept. The flag stays as it is: dropping it would instead leave a
+/// half-merged tree carrying files the merge decided against, which is the
+/// worse failure.
 ///
 /// NO APP-FILE BACKFILL HERE, deliberately: this path does its own
 /// merge and checkout and never reaches [`pull_local_phase`], so a first join
@@ -2135,13 +2180,25 @@ pub fn sync_resolve_finish_gated<G>(
     }
     #[cfg(test)]
     run_post_check_race_hook();
+    // The clean-tree check at the top of this function and the checkout below
+    // are separated by the merge, the per-file staging and the tree write —
+    // work proportional to the conflict, not an instant. The checkout runs
+    // `remove_untracked(true)`, and the gate cannot exclude a writer outside
+    // this process, so a file that landed in that window would be deleted with
+    // no prompt. The tree was empty of statuses when `ensure_clean` passed, so
+    // anything this walk reports appeared or changed since — refuse and keep
+    // it. The flag stays: dropping it would instead leave a half-merged tree
+    // carrying the files the merge decided against, which is the worse failure.
+    if let Some(path) = first_changed_worktree_path(&repo)? {
+        return Err(format!("{TREE_CHANGED_DURING_MERGE}: “{path}”"));
+    }
     let merge_oid = commit_and_checkout(
         &repo,
         &message,
         &tree,
         &[&local_commit, &remote_commit],
-        // deletes an external writer's file landed since ensure_clean —
-        // documented on this fn
+        // a file landing in the window above is refused, not deleted, by the
+        // re-read that guards this call
         CheckoutBuilder::new().force().recreate_missing(true).remove_untracked(true),
     )?;
     clear_pending_merge(&repo)?;
@@ -3089,6 +3146,19 @@ fn ensure_clean_for_pull(repo: &Repository) -> Result<(), String> {
         return Ok(());
     }
     Err("vault sync requires a clean working tree; snapshot pending changes first".into())
+}
+
+/// One path the working tree now has something to say about, read through the
+/// same walk [`working_tree_is_dirty`] uses so the two can never disagree about
+/// what counts. Named rather than counted: a refusal that points at the file is
+/// one its user can act on.
+fn first_changed_worktree_path(repo: &Repository) -> Result<Option<String>, String> {
+    let mut options = StatusOptions::new();
+    options.include_untracked(true).recurse_untracked_dirs(true);
+    let statuses = repo
+        .statuses(Some(&mut options))
+        .map_err(|e| format!("vault sync could not inspect the working tree: {e}"))?;
+    Ok(statuses.iter().find_map(|entry| entry.path().map(str::to_string)))
 }
 
 fn working_tree_is_dirty(repo: &Repository) -> Result<bool, String> {
@@ -4853,6 +4923,76 @@ mod tests {
         assert_eq!(Repository::open(&pair.b).unwrap().head().unwrap().target(), before);
         // still resolvable once the tree settles — the refusal parks, not drops
         assert!(sync_conflicts(&pair.b).unwrap().active);
+    }
+
+    /// The window the gate cannot cover, because it only excludes writers
+    /// inside this process: a file landing between the clean-tree check and the
+    /// checkout. The checkout removes untracked files, so that one used to go
+    /// with nothing said. The re-read immediately before it refuses instead,
+    /// names the file, and keeps the choices.
+    #[test]
+    fn resolve_finish_refuses_a_file_that_lands_after_the_clean_check() {
+        let pair = paired_vaults(&[("Note.md", "base\n")]);
+        pair.diverge(&[("Note.md", "remote\n")], &[("Note.md", "local\n")]);
+        sync_resolve_set(&pair.b, "Note.md", "mine").unwrap();
+        let before = Repository::open(&pair.b).unwrap().head().unwrap().target();
+
+        // The seam sits exactly where an outside writer would land: past the
+        // clean-tree check, past the HEAD re-read, one step before checkout.
+        let root = pair.b.clone();
+        POST_CHECK_RACE_HOOK.with(|h| {
+            *h.borrow_mut() = Some(Box::new(move || {
+                write_note(&root, "Dropped.md", "written by something outside the app\n");
+            }));
+        });
+
+        let error = sync_resolve_finish(&pair.b).unwrap_err();
+
+        assert!(error.contains("a file appeared in the vault"), "{error}");
+        assert!(error.contains("Dropped.md"), "the refusal did not name the file: {error}");
+        assert!(!error.contains(HEAD_MOVED), "the tree refusal read as a moved head: {error}");
+        assert_eq!(
+            fs::read_to_string(pair.b.join("Dropped.md")).unwrap(),
+            "written by something outside the app\n",
+            "the file was deleted by the checkout anyway"
+        );
+        assert_eq!(Repository::open(&pair.b).unwrap().head().unwrap().target(), before);
+        let parked = sync_conflicts(&pair.b).unwrap();
+        assert!(parked.active, "the refusal dropped the parked merge");
+        assert_eq!(
+            parked.files[0].resolution.as_deref(),
+            Some("mine"),
+            "the refusal dropped the recorded choice"
+        );
+    }
+
+    /// The other half of that refusal: it turns away files that appeared, and
+    /// nothing else. With the window quiet the finish still runs and the
+    /// deletions the merge decided on still reach the disk — the checkout was
+    /// not softened to buy the guard.
+    #[test]
+    fn resolve_finish_still_lands_the_deletions_the_merge_decided_on() {
+        let pair = paired_vaults(&[("Note.md", "base\n"), ("Gone.md", "the remote deletes me\n")]);
+        // The remote deletes a file this device never touched and edits the one
+        // it did, so the finish has both a choice to apply and a deletion to
+        // carry out.
+        fs::remove_file(pair.a.join("Gone.md")).unwrap();
+        write_note(&pair.a, "Note.md", "remote\n");
+        pair.history_a.snapshot("snapshot").unwrap();
+        sync_push(&pair.a, &pair.credentials_a).unwrap();
+        write_note(&pair.b, "Note.md", "local\n");
+        pair.history_b.snapshot("snapshot").unwrap();
+        sync_pull(&pair.b, &pair.credentials_b).unwrap();
+        assert!(sync_conflicts(&pair.b).unwrap().active, "the fixture did not conflict");
+        assert!(pair.b.join("Gone.md").exists(), "the fixture never gave this device the file");
+
+        sync_resolve_set(&pair.b, "Note.md", "mine").unwrap();
+        sync_resolve_finish(&pair.b).unwrap();
+
+        assert_eq!(fs::read_to_string(pair.b.join("Note.md")).unwrap(), "local\n");
+        assert!(!pair.b.join("Gone.md").exists(), "the merge's deletion never reached the disk");
+        assert_clean(&pair.b);
+        assert!(!sync_conflicts(&pair.b).unwrap().active);
     }
 
     /// The gate itself does not block a legitimate resolve.

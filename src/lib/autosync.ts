@@ -70,6 +70,12 @@ export class AutoSync {
   private pullTimer: number | undefined;
   private inflight = false;
   private queuedPush = false;
+  /** a push attempt that ended without the command running — offline, a status
+      it could not read, a parked conflict, the toggle off at the moment it
+      fired. Nothing re-armed after any of those, so the change sat unpushed
+      until the user happened to edit again; the background tick below turns
+      this back into a push once the lane can run one. */
+  private pushOwed = false;
   private lastPullAt = 0;
   /** when the oldest still-unpushed change arrived; undefined when none has */
   private dirtySince: number | undefined;
@@ -98,6 +104,14 @@ export class AutoSync {
     // `inflight` is deliberately left alone: run()'s finally owns it, and
     // clearing it here would drop the guard off a leg still in the air.
     this.queuedPush = false;
+    // Same reasoning for the owed push, and it is deliberate rather than
+    // tidiness: stop/start is a fresh session (the app re-opens with a pull and
+    // learns what is dirty from the vault's own events), so an owe recorded
+    // before the stop must not become the next session's first write. A leg
+    // still in the air can re-set it from run()'s finally, which is why that
+    // write is guarded on `started` too — any future change to this lifecycle
+    // has to revisit both halves together.
+    this.pushOwed = false;
   }
 
   /** Any vault change — own writes, external edits, a pull's checkout; the
@@ -134,12 +148,21 @@ export class AutoSync {
       this.pullTimer = undefined;
       if (!this.started) return;
       void this.run("pull");
+      // an owed push rides the same tick: the pull it just started holds the
+      // guard, so this queues behind it rather than running alongside
+      if (this.pushOwed) void this.run("push");
       this.armPull();
     }, this.timings.pullIntervalMs);
   }
 
   private async run(kind: "push" | "pull") {
-    if (!this.started || !this.deps.enabled()) return;
+    if (!this.started) return;
+    if (!this.deps.enabled()) {
+      // the toggle went off between arming and firing: the change is still
+      // unpushed, so it is owed rather than dropped
+      if (kind === "push") this.pushOwed = true;
+      return;
+    }
     if (this.inflight) {
       // a push asked for mid-flight still happens — right after, once:
       // dropping it would leave a quiet vault unpushed until its next edit
@@ -151,6 +174,9 @@ export class AutoSync {
     // round-trip would otherwise walk past an open guard and start a second
     // operation alongside this one.
     this.inflight = true;
+    // every exit below that isn't the push command resolving leaves the change
+    // unpushed, and the finally is the one place all of them meet
+    let pushed = false;
     try {
       let status: VaultSyncStatus;
       try {
@@ -165,8 +191,10 @@ export class AutoSync {
       if (status.conflicted.length > 0) return;
       if (!this.deps.enabled()) return;
       try {
-        if (kind === "push") await this.deps.push();
-        else {
+        if (kind === "push") {
+          await this.deps.push();
+          pushed = true;
+        } else {
           await this.deps.pull();
           this.lastPullAt = this.deps.now();
         }
@@ -175,6 +203,10 @@ export class AutoSync {
       }
     } finally {
       this.inflight = false;
+      // …but not for a lane that was stopped while this leg was in the air:
+      // that owe belongs to the session being torn down, and a restart would
+      // open with a push nobody asked it for
+      if (kind === "push" && this.started) this.pushOwed = !pushed;
       if (this.queuedPush && this.started) {
         this.queuedPush = false;
         void this.run("push");
