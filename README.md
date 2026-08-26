@@ -31,7 +31,7 @@ Linear (speed, keyboard-first, command palette). The layer everything grows on.
   [docs/vault-format.md](docs/vault-format.md) §5.11.
 - Sheets are formula tables in plain text: a `type: sheet` note holds CSV data
   and named column formulas (`SUM`, `SUMIF`, …), and dashboards bind stat
-  cards, charts, and live database views to the results. See
+  cards, charts, and live database tables to the results. See
   [docs/sheets-spec.md](docs/sheets-spec.md) and
   [docs/dashboards.md](docs/dashboards.md).
 
@@ -45,7 +45,7 @@ Linear (speed, keyboard-first, command palette). The layer everything grows on.
 | --- | --- |
 | ⌘K | Command palette — open anything, run anything |
 | ⌘⇧F | Full-text search |
-| ⌘N | New note to Inbox (in a database view: new entry) |
+| ⌘N | New note to Inbox (in a database: new entry) |
 | ⌥Space | Global capture from any app (floating window → Inbox) |
 | ⌥⇧Space | Start or stop a voice capture, hands-free (macOS) |
 | ⌘D | Open today's journal |
@@ -96,6 +96,7 @@ Notion and Ableton project folders: see
 [troubleshooting](docs/user/troubleshooting.md) ·
 [live values in prose](docs/user/live-values.md) ·
 [files, settings, and views](docs/user/files-and-settings.md) ·
+[glossary](docs/user/glossary.md) ·
 [sync and security](docs/user/sync-and-security.md) ·
 [upgrades, backup, and restore](docs/user/upgrades-and-backups.md) ·
 [export and uninstall](docs/user/export-and-uninstall.md)

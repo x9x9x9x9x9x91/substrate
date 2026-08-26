@@ -263,7 +263,7 @@ under the schema's kind, reported and never rewritten
 embeds pointing at nothing.
 
 A prop that parses but isn't in the schema won't be flagged at all — that's
-legal, not broken. If a row doesn't appear in a database view, the cause is
+legal, not broken. If a row doesn't appear in its database, the cause is
 almost always the `type:` string: matching is exact and case-sensitive.
 
 ## Linking into the app: `substrate://`

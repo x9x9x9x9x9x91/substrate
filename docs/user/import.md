@@ -95,9 +95,9 @@ Does not carry over:
   using both apps on the same folder.
 - **Community plugins.** Nothing in `.obsidian/plugins/` runs.
 - **Dataview queries.** A ```` ```dataview ```` block is displayed as a code
-  block, not executed. Substrate's equivalent is a database view or a
-  dashboard, built against the same `type:` frontmatter the notes already
-  have.
+  block, not executed. Substrate's equivalent is a ```` ```view ```` fence —
+  a live database table inside a note — or a dashboard, built against the
+  same `type:` frontmatter the notes already have.
 - **Canvas files.** `.canvas` files are left alone but not rendered.
 
 ### The two-file guard

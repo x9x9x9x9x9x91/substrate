@@ -135,7 +135,7 @@ Capacities, Affine).*
   rows (0.18), deferred peak decode, and timestamped comments authored by
   clicking the waveform. Markers seek on click; their file binding, timestamps,
   and text remain grep-readable markdown. Careful claim: Obsidian has waveform
-  *plugins*; ours is native, zero-config, and lives inside database views.
+  *plugins*; ours is native, zero-config, and lives inside database tables.
 - **Every picture in the vault is searchable text** — screenshots, photos of
   receipts, whiteboard shots: their text is read on-device by Apple's Vision
   framework and kept as a plain sidecar text file beside the picture, indexed
@@ -260,7 +260,7 @@ Capacities, Affine).*
   config, and every AI write committed to history under its own author
   identity. Local agents still use the files directly.
 - **Print** — dashboards/agenda produce clean paper layouts (0.18), and any
-  note or database view exports as a *designed* PDF: a one-sheet (hero
+  note or database exports as a *designed* PDF: a one-sheet (hero
   artwork + title + quiet fact rows + body — a press sheet straight from a
   release note) or a clean data listing (the CSV export's printed twin).
   Nothing fetched at export time; images come from the vault only.

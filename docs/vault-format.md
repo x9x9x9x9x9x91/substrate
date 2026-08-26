@@ -546,7 +546,7 @@ brackets. The inner text is `target#anchor|alias`, all three parts optional:
 - **Rename moves the target only.** The anchor and the author's display text ride
   along untouched: `[[Old#Notes|the book]]` becomes `[[New#Notes|the book]]`.
 - An unresolved target that matches a **database name** (case-insensitive)
-  opens that database view instead — hub pages link to databases with plain
+  opens that database instead — hub pages link to databases with plain
   wikilinks. This is app-side navigation only; the engine still reports the
   link unresolved.
 - Following a link unresolved by both tests creates the note (that's how
@@ -1121,7 +1121,7 @@ sort: due              # `priority` | `due` | `age`; default (or `urgency`) = ur
   snoozed ≠ stale. Wake clears the prop and the row rejoins the board. Today,
   past dates, and malformed values never hide a task — a bad date silently
   vanishing a row is the worst failure shape for a trust surface. The prop is
-  board-scoped: database views, Today, and the calendar ignore it. The section
+  board-scoped: databases, Today, and the calendar ignore it. The section
   is filled after the area allowlist, so off-board areas don't inflate it.
 - **Inline editing**: a row's due chip and priority pill are the
   edit affordances for those props, writing `due` and `priority` through the
@@ -3009,7 +3009,7 @@ Type-entry fields:
   (`vault/schema.rs` `set_schema_home`); blank or absent means no home. When set, the
   database nests into the sidebar Folders tree at that folder — the folder's
   row keeps its on-disk name and gains a DB chip, clicking it opens
-  the database view, new entries land there explicitly — and the database
+  the database, new entries land there explicitly — and the database
   leaves the flat Databases section. Renaming the folder retargets the `home`
   (subtree included), trashing it clears the key (the database goes homeless
   — but the home is parked in the trash sidecar and comes back on restore

@@ -61,7 +61,7 @@ const STATIC_VIEW_TIPS: Record<View["kind"], InfoTip> = {
   },
   saved: {
     title: "Saved view",
-    body: "A named database view with its own query, sorting, layout, and visible columns.",
+    body: "A named cut of one database with its own query, sorting, layout, and visible columns.",
   },
   dashboard: {
     title: "Dashboard",
@@ -353,7 +353,7 @@ export const TIPS: TipEntry[] = [
     selector: ".today-open",
     tip: (element) => ({
       title: elementLabel(element, "Today item"),
-      body: "Open this item in its note or database view.",
+      body: "Open this item in its note, or in the database it belongs to.",
     }),
   },
   {
@@ -464,8 +464,8 @@ export const TIPS: TipEntry[] = [
   {
     selector: ".db-tab",
     tip: (element) => ({
-      title: elementLabel(element, "Database view"),
-      body: "Switch to this database view. Saved views remember their own query, sorting, and layout.",
+      title: elementLabel(element, "Database tab"),
+      body: "Switch to this tab. All shows every entry; a saved view remembers its own query, sorting, and layout.",
     }),
   },
   {

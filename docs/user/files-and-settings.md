@@ -154,6 +154,8 @@ is absent in a vault that has never installed one.
 
 ## See also
 
+- [Glossary](glossary.md) — the words this app uses for more than one thing:
+  view, pin, database vs type vs kind, mount vs drive vs shelf.
 - [Sync and security](sync-and-security.md) — what leaves your Mac, and what a
   share relay token in `Settings.md` means for a synced vault.
 - [Troubleshooting](troubleshooting.md) — the short version of the surprises
