@@ -4,7 +4,7 @@ Substrate is a window onto a folder of plain files. Almost everything it shows
 you is a file you could open in any other editor, and almost every preference is
 a line of text in a note. That is the point — but it means the app sometimes
 shows you less than the folder contains, or renders a note as something other
-than text. This page explains the three places that surprises people.
+than text. This page explains the places that surprise people.
 
 ## Some files are indexed but hidden
 
@@ -101,9 +101,60 @@ a synced (or imported, or agent-written) note must not carry code execution.
 Each machine asks you to approve the exact command once before it first runs
 there; approvals are remembered on the machine, never written into the vault.
 
+## A folder shown as a database, without importing it
+
+A **mount** points the app at a real folder somewhere else on your disk — an
+Ableton project pool, a scan archive, a photo tree — and shows it as a
+database. Every file that matches is a row. Nothing is imported and nothing is
+copied: the files are read for their name, size and modified date, and the
+folder is strictly read-only. Substrate never writes, moves, renames or
+deletes anything inside it.
+
+Mount one from the sidebar's Folders **+** menu → **Mount a folder…**: pick the
+folder, name the database, and optionally give file-name patterns (`*.als`) so
+only the files you mean become rows. The first scan runs on the spot.
+
+No note is written until you say something about a row. Annotate one — add a
+prop, write in it — and a single sidecar note is created for that one file.
+Everything else stays a row in an index.
+
+Where the folder lives is remembered **per machine, outside the vault**. That
+is deliberate: the same folder sits at a different path on every Mac, and on
+some it isn't there at all. So a synced vault carries the mount and its rows,
+but not your paths. On a machine that has no binding, the board still shows the
+last-known rows, marked missing, with a **Locate folder…** button. That is a
+normal state, not a broken vault. **Unmount** drops the mount and its index and
+leaves your sidecar notes as ordinary notes; the mounted folder is untouched
+either way.
+
+## When a dashboard asks to run code
+
+Most dashboards are plain markdown. A few are a **custom kind** — real
+JavaScript in `.vault/kinds/`, which you may have written, been handed in a
+shared folder, or installed with a cookbook recipe.
+
+That code never runs on arrival. Open the dashboard and you get a review
+instead of a rendered pane: the kind's title and description, its author when
+it names one, the file it runs, how many files the bundle has, and an **Open
+the code** button that shows you those files in Finder before you decide (it
+reveals them — it never opens them). Under that are the three terms, in full:
+
+- Custom kinds run with the same access as Substrate itself — your whole vault,
+  read and write.
+- Enabling applies to this vault on this device only. Other devices ask again,
+  even after a sync.
+- Consent is pinned to those exact files. If the code changes, it stops running
+  until you look again.
+
+Nothing is pre-ticked and nothing enables itself. Not deciding leaves the kind
+not running. Consent lives on the machine, never in the vault, and you can take
+it back at any time under **Settings (⌘,) → Vault → Kinds**, which lists every
+kind installed in this vault and what this machine said to each. That section
+is absent in a vault that has never installed one.
+
 ## See also
 
 - [Sync and security](sync-and-security.md) — what leaves your Mac, and what a
   share relay token in `Settings.md` means for a synced vault.
-- [Troubleshooting](troubleshooting.md) — the short version of the three
-  surprises above.
+- [Troubleshooting](troubleshooting.md) — the short version of the surprises
+  above.

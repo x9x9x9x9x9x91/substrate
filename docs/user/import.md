@@ -68,6 +68,13 @@ Carries over:
 
 - **`[[Wikilinks]]`** — resolved by note title or filename, case-insensitively,
   wherever the note lives in the tree. Backlinks work off the same index.
+- **Link aliases and heading anchors.** `[[Note|shown text]]` shows the alias
+  in place of the target, and `[[Note#Heading]]` opens the note scrolled to
+  that heading — `[[Note#^block-id]]` to a block ref. An anchor no heading
+  answers to leaves the note at the top rather than jumping somewhere
+  arbitrary. Backlinks index on the target alone, so an aliased or anchored
+  link counts exactly like a plain `[[Note]]`. The `[[` autocomplete offers
+  headings and block refs after a `#`, and label suggestions after a `|`.
 - **Embeds** — `![[image.png]]` shows the asset instead of the link text, and
   is not counted as a link.
 - **YAML frontmatter** — every key is kept. A `type:` line is the one with
@@ -91,9 +98,6 @@ Does not carry over:
   block, not executed. Substrate's equivalent is a database view or a
   dashboard, built against the same `type:` frontmatter the notes already
   have.
-- **Link aliases and heading anchors.** `[[Note|shown text]]` and
-  `[[Note#Heading]]` are not resolved today — they render as-is and produce
-  no backlink. Plain `[[Note]]` links are the supported form.
 - **Canvas files.** `.canvas` files are left alone but not rendered.
 
 ### The two-file guard

@@ -98,16 +98,25 @@ e2e spec is not coverage of it.
 
 ## Gates
 
-The same five checks that gate a merge, all runnable from a clean checkout
-(details and versions in [CONTRIBUTING.md](../CONTRIBUTING.md)):
+The same seven checks that gate a merge — the union gate, in
+`scripts/verify-gates.sh`'s canonical order (details and versions in
+[CONTRIBUTING.md](../CONTRIBUTING.md)):
 
 ```sh
-npx tsc --noEmit             # typecheck
-npm test                     # node suite: src/lib/*.test.ts and scripts/
-cd src-tauri && cargo test   # Rust engine tests
-npm run e2e                  # Playwright over the mock backend
-npm run lint                 # errors-only
+npx tsc --noEmit             # tsc:      typecheck
+npm test                     # test:     node suite: src/lib/*.test.ts and scripts/
+cd src-tauri && cargo test --lib   # cargo:    Rust engine tests
+                             # ios:      cargo check --target aarch64-apple-ios --lib
+npm run e2e                  # e2e:      Playwright over the mock backend
+npm run lint                 # lint:     errors-only
+                             # macsmoke: cargo check --all-targets on a Darwin host
 ```
+
+`ios` and `macsmoke` have no one-line npm equivalent — `ios` cross-compile-checks
+the engine for `aarch64-apple-ios` and `macsmoke` compiles the mac tree with
+`--all-targets`, both of which need a Mac. `bash scripts/verify-gates.sh` runs
+whichever of the seven this host can, and `--only tsc,lint` narrows it while
+iterating.
 
 `npm test` is where the drift checks above run, so an IPC or kind mismatch fails
 there rather than at runtime.

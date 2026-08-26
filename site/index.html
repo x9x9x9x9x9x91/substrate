@@ -610,7 +610,6 @@
     .vframe img[data-crop="vault"]    { width: 240%; transform: translate(-39%, 0); }
     .vframe img[data-crop="calendar"] { width: 200%; transform: translate(-45%, 0); }
     .vframe img[data-crop="food"]     { width: 150%; }
-    .vframe img[data-crop="yield"]    { width: 150%; }
     .vtabs button { padding: 7px 10px; letter-spacing: 0.05em; }
     footer .tail { margin-left: 0; }
   }
@@ -758,7 +757,7 @@ value_eur = value_usd * FX("USD","EUR")
       </div>
       <p class="shot-cap"><b>cookbook/food-log/</b> · three markdown files, copied in — the tracker above is what opens</p>
       <div class="steps3" style="margin-top:48px">
-        <div><p class="sN">8 recipes</p><h4>Real boards, not demos</h4><p>Portfolio cards, APR tracker, food log, curated news feed, home hub, release charts, a label-accounting workbook, a work index — grown in daily use, then genericized.</p></div>
+        <div><p class="sN">14 recipes</p><h4>Real boards, not demos</h4><p>Portfolio cards, food log, curated news feed, home hub, release charts, a label-accounting workbook, an annual report, a work index — grown in daily use, then genericized.</p></div>
         <div><p class="sN">tested</p><h4>Pinned to the demo vault</h4><p>Every recipe file is byte-identical to <code>examples/vault/</code> and parsed by the same engine code in CI — a recipe that drifts fails the suite.</p></div>
         <div><p class="sN">agent food</p><h4>An index your agent can read</h4><p><code>cookbook/index.json</code> declares each recipe&#8217;s files, what it expects, and how to adapt it. &#8220;Set this up against my real data&#8221; is a one-line prompt.</p></div>
       </div>
@@ -839,7 +838,7 @@ stems for the motion piece due Friday.
       <h3 class="big">Things you can&#8217;t take elsewhere.</h3>
       <p class="lede">The claims that don&#8217;t have a Notion/Obsidian equivalent — every one shipped and checkable in the repo. The full register, including what&#8217;s deliberately <em style="font-style:normal;color:var(--ink)">not</em> advertised yet, lives in <a href="https://github.com/x9x9x9x9x9x91/substrate/blob/main/docs/differentiators.md" style="color:var(--ink);border-bottom:1px solid var(--hair-2)">docs/differentiators.md</a>.</p>
       <div class="ledger">
-        <div class="lrow"><span class="k">the contract</span><span class="v">A 2,200-line on-disk spec written for external writers — plus <code>vault doctor</code>, a read-only integrity report. Your agent gets documentation, not reverse-engineering.</span></div>
+        <div class="lrow"><span class="k">the contract</span><span class="v">A 5,000+-line on-disk spec written for external writers — plus <code>vault doctor</code>, a read-only integrity report. Your agent gets documentation, not reverse-engineering.</span></div>
         <div class="lrow"><span class="k">audio rows</span><span class="v">Waveforms and play buttons inside database views — native, zero-config. A folder of demos is a playable database, with timestamped comments pinned to moments in a file.</span></div>
         <div class="lrow"><span class="k">notifications</span><span class="v">A date+time property fires a real notification — snooze, recurrence, lead-time reminders, DST-safe. Notes apps don&#8217;t do this; task apps don&#8217;t own your notes.</span></div>
         <div class="lrow"><span class="k">repeat:</span><span class="v"><code>repeat: every 3 weeks</code> in plain frontmatter — no RRULE anywhere. One file, many occurrences; delete offers this-one / following / all.</span></div>

@@ -4358,10 +4358,11 @@ number dial.
 
 `signature` is `date | canonical amount with currency | folded account |
 folded reference`, where folding lowercases and drops everything that is not
-alphanumeric. Rows imported from a typed statement (`camt.053`) instead carry
-`servicing reference | folded account | folded entry reference | date |
-canonical amount with currency`. Both forms are recorded because existing notes
-hold them; nothing re-keys itself.
+alphanumeric. A second, historical form exists: rows written by the retired
+statement importer (`camt.053`) carry `servicing reference | folded account |
+folded entry reference | date | canonical amount with currency`. Nothing in
+the app writes that form anymore — the importer is gone — but existing notes
+hold it, so both forms stay part of the contract; nothing re-keys itself.
 
 ### `.vault/statement-mappings.json` — saved column mappings
 

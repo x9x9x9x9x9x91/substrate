@@ -59,19 +59,22 @@ Linear (speed, keyboard-first, command palette). The layer everything grows on.
 ## Try it
 
 Prerequisites: [Node.js](https://nodejs.org) ≥ 22.6, [Rust via rustup](https://rustup.rs)
-(the repository's `rust-toolchain.toml` selects the exact version), and Xcode
-Command Line Tools (`xcode-select --install`). First build compiles the Rust
-engine — expect a few minutes.
+(the repository's `rust-toolchain.toml` selects the exact version), Xcode
+Command Line Tools (`xcode-select --install`), CMake (`brew install cmake` — the
+Command Line Tools ship none, and the voice-capture crate builds whisper.cpp
+with it), and bash ≥ 4 for the repository's scripts (`brew install bash`, then
+put its bin directory ahead of `/bin` in `PATH` — macOS's own `/bin/bash` is
+3.2). First build compiles the Rust engine — expect a few minutes.
 
 ```sh
-git clone <this repo> && cd substrate
+git clone https://github.com/x9x9x9x9x9x91/substrate.git && cd substrate
 npm ci
 cp -r examples/vault ~/SubstrateDemo
 VAULT_DIR=~/SubstrateDemo npm run tauri dev
 ```
 
 That opens the app on a demo vault with working examples of notes, databases,
-sheets, and every dashboard kind. More ready-made boards live in
+sheets, and most of the built-in dashboard kinds. More ready-made boards live in
 [`cookbook/`](cookbook) — copyable dashboard recipes, each a folder of plain
 markdown that renders with numbers the moment it lands in a vault; the app
 ships them too, browsable and one-click installable in its Cookbook pane. (Copy the example vault first as shown — the

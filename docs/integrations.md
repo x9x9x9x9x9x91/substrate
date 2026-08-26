@@ -21,16 +21,16 @@ there rather than trusting a summary.
 ## What the watcher guarantees
 
 The app watches the vault root recursively (FSEvents via `notify` v8) with a
-300ms debounce (`src-tauri/src/vault/watch.rs:151`). When the vault goes quiet,
+300ms debounce (`src-tauri/src/vault/watch.rs:234-235`). When the vault goes quiet,
 the engine applies the changed paths and emits `vault:changed`
-(`src-tauri/src/lib.rs:689`); the UI listens in `src/hooks/useVaultEvents.ts:68`
+(`src-tauri/src/lib.rs:1584`); the UI listens in `src/hooks/useVaultEvents.ts:85`
 and refreshes. No restart, no manual refresh, no "rescan" button.
 
 - **Bursts collapse.** More than 500 changed paths in one batch escalates to a
   full rescan instead of per-path work (`RESCAN_THRESHOLD`,
-  `src-tauri/src/vault/mod.rs:892`) — a bulk import lands as one refresh.
+  `src-tauri/src/vault/mod.rs:1813`) — a bulk import lands as one refresh.
 - **Failure is bounded, not silent.** If the watcher can't be constructed, the
-  app falls back to a 45s poll (`watch.rs:52`) and tells the UI via
+  app falls back to a 45s poll (`watch.rs:76`) and tells the UI via
   `vault:watch-degraded`. Worst-case staleness is 45 seconds, never forever.
 - **Bodies are never cached.** Opening a note always hits disk; only the
   metadata, link, and search indexes lag, and only for that window.
@@ -62,7 +62,7 @@ an integration is decided entirely by the *shape* of its writes:
 4. **Never rewrite a note wholesale that a human might have open.** If you must
    modify an existing note the user edits, prefer the app's IPC
    `vault_write_body`, which carries an `expected_body` compare-and-swap
-   (`src-tauri/src/commands/notes.rs:34`) and fails instead of clobbering.
+   (`src-tauri/src/commands/notes.rs:451-454`) and fails instead of clobbering.
 
 Rule 4 is the one that bites. A script that reads a note, waits, and writes it
 back will silently discard everything the user typed in between — the app's
@@ -70,13 +70,14 @@ guard protects the *app's* writes, not yours.
 
 ## What actually happens when you race an open editor
 
-Verified against the code, not aspirational:
+Verified against the code, not aspirational — every file:line below re-checked
+against the tree on 2026-08-26:
 
 **The note is open and clean (no unsaved edits).** Your write is adopted in
 place, silently. The pane sees `vault:changed`, re-reads, and replaces the
-editor document (`src/components/NotePane.tsx:575-584`); the pane never
+editor document (`src/components/NotePane.tsx:1224-1241`); the pane never
 remounts, and the caret is kept where it was (clamped to the new length rather
-than remapped, `Editor.tsx:1811-1825`). Nothing is lost and no banner appears —
+than remapped, `Editor.tsx:2999-3010`). Nothing is lost and no banner appears —
 this is the good case, and the common one. The adopt is deliberately kept out of
 the undo history, so the user's next ⌘Z doesn't revert your change and autosave
 the stale body back over it.
@@ -84,11 +85,11 @@ the stale body back over it.
 **The note is open and dirty (unsaved edits in the buffer).** Your write lands
 on disk immediately — nothing stops it. The app then **refuses its own next
 save**: it passes the body it last read as `expected_body`
-(`NotePane.tsx:435-439`), the engine compares it against disk and returns
+(`NotePane.tsx:715-720`), the engine compares it against disk and returns
 `conflict: file changed on disk` *before* writing
-(`src-tauri/src/vault/mod.rs:1190-1193`, the `write_atomic` call is at `:1200`).
+(`src-tauri/src/vault/mod.rs:2551-2556`, the `write_note_atomic` call is at `:2561`).
 The user gets a banner offering **Reload** or **Overwrite**
-(`NotePane.tsx:1378-1386`); their pending text is held in the buffer, not
+(`NotePane.tsx:2035-2044`); their pending text is held in the buffer, not
 discarded, and further auto-saves are suppressed until they choose.
 
 So the app never clobbers you. **You can still clobber the user** — the
@@ -97,8 +98,8 @@ equivalent, which is why rules 1–4 above are about write shape rather than
 locking.
 
 Regression coverage for the guard: `write_body_expected_body_guard`
-(`src-tauri/src/vault/mod.rs:2370`) and step 7 of the real-app smoke run
-(`src/lib/smoke.ts:226-239`).
+(`src-tauri/src/vault/mod.rs:4209`) and step 7 of the real-app smoke run
+(`src/lib/smoke.ts:293-302`).
 
 ## Writing a row
 
@@ -253,12 +254,12 @@ is why the temp file is created in the note's own directory.
 ## Checking your work
 
 **Vault doctor** is the read-only integrity report: ⌘K → "Vault doctor"
-(`src-tauri/src/vault/doctor.rs`, IPC `vault_doctor`, `src/lib/ipc.ts:204`). It
+(`src-tauri/src/vault/doctor.rs`, IPC `vault_doctor`, `src/lib/ipc.ts:691`). It
 reports, never repairs. For a script that just wrote rows, the finding to look
 for is `invalid-prop` — a `date` or `number` prop whose value doesn't parse
 under the schema's kind, reported and never rewritten
 ([§15](vault-format.md#15-vault_doctor--the-read-only-integrity-report),
-`vault-format.md:2212`). `broken-link` and `broken-embed` catch wikilinks and
+`vault-format.md:5808`). `broken-link` and `broken-embed` catch wikilinks and
 embeds pointing at nothing.
 
 A prop that parses but isn't in the schema won't be flagged at all — that's

@@ -1182,6 +1182,16 @@ you again on purpose. A bundle that can't run — broken manifest, wrong api,
 not enabled yet — shows a card saying which and why; it never silently falls
 back to another renderer.
 
+**iOS syncs custom kinds but does not run them.** The `substrate-kind:` URI
+scheme a bundle loads over is registered on every target except iOS
+(`#[cfg(not(target_os = "ios"))]`, `src-tauri/src/lib.rs:888`), so the folder
+and its consent record ride sync to the phone intact while nothing there can
+serve the module: the frontend still builds the same
+`substrate-kind://localhost/…` URL (`src/lib/kindpane.ts:317-325` — no iOS
+branch), the import finds no handler, and the pane fails to load rather than
+drawing your board. This is the state of the first TestFlight build, not a
+permanent design call.
+
 **Where you say yes, and how you take it back.** The question is asked where
 it comes up: a dashboard naming a kind you haven't enabled renders a review
 *in place of the dashboard body*, inside the normal head — not a modal, so

@@ -33,7 +33,7 @@ Capacities, Affine).*
 - **Agent-first by design — a governed contract, not a door** — everything the
   UI does is achievable by editing files; external edits are first-class (live
   FSEvents watcher). The proof artifact: `docs/vault-format.md` is a
-  2,200+-line on-disk contract written for external writers/agents — layout,
+  5,000+-line on-disk contract written for external writers/agents — layout,
   normalization, a concurrency contract, rules for well-behaved external
   writers — plus a `.vault/format.json` version sidecar (an older app can't
   corrupt a newer vault's config) and **vault doctor**, a read-only integrity

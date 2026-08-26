@@ -75,10 +75,12 @@ export default function CookbookPane({ onOpenNote }: CookbookPaneProps) {
         />
 
         <p className="cb-about">
-          Dashboard recipes that ship inside the app. Installing one copies its plain
-          markdown files into this vault — the dashboard note plus the sheets and notes
-          it reads — so it renders with numbers the first time you open it. Nothing here
-          reaches the network, and an existing note is never overwritten.
+          Dashboard recipes that ship inside the app. Installing one copies its files into
+          this vault — the dashboard note plus the sheets and notes it reads — so it renders
+          with numbers the first time you open it. Recipes are markdown; some also install a
+          custom kind, and that code does not run until the dashboard asks you for consent
+          and you give it. Nothing here reaches the network, and an existing note is never
+          overwritten.
         </p>
 
         {error && <div className="sync-action-err">{error}</div>}
