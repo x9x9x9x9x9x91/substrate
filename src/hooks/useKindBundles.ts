@@ -24,16 +24,30 @@ let cache: { epoch: number; p: Promise<KindBundleInfo[]> } | null = null;
 let lastEpoch = 0;
 /** bumped by `invalidateKindBundles`; part of the effect's dependency list */
 let generation = 0;
-const listeners = new Set<() => void>();
+const listeners = new Set<(revoked: string | null) => void>();
 
 /** Drop the shared list and re-fetch it everywhere it is on screen. Called
     after any write that changes what `kinds_list` would answer — enable,
     disable, trust — because the answer lives outside the vault and no epoch
-    will report it. */
-export function invalidateKindBundles(): void {
+    will report it.
+
+    `revoked` names a kind whose consent record was just DELETED, and callers
+    that withdraw consent must pass it. A refetch is a round trip, and until it
+    lands every consumer goes on serving the roster it read before — on which
+    that kind still reads "enabled". A pane reading it keeps the kind's code
+    running, with the vault access consent buys, in a window where the record
+    granting that access no longer exists. Naming the kind here closes the
+    window: consumers drop its record the moment this is called, and the
+    refetch only confirms what they already did.
+
+    Deliberately one-directional. There is no `granted` twin: a withdrawal
+    applied early is the app being stricter than the disk for a few frames,
+    while a grant applied early would run unreviewed code off an IPC that
+    might still fail. */
+export function invalidateKindBundles(revoked?: string): void {
   cache = null;
   generation += 1;
-  for (const l of [...listeners]) l();
+  for (const l of [...listeners]) l(revoked ?? null);
 }
 
 /** `kinds_list`, or null while it is still in flight. Fetched only when
@@ -51,7 +65,22 @@ export function useKindBundles(needed: boolean, vaultEpoch?: number): KindBundle
   const [gen, setGen] = useState(generation);
 
   useEffect(() => {
-    const bump = () => setGen(generation);
+    const bump = (revoked: string | null) => {
+      setGen(generation);
+      /* The withdrawal lands here, a round trip before the refetch confirms
+         it: the row keeps its manifest and loses only its consent record,
+         which is what `resolveKindState` reads — so the kind resolves to
+         "not enabled", every pane showing it tears its code down, and the
+         fresh list arrives to a surface that already stopped. */
+      if (revoked !== null)
+        setBundles((prev) =>
+          prev === null
+            ? prev
+            : prev.map((b) =>
+                b.id === revoked && b.record !== undefined ? { ...b, record: undefined } : b
+              )
+        );
+    };
     listeners.add(bump);
     return () => {
       listeners.delete(bump);

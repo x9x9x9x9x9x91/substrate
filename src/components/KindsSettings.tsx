@@ -47,11 +47,18 @@ export default function KindsSettings() {
   // what it would say is noise in everyone else's settings.
   if (!bundles || bundles.length === 0) return null;
 
-  const act = (id: string, run: () => Promise<unknown>) => {
+  /* `withdraws` is not cosmetic bookkeeping: naming the kind lets every
+     consumer of the shared roster drop its consent record the moment the
+     disable write returns, instead of going on serving "enabled" for the
+     round trip it takes to re-read the list — which is a round trip of the
+     kind's code still running against the vault after consent was taken
+     back. Only `disable` sets it; trust writes change a rider on a record
+     that stays. */
+  const act = (id: string, run: () => Promise<unknown>, withdraws = false) => {
     setBusy(id);
     setError(null);
     run()
-      .then(() => invalidateKindBundles())
+      .then(() => invalidateKindBundles(withdraws ? id : undefined))
       .catch((e) => setError(errText(e)))
       .finally(() => setBusy(null));
   };
@@ -112,7 +119,7 @@ export default function KindsSettings() {
                   className="settings-raw"
                   data-testid={`kind-disable-${b.id}`}
                   disabled={busy === b.id}
-                  onClick={() => act(b.id, () => kindsDisable(b.id))}
+                  onClick={() => act(b.id, () => kindsDisable(b.id), true)}
                 >
                   disable
                 </button>

@@ -85,6 +85,23 @@ function fenceCommand(name: string, detail: string, body: string[]): SlashComman
   };
 }
 
+/** The one machine fence whose subject is written in the INFO STRING, not the
+    body: a kind fence names its kind after the lang word (```kind gear-log),
+    and its body is config whose keys belong to that kind rather than to any
+    parser here. So the scaffold cannot go through `fenceCommand` — that lands
+    the cursor on the first body line, which for this fence is the one place
+    nobody can be told what to type. The cursor goes where the id goes, and
+    the body is left empty because config is optional. */
+function kindCommand(): SlashCommand {
+  const head = "```kind ";
+  return {
+    name: "kind",
+    detail: "a custom kind from .vault/kinds/",
+    insert: head + "\n```",
+    cursor: head.length,
+  };
+}
+
 /** The smallest table the renderer accepts: a header row, the delimiter row
     that makes it a table at all, and one body row — two columns each. Cells
     start empty because the first thing anyone does is name the columns, and
@@ -148,6 +165,7 @@ export function slashCommands(): SlashCommand[] {
     fenceCommand("calendar", "month grid", ["source: ", "date: "]),
     fenceCommand("progress", "goal thermometer", ["label: ", "value: ", "target: "]),
     fenceCommand("timeline", "date-axis lanes", ["source: ", "start: ", "label: "]),
+    kindCommand(),
   ];
 }
 

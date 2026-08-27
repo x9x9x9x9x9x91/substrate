@@ -28,6 +28,11 @@ import { collectCardsFences, parseCardsBlock, type CardsBlock } from "../lib/met
 import { sharpCardIndices } from "../lib/dashboard";
 import { useFxRates } from "./useFx";
 import { DashHead, DashPrintButton } from "./DashHead";
+import CustomKindPane, { type CustomKindPaneProps } from "./CustomKindPane";
+import { useKindBundles } from "../hooks/useKindBundles";
+import { isBuiltInKind, resolveKindPane } from "../lib/kindpane";
+import type { KindBundleInfo } from "../lib/kinds";
+import { parseKindFence } from "../lib/kindfence";
 import EmbedViewTable, { type EmbedEdit } from "./EmbedViewTable";
 import ChartsDashboard from "./ChartsDashboard";
 import HeatmapDashboard from "./HeatmapDashboard";
@@ -38,6 +43,10 @@ import TimelineFence from "./TimelineFence";
 import { OptionPill } from "./SelectMenu";
 import { schemaPillColor } from "../lib/cellpill";
 import { DashAlert, DashEmpty } from "./DashNotice";
+
+/** Module-level so it keeps one identity: a fresh `() => {}` per render would
+    change `kindProps` every render and re-mount every kind fence on the page. */
+const noop = () => {};
 
 interface HubDashboardProps {
   meta: NoteMeta;
@@ -51,7 +60,33 @@ interface HubDashboardProps {
   onFollowLink?: (name: string) => void;
   /** the write path a live ```view fence's cells commit through */
   embedEdit?: EmbedEdit;
+  /* The rest are what a ```kind fence's kind needs and no other hub fence
+     does — a custom kind writes, toasts and publishes an undo stack, so the
+     hub has to be able to hand it the same host callbacks the full-note pane
+     hands it. Present on every call site already (`DashboardPane` spreads its
+     own props into the hub); typed here so the fence can be given them
+     without a cast. */
+  /** a kind changed the vault; the app re-reads. Optional because the hub
+      itself never writes — only a mounted kind does, and a hub rendered
+      without this (a component test, a surface with no kind fence) simply has
+      no write to report. The app's own dispatch always passes it. */
+  onMutated?: () => void;
+  onToast?: (msg: string, action?: { label: string; run: () => void }) => void;
+  /** the databases' stored display prefs, for a kind's `ctx.view` */
+  viewPrefs?: CustomKindPaneProps["viewPrefs"];
+  /** where a kind's `ctx.setUndo` publishes */
+  dashUndo?: CustomKindPaneProps["dashUndo"];
 }
+
+/** What a mounted kind needs from the hub: the full-note pane's prop set
+    minus the five props the fence itself resolves (which bundle, in what
+    state). Derived from `CustomKindPaneProps` rather than re-listed, so a prop
+    added to the kind host is a `tsc` error here until the hub hands it over —
+    the alternative is a hub that silently mounts kinds with one input missing. */
+type KindHostProps = Omit<
+  CustomKindPaneProps,
+  "id" | "hash" | "state" | "record" | "files" | "frame" | "config"
+>;
 
 interface Ctx {
   onFollowLink?: (name: string) => void;
@@ -103,6 +138,23 @@ interface Ctx {
     notes: NoteMeta[];
     schema: SchemaConfig;
     onOpenSource: (path: string) => void;
+  };
+  /** the ```kind fence's inputs — a vault-resident custom kind mounted as one
+      block (vault-format §5.8). `bundles` is the installed roster with each
+      one's consent record already resolved into it, which is what makes the
+      fence ask the SAME question the full-note pane asks rather than a second
+      one of its own: a kind this vault has not consented to renders the review
+      card here, and one press enables it everywhere in this vault at once.
+
+      `null` while the roster is still being read — distinct from an empty
+      array, which means "read, and this vault has no bundles". A fence must
+      not accuse a kind of not existing during the round trip.
+
+      Absent (as in a callout body) means kind fences stay code boxes: quoted
+      text is not a place vault code gets to run. */
+  kind?: {
+    bundles: readonly KindBundleInfo[] | null;
+    props: KindHostProps;
   };
 }
 
@@ -363,6 +415,10 @@ function HubCardsFence({ slot }: { slot: CardsSlot }) {
 interface HubFenceInput {
   /** the fence body, without its opener and closer */
   inner: string;
+  /** the info string AFTER the lang word — ` gear-log` for a kind fence. Only
+      the kind fence reads it today; every other live fence takes its whole
+      configuration from the body. */
+  tail: string;
   ctx: Ctx;
   /** this block's position among the chunk's rendered children */
   key: number;
@@ -400,6 +456,10 @@ const HUB_FENCE_RENDERERS: Record<HubFenceId, HubFenceRenderer> = {
     ctx.heatmap ? <HubHeatmapFence key={key} inner={inner} heatmap={ctx.heatmap} /> : null,
   calendar: ({ inner, ctx, key }) =>
     ctx.calendar ? <HubCalendarFence key={key} inner={inner} calendar={ctx.calendar} /> : null,
+  kind: ({ inner, ctx, key, tail }) =>
+    ctx.kind ? (
+      <HubKindFence key={key} tail={tail} inner={inner} kind={ctx.kind} />
+    ) : null,
   timeline: ({ inner, ctx, key }) =>
     ctx.timeline ? (
       <TimelineFence
@@ -411,6 +471,94 @@ const HUB_FENCE_RENDERERS: Record<HubFenceId, HubFenceRenderer> = {
       />
     ) : null,
 };
+
+/** A ```kind fence in a hub body: one vault-resident custom kind, mounted as
+    a block (vault-format §5.8).
+
+    The consent story is the whole reason this is four lines of dispatch and
+    not a renderer. A custom kind is code from the vault running with the
+    app's own access, and this fence is a SECOND place a note can ask for it —
+    so the one thing it must not do is answer that ask differently. It doesn't:
+    the id goes through `resolveKindPane` against the same bundle roster the
+    full-note pane resolves against, and whatever comes back — enabled,
+    awaiting review, drifted, invalid, unknown — is handed to the same
+    `CustomKindPane` wearing the fence frame. A kind this vault has not
+    consented to draws its review card here, in the block, and one press
+    enables it for the whole vault. There is no fence-only consent and no
+    fence-only record; there is one door, drawn smaller.
+
+    The quiet answers are the alert, never a throw: a hub is a page of many
+    blocks, and one unreadable fence must cost its own block and nothing
+    else. */
+function HubKindFence({
+  tail,
+  inner,
+  kind,
+}: {
+  tail: string;
+  inner: string;
+  kind: NonNullable<Ctx["kind"]>;
+}) {
+  /* Memoised on the fence text, so a hub re-render does not hand the mounted
+     kind a new `config` object and make every `ctx.config` read look like a
+     change. */
+  const block = useMemo(() => parseKindFence(tail, inner), [tail, inner]);
+  /* Every answer wears the same block wrapper — the kind, the review card,
+     and each refusal alike. A fence that changed its own shape depending on
+     which answer it had would make the page jump as consent lands, and it
+     would give an e2e no single handle on "the block this fence produced". */
+  const shell = (body: ReactNode, testid = "kind-fence") => (
+    <div className="kind-fence" data-testid={testid} data-kind={block.id ?? ""}>
+      {body}
+    </div>
+  );
+  if (block.error || block.id === null)
+    return shell(<DashAlert>{block.error}</DashAlert>);
+  const id = block.id;
+  /* Still asking the backend. Nothing is wrong yet, so nothing is said — the
+     same beat the full-note pane spends showing its head and no state label.
+     Saying "no such kind" here would be a lie that lasts one round trip. */
+  if (kind.bundles === null) return shell(null, "kind-fence-pending");
+
+  const pane = resolveKindPane(id, kind.bundles);
+  if (pane.pane !== "custom")
+    /* Everything that is not a vault bundle: a built-in name (`hub`, `tasks`)
+       written in a kind fence, and a name nothing on disk claims. Both are
+       the note asking for something this fence cannot give, and both say so
+       where they were written. A built-in is worth its own sentence — it is a
+       real kind, just not one a fence composes, and "unknown kind" would send
+       its author looking for a bundle they never installed. */
+    return shell(
+      <DashAlert>
+        {isBuiltInKind(id)
+          ? `“${id}” is a built-in kind, which a kind fence cannot embed — kind fences compose the custom kinds in .vault/kinds/`
+          : pane.pane === "unknown"
+            ? pane.message
+            : /* body-scan: a fence that named nothing, which the parser
+                 already refused above — unreachable, and spelled out rather
+                 than cast away so a future dispatch value cannot land here
+                 silently. */
+              `“${id}” could not be resolved`}
+      </DashAlert>,
+    );
+
+  /* Through `shell` like every other answer, and this is the answer the
+     wrapper exists for: the running kind and its review card are the same
+     block as the pending and refused ones, so consent landing is a swap
+     inside one box rather than a block appearing where none was. */
+  return shell(
+    <CustomKindPane
+      {...kind.props}
+      frame="fence"
+      config={block.config}
+      id={pane.id}
+      hash={pane.hash}
+      state={pane.state}
+      record={pane.record}
+      files={pane.files}
+    />
+  );
+}
 
 /** The map read by a lang word taken off a fence opener — a string until this
     lookup answers, which is why the cast is here and not at the call site. */
@@ -436,6 +584,7 @@ function nestedMarkdownCtx(ctx: Ctx): Ctx {
     progress: undefined,
     calendar: undefined,
     timeline: undefined,
+    kind: undefined,
   };
 }
 
@@ -478,6 +627,7 @@ function renderBlocks(md: string, ctx: Ctx): ReactNode[] {
         ? null
         : (hubFenceRenderer(lang)?.({
             inner,
+            tail: block.tail,
             ctx,
             key,
             // this chunk's n-th cards fence is the page's (base + n)-th
@@ -609,17 +759,30 @@ function HubCard({ callout, ctx }: { callout: HubCallout; ctx: Ctx }) {
   );
 }
 
-export default function HubDashboard({
-  meta,
-  notes,
-  schema,
-  savedViews,
-  vaultEpoch,
-  onOpenSource,
-  onFollowLink,
-  embedEdit,
-}: HubDashboardProps) {
+export default function HubDashboard(props: HubDashboardProps) {
+  /* Destructured in the body rather than in the parameter list: the kind-fence
+     props below are read off `props` one at a time, and a signature that named
+     all of them would have two lists to keep in step. */
+  const { meta, notes, schema, savedViews, vaultEpoch, onOpenSource, onFollowLink, embedEdit } =
+    props;
   const body = useNoteBody(meta.path, vaultEpoch, meta.sealed);
+
+  /* The installed bundles and their consent records, for ```kind fences.
+
+     Asked for unconditionally rather than only when the body holds a kind
+     fence: the hook is one round trip per vault epoch shared by every pane on
+     screen (the full-note dispatch already takes it), so a hub without kind
+     fences costs nothing extra, and a hub that gains one mid-session does not
+     have to wait for a fresh mount to learn what is installed.
+
+     This is also what makes revocation land without a reload. The record
+     lives outside the vault, so disabling a kind in Settings → Vault moves no
+     vault epoch and nothing here would notice on its own — but the disable
+     path calls `invalidateKindBundles`, this hook re-reads, and every mounted
+     kind fence on the page resolves to "review pending" and tears its code
+     down in place. Consent withdrawn is code stopped, not code stopped at the
+     next restart. */
+  const bundles = useKindBundles(true, vaultEpoch);
 
   const blocks = useMemo(() => (body !== null ? parseHub(body) : []), [body]);
 
@@ -650,6 +813,41 @@ export default function HubDashboard({
     [cardBlocks, allSharp, cardValue]
   );
 
+  /* Built from the fields rather than from `props` itself: the props OBJECT
+     is a fresh identity every render, and threading it into `base` would
+     re-create the whole ctx on every keystroke elsewhere in the app — which
+     for a kind fence means tearing the kind's code down and mounting it
+     again, losing whatever it was holding. The field list is checked against
+     `CustomKindPaneProps` by the type above, so it cannot fall behind. */
+  const kindProps: KindHostProps = useMemo(
+    () => ({
+      meta,
+      notes,
+      vaultEpoch,
+      schema,
+      savedViews,
+      viewPrefs: props.viewPrefs,
+      onOpenSource,
+      onMutated: props.onMutated ?? noop,
+      onFollowLink,
+      onToast: props.onToast,
+      dashUndo: props.dashUndo,
+    }),
+    [
+      meta,
+      notes,
+      vaultEpoch,
+      schema,
+      savedViews,
+      props.viewPrefs,
+      onOpenSource,
+      props.onMutated,
+      onFollowLink,
+      props.onToast,
+      props.dashUndo,
+    ]
+  );
+
   // stable across renders: a fresh `view`/`chart` object each render would
   // re-run every fence's query memo and re-mount its widget
   const base: Ctx = useMemo(
@@ -661,8 +859,20 @@ export default function HubDashboard({
       heatmap: { meta, notes, schema, vaultEpoch, onOpenSource },
       progress: { meta, notes, schema, vaultEpoch, onOpenSource },
       calendar: { meta, notes, schema, vaultEpoch, onOpenSource },
+      kind: { bundles, props: kindProps },
     }),
-    [onFollowLink, schema, notes, savedViews, onOpenSource, meta, vaultEpoch, embedEdit]
+    [
+      onFollowLink,
+      schema,
+      notes,
+      savedViews,
+      onOpenSource,
+      meta,
+      vaultEpoch,
+      embedEdit,
+      bundles,
+      kindProps,
+    ]
   );
 
   // how many ```cards fences sit above each markdown chunk — the chunk's

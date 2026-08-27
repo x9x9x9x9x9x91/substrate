@@ -580,3 +580,25 @@
   font-family: var(--mono);
   font-size: 11px;
 }
+
+/* One ```kind fence's block (vault-format §5.5e): a custom kind mounted on
+   the hub canvas rather than as a whole note. The wrapper exists for every
+   answer the fence can give — the running kind, the consent review it waits
+   behind, and each refusal — so the block keeps its place on the page as
+   consent lands and the surrounding blocks do not jump.
+
+   Bottom margin only, matching `.hub-pre` and `.hub-list`: the block is one
+   item in the page's vertical rhythm, and the kind owns everything inside it.
+   No border and no ground of its own — a kind draws `dash-card`s and
+   `dash-table`s through `ctx.css`, which already carry the app's surfaces, and
+   a frame around them would box a box. */
+.kind-fence {
+  margin: 0 0 12px;
+}
+
+/* The review sits in a hub block, which is narrower than the pane the same
+   card gets on a full-note kind — it keeps its own max-width, but the top
+   margin goes: the block's own rhythm already spaced it. */
+.kind-fence .kind-review {
+  margin-top: 0;
+}

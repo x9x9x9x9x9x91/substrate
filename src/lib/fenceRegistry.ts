@@ -64,6 +64,7 @@ export const FENCE_REGISTRY = [
   { id: "chart", form: "tailed", foldsCase: true, noun: "A chart", hub: true },
   { id: "progress", form: "tailed", foldsCase: true, noun: "A goal thermometer", hub: true },
   { id: "cards", form: "tailed", foldsCase: true, noun: "A stat-card row", hub: true },
+  { id: "kind", form: "tailed", foldsCase: true, noun: "A custom kind", hub: true },
   // ── bare (strict bare-form parsers) ───────────────────────────────────
   { id: "csv", form: "bare", foldsCase: false, noun: null, hub: false },
   { id: "formulas", form: "bare", foldsCase: false, noun: null, hub: false },

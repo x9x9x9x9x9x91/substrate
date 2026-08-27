@@ -69,6 +69,18 @@ interface SubstrateKindCtx {
   readonly api: number;
   /** The same element passed as `mount`'s first argument. */
   readonly el: HTMLElement;
+  /** The config the kind was mounted WITH, when it was mounted as a ```kind
+      fence inside a hub or workbook page: that fence's `key: value` lines,
+      values verbatim as text. `{}` for a kind mounted as a whole note, so
+      `ctx.config.room` is always a read and never a crash.
+
+      The app interprets no key here — the vocabulary is the kind's own. Coerce
+      what you need (`Number(ctx.config.limit ?? 5)`), and treat a missing key
+      as "not configured" rather than an error: the same kind is expected to
+      mount both as a note and as one block on a page. Frozen and rebuilt per
+      mount; editing the fence in the source note re-mounts the kind with the
+      new values. */
+  readonly config: Readonly<Record<string, string>>;
   /** The dashboard note the kind is mounted in. A snapshot: reading it again
       after a change gives the new values, and mutating what you read changes
       nothing — though the copy is one level deep, so an array or object

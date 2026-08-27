@@ -982,8 +982,98 @@ new row:
 Then say what you built where readers look: a subsection in this file, and a
 row in the fence grammar in `docs/vault-format.md` §5.
 
+One fence breaks step 3's shape on purpose and is worth knowing about before
+you copy a template: ` ```kind ` (§5.5e) takes its SUBJECT from the info string
+rather than the body, and hands the body through to vault code without reading
+a key. Its parser therefore validates an id and a `key: value` shape and stops
+— it has no key table to grow. Copy it when your fence configures something the
+app does not own; copy chart or calendar when it configures something the app
+does.
+
 When a fence is not enough — the thing you want is a whole pane with its own
 chrome, not a block inside one — the next size up is a kind.
+
+## Composing a custom kind into a page — ` ```kind ` fences
+
+Everything above composes: a hub page can carry a chart, a card strip and a
+live table side by side. Until now the one thing it could not carry was *your
+own* kind — a `.vault/kinds/` bundle was a whole note or nothing. A ` ```kind `
+fence closes that: your kind becomes a block, sitting wherever you wrote it.
+
+```kind gear-log
+room: studio
+limit: 5
+```
+
+The word after ` ```kind ` is the kind id — the folder name under
+`.vault/kinds/`, the same name a note's `dashboard:` prop would use. The lines
+underneath are optional, and **Substrate does not read a single one of them**:
+they arrive at your kind as `ctx.config`, a frozen map of strings, and what the
+keys mean is entirely yours to decide. So the same bundle can draw the studio
+rack in one block and the hall rack in the next:
+
+````markdown
+## Studio
+
+```kind gear-log
+room: studio
+```
+
+## Hall
+
+```kind gear-log
+room: hall
+```
+````
+
+Read them with a default, because the same kind also mounts as a whole note,
+where there is no fence and `ctx.config` is `{}`:
+
+```js
+const room = ctx.config.room ?? "studio";
+const limit = Number(ctx.config.limit ?? 10);
+```
+
+Two differences from a full-note mount, both about chrome rather than power:
+the block has no head of its own (the page owns the title bar, so
+`ctx.setState`'s dot has nowhere to draw), and it is sized by the page rather
+than by the pane. Everything else — every `ctx` member, the vault access, the
+reclamation rules — is identical.
+
+### It asks before it runs, once
+
+A kind fence is code from your vault, so it is gated exactly as a full-note
+kind is, **by the same decision**. The first time a hub tries to draw a kind
+this vault has not consented to, the block shows the review card you already
+know: what the kind is, who wrote it, which file runs, what the hash covers,
+and what enabling means. Press *Enable* and the kind mounts in place.
+
+What "the same decision" buys you:
+
+- **One decision per kind, per vault** — not one per fence. Three fences over
+  `gear-log` each draw their own review card, in their own block, because a
+  block that showed nothing would be a hole in the page with no way to act on
+  it. But it is one question asked three times, not three questions: answer any
+  one card and all three fences light at once.
+- **Enabling from a fence enables the kind everywhere**, including its
+  full-note pane. There is one record; the fence is another place to be asked
+  about it, never another thing to answer.
+- **Saying nothing is safe.** A block waiting on review is a quiet card. The
+  rest of the hub draws normally — a kind you never enable costs you one block,
+  not the page.
+- **Revoking is Settings → Vault**, and it takes effect on screen: disable a
+  kind and every fence over it stops and returns to the review card, with no
+  reload. The folder stays; only the record goes. Editing the bundle's bytes
+  does the same thing — the fence stops and asks about the new code — unless
+  you turned on that kind's *trust updates* rider, which is the loop to use
+  while you are the one writing it.
+
+Only vault-resident kinds compose this way. A built-in name in a kind fence
+(` ```kind tasks `) says so rather than pretending not to exist — built-ins
+already have their own fences.
+
+Full contract: `docs/vault-format.md` §5.5e (the fence) and §5.8 (the bundle,
+the record and the review).
 
 ## Adding a built-in kind
 

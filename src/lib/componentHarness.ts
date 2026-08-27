@@ -285,6 +285,7 @@ const STAGING_SEAMS = [
   "__mockEditNote",
   "__mockDeleteNote",
   "__mockHostedVault",
+  "__mockWriteKind",
 ] as const;
 type StagingSeam = (typeof STAGING_SEAMS)[number];
 

@@ -85,7 +85,7 @@ test("a dashboard note with no kind and no fence gets the help card", async ({ p
   // it names the way out: a kind to write, or a fence — the full hub set,
   // every fence that would have anchored the body scan
   await expect(err).toContainText(
-    "view, chart, progress, cards, heatmap, calendar or timeline fence"
+    "`view`, `chart`, `progress`, `cards`, `kind`, `heatmap`, `calendar` or `timeline` fence"
   );
   await expect(err).toContainText("Known kinds:");
   await expect(err).toContainText("food");

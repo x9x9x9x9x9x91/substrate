@@ -22,7 +22,9 @@ import { dashFenceHint } from "./dashfencehint.ts";
 import { slashCommands } from "./slashmenu.ts";
 
 test("the derived lang lists are the ones the strip pattern always carried, in order", () => {
-  assert.deepEqual([...TAILED_MACHINE_FENCE_LANGS], ["view", "chart", "progress", "cards"]);
+  // `kind` joined the tailed group (vault-format §5.5e): its opener carries
+  // the kind id, so it is dispatched on the first word like the four before it
+  assert.deepEqual([...TAILED_MACHINE_FENCE_LANGS], ["view", "chart", "progress", "cards", "kind"]);
   assert.deepEqual([...BARE_MACHINE_FENCE_LANGS], [
     "csv",
     "formulas",
@@ -39,7 +41,7 @@ test("the strip pattern is unchanged by deriving its lists from the registry", (
   // until the Rust twin moves with it.
   assert.equal(
     MACHINE_FENCE_RE.source,
-    "```(?:(?:[Vv][Ii][Ee][Ww]|[Cc][Hh][Aa][Rr][Tt]|[Pp][Rr][Oo][Gg][Rr][Ee][Ss][Ss]|[Cc][Aa][Rr][Dd][Ss])(?:[ \\t][^`\\n]*)?|(?:csv|formulas|[Hh][Ee][Aa][Tt][Mm][Aa][Pp]|[Cc][Aa][Ll][Ee][Nn][Dd][Aa][Rr]|[Tt][Ii][Mm][Ee][Ll][Ii][Nn][Ee])[ \\t]*)\\r?\\n[\\s\\S]*?(?:```|$)"
+    "```(?:(?:[Vv][Ii][Ee][Ww]|[Cc][Hh][Aa][Rr][Tt]|[Pp][Rr][Oo][Gg][Rr][Ee][Ss][Ss]|[Cc][Aa][Rr][Dd][Ss]|[Kk][Ii][Nn][Dd])(?:[ \\t][^`\\n]*)?|(?:csv|formulas|[Hh][Ee][Aa][Tt][Mm][Aa][Pp]|[Cc][Aa][Ll][Ee][Nn][Dd][Aa][Rr]|[Tt][Ii][Mm][Ee][Ll][Ii][Nn][Ee])[ \\t]*)\\r?\\n[\\s\\S]*?(?:```|$)"
   );
   assert.equal(MACHINE_FENCE_RE.flags, "g");
 });
@@ -55,7 +57,7 @@ test("every registry entry names its form and every id is a lowercase lang id", 
 test("the hub set is everything but the sheet pair", () => {
   assert.deepEqual(
     [...HUB_FENCE_LANGS],
-    ["view", "chart", "progress", "cards", "heatmap", "calendar", "timeline"]
+    ["view", "chart", "progress", "cards", "kind", "heatmap", "calendar", "timeline"]
   );
 });
 
@@ -67,6 +69,9 @@ test("the hint nouns still read exactly as they did hand-written", () => {
   assert.equal(dashFenceHint("heatmap", ""), line("A heatmap"));
   assert.equal(dashFenceHint("calendar", ""), line("A calendar"));
   assert.equal(dashFenceHint("timeline", ""), line("A timeline"));
+  // a kind fence is a dashboard block like the rest — written in an ordinary
+  // note it stays text, and the hint has to say which kind of thing was meant
+  assert.equal(dashFenceHint("kind", ""), line("A custom kind"));
   // the deliberate nulls: view draws in a note already, the sheet pair is
   // sheet content — a registry entry growing one of these a noun is a
   // product change, not a wiring change

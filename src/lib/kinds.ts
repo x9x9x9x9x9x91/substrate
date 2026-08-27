@@ -180,9 +180,15 @@ export function knownKindList(): string {
     instrument: a live currency fetch, a snapshot form, and a Claim button
     writing `claimed_usd` back into a note whose author had asked for none of
     it. The honest answer is the same card an unknown kind gets — what this
-    note says, and what it could say instead. */
+    note says, and what it could say instead.
+
+    The fence langs are backtick-quoted because `kind` is one of them: bare,
+    the sentence read "names no kind … holds no …, cards, kind, heatmap …" —
+    one word in two senses. The quotes mark the list as tokens you type after
+    the opening backticks, the same literal-quoting the card's `dashboard:`
+    already uses. */
 export function unconfiguredDashboardMessage(): string {
-  const langs = [...HUB_FENCE_LANGS];
+  const langs = [...HUB_FENCE_LANGS].map((l) => `\`${l}\``);
   const fenceList = `${langs.slice(0, -1).join(", ")} or ${langs[langs.length - 1]}`;
   return (
     `this dashboard names no kind and its body holds no ${fenceList} ` +

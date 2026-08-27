@@ -125,6 +125,11 @@ interface FenceCase {
 
 const CASES: Record<HubFenceId, FenceCase> = {
   view: { body: "```view\ntype: contact\nview: table\n```\n", widget: ".hub-view" },
+  /* A kind fence with no bundle roster answered yet (jsdom has no backend) is
+     still the fence's own block — that is the point of the shared wrapper:
+     every answer, including "still asking", is one block where the fence was
+     written, so the canvas mounting it is observable before consent is. */
+  kind: { body: "```kind gear-log\n```\n", widget: ".kind-fence" },
   chart: {
     body: "```chart\nsource: release\nx: created\ny: count\n```\n",
     widget: ".hub-chart",
@@ -160,6 +165,44 @@ for (const lang of HUB_FENCE_LANGS) {
     assert.equal(rendered.all(".hub-pre").length, 0, `${lang} did not fall through to a code box`);
   });
 }
+
+test("a consented kind mounts INSIDE the fence's block, not beside it", async (t) => {
+  /* The roster case above only reaches the "still asking" answer — jsdom
+     answers no bundle list before it asserts — and that answer shares a
+     wrapper with the refusals. The answer that does not share it by
+     construction is the one where consent has landed and the pane mounts, and
+     that is the path where the wrapper was missing: the kind drew its host
+     directly onto the canvas, so the running kind sat outside the block its
+     own review card had been sitting in, and every rule keyed on `.kind-fence`
+     stopped applying the moment the user pressed Enable. Asserting on the
+     pending path alone cannot see that, which is why it went unnoticed. */
+  const ID = "gear-log";
+  await win.__mockWriteKind({
+    id: ID,
+    manifest: JSON.stringify({ id: ID, title: "Gear Log", api: 1, entry: "index.js" }),
+    files: { "index.js": "export default { mount() {} };\n" },
+    enabled: true,
+  });
+  /* The shared roster is cached per vault epoch, and the pending case above
+     already filled that cache from a vault with no bundles in it — so without
+     this the fence would resolve against a list seeded before the kind
+     existed and draw the unknown-kind card. */
+  const { invalidateKindBundles } = await import("../hooks/useKindBundles.ts");
+  invalidateKindBundles();
+
+  const rendered = await render(t, `Roster fixture.\n\n\`\`\`kind ${ID}\n\`\`\`\n`);
+  // the roster is an IPC round trip, and until it lands the block is the
+  // pending one — which is the answer the case above already covers
+  await rendered.settle();
+
+  const block = rendered.one(".kind-fence");
+  assert.ok(block, "the consented fence still drew its block");
+  // `.kind-host` is the pane's own node, so finding it under the block is the
+  // mounted path going through the wrapper rather than around it
+  assert.ok(block.querySelector(".kind-host"), "the mounted pane sits inside the block");
+  assert.equal(rendered.all(".kind-host").length, 1, "and nowhere else on the canvas");
+  assert.equal(rendered.all(".hub-pre").length, 0, "and did not fall through to a code box");
+});
 
 test("a language with no registry row stays a code box", async (t) => {
   // the roster is a closed set: a user's own fence is prose, and prose on a

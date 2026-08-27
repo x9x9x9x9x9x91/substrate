@@ -117,6 +117,7 @@ test("slashOptions: everything on a bare slash, fuzzy-narrowed after", () => {
       "date",
       "formulas",
       "heatmap",
+      "kind",
       "live",
       "progress",
       "table",
@@ -185,11 +186,19 @@ test("fence scaffolds: well-formed fences, cursor on the first value, fenceExit 
   const fences = slashCommands().filter((c) => c.insert.startsWith("```"));
   assert.ok(fences.length >= 4);
   for (const cmd of fences) {
-    // opener names the command, closer on its own line
-    assert.ok(cmd.insert.startsWith("```" + cmd.name + "\n"), cmd.name);
+    // opener names the command, closer on its own line — and the opener may
+    // end in a space, which is the kind fence: its subject is the kind id,
+    // written in the info string rather than as a body key, so the scaffold
+    // leaves room for it there
+    assert.ok(
+      cmd.insert.startsWith("```" + cmd.name + "\n") ||
+        cmd.insert.startsWith("```" + cmd.name + " \n"),
+      cmd.name
+    );
     assert.ok(cmd.insert.endsWith("\n```"), cmd.name);
-    // the cursor sits at the end of the first body line — typing continues
-    // into the first config value, never into the opener or a later key
+    // the cursor sits at the end of the line that carries the first value —
+    // the first body line, or the opener for a fence named in its info string
+    // — so typing continues into that value, never into a later key
     const rest = cmd.insert.slice(cmd.cursor);
     assert.ok(rest === "\n```" || rest.startsWith("\n"), cmd.name);
     assert.ok(!cmd.insert.slice(0, cmd.cursor).endsWith("`"), cmd.name);

@@ -1878,6 +1878,69 @@ unknown databases, and property names absent from the source render an error
 where that fence sits without disturbing sibling blocks. The body remains
 ordinary markdown (`src/lib/timeline.ts`, `src/components/TimelineFence.tsx`).
 
+### 5.5e Kind blocks — ` ```kind ` fences
+
+A ` ```kind ` fence mounts a **custom kind bundle** (§5.8) as one block on a
+hub or workbook page, the way a ` ```chart ` fence mounts a chart. Before it,
+a vault-resident kind could only be a whole note — so a board that wanted one
+next to a chart and a card strip had no way to say so, and the only kinds that
+composed were the ones built into the app. This is that split closed.
+
+```kind gear-log
+room: studio
+limit: 5
+```
+
+The **first word of the info string is the kind id** — the folder name under
+`.vault/kinds/`, same grammar as everywhere else (`[a-z0-9][a-z0-9-]{0,39}`,
+§5.8). A fence naming no kind, naming two, or naming something outside that
+grammar draws a sentence saying so where it was written; a typo reads as a
+typo rather than as "no such kind installed", which is a different problem.
+
+The **body is optional `key: value` lines**, and the app interprets **none of
+them**. They arrive at the kind as `ctx.config`, a frozen string-to-string map,
+and the vocabulary is the kind's own — so a kind gaining a knob is a change to
+the kind, not to Substrate. Values stay text (`Number(ctx.config.limit ?? 5)`
+is the kind's job); blank lines and `#` comment lines are skipped; a key set
+twice is refused rather than resolved by line order. A kind mounted as a whole
+note sees `ctx.config` as `{}` — never `undefined` — so one kind can serve
+both placements without asking which it got.
+
+**Only custom kinds compose.** A built-in name (`hub`, `tasks`, `metrics`…)
+written in a kind fence draws a sentence saying it is a built-in, not an
+"unknown kind" — it is a real kind, just not one a fence embeds. Built-in
+composition already has its own fences (§5.5–§5.6).
+
+**The consent gate is the one from §5.8, not a second one.** The fence
+resolves its id against the same installed-bundle roster and the same consent
+records the full-note pane resolves against, and a kind this vault has not
+consented to draws the same review card — inside the block, where the fence
+was written. One press enables the kind for the whole vault: the fence is a
+second *place to ask*, never a second *record*. The consequences follow from
+that and are worth stating plainly:
+
+- **First render asks once, per kind, per vault** — not once per fence. The
+  card itself is drawn per fence: a hub with three fences over the same kind
+  shows three cards, one in each block, because a block with nothing in it
+  could not be answered. They are three renderings of one question — enabling
+  from any of them mounts all three.
+- **Not-yet-consented is a quiet block, never a broken page.** The review card
+  sits in that fence's slot and every other block on the hub draws normally. So
+  does every other refusal — a bad id, drifted bytes, a broken manifest, a
+  throwing `mount`. One unreadable fence costs its own block and nothing else.
+- **Revocation is Settings → Vault, and it lands live.** Disabling a kind
+  removes its record (never its folder), and every kind fence on screen tears
+  its code down in place and returns to the review card — no reload. Same for
+  hash drift: new bytes in an already-trusted folder stop the fence and ask
+  again.
+- **The fence grants nothing extra.** A kind mounted in a block runs with
+  exactly the access a kind mounted as a note runs with — full vault access,
+  the §5.8 boundary, no sandbox. What the block DOES drop is the host head:
+  the page owns the title bar, so `ctx.setState`'s dot has nowhere to draw.
+
+Fences inside a callout body or a block quote stay code boxes, as every live
+fence does (§5.2) — quoted text is not a place vault code runs.
+
 ### 5.6 View embeds — ` ```view ` fences
 
 A ` ```view ` fence renders a live, editable inline database table inside the
@@ -2283,6 +2346,12 @@ writers already rely on.
 as a card naming the kind and the specific reason. A kind that quietly
 vanishes is indistinguishable from one that was never installed.
 
+A kind reaches a screen two ways, and **both go through the one consent
+record below**: as a whole note (`dashboard: gear-log`), or as one block on a
+hub or workbook page (a ` ```kind gear-log ` fence, §5.5e). The fence is a
+second place the question gets asked, never a second answer — enabling from
+either mounts the kind in both.
+
 **Consent lives outside the vault.** Enabling a kind is an explicit
 per-vault, per-device decision recorded in the OS app-config directory
 (beside `config.json`), keyed by vault path — never in the vault itself.
@@ -2348,7 +2417,11 @@ and it never covers a first enable.
 
 Consent is also reviewable after the fact, in **Settings → Vault**: what this
 vault has, each one's state, the rider, and a disable verb. **Disabling never
-deletes** — the record goes, the folder stays.
+deletes** — the record goes, the folder stays. Withdrawing consent stops the
+code **in place**: the disable write invalidates the bundle list, so a kind
+mounted as a note and every ` ```kind ` fence over it on screen tear down and
+return to the review card without a reload. There is one record to revoke
+however many places the kind was drawn.
 
 Because the record lives outside the vault, no vault change reports a consent
 change; the app invalidates its bundle list explicitly on every consent write,

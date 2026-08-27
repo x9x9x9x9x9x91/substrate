@@ -481,8 +481,12 @@ test("dispatch: a note with no instruction gets help text, not a yield tracker",
   // it says what is missing…
   assert.match(m, /names no kind/);
   // the card names the registry's full hub set — every fence that would have
-  // anchored the body-scan fallback, not just the three with dedicated boards
-  assert.match(m, /view, chart, progress, cards, heatmap, calendar or timeline fence/);
+  // anchored the body-scan fallback, not just the three with dedicated boards.
+  // Each lang backtick-quoted: `kind` is a fence lang AND the word the lead-in
+  // just used for the dashboard's kind, and the quoting is what keeps the two
+  // senses apart
+  assert.match(m, /`view`, `chart`, `progress`, `cards`, `kind`, `heatmap`, `calendar` or `timeline` fence/);
+  assert.doesNotMatch(m, /cards, kind, heatmap/);
   // …and what to write instead, the same way the unknown-kind card does
   assert.match(m, /Known kinds:/);
   assert.match(m, /tasks/);

@@ -93,5 +93,5 @@ test("a fence-free body still gets the help card, and the card names every fence
   const rendered = await pane(t, "Just prose, no fences at all.\n");
 
   assert.match(rendered.text(), /nothing configured/);
-  assert.match(rendered.text(), /view, chart, progress, cards, heatmap, calendar or timeline fence/);
+  assert.match(rendered.text(), /`view`, `chart`, `progress`, `cards`, `kind`, `heatmap`, `calendar` or `timeline` fence/);
 });

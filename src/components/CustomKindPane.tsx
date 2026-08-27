@@ -154,6 +154,22 @@ export interface CustomKindPaneProps {
       register with, so the app's ⌘Z gate and the shortcut HUD cannot tell a
       vault kind's stack from a built-in's. */
   dashUndo?: DashUndoStore;
+  /** Which chrome the kind is wearing. `"pane"` (the default) is the whole
+      note: the app's frame, a DashHead with the note's title and the Print
+      button. `"fence"` is one block on a page the hub already framed — a
+      ```kind fence — so the head, the frame and Print all belong to the page
+      and this renders the body only.
+
+      Deliberately a frame switch and NOT a second component. Everything below
+      the chrome — the consent decision, the review card, the loader, the
+      sandbox, the ctx and the teardown — is the same code either way, so a
+      fence cannot become a second door into vault code with its own idea of
+      what consent means. It is the same door, drawn smaller. */
+  frame?: "pane" | "fence";
+  /** the fence's `key: value` config, handed through as `ctx.config`. Absent
+      for a full-note kind, which has no fence to carry one — the kind sees an
+      empty object either way, never `undefined`. */
+  config?: Record<string, string>;
 }
 
 /** The class names a kind may render through — the app's voice, so a kind
@@ -267,6 +283,15 @@ export default function CustomKindPane(props: CustomKindPaneProps) {
   const runnable = state.state === "enabled";
   const entry = state.state === "invalid" ? null : state.manifest.entry;
   const style = state.state === "invalid" ? undefined : state.manifest.style;
+  /* The fence's config as a VALUE, not an identity. `ctx.config` is a
+     mount-time snapshot, and the contract published in `docs/kind-api.d.ts`
+     promises editing the fence re-mounts the kind with the new values — so
+     the config has to be in the mount effect's dependencies or that promise
+     is prose only. It cannot be `props.config` itself: the hub parses a fresh
+     object out of the note text on every render, and depending on the object
+     would re-mount the kind on every keystroke anywhere in the app. Serialised,
+     the dependency changes exactly when the fence's own lines change. */
+  const configKey = JSON.stringify(props.config ?? {});
 
   useEffect(() => {
     /* Reset BEFORE any bail-out. A re-run means a different bundle — an agent
@@ -517,7 +542,7 @@ export default function CustomKindPane(props: CustomKindPaneProps) {
     };
     // The bundle hash is in the dependency list on purpose: re-enabling a kind
     // whose code an agent rewrote is a different bundle, and it re-mounts.
-  }, [id, hash, entry, style, runnable, props.meta.path, publishUndo]);
+  }, [id, hash, entry, style, runnable, configKey, props.meta.path, publishUndo]);
 
   /* Vault changes are a redraw signal, not a re-mount (§5.8). Refresh the
      note snapshot ctx.note points at, then let the kind decide what to do. */
@@ -568,18 +593,18 @@ export default function CustomKindPane(props: CustomKindPaneProps) {
      failing leaves the drift card up, and the next render finds this hash
      already tried. */
   const trusted = shouldTrustReenable(state, props.record);
-  const triedHash = useRef<string | null>(null);
   const [trustedEnableFailed, setTrustedEnableFailed] = useState(false);
   useEffect(() => {
-    if (!trusted || triedHash.current === hash) return;
-    triedHash.current = hash;
+    if (!trusted) return;
+    let gone = false;
     setTrustedEnableFailed(false);
-    kindsEnable(id, hash)
-      .then(() => invalidateKindBundles())
-      .catch((e) => {
-        console.warn(`custom kind “${id}”: trusted re-enable failed`, e);
-        setTrustedEnableFailed(true);
-      });
+    trustedEnableOnce(id, hash).catch((e) => {
+      console.warn(`custom kind “${id}”: trusted re-enable failed`, e);
+      if (!gone) setTrustedEnableFailed(true);
+    });
+    return () => {
+      gone = true;
+    };
   }, [trusted, id, hash]);
 
   const card = runtime ?? kindStateCard(id, state);
@@ -603,6 +628,43 @@ export default function CustomKindPane(props: CustomKindPaneProps) {
       ? null
       : kindReview(id, state, props.files, props.record);
 
+  /* One body, two frames. The head is the only thing a fence drops: on a
+     page the hub already titled, a second title bar per block would say the
+     note's name once per fence. The kind's own state dot goes with it —
+     `ctx.setState` has nowhere to draw in a block, which is stated in the
+     contract rather than silently swallowed. */
+  const inner = (
+    <>
+      {review ? (
+        /* No onChanged: `invalidateKindBundles` already re-reads the list
+           everywhere it is on screen, and this pane's own props come from
+           that list. */
+        <KindReviewCard review={review} hash={hash} />
+      ) : (
+        card && <DashAlert>{card.message}</DashAlert>
+      )}
+      {manifestNotice && <DashAlert>{manifestNotice}</DashAlert>}
+      {refusals.map((msg) => (
+        <DashAlert key={msg}>{msg}</DashAlert>
+      ))}
+      {/* The host renders unconditionally, as the card's sibling rather than
+          its alternative. Two reasons, both lifecycle: `host.current` stays
+          live through a failure, so the next run of the mount effect — an
+          agent rewrote the bundle, the user enabled it — can re-mount in
+          place instead of bailing on a null ref forever; and React never
+          reuses this node for the card, so the pane's own teardown can't
+          reach into children React owns. It is empty whenever a card shows:
+          the kind's element goes away with the failure that produced it. */}
+      <div className="kind-host" ref={host} />
+    </>
+  );
+
+  /* The fence frame is the body and nothing else: the ```kind fence's own
+     renderer supplies the block wrapper (and supplies it for every answer,
+     including the ones that never reach this component), so drawing a second
+     one here would nest two blocks per fence. */
+  if (props.frame === "fence") return inner;
+
   return (
     <div className="note">
       <div className="dash-inner">
@@ -613,27 +675,7 @@ export default function CustomKindPane(props: CustomKindPaneProps) {
           sourcePath={props.meta.path}
           onOpenSource={props.onOpenSource}
         />
-        {review ? (
-          /* No onChanged: `invalidateKindBundles` already re-reads the list
-             everywhere it is on screen, and this pane's own props come from
-             that list. */
-          <KindReviewCard review={review} hash={hash} />
-        ) : (
-          card && <DashAlert>{card.message}</DashAlert>
-        )}
-        {manifestNotice && <DashAlert>{manifestNotice}</DashAlert>}
-        {refusals.map((msg) => (
-          <DashAlert key={msg}>{msg}</DashAlert>
-        ))}
-        {/* The host renders unconditionally, as the card's sibling rather than
-            its alternative. Two reasons, both lifecycle: `host.current` stays
-            live through a failure, so the next run of the mount effect — an
-            agent rewrote the bundle, the user enabled it — can re-mount in
-            place instead of bailing on a null ref forever; and React never
-            reuses this node for the card, so the pane's own teardown can't
-            reach into children React owns. It is empty whenever a card shows:
-            the kind's element goes away with the failure that produced it. */}
-        <div className="kind-host" ref={host} />
+        {inner}
       </div>
     </div>
   );
@@ -648,6 +690,28 @@ export default function CustomKindPane(props: CustomKindPaneProps) {
     else. In the mock/dev lane there is no scheme and no vault, so e2e seeds
     bundle text through a window hook instead. The mock branch is gated on
     `isTauri` and nothing else: the shipped CSP never sees it. */
+/* One attempt per (kind, hash), shared by every pane on screen rather than
+   remembered per instance. The gate used to be a ref inside the component, so a
+   hub carrying three fences over one trust-updates kind fired three identical
+   `kinds_enable` calls the moment its bytes drifted — same id, same hash, three
+   round trips racing to write the same record. Keyed on the pair, the map
+   collapses them to one call that every pane awaits, so a refusal still puts
+   the drift card back on all three and not just on whichever asked first.
+
+   The rejected promise stays in the map on purpose: that is what stops a
+   refusal from looping, and only new bytes — a new key — ask again. */
+const trustedEnables = new Map<string, Promise<void>>();
+
+function trustedEnableOnce(id: string, hash: string): Promise<void> {
+  const key = `${id}\u0000${hash}`;
+  let attempt = trustedEnables.get(key);
+  if (!attempt) {
+    attempt = kindsEnable(id, hash).then(() => invalidateKindBundles());
+    trustedEnables.set(key, attempt);
+  }
+  return attempt;
+}
+
 async function loadKindFile(id: string, file: string, hash: string): Promise<string> {
   if (!isTauri) {
     const src = window.__mockKindFile?.(id, file);
@@ -722,6 +786,13 @@ function makeCtx(
   return {
     api: KIND_API,
     el,
+    /* The fence's `key: value` lines, or an empty object for a kind mounted
+       as a whole note. Frozen and rebuilt per mount: the kind holds its ctx
+       across every redraw, and a config it could edit in place would be a
+       kind rewriting the note's own text as far as its next read is
+       concerned. Always an object, never `undefined` — a kind reads
+       `ctx.config.room` without asking whether it was embedded. */
+    config: Object.freeze({ ...(live.current.config ?? {}) }),
     get note() {
       return { ...note.current, props: { ...note.current.props } };
     },

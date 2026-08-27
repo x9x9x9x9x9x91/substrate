@@ -284,15 +284,15 @@ test("checkUseSites throws when a strip function cannot be found", () => {
 const ONE_SIDED_EDITS: { name: string; from: string; to: string; expect: RegExp | "throws" }[] = [
   {
     name: "a language added to the tailed group",
-    from: "|[Cc][Aa][Rr][Dd][Ss])",
-    to: "|[Cc][Aa][Rr][Dd][Ss]|[Tt][Aa][Bb][Ll][Ee])",
+    from: "|[Kk][Ii][Nn][Dd])",
+    to: "|[Kk][Ii][Nn][Dd]|[Tt][Aa][Bb][Ll][Ee])",
     expect: /tailed: src-tauri\/src\/vault\/mod\.rs has "table"/,
   },
   {
     name: "a language moved from the tailed group to the bare one",
-    from: "|[Cc][Aa][Rr][Dd][Ss])(?:[ \\t][^`\\n]*)?|(?:csv",
-    to: ")(?:[ \\t][^`\\n]*)?|(?:[Cc][Aa][Rr][Dd][Ss]|csv",
-    expect: /tailed: src\/lib\/fences\.ts has "cards"/,
+    from: "|[Kk][Ii][Nn][Dd])(?:[ \\t][^`\\n]*)?|(?:csv",
+    to: ")(?:[ \\t][^`\\n]*)?|(?:[Kk][Ii][Nn][Dd]|csv",
+    expect: /tailed: src\/lib\/fences\.ts has "kind"/,
   },
   {
     name: "a case fold added to a bare-form language",
