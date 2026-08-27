@@ -259,6 +259,17 @@ declare global {
       where: "title" | "body";
       noteType?: string;
     }) => void;
+    /** seed calls staged from addInitScript, before this module evaluates.
+        Polling for the seed hooks from an init script instead can lose the
+        race against the app's first note listing under full-suite load: the
+        engine then counts notes the results pane cannot join to a listed
+        row, and every hit drops out client-side. Staged entries are drained
+        the moment the mock installs, strictly before it serves a single
+        command, so the very first listing already carries them. */
+    __mockPendingSeeds?: Array<
+      | { notes: { folder: string; count: number } }
+      | { matching: Parameters<NonNullable<Window["__mockSeedMatching"]>>[0] }
+    >;
     /** stage the no-vault first-run state — the mock vault always exists,
         so this is the only way to reach the onboarding screen.
         Boot resolution happens on mount, so a spec staging first-run must
@@ -6547,6 +6558,14 @@ if (!isTauri) {
       });
     }
   };
+  // Drain seeds staged before this module evaluated — the init-script side
+  // of the __mockPendingSeeds contract. Running here, at install time, puts
+  // them into mockNotes before any command is served.
+  for (const staged of window.__mockPendingSeeds ?? []) {
+    if ("matching" in staged) window.__mockSeedMatching(staged.matching);
+    else window.__mockSeedNotes(staged.notes.folder, staged.notes.count);
+  }
+  delete window.__mockPendingSeeds;
   // Stage the no-vault state the real backend reaches on a machine
   // with neither VAULT_DIR, a stored choice, nor ~/Vault
   window.__mockSetFirstRun = (on) => {

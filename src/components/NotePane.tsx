@@ -171,7 +171,11 @@ interface NotePaneProps {
   ) => void;
   /** "Add “x” to options": stores the option and runs `writeValue` as ONE
       undoable action — the value only lands if the option did, and one ⌘Z
-      takes back both. Absent leaves the promote row off the chip picker. */
+      takes back both. Absent leaves the promote row off the chip picker.
+
+      The chip fires it and forgets it: the picker closes before the call and
+      nothing after it reads the written state, so the promise the door
+      returns is deliberately unused here. */
   onPromoteOption?: (
     dbType: string,
     prop: string,

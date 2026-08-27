@@ -418,7 +418,13 @@ export default function DbTableLayout({
   ) => void;
   /** "Add “x” to options": stores the option and runs `writeValue` as ONE
       undoable action — the value only lands if the option did, and one ⌘Z
-      takes back both. Absent leaves the promote row off the pickers. */
+      takes back both. Absent leaves the promote row off the pickers.
+
+      Both pickers here fire it and forget it: nothing they do reads the
+      written state, so the promise the door returns is deliberately unused.
+      The one thing that follows a promote is Enter's hop to the next cell,
+      and that is a focus move — it must NOT wait on the write, or the editor
+      would sit still for as long as the vault takes. */
   onPromoteOption?: (
     prop: string,
     add: {

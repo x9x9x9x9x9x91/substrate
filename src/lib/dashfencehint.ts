@@ -1,3 +1,4 @@
+import { FENCE_REGISTRY } from "./fenceRegistry.ts";
 import { isTailedBareFence } from "./fences.ts";
 
 /* A ```chart or ```heatmap block only draws where a dashboard renders it. Pasted
@@ -9,22 +10,19 @@ import { isTailedBareFence } from "./fences.ts";
    the banner — nothing is broken here, the block is simply somewhere it does
    not draw.
 
-   The nouns are the ones docs/dashboards.md uses for each fence, so the hint
-   and the documentation name the same thing. */
-const DASH_ONLY_FENCE_NOUNS: Record<string, string> = {
-  chart: "A chart",
-  cards: "A stat-card row",
-  progress: "A goal thermometer",
-  heatmap: "A heatmap",
-  calendar: "A calendar",
-  timeline: "A timeline",
-};
+   The nouns come from the fence registry, where each is the word
+   docs/dashboards.md uses for its fence, so the hint and the documentation
+   name the same thing. A registry entry with no noun gets no hint. */
+const DASH_ONLY_FENCE_NOUNS: ReadonlyMap<string, string> = new Map(
+  FENCE_REGISTRY.filter((f) => f.noun !== null).map((f) => [f.id, f.noun as string])
+);
 
 /** The line a fence gets when it is written somewhere it will not draw, or
     null when the block belongs where it is.
 
-    `view` is deliberately absent: a ```view embed renders in an ordinary note
-    already, so a hint under one would be a lie. So are ```csv and ```formulas,
+    `view` deliberately carries no noun: a ```view embed renders in an
+    ordinary note already, so a hint under one would be a lie. Neither do
+    ```csv and ```formulas,
     which are a sheet's own content rather than a dashboard's. Everything else
     is prose to every reader in the app and gets no hint at all — a ```sh block
     is a code box on purpose.
@@ -35,7 +33,7 @@ const DASH_ONLY_FENCE_NOUNS: Record<string, string> = {
     somewhere it still would not draw. `fences.ts` owns that rule; this asks it
     rather than restating it. */
 export function dashFenceHint(lang: string, tail: string): string | null {
-  const noun = DASH_ONLY_FENCE_NOUNS[lang.trim().toLowerCase()];
+  const noun = DASH_ONLY_FENCE_NOUNS.get(lang.trim().toLowerCase());
   if (!noun) return null;
   if (isTailedBareFence(lang, tail)) return null;
   return `${noun} draws on a dashboard note — here it stays as text.`;

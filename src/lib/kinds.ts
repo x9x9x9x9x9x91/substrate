@@ -18,6 +18,7 @@
    this file is the contract they agree on. */
 
 import { foldedPropKey, propStr } from "./types.ts";
+import { HUB_FENCE_LANGS } from "./fenceRegistry.ts";
 
 /** The `dashboard:` values the app itself renders. Kinds may not shadow one:
     built-ins WIN, and enabling a colliding bundle fails with "rename the
@@ -172,17 +173,21 @@ export function knownKindList(): string {
 }
 
 /** A `type: dashboard` note that gives no instruction at all — no
-    `dashboard:` key, and a body with no ` ```chart `, ` ```heatmap ` or
-    ` ```calendar ` fence in it. It used to end at the yield tracker, so an
-    empty dashboard note meant a personal APR instrument: a live currency
-    fetch, a snapshot form, and a Claim button writing `claimed_usd` back into
-    a note whose author had asked for none of it. The honest answer is the
-    same card an unknown kind gets — what this note says, and what it could
-    say instead. */
+    `dashboard:` key, and a body with none of the fences a board can draw.
+    The fence list is the registry's hub set, not a hand-written three: the
+    body-scan fallback anchors on every live hub fence, and this card must
+    name exactly the fences that would have rescued the note. It used to end
+    at the yield tracker, so an empty dashboard note meant a personal APR
+    instrument: a live currency fetch, a snapshot form, and a Claim button
+    writing `claimed_usd` back into a note whose author had asked for none of
+    it. The honest answer is the same card an unknown kind gets — what this
+    note says, and what it could say instead. */
 export function unconfiguredDashboardMessage(): string {
+  const langs = [...HUB_FENCE_LANGS];
+  const fenceList = `${langs.slice(0, -1).join(", ")} or ${langs[langs.length - 1]}`;
   return (
-    "this dashboard names no kind and its body holds no chart, heatmap or " +
-    "calendar fence, so there is nothing to render yet — add a `dashboard:` " +
+    `this dashboard names no kind and its body holds no ${fenceList} ` +
+    "fence, so there is nothing to render yet — add a `dashboard:` " +
     `property, or write a fence. Known kinds: ${knownKindList()}`
   );
 }

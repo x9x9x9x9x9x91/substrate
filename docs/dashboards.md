@@ -775,8 +775,13 @@ no fence, so a note keeps it before the first fence is written.
 A note with `type: dashboard` and **no `dashboard:` key at all** falls back by
 body content: ` ```chart ` fences → charts, ` ```heatmap ` fences → the heatmap
 dashboard (beside charts they hang under them). ` ```calendar ` fences fall back
-to the month grids the same way. A body with **none** of those fences renders a
-help card naming the kinds that exist — it used to render the yield tracker, so
+to the month grids the same way. The fences with no board of their own —
+` ```progress `, ` ```cards `, ` ```timeline `, ` ```view ` — fall back to the
+hub, which already draws all four, so every fence that draws anywhere also
+configures a note that names no kind. That arm is tried last, so a body holding
+a chart and a thermometer is still a charts dashboard, exactly as before. A
+body with **none** of those fences renders a help card naming the kinds that
+exist — it used to render the yield tracker, so
 a note saying only `type: dashboard` became a financial instrument with a live
 rates request and a Claim button that wrote back into it. A key that *is*
 written but isn't a kind this build knows renders that same card naming the
@@ -971,6 +976,49 @@ bottom stays the workbook you opened, so it is always clear which of the two
 you are paging. It goes one level: a dashboard opened from inside a switcher
 renders on its own, which is also why two dashboards pointing at each other
 can't spiral.
+
+## Adding a fence
+
+Extending the app runs in three sizes, and this is the smallest: a new block
+language that boards render live — no new pane, no new kind, just another
+thing a note's body can draw. Most ideas that arrive as "a new dashboard"
+fit here (a sparkline, a countdown, a streak strip), and a fence reaches
+further than a kind does: it draws inside the hub, inside any prose
+dashboard, and anchors a keyless `type: dashboard` note on its own.
+
+Every fence the app parses is declared in one table — `FENCE_REGISTRY` in
+`src/lib/fenceRegistry.ts` — and adding one is working outward from a single
+new row:
+
+1. **Declare it in the registry.** One entry names the id, whether its opener
+   is *tailed* (dispatched on the first word, so ` ```view table ` is live)
+   or *bare* (the strict opener only — a tailed opener of a bare-form
+   language is someone's prose), whether dispatch folds case, the noun the
+   editor's out-of-place hint calls it, and whether the hub draws it. The
+   strip pattern, the editor hint and the keyless-dashboard fallback all
+   derive from this row; none of them is edited by hand.
+2. **Mirror the id into the Rust twin.** The vault reader strips machine
+   fences from search text with its own copy of the pattern
+   (`machine_fence_re` in `src-tauri/src/vault/mod.rs`).
+   `scripts/check-fence-langs.ts` compares the compiled TypeScript pattern
+   against the Rust literal character for character and fails `npm test`
+   until both sides agree — entry order is part of the pattern, so keep the
+   two sides in the same order.
+3. **Write the parser and renderer.** A `parse…Blocks(body)` function in its
+   own module and a component that draws the parsed config; the existing
+   pairs — chart, heatmap, calendar — are the templates to copy.
+4. **Dispatch it on the hub canvas**: one branch in `renderMarkdown` in
+   `src/components/HubDashboard.tsx`, beside the others. A registry pin in
+   `src/lib/fenceRegistry.test.ts` scans that dispatch chain and fails when
+   it and the registry's hub set drift apart.
+5. **Give it a `/` scaffold** in `src/lib/slashmenu.ts`, so typing `/` in the
+   editor offers the fence with a ready body and the cursor placed inside.
+
+Then say what you built where readers look: a subsection in this file, and a
+row in the fence grammar in `docs/vault-format.md` §5.
+
+When a fence is not enough — the thing you want is a whole pane with its own
+chrome, not a block inside one — the next size up is a kind.
 
 ## Adding a built-in kind
 

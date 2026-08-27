@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./fixtures";
+import { expect, seedMatching, test, type Page } from "./fixtures";
 
 // The seeded AGENTS.md/CLAUDE.md stay real files (the mock indexes
 // them like the engine does) but the app conceals them until Settings.md says
@@ -90,21 +90,7 @@ test("search totals don't count concealed app files (SUB-907)", async ({ page })
   // rows pass through the client's conceal filter. With the app files
   // concealed the engine must leave them out of that total, or the header
   // claims a note the user can never reach.
-  await page.addInitScript(() => {
-    const install = () => {
-      const seed = (window as unknown as { __mockSeedMatching?: unknown }).__mockSeedMatching as
-        | ((o: { folder: string; count: number; token: string; where: "title" | "body" }) => void)
-        | undefined;
-      if (!seed) return false;
-      seed({ folder: "Bulk", count: 210, token: "orientation", where: "title" });
-      return true;
-    };
-    if (!install()) {
-      const t = setInterval(() => {
-        if (install()) clearInterval(t);
-      }, 5);
-    }
-  });
+  await seedMatching(page, { folder: "Bulk", count: 210, token: "orientation", where: "title" });
   await bootAll(page);
   await page.keyboard.press("Meta+Shift+f");
   await expect(page.locator(".search-input")).toBeFocused();

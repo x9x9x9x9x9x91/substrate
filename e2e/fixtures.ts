@@ -1,4 +1,4 @@
-import { test as base } from "@playwright/test";
+import { test as base, type Page } from "@playwright/test";
 import { pinnedInstant } from "./clock";
 
 /** The suite's `test`, identical to Playwright's except that every context it
@@ -30,6 +30,39 @@ export const test = base.extend({
     await provide(context);
   },
 });
+
+/** What `window.__mockSeedMatching` takes — spelled out here because e2e
+    sits outside tsc's include, so the mock's own Window declaration is not
+    checked against these call sites. */
+type MatchingSeed = {
+  folder: string;
+  count: number;
+  token: string;
+  /** in the title (ranks first) or late in the body (ranks last) */
+  where: "title" | "body";
+  noteType?: string;
+};
+
+/** Stage a `__mockSeedMatching` call to run the moment the mock backend
+    installs — before it serves a single command, so the app's very first
+    note listing already carries the seeds. Polling for the hook from an
+    init script instead can fire after that listing under full-suite load;
+    a search then counts notes the results pane cannot join to a listed
+    row, and every hit drops out client-side. Call before the page's first
+    navigation. */
+export async function seedMatching(page: Page, opts: MatchingSeed) {
+  await page.addInitScript((matching) => {
+    (window.__mockPendingSeeds ??= []).push({ matching });
+  }, opts);
+}
+
+/** Stage a `__mockSeedNotes` call the same way — `count` loose notes into
+    `folder`, in the mock's world before the app boots. */
+export async function seedNotes(page: Page, folder: string, count: number) {
+  await page.addInitScript((notes) => {
+    (window.__mockPendingSeeds ??= []).push({ notes });
+  }, { folder, count });
+}
 
 export { expect } from "@playwright/test";
 export type { Browser, BrowserContext, Locator, Page, TestInfo } from "@playwright/test";

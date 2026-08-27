@@ -480,7 +480,9 @@ test("dispatch: a note with no instruction gets help text, not a yield tracker",
   const m = unconfiguredDashboardMessage();
   // it says what is missing…
   assert.match(m, /names no kind/);
-  assert.match(m, /chart, heatmap or calendar fence/);
+  // the card names the registry's full hub set — every fence that would have
+  // anchored the body-scan fallback, not just the three with dedicated boards
+  assert.match(m, /view, chart, progress, cards, heatmap, calendar or timeline fence/);
   // …and what to write instead, the same way the unknown-kind card does
   assert.match(m, /Known kinds:/);
   assert.match(m, /tasks/);

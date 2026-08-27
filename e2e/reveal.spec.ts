@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./fixtures";
+import { expect, seedMatching, test, type Page } from "./fixtures";
 import { openDb } from "./nav";
 
 // Panes that deliberately keep their scroll position across a data
@@ -46,13 +46,7 @@ test("switching a windowed db to board keeps the focused card painted (SUB-1132)
 });
 
 test("refining a search keeps the selected hit painted (SUB-1132)", async ({ page }) => {
-  await page.addInitScript(() => {
-    const install = () => {
-      if (!window.__mockSeedMatching) return void setTimeout(install, 0);
-      window.__mockSeedMatching({ folder: "Inbox", count: 200, token: "zephyr", where: "title" });
-    };
-    install();
-  });
+  await seedMatching(page, { folder: "Inbox", count: 200, token: "zephyr", where: "title" });
   await page.goto("/");
   await expect(page.locator(".side-item", { hasText: /^Notes/ })).toBeVisible();
   await page.keyboard.press("Meta+Shift+f");

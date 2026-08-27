@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./fixtures";
+import { expect, seedMatching, test, type Page } from "./fixtures";
 import { openDb } from "./nav";
 
 // A database edit paints the frame the user commits it; the vault
@@ -78,18 +78,12 @@ test("bulk: a 20-row set-status repaints every row before the writes land", asyn
   // this one shows all 20 inside the time of a single write.
   const BULK_MS = 250;
   await slowDisk(page, BULK_MS);
-  await page.addInitScript(() => {
-    const install = () => {
-      if (!window.__mockSeedMatching) return void setTimeout(install, 0);
-      window.__mockSeedMatching({
-        folder: "Bulk",
-        count: 20,
-        token: "bulkrow",
-        where: "title",
-        noteType: "task",
-      });
-    };
-    install();
+  await seedMatching(page, {
+    folder: "Bulk",
+    count: 20,
+    token: "bulkrow",
+    where: "title",
+    noteType: "task",
   });
   await page.goto("/");
   await openDb(page, "Task");

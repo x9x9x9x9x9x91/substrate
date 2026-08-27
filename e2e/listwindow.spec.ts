@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./fixtures";
+import { expect, seedNotes, test, type Page } from "./fixtures";
 
 // ListPane paints only the scroll viewport ± overscan once a list runs
 // past WIN_MIN (60) rows, with spacer divs standing in for the rest. The pane's
@@ -13,17 +13,7 @@ const SEEDED = 150;
 /** Seed a windowing-sized folder, then open it. The seed runs before the app
     boots so the very first vault_list already carries the long list. */
 async function openSeeded(page: Page, count = SEEDED) {
-  await page.addInitScript(
-    ([n]) => {
-      // the mock hook only exists once tauri.ts has run, so wait for it
-      const install = () => {
-        if (!window.__mockSeedNotes) return void setTimeout(install, 0);
-        window.__mockSeedNotes("Inbox", n as number);
-      };
-      install();
-    },
-    [count]
-  );
+  await seedNotes(page, "Inbox", count);
   await page.goto("/");
   await page.locator(".side-folder", { hasText: "Inbox" }).click();
   await expect(page.locator(".list-title")).toHaveText("Inbox");
@@ -173,14 +163,8 @@ test("switching to a same-length folder paints rows, not blank spacer (SUB-461)"
   // only thing that re-syncs the slice is the reveal effect scrolling onto the
   // newly selected row. Guards the reset path against a stale mid-list window
   // surviving into a scroller parked where the previous folder left it.
-  await page.addInitScript(() => {
-    const install = () => {
-      if (!window.__mockSeedNotes) return void setTimeout(install, 0);
-      window.__mockSeedNotes("Inbox", 150);
-      window.__mockSeedNotes("Field notes", 150);
-    };
-    install();
-  });
+  await seedNotes(page, "Inbox", 150);
+  await seedNotes(page, "Field notes", 150);
   await page.goto("/");
   await page.locator(".side-folder", { hasText: "Inbox" }).click();
   await expect(page.locator(".list-title")).toHaveText("Inbox");

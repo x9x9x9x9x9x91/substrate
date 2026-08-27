@@ -201,6 +201,24 @@ const elementProto = (dom.window as unknown as { Element: { prototype: Record<st
 if (typeof elementProto.scrollIntoView !== "function") {
   elementProto.scrollIntoView = () => {};
 }
+/* Two measurement APIs jsdom lacks that a whole-app mount reaches for while
+   the editor lays itself out — left unpatched they print a real-looking stack
+   per run, which trains the eye to skim past stacks in test output (the same
+   failure mode the `Window` copy above closes). Inert but honest, like the
+   stubs above: jsdom's own `getContext` already answers null for every
+   context (its contract for "unsupported"), it just shouts "Not implemented"
+   eight times on the way — this one is the same answer without the shouting.
+   `getClientRects` reports an empty list, `item()` included, so measuring
+   code sees "no boxes" rather than fake geometry it would trust. */
+const canvasProto = (
+  dom.window as unknown as { HTMLCanvasElement: { prototype: Record<string, unknown> } }
+).HTMLCanvasElement.prototype;
+canvasProto.getContext = () => null;
+const rangeProto = (dom.window as unknown as { Range: { prototype: Record<string, unknown> } })
+  .Range.prototype;
+if (typeof rangeProto.getClientRects !== "function") {
+  rangeProto.getClientRects = () => Object.assign([], { item: () => null });
+}
 /* React 19 refuses to run `act` without this flag and warns without it. */
 target.IS_REACT_ACT_ENVIRONMENT = true;
 

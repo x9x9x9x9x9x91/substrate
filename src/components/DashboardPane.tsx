@@ -9,6 +9,7 @@ import {
 } from "../lib/kinds";
 import { parseHeatmapBlocks } from "../lib/heatmap";
 import { parseCalendarBlocks } from "../lib/calendarfence";
+import { hasLiveHubFence } from "../lib/fenceScan";
 import { builtInShadowNotice, resolveKindPane } from "../lib/kindpane";
 import { useKindBundles } from "../hooks/useKindBundles";
 import { DashHead, DashNoticeProvider } from "./DashHead";
@@ -150,9 +151,12 @@ function UnconfiguredDashboard(props: DashboardPaneProps) {
 }
 
 /** Default dashboards: a ```chart fence declares chart blocks, a
-    ```heatmap fence a year grid, a ```calendar fence a month grid; a body
-    with none of them has asked for nothing, and gets the help card that says
-    so. A note carrying both charts and heatmaps leads with its charts
+    ```heatmap fence a year grid, a ```calendar fence a month grid, and a
+    body whose only live fences are the hub's other widgets (progress,
+    timeline, cards, view embeds) draws on the hub canvas — every fence the
+    hub renders live anchors this fallback, so only a body with none of them
+    has asked for nothing and gets the help card that says so. A note
+    carrying both charts and heatmaps leads with its charts
     and hangs the heatmaps under them, so neither fence goes unrendered for
     having been written second. Reached only by a note with NO `dashboard:`
     prop — a named kind is dispatched, and a named-but-unknown one gets the
@@ -167,6 +171,7 @@ function BodyScanDashboard(props: DashboardPaneProps) {
   if (heat) return <HeatmapDashboard {...props} body={body} />;
   if (parseCalendarBlocks(body).length > 0)
     return <CalendarFenceDashboard {...props} body={body} />;
+  if (hasLiveHubFence(body)) return <HubDashboard {...props} />;
   return <UnconfiguredDashboard {...props} />;
 }
 

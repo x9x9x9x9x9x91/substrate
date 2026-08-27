@@ -12,7 +12,12 @@
     goes FIRST and the value only follows if it landed, a failure on either
     side leaves the vault exactly as it stood, and the pair records ONE undo
     entry rather than two. The bulk bar's picker rides the same door, so it is
-    driven here too. */
+    driven here too.
+
+    A refusal is the other half: what the vault turned down has to reach the
+    user, and a toast is the whole of what it gets. The last test mounts the
+    app for that one — the real door raises the real toast, and nothing short
+    of the app has either. */
 
 import assert from "node:assert/strict";
 import { before, test } from "node:test";
@@ -615,4 +620,53 @@ test("a chip promote the vault refuses leaves the note alone", async (t) => {
     "so no value landed behind an option the vault refused"
   );
   assert.equal(w.undo.length, 0);
+});
+
+/* The last thing this door does when the vault turns the option write down is
+   raise a toast — and that toast is the whole of what the user sees. Every
+   refusal test above reads the writes: they pin that nothing landed and that
+   nothing is takeable back, which stays true of a door that swallows the
+   rejection in silence and leaves the user staring at a menu that closed for
+   no reason. So this one mounts the whole app — the real door, the real toast
+   slot — refuses the schema write at the mock backend, and reads the words on
+   screen.
+
+   Whole-app mount, so it goes LAST in the file (`docs/component-tests.md`):
+   it renders against the shared mock vault the tests above stage into. */
+test("a refused promote says so in the app's own toast", async (t) => {
+  const win = await mockBackend();
+  const { default: App } = await import("../App.tsx");
+  const r = await renderComponent(t, h(App as never, {} as never));
+
+  const open = r.all(".sidebar button").find((b) => b.textContent?.trim() === "🎵TasksDB");
+  assert.ok(open, "the sidebar showed no task database to open");
+  await r.click(open);
+
+  // the caret's tooltip names the property, which is what tells the columns
+  // apart — the cells themselves carry an index, not a name
+  const heads = r.all("thead th");
+  const col = heads.findIndex((th) =>
+    (th.querySelector(".db-th-caret")?.getAttribute("title") ?? "").startsWith("status ")
+  );
+  assert.ok(col > 0, "the task table drew no status column");
+  const cell = r.one(`tbody tr td.db-cell[data-fc="${col}"]`);
+  assert.ok(cell, "the status column drew no cell to edit");
+  await r.click(cell);
+  const input = document.querySelector(".selmenu-input");
+  assert.ok(input, "the status cell opened no editor");
+  await typeInto(input, "waiting");
+  await r.settle();
+
+  // the vault turns the option write down, the way a read-only schema would
+  win.__mockFailOnce?.("vault_schema_set");
+  await clickRow(r, "Add “waiting” to options");
+  await r.settle();
+
+  const toast = r.one(".toast");
+  assert.ok(toast, "the refusal reached the user as nothing at all");
+  assert.match(
+    toast.textContent ?? "",
+    /mock failure: vault_schema_set/,
+    "the toast said something other than what the vault refused with"
+  );
 });

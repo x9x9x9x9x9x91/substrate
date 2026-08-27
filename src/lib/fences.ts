@@ -4,14 +4,19 @@
 // indexing. Mirrors strip_machine_fences in
 // src-tauri/src/vault/mod.rs; keep the fence set and semantics in lockstep
 // with it.
+//
+// WHICH languages are machine fences — and each one's form, case rule and
+// hub reach — is declared once in fenceRegistry.ts; the collections below
+// are derived from it, in registry order (the pattern text depends on that
+// order, and the Rust twin spells the same order by hand).
+
+import { FENCE_REGISTRY } from "./fenceRegistry.ts";
 
 /** Fence languages the hub/editor dispatch as live widgets on the FIRST WORD
     of the info string — so a tailed opener (```view table, ```chart compact)
     renders as a widget and its config must leave the index like the bare form
-    for `view` as much as for `chart`/`cards`. `cards` renders live once the
-    hub-canvas lands; stripping it is contract, not yet render.
-    `progress` joins them with the goal thermometer — a fence's
-    target, deadline and bind are config, so they leave the index too.
+    for `view` as much as for `chart`/`cards` — a fence's source, target and
+    bind lines are config, so they leave the index in either spelling.
 
     These dispatch CASE-INSENSITIVELY — every reader lowercases the first word
     before matching (`HubDashboard.tsx` renderMarkdown, `Editor.tsx`
@@ -20,20 +25,18 @@
     must fold case the same way or their config stays in the search index
     while the widget renders. The case rule follows dispatch per
     LANG, not per group — see CASE_FOLDING_BARE_LANGS below. */
-export const TAILED_MACHINE_FENCE_LANGS = ["view", "chart", "progress", "cards"] as const;
+export const TAILED_MACHINE_FENCE_LANGS: readonly string[] = FENCE_REGISTRY.filter(
+  (f) => f.form === "tailed"
+).map((f) => f.id);
 
 /** Fence languages whose parsers are strict bare-form (the sheet csv/formulas
     parsers, the hub's heatmap and timeline, the calendar parser):
     a TAILED one renders as plain code — someone's prose — and stays
     searchable. Only the bare opener is machine content. (Likewise for
     timeline.) */
-export const BARE_MACHINE_FENCE_LANGS = [
-  "csv",
-  "formulas",
-  "heatmap",
-  "calendar",
-  "timeline",
-] as const;
+export const BARE_MACHINE_FENCE_LANGS: readonly string[] = FENCE_REGISTRY.filter(
+  (f) => f.form === "bare"
+).map((f) => f.id);
 
 /** The case rule is a SEPARATE axis from the tail rule above, and it follows
     each lang's own dispatcher — whatever spelling dispatch accepts, the
@@ -65,11 +68,9 @@ export const BARE_MACHINE_FENCE_LANGS = [
     its ONE dispatcher is the hub, which lowercases the first word before
     matching, so a bare ```TimeLine draws the live band and its source/start/
     label config must leave the index with it. */
-const CASE_FOLDING_BARE_LANGS: ReadonlySet<string> = new Set([
-  "heatmap",
-  "calendar",
-  "timeline",
-]);
+const CASE_FOLDING_BARE_LANGS: ReadonlySet<string> = new Set(
+  FENCE_REGISTRY.filter((f) => f.form === "bare" && f.foldsCase).map((f) => f.id)
+);
 
 /** A language id spelled so it matches in any case: `view` → `[Vv][Ii][Ee][Ww]`.
     Digits and hyphens (legal in a lang id) have no case and pass through.
@@ -111,10 +112,7 @@ const foldCase = (lang: string) => lang.replace(/[a-z]/g, (c) => `[${c.toUpperCa
     whitespace) IS a tail here, because no parser skips it — reading it as
     bare would mount a live board whose config nothing strips. */
 export function isTailedBareFence(lang: string, tail: string): boolean {
-  return (
-    (BARE_MACHINE_FENCE_LANGS as readonly string[]).includes(lang.toLowerCase()) &&
-    !/^[ \t]*\r?$/.test(tail)
-  );
+  return BARE_MACHINE_FENCE_LANGS.includes(lang.toLowerCase()) && !/^[ \t]*\r?$/.test(tail);
 }
 
 /** The app parsers' fence semantics: "```<lang>\n" anywhere opens, the next

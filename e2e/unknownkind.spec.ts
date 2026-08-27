@@ -82,8 +82,11 @@ test("a dashboard note with no kind and no fence gets the help card", async ({ p
   const err = page.locator(".dash-alert");
   await expect(err).toHaveCount(1);
   await expect(err).toContainText("names no kind");
-  // it names the way out: a kind to write, or a fence
-  await expect(err).toContainText("chart, heatmap or calendar fence");
+  // it names the way out: a kind to write, or a fence — the full hub set,
+  // every fence that would have anchored the body scan
+  await expect(err).toContainText(
+    "view, chart, progress, cards, heatmap, calendar or timeline fence"
+  );
   await expect(err).toContainText("Known kinds:");
   await expect(err).toContainText("food");
   await expect(page.locator(".dash-state")).toHaveText("nothing configured");
