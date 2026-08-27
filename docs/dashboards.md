@@ -1129,6 +1129,52 @@ to, so coerce before you compare. `Number(n.props.bpm) > 128`, not
 a note writes its tempo in quotes, and draws a wrong board rather than an
 error.
 
+**The read doors past your notes.** Three more members hand a kind the same
+data the built-in surfaces draw from, and none of them writes. `ctx.mounts()`
+resolves the mount roster — every folder the vault watches, each with its
+bound path, whether it is missing here, when it was last scanned and how many
+files the index remembers — and `ctx.mountRows(name)` resolves one mount's
+last-known rows by name (folded, so the spelling in your bundle and the
+spelling in the picker are one thing). A name no mount carries rejects by
+name; so does a mount whose index will not read, with the reason, because an
+unplugged drive answering as an empty folder is a board drawing "0 files" over
+a shelf that is only unplugged. The verbs stay out: no bind, no rescan, no
+annotate — those live behind the app's own surfaces, where the folder picker
+and the consent for touching disk are.
+
+`ctx.view(name)` evaluates a saved view — a pin — through the app's own
+evaluator, the one the database pane paints and the headless reader prints. So
+a board that wants "the open tasks" asks for the pin by name and gets the rows
+the user sees in the table beside it, in the same order, with the cells
+rendered the same way, rather than re-implementing membership, the filter
+grammar and the sort and getting three chances to disagree. What comes back is
+a `substrate.view/1` table: `columns`, `total`, `rows` (each with `title`,
+`path` and a `cells` map keyed by column), and `groups` when the view sections
+— the pin's own grouping, or its database's when the pin captured none, the
+same composition the pane makes, so your sections and the app's are the same
+sections. A name no pin carries rejects by name; a folded name two pins share
+answers with the first.
+
+`ctx.schema()` is the vault's databases and their registered properties —
+names, kinds, select options, a relation's target, a number's format, an entry
+hint where there is one. It is synchronous, since the app already holds it. A
+kindless property that has options reads as `"select"`, the way every app
+surface spells it; the reserved `icon`/`home`/`parent` keys are not properties
+and do not appear. Use it to draw a picker whose values match the ones the
+table offers, instead of hard-coding a list that goes stale the first time
+someone adds a status.
+
+**There is no `ctx.move`, and that is deliberate.** Renaming or moving a note
+is not a write — it is a fan-out across wiki-links, sidebar pins, shortcut
+keys, saved-view sort and filter keys, relation values and folder metadata,
+and it only holds together with one caller inside the app, where undo, open
+editors and index invalidation are in reach. A second caller in vault code
+would either skip that repair or duplicate it, and a half-repaired rename is
+worse than none. A kind that wants a note moved asks the person:
+`ctx.openNote(path)` and a `ctx.toast(msg, action)` that takes them there.
+`kind-api.d.ts` states this in the contract too, so the absence reads as a
+decision rather than a gap.
+
 **You can have the whole contract as types.**
 [`kind-api.d.ts`](kind-api.d.ts) declares `mount`, every ctx member and
 everything ctx hands back. Copy it next to your `index.js` — the declarations

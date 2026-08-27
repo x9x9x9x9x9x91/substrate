@@ -1,4 +1,5 @@
 import { mountRows, mountsList } from "./ipc";
+import { foldMountName } from "./mounts";
 import type { MountInfo, MountRow } from "./types";
 
 /** One charted/carded mount as a dashboard surface needs it: the mount's own
@@ -11,7 +12,7 @@ export type DashboardMountState = { mount: MountInfo; rows: MountRow[] } | { err
 const cache = new Map<string, Promise<Map<string, DashboardMountState>>>();
 
 function cacheKey(names: string[], vaultEpoch: number): string {
-  const folded = [...new Set(names.map((n) => n.toLowerCase()))].sort();
+  const folded = [...new Set(names.map(foldMountName))].sort();
   return `${vaultEpoch}\u0000${folded.join("\u0000")}`;
 }
 
@@ -38,7 +39,7 @@ export function dashboardMounts(
 
   const pending = (async () => {
     const result = new Map<string, DashboardMountState>();
-    const wanted = new Set(names.map((n) => n.toLowerCase()));
+    const wanted = new Set(names.map(foldMountName));
     if (wanted.size === 0) return result;
     const mounts = await mountsList();
     // Which mounts this board wants, first-wins on a folded-name collision —
@@ -46,7 +47,7 @@ export function dashboardMounts(
     const hits: MountInfo[] = [];
     const seen = new Set<string>();
     for (const mount of mounts) {
-      const folded = mount.name.toLowerCase();
+      const folded = foldMountName(mount.name);
       if (!wanted.has(folded) || seen.has(folded)) continue;
       seen.add(folded);
       hits.push(mount);
@@ -58,10 +59,10 @@ export function dashboardMounts(
     const loaded = await Promise.all(
       hits.map(async (mount): Promise<[string, DashboardMountState]> => {
         try {
-          return [mount.name.toLowerCase(), { mount, rows: await mountRows(mount.id) }];
+          return [foldMountName(mount.name), { mount, rows: await mountRows(mount.id) }];
         } catch (error) {
           return [
-            mount.name.toLowerCase(),
+            foldMountName(mount.name),
             { error: `“${mount.name}” could not be read: ${String(error)}` },
           ];
         }

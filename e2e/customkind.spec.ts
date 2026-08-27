@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "./fixtures";
 import { settingsTab } from "./settings";
+import { openDb, openFilter } from "./nav";
 
 // Custom dashboard kinds: a `dashboard:` value naming a bundle in
 // the vault mounts that bundle's mount(el, ctx) module behind the standard
@@ -542,4 +543,150 @@ test("Settings shows no Kinds section in a vault with no kinds", async ({ page }
   await settingsTab(page, "vault");
   await expect(page.locator(".settings-sheet")).toHaveCount(1);
   await expect(page.locator("[data-testid=settings-kinds]")).toHaveCount(0);
+});
+
+// ---------------------------------------------------------------------------
+// The read doors: mounts, saved views, schema
+// ---------------------------------------------------------------------------
+
+// These three exist so a kind can be written against the same facts a built-in
+// board reads. Each is asserted the only way that means anything — a bundle
+// really calling the member and rendering what came back, so a door that is
+// declared but not wired fails here rather than in a type.
+
+/** Reads the mount roster, one mount's rows, and the schema, and puts each
+    answer on screen. Async mount on purpose: two of the three are IPC. */
+const READS = `
+export default {
+  async mount(el, ctx) {
+    const mounts = await ctx.mounts();
+    const rows = await ctx.mountRows("Finance-Doc");
+    const release = ctx.schema().find((d) => d.name === "release");
+    const status = release.props.find((p) => p.name === "status");
+
+    const line = (cls, text) => {
+      const d = document.createElement("div");
+      d.className = cls;
+      d.textContent = text;
+      el.appendChild(d);
+    };
+    line("gear-mounts", mounts.map((m) => m.name).join(", "));
+    line("gear-bound", mounts[0].path + " / missing " + mounts[0].missing);
+    line("gear-rows", rows.length + " rows, " + rows.filter((r) => r.missing).length + " missing");
+    line("gear-row1", rows[0].name + " " + rows[0].extension);
+    line("gear-props", release.props.map((p) => p.name + ":" + p.kind).join(" "));
+    line("gear-options", status.options.map((o) => o.value).join("/"));
+
+    try {
+      await ctx.mountRows("no-such-folder");
+      line("gear-refusal", "no refusal");
+    } catch (e) {
+      line("gear-refusal", String(e.message));
+    }
+  },
+};
+`;
+
+/** Evaluates a saved view and renders the table it stands for. */
+const READS_VIEW = `
+export default {
+  async mount(el, ctx) {
+    const line = (cls, text) => {
+      const d = document.createElement("div");
+      d.className = cls;
+      d.textContent = text;
+      el.appendChild(d);
+    };
+    try {
+      const v = await ctx.view("live only");
+      line("gear-view", v.schema + " " + v.view.db + " q=" + v.view.query + " n=" + v.total);
+      line("gear-view-cols", v.columns.join(","));
+      line("gear-view-rows", v.rows.map((r) => r.title + "=" + r.cells.status.display).join(" | "));
+    } catch (e) {
+      line("gear-view", "refused: " + e.message);
+    }
+    try {
+      await ctx.view("nothing named this");
+      line("gear-view-refusal", "no refusal");
+    } catch (e) {
+      line("gear-view-refusal", String(e.message));
+    }
+  },
+};
+`;
+
+test("a kind reads the mount roster, a mount's rows and the schema through ctx", async ({
+  page,
+}) => {
+  await openKind(page, { entry: READS });
+  const body = page.locator(".kind-host .kind-body");
+
+  // the roster — every mounted folder the vault has, the same list the shelf
+  // and a chart fence read, and the per-mount metadata a board needs to say
+  // where the folder is
+  await expect(body.locator(".gear-mounts")).toHaveText(
+    "finance-doc, Backup Silver, Sessions 2019, Sample Vault",
+  );
+  await expect(body.locator(".gear-bound")).toHaveText("~/Personal/Finance / missing false");
+
+  // the rows, name-folded like every user-authored identity in the vault, and
+  // the row the index remembers past the file's own disappearance
+  await expect(body.locator(".gear-rows")).toHaveText("13 rows, 1 missing");
+  await expect(body.locator(".gear-row1")).toContainText(".pdf");
+
+  // the schema: prop names and kinds, with `status` resolved to "select" —
+  // on disk it is a kindless entry that has options, and every app surface
+  // puts the word back
+  await expect(body.locator(".gear-props")).toHaveText(
+    "status:select format:multi released:date contract:file contact:relation",
+  );
+  await expect(body.locator(".gear-options")).toHaveText("live/in review/mastering/parked");
+
+  // a name no mount carries refuses by name — it does not answer as an empty
+  // folder, which is the one wrong answer here
+  await expect(body.locator(".gear-refusal")).toHaveText("no mount named “no-such-folder”");
+  await expect(page.locator(".dash-alert")).toContainText("no mount named");
+  await noFallback(page);
+});
+
+test("a kind evaluates a saved view through ctx and gets the table the app paints", async ({
+  page,
+}) => {
+  // The bundle mounts first, against a vault with no pins: the refusal path is
+  // real state here, not a staged one.
+  await openKind(page, { entry: READS_VIEW });
+  const body = page.locator(".kind-host .kind-body");
+  await expect(body.locator(".gear-view")).toHaveText("refused: no saved view named “live only”");
+
+  // pin one, the way a person does — filter the table, then Save view…
+  await openDb(page, "Release");
+  await (await openFilter(page)).fill("status:live ");
+  const rows = page.locator(".db-table tbody tr");
+  await expect(rows).toHaveCount(2);
+  const painted = await rows.locator(".db-title").allTextContents();
+  await page.locator("button[aria-label='View actions']").click();
+  await page.locator(".dots-item", { hasText: "Save view…" }).click();
+  const nameInput = page.locator(".db-filter .inline-edit");
+  await nameInput.fill("Live only");
+  await nameInput.press("Enter");
+  await expect(page.locator(".side-view", { hasText: "Live only" })).toHaveCount(1);
+
+  // back to the dashboard: the kind now resolves the pin, by a folded name
+  await page.locator(".side-item", { hasText: "Overview" }).click();
+  await expect(page.locator(".dash-title")).toHaveText("Overview");
+  await expect(body.locator(".gear-view")).toContainText("substrate.view/1 release q=status:live");
+  await expect(body.locator(".gear-view")).toContainText(`n=${painted.length}`);
+  await expect(body.locator(".gear-view-cols")).toContainText("status");
+
+  // the same rows the table beside it paints, in the same order, with the
+  // cells painted the same way — the point of reusing the app's evaluator
+  await expect(body.locator(".gear-view-rows")).toHaveText(
+    painted.map((t) => `${t}=live`).join(" | "),
+  );
+
+  // a name no pin carries refuses by name
+  await expect(body.locator(".gear-view-refusal")).toHaveText(
+    "no saved view named “nothing named this”",
+  );
+  await noFallback(page);
 });

@@ -1,5 +1,5 @@
 import type { MutableRefObject } from "react";
-import type { NoteMeta, SavedView, SchemaConfig } from "../lib/types";
+import type { NoteMeta, SavedView, SchemaConfig, ViewsConfig } from "../lib/types";
 import { parseChartBlocks } from "../lib/chart";
 import {
   dashboardProp,
@@ -37,6 +37,9 @@ interface DashboardPaneProps {
   schema: SchemaConfig;
   /** pinned views, for workbook `saved:` pages */
   savedViews?: SavedView[];
+  /** the databases' stored display prefs, for `ctx.view` — a kind evaluates a
+      pin over the same pref the database pane does */
+  viewPrefs?: ViewsConfig;
   onOpenSource: (path: string) => void;
   onMutated: () => void;
   onFollowLink?: (name: string) => void;

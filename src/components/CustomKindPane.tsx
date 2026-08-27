@@ -1,6 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { NoteContent, NoteMeta, PropValue, SchemaConfig, SetPropResult } from "../lib/types";
+import type {
+  MountInfo,
+  MountRow,
+  NoteContent,
+  NoteMeta,
+  PropSchema,
+  PropValue,
+  SavedView,
+  SavedViewSort,
+  SchemaConfig,
+  SetPropResult,
+  ViewsConfig,
+} from "../lib/types";
 import {
+  mountsList,
   vaultCreate,
   vaultList,
   vaultRead,
@@ -9,6 +22,25 @@ import {
 } from "../lib/ipc";
 import { isTauri } from "../lib/tauri";
 import { dashboardSheets } from "../lib/dashboardSheets";
+import { dashboardMounts } from "../lib/dashboardMounts";
+import { foldMountName } from "../lib/mounts";
+import { kindMountRows, kindMounts } from "../lib/kindmounts";
+import {
+  kindSchema,
+  type KindDbSchema,
+  type KindPropOmitted,
+  type KindPropSchema,
+  type KindPropSource,
+} from "../lib/kindschema";
+import { kindView } from "../lib/kindview";
+import { makeFxResolver } from "../lib/fx";
+import { numberLocale } from "../lib/numberLocale";
+import type {
+  EvaluatedView,
+  ViewCell,
+  ViewGroup,
+  ViewRow,
+} from "../lib/vieweval";
 import { useFxRates } from "./useFx";
 import { DashHead, DashPrintButton } from "./DashHead";
 import { KIND_API, type KindEnableRecord, type KindFileMeta, type KindState } from "../lib/kinds";
@@ -91,6 +123,17 @@ export interface CustomKindPaneProps {
   notes: NoteMeta[];
   vaultEpoch: number;
   schema: SchemaConfig;
+  /** the vault's pinned views, for `ctx.view`. Optional the way the dashboard
+      prop is, so a pane rendered without them refuses by name rather than
+      throwing — a kind naming a pin in a vault that has none reads the same
+      as one naming a pin that was deleted. */
+  savedViews?: SavedView[];
+  /** the databases' stored display prefs, keyed by database name — what
+      `ctx.view` composes a pin over, so a kind's table groups into sections
+      wherever the pane's does. Optional the same way `savedViews` is: without
+      them a pin still evaluates, it just carries no grouping the pin did not
+      capture itself. */
+  viewPrefs?: ViewsConfig;
   onOpenSource: (path: string) => void;
   onMutated: () => void;
   onFollowLink?: (name: string) => void;
@@ -138,10 +181,25 @@ const KIND_CSS = Object.freeze({
   "dash-foot": "dash-foot",
 });
 
-/** The kind's half of the contract: a default export with `mount`. */
+/** The kind's half of the contract: a default export with `mount`.
+
+    Spelled out here rather than derived from `SubstrateKind`, and pinned
+    against it below: `docs/kind-api.d.ts` is a published copy an author codes
+    against, not a module this file imports, so the only thing that keeps the
+    signature the loader CALLS and the one the contract PROMISES together is
+    an assertion over both. Loose before — `ctx: unknown`, no promise in the
+    return — which is exactly the drift the pin now catches. */
 interface KindModule {
-  default?: { mount?: (el: Element, ctx: unknown) => void | (() => void) };
+  default?: {
+    mount?: (
+      el: HTMLElement,
+      ctx: SubstrateKindCtx,
+    ) => void | (() => void) | Promise<void | (() => void)>;
+  };
 }
+
+/** What the loader invokes, for the pin below. */
+type KindMount = NonNullable<NonNullable<KindModule["default"]>["mount"]>;
 
 export default function CustomKindPane(props: CustomKindPaneProps) {
   const { id, hash, state } = props;
@@ -430,7 +488,7 @@ export default function CustomKindPane(props: CustomKindPaneProps) {
       /* The whole synchronous mount, watched: single-threaded means anything
          the DOM sees between these two lines is this kind's doing. */
       const watch = watchKindDom(drawn);
-      let out: void | (() => void);
+      let out: ReturnType<KindMount>;
       try {
         out = sandbox.run(() => mount(drawn, ctx));
       } catch (e) {
@@ -692,6 +750,53 @@ function makeCtx(
       return filter ? all.filter(filter) : all;
     },
     read: (path: string) => vaultRead(path),
+    /* The mount roster and one mount's rows — the same two reads a charted or
+       carded board makes of a mounted folder, with no verb beside them. The
+       rows go through `dashboardMounts` rather than straight to `mount_rows`
+       so a kind reads a folder the way the built-in surfaces do, out of the
+       same cache. The read is only literally SHARED when a built-in on the
+       same screen binds the same single name: the cache is keyed by the whole
+       folded name-set a caller asks for (`dashboardMounts.ts`), so a chart
+       over three mounts and a kind over one of them are two entries. Cheap
+       either way, and identical rows either way, which is the part that
+       matters. */
+    mounts: async (): Promise<MountInfo[]> => kindMounts(await mountsList()),
+    mountRows: async (name: string): Promise<MountRow[]> => {
+      const loaded = await dashboardMounts([name], live.current.vaultEpoch);
+      // the loader's own fold, not a second spelling of it: the two drifted
+      // once (trim here, none there) and a padded stored name went unreachable
+      const got = kindMountRows(name, loaded.get(foldMountName(name)));
+      if ("refusal" in got) throw refuse(got.refusal);
+      return got.rows;
+    },
+    /* A saved view, through the app's own evaluator. Rates and the number
+       dialect are read at call time, not at mount: a kind holds one ctx across
+       every redraw, so a table quoted at mount would keep painting the rates
+       and the locale that were current when the board first drew.
+
+       The databases' stored prefs go in with it: without them a pin whose
+       grouping lives on its database painted flat here and in sections in the
+       pane, which is the one difference this door exists to rule out. */
+    view: async (name: string): Promise<EvaluatedView> => {
+      const got = kindView(
+        name,
+        live.current.savedViews ?? [],
+        live.current.notes,
+        live.current.schema,
+        {
+          prefs: live.current.viewPrefs,
+          fx: makeFxResolver(fx.current.fx),
+          locale: numberLocale(),
+        },
+      );
+      if ("refusal" in got) throw refuse(got.refusal);
+      return got.view;
+    },
+    /* The vault's databases and their properties. Synchronous, unlike the
+       reads above: the schema is already in the pane's props, so there is
+       nothing to wait for — and a projection rather than the stored map, for
+       the reason `kindschema.ts` opens with. */
+    schema: (): KindDbSchema[] => kindSchema(live.current.schema),
     sheet: async (title: string) => {
       const sheets = await dashboardSheets([title], live.current.vaultEpoch, fx.current.fx);
       const got = sheets.get(title.toLowerCase());
@@ -774,6 +879,13 @@ type Ctx = ReturnType<typeof makeCtx>;
 type SheetOut = Awaited<ReturnType<Ctx["sheet"]>>;
 
 export type KindContractPinned = [
+  /* The entry point itself: the signature this file calls and the one the
+     .d.ts publishes, both directions. The rows below pin what a kind is
+     HANDED; without this one nothing pinned what a kind must EXPORT, so the
+     contract could promise an argument the loader never passes or a return
+     the loader never honours (a promised cleanup, thrown away) with the build
+     staying green. */
+  Expect<Equal<KindMount, SubstrateKind["mount"]>>,
   /* Same members, both directions. `kindId` is excluded because it is the one
      thing on ctx the contract does not promise (see above). */
   Expect<Equal<Exclude<keyof Ctx, "kindId">, keyof SubstrateKindCtx>>,
@@ -791,6 +903,34 @@ export type KindContractPinned = [
   Expect<Equal<SetPropResult, SubstrateSetPropResult>>,
   Expect<Equal<KindFx, SubstrateFx>>,
   Expect<Equal<FxRatesState, SubstrateFxTable>>,
+  /* The three read doors' payloads. Mounts publish the app's OWN types, which
+     is the parity being claimed — what a kind reads of a mounted folder is
+     what a chart fence reads of it, member for member, so a field added to
+     the index reddens this until the .d.ts carries it too. */
+  Expect<Equal<MountInfo, SubstrateMount>>,
+  Expect<Equal<MountRow, SubstrateMountRow>>,
+  /* The schema door publishes a projection built for it, not `SchemaConfig`:
+     the stored map carries the reserved `icon`/`home`/`parent` keys typed as
+     if they were property schemas. So the published shape and the projection
+     are exactly equal — see `kindschema.ts`. */
+  Expect<Equal<KindDbSchema, SubstrateDbSchema>>,
+  Expect<Equal<KindPropSchema, SubstrateDbProp>>,
+  /* …and the projection is tied back to the stored `PropSchema` the way the
+     sheet pair below is tied to the app's own sheet: the fields it reads and
+     the fields it deliberately drops are two hand-written lists, and a prop
+     attribute added app-side falls outside both, so this reddens until
+     someone decides whether a kind should see it. Without it the projection
+     builds a record field by field and a new attribute simply never arrives —
+     silently, which is the one failure a published contract cannot afford. */
+  Expect<Equal<Omit<PropSchema, KindPropOmitted>, KindPropSource>>,
+  /* The evaluated view, down to its cells: `ctx.view` hands over the
+     evaluator's own payload, so a kind reads what the database pane paints
+     and what the headless reader prints. */
+  Expect<Equal<EvaluatedView, SubstrateEvaluatedView>>,
+  Expect<Equal<ViewGroup, SubstrateViewGroup>>,
+  Expect<Equal<ViewRow, SubstrateViewRow>>,
+  Expect<Equal<ViewCell, SubstrateViewCell>>,
+  Expect<Equal<SavedViewSort, SubstrateViewSort>>,
   /* The sheet pair is the one deliberate subset: what `ctx.sheet` resolves to
      is the app's own parsed and evaluated sheet, and a kind has no contract
      to the formula lines, their parse errors, the ragged-row record, the

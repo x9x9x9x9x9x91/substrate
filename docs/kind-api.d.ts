@@ -111,6 +111,53 @@ interface SubstrateKindCtx {
       members — what a board draws lives on `ev`. Rejects (with a line the
       pane also shows) when there is no such sheet or it does not evaluate. */
   sheet(title: string): Promise<SubstrateSheet>;
+  /** Every mounted folder this vault has — the roster a built-in board reads
+      when a `source:` names a mount instead of a database. Metadata only: no
+      rows, and no verb. A copy, so mutating it changes nothing. Added inside
+      api 1, so feature-check it: `ctx.mounts?.()`. */
+  mounts(): Promise<SubstrateMount[]>;
+  /** One mount's last-known index rows, by mount name (folded, like every
+      user-authored identity in the vault). These are the rows a chart or a
+      card over that mount draws, so a kind sees the same folder the app does
+      — the sidecar's props merged with what was read out of the file.
+
+      Rejects, with a line the pane also shows, in two distinct cases that must
+      not be confused with an empty folder: there is no mount by that name, and
+      the mount is there but its index would not read. Added inside api 1, so
+      feature-check it. */
+  mountRows(name: string): Promise<SubstrateMountRow[]>;
+  /** A saved view — a pin — evaluated by the app's own evaluator, by name.
+      The rows, their order, the section headers and every painted cell are
+      what the database pane shows and what the headless reader prints, so a
+      kind that renders "the open tasks" cannot drift from the table beside
+      it. Read-only: a kind cannot create, rename or delete a pin.
+
+      The name folds, like every user-authored identity in the vault, and the
+      FIRST pin whose folded name matches answers — two pins may legally share
+      one, and picking one beats refusing to answer. Rejects when no pin
+      carries the name at all.
+
+      What you get is always a TABLE: a pin saved as a board or a calendar
+      evaluates to its rows here, because rows are what a kind can draw. Its
+      own columns, sort keys and grouping apply, and so does the grouping its
+      database carries when the pin captured none — the same composition the
+      database pane makes, so a kind's sections and the app's agree. What does
+      NOT reach a kind is the presentation nothing here could paint anyway:
+      footer aggregations, column widths, wrap. Added inside api 1, so
+      feature-check it: `ctx.view?.("Open tasks")`. */
+  view(name: string): Promise<SubstrateEvaluatedView>;
+  /** The vault's databases and their registered properties, so a kind can
+      discover a column's kind and its options instead of hardcoding them.
+
+      Synchronous, unlike the reads above: this is already in memory. Call it
+      per draw rather than stashing it — a property registered while the board
+      is open shows up in the next call and not in an old array. What you get
+      is a PROJECTION, not the stored schema file: the reserved `icon`, `home`
+      and `parent` keys the app keeps in the same map are dropped, because
+      they are not properties and a kind looping over them would draw a column
+      called "icon". Added inside api 1, so feature-check it:
+      `ctx.schema?.() ?? []`. */
+  schema(): SubstrateDbSchema[];
 
   /** Write one frontmatter property. `expected` is a compare-and-swap guard
       and it is NOT optional here: the write is refused, as a rejected
@@ -163,6 +210,32 @@ interface SubstrateKindCtx {
   setUndo(avail: { undo: boolean; redo: boolean } | null): void;
 }
 
+// ---------- what ctx does NOT offer ----------
+
+/* `ctx.move` — renaming a note, moving it between folders, trashing it — is
+ * NOT part of api 1, and its absence is a decision rather than an oversight.
+ *
+ * A kind can already read every note and write to any of them, so this is not
+ * a line about how much a kind is trusted. It is about what a rename IS in
+ * this vault. Renaming a note is not a write to that note: the engine
+ * retargets every wiki-link pointing at it, the sidebar pins, the shortcut
+ * keys, the saved views' sort and filter keys, the relation props of every
+ * other database that names it, and a folder move drags the folder's own
+ * metadata with it. That fan-out is one operation with one undo entry, and it
+ * only holds together because exactly one caller performs it — the app's own
+ * surface, where the undo stack, the open editors and the index invalidation
+ * are all in reach. A second caller with none of that in reach would be a
+ * rename that half-lands, and half-landed is worse than not offered: the
+ * damage is spread across notes nobody was looking at.
+ *
+ * So the engine's rename exists and stays behind the app. A kind that wants a
+ * note somewhere else asks the person: `ctx.openNote(path)` puts the note in
+ * front of them, where the app's own move is one gesture away, and
+ * `ctx.toast(msg, action)` gives that ask a button. If the fan-out is ever
+ * published, it will be as a real member here with its own guard — not as a
+ * quiet widening of `writeBody`.
+ */
+
 // ---------- what ctx hands back ----------
 
 /** One note in the index. */
@@ -202,6 +275,193 @@ interface SubstrateSetPropResult {
     sentinel both ways: as a write it removes the key, as a `prior` it means
     the key wasn't there. */
 type SubstratePropValue = string | string[] | boolean | number | null;
+
+// ---------- mounts ----------
+
+/** One mounted folder, as `ctx.mounts` lists it. The app's own mount record,
+    published whole rather than trimmed: a mount is what a `source:` names and
+    what a chart draws, so a kind reading one reads exactly what a built-in
+    board does.
+
+    `path` absent means the folder is not bound on THIS device, which is an
+    ordinary state — the index is still there and the rows still read, which
+    is the whole point of a mount that syncs. `missing` is the other one:
+    bound here, and the folder is gone. */
+interface SubstrateMount {
+  id: string;
+  name: string;
+  /** The patterns the folder is indexed through. */
+  globs: string[];
+  /** Paths the mount deliberately doesn't see. Absent means "everything
+      `globs` admits". */
+  ignore?: string[];
+  /** The folder is watched for changes rather than scanned on demand. */
+  watch?: boolean;
+  /** Where the folder sits on this device; absent = not bound here. */
+  path?: string;
+  /** Bound here, but the folder is gone — an unplugged drive, a moved
+      folder. */
+  missing: boolean;
+  /** RFC 3339 stamp of the last scan; empty for a mount never scanned. */
+  scanned: string;
+  /** Rows in the last-known index — read from the index rather than the disk,
+      so it agrees on every machine. */
+  files: number;
+}
+
+/** One row of a mount's index: a file the folder holds, or held. Intrinsics
+    read off the file, plus whatever its sidecar note annotates.
+
+    `missing` marks a row the index remembers and the disk no longer has — draw
+    it as absent, never as a file with a zero size. */
+interface SubstrateMountRow {
+  /** Path relative to the mount root. */
+  rel: string;
+  name: string;
+  extension: string;
+  size: number;
+  /** RFC 3339 stamps as the index read them. */
+  modified: string;
+  created: string;
+  identity: string;
+  missing?: boolean;
+  /** Vault path of the sidecar note, absent until the row is first
+      annotated. */
+  note?: string;
+  /** The sidecar's user props merged with what was read out of the file
+      itself (duration, pages, tags…). Unknown-typed for the same reason a
+      note's `props` are — coerce before comparing. Extraction happens behind
+      a scan, so a row can arrive without them and gain them next refresh. */
+  props: Record<string, unknown>;
+  /** The document's opening line as this machine read it. Absent for anything
+      nothing was read from. */
+  excerpt?: string;
+  /** That reading stopped at its cap, so the document continues past the
+      excerpt. */
+  excerpt_partial?: boolean;
+}
+
+// ---------- schema ----------
+
+/** One database as `ctx.schema` reports it. `name` is the schema's own
+    spelling, which is what a note's `type` prop folds against. A database
+    with nothing registered still lands, carrying an empty `props` — it
+    exists, and reading it as absent is a different claim. */
+interface SubstrateDbSchema {
+  name: string;
+  props: SubstrateDbProp[];
+}
+
+/** One registered property. `name` is the frontmatter key as the schema
+    spells it. Note that a property NOT registered here can still be on a
+    note: the schema drives pickers and option order, and a vault's YAML is
+    always allowed to carry more than the schema knows about. */
+interface SubstrateDbProp {
+  name: string;
+  kind: SubstratePropKind;
+  /** Allowed values in schema order; empty for kinds that carry none. */
+  options: SubstrateSelectOption[];
+  /** relation kind only: the database this property points at. */
+  target?: string;
+  /** number kind only: the display format, which is also the unit code
+      (`euro`, `percent`, `USD`, `kg`, `BPM`…). An open vocabulary. */
+  format?: string;
+  /** The one-line entry hint shown where values are typed, when there is
+      one. */
+  description?: string;
+}
+
+/** One allowed value of a select or multi property; `color` names a muted
+    palette dot. */
+interface SubstrateSelectOption {
+  value: string;
+  color?: string;
+}
+
+/** The property kinds. `select` is the one that is not stored: on disk it is
+    a kindless entry that HAS options, and every app surface puts the word
+    back — so that is what a kind reads too. A kindless entry with no options
+    reads as `text`. */
+type SubstratePropKind =
+  | "text"
+  | "select"
+  | "date"
+  | "file"
+  | "relation"
+  | "multi"
+  | "url"
+  | "email"
+  | "phone"
+  | "checkbox"
+  | "number"
+  | "rollup";
+
+// ---------- saved views ----------
+
+/** A saved view, evaluated: what `ctx.view` resolves to, and the same payload
+    the headless view reader prints.
+
+    `rows` is the whole thing in painted order, one flat sequence. `groups` is
+    that same sequence cut into the sections a grouped table draws — a view
+    with no grouping has none, and the rows are still in `rows`. */
+interface SubstrateEvaluatedView {
+  /** The payload's identity, bumped when its shape changes in a way an
+      existing reader cannot ignore. */
+  schema: "substrate.view/1";
+  /** The pin itself: its id, the name you asked for as it is stored, the
+      database it reads, and its raw filter string. */
+  view: { id: string; name: string; db: string; query: string };
+  /** The columns the table renders, after hiding and ordering — the keys
+      every row's `cells` is addressed by. */
+  columns: string[];
+  sorts: SubstrateViewSort[];
+  /** The column the table groups by, or null. */
+  group_by: string | null;
+  total: number;
+  groups: SubstrateViewGroup[];
+  rows: SubstrateViewRow[];
+}
+
+/** One sort key. `dir` is 1 ascending, -1 descending. */
+interface SubstrateViewSort {
+  key: string;
+  dir: 1 | -1;
+}
+
+/** One section of a grouped table. `label` is the header as the table draws
+    it, count excluded — the value painted as a cell would paint it, and the
+    same "No <column>" wording for the rows that have none. */
+interface SubstrateViewGroup {
+  /** The group's stored value, null for the rows that have none. */
+  value: string | null;
+  label: string;
+  count: number;
+  rows: SubstrateViewRow[];
+}
+
+/** One evaluated row. `cells` is keyed by column name — by the strings in
+    `columns`, not positionally, unlike a sheet's rows. */
+interface SubstrateViewRow {
+  path: string;
+  title: string;
+  folder: string;
+  cells: Record<string, SubstrateViewCell>;
+}
+
+/** One cell: what is stored, and what the table paints. Draw `display` —
+    `raw` is there for comparing and sorting, and a date or a formatted number
+    reads nothing like its stored form. */
+interface SubstrateViewCell {
+  /** The stored value as the table reads it — never reshaped. */
+  raw: string;
+  /** The painted string: dates humanized, numbers in the display dialect,
+      currencies through the live rates. */
+  display: string;
+  kind?: string;
+  /** The individual entries of a multi or relation cell, which the table
+      paints as separate chips rather than as one string. */
+  values?: string[];
+}
 
 // ---------- rates ----------
 

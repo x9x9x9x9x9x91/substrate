@@ -5267,6 +5267,10 @@ export default function App() {
             vaultEpoch={vaultEpoch}
             schema={schema}
             savedViews={savedViews}
+            // the databases' display prefs, for a vault kind's `ctx.view`: the
+            // pin is composed over the same pref the database pane composes it
+            // over, so a kind's table sections where the pane's does
+            viewPrefs={viewsConfig}
             onOpenSource={openNote}
             onMutated={refresh}
             onFollowLink={followLink}

@@ -1,6 +1,16 @@
 import { formatFileSize } from "./display.ts";
 import type { MountInfo, MountRow, MountScanStats, NoteMeta } from "./types.ts";
 
+/** The one fold a mount name goes through, wherever it is matched or keyed:
+    trim and lowercase, the vault-wide folding for a user-authored identity.
+    Every reader must use THIS one — a stored name keyed untrimmed here was
+    then unreachable by a caller asking for it trimmed, so a folder with a
+    stray space in its name answered "no mount named that" while sitting in
+    the roster. */
+export function foldMountName(name: string): string {
+  return name.trim().toLowerCase();
+}
+
 /** Virtual path prefix for a mount row that has no sidecar note yet. It is
     not a vault path and never reaches the engine as one — the row pipeline is
     path-keyed (selection, focus, React keys), so an un-annotated row still

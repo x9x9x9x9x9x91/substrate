@@ -118,11 +118,7 @@ this last: a chart over a sheet is a chart fence, a row of numbers is the
 metrics kind, and configuration survives upgrades untouched. The full contract
 (manifest grammar, every `ctx` member, the consent/hash rules) is §5.8 of
 `docs/vault-format.md`, with a complete copy-pasteable example under "Writing
-your own kind" in `docs/dashboards.md`. `ctx` is also declared as TypeScript:
-`docs/kind-api.d.ts` in the app's repo is the typed contract the app pins its
-own `ctx` against, so it is the one place that cannot drift from what your
-bundle will actually be handed — reference it from your bundle to type-check
-against the real thing.
+your own kind" in `docs/dashboards.md`.
 
 ## Where the full docs and examples live
 
@@ -132,7 +128,6 @@ material. If you can fetch URLs, these are the breadcrumbs:
 - Repo: <https://github.com/x9x9x9x9x9x91/substrate>
 - Vault format spec (the authority): `docs/vault-format.md`
 - Dashboards guide — every kind, with frontmatter examples: `docs/dashboards.md`
-- Kind API — the typed `ctx` contract for bundles you write: `docs/kind-api.d.ts`
 - Cookbook — working per-kind dashboard recipes with screenshots: `cookbook/`
 
 The cookbook is built to be read by an agent, not just a human: `cookbook/index.json`
