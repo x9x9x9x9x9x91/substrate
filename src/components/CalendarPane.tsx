@@ -1,4 +1,5 @@
 import {
+  memo,
   useEffect,
   useMemo,
   useRef,
@@ -211,7 +212,7 @@ interface CalendarPaneProps {
   onOpenJournal: (date: string) => void;
 }
 
-export default function CalendarPane({
+function CalendarPane({
   notes,
   schema,
   newSignal,
@@ -3171,3 +3172,8 @@ export default function CalendarPane({
     </div>
   );
 }
+
+/* Same reason as DatabasePane: 3,000-odd lines that re-rendered on App state
+   the pane never reads. Its call site passes notes, schema and App's own
+   stable callbacks, so the boundary holds. */
+export default memo(CalendarPane);

@@ -1,5 +1,6 @@
 import { DEFAULT_NUMBER_LOCALE, type NumberLocale } from "../lib/numberLocale";
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { countRender } from "../lib/renderProbe";
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import type { AggKind, DbIcon, DbLayout, NoteMeta, NumberFormat, PropKind, PropSchema, PropValue, RollupConfig, SavedView, SavedViewSort, SchemaConfig, SelectOption, ViewPref } from "../lib/types";
 import { foldedPropKey, foldedPropStr, typeHome, typeParentProp } from "../lib/types";
 import { parentLinks, subSummaries, treeSection } from "../lib/subitems";
@@ -267,7 +268,7 @@ const NO_COLLAPSE: ReadonlySet<string> = new Set();
     never re-runs the row memo. */
 const EMPTY_GROUP_KEYS: string[] = [];
 
-export default function DatabasePane({
+function DatabasePane({
   dbType,
   notes: diskNotes,
   allNotes,
@@ -314,6 +315,8 @@ export default function DatabasePane({
   writeProp,
   onToast,
 }: DatabasePaneProps) {
+  // no-op unless a probe is installed — see renderProbe.ts
+  countRender("DatabasePane");
   const undo = useUndo();
   const anchorStaleScope = useId();
   // Writes in flight, laid over disk so an edit paints the frame it
@@ -3847,3 +3850,11 @@ export default function DatabasePane({
     />
   );
 }
+
+/* The vault's largest pane, and until now the one that re-rendered on every
+   unrelated App state change — a toast, a sidebar drag, a keystroke in the
+   palette. It reads its rows through props alone, so a memo boundary is the
+   whole fix; `DbPaneStack` is what makes it real, deriving every per-database
+   closure and object prop there instead of spelling them as fresh literals at
+   three call sites. */
+export default memo(DatabasePane);
