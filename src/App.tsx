@@ -1,11 +1,10 @@
-import { numberLocaleSetting, setNumberLocale, systemNumberLocale, type NumberLocale } from "./lib/numberLocale";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from "react";
 import { isTauri } from "./lib/tauri";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isTyping, isTypingNow } from "./lib/dom";
 import { MENU_SURFACES } from "./lib/menusurfaces";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import type { DbIcon, DbLayout, DriveInfo, FolderListing, MountInfo, MountRow, MountScanStats, NewTypeProp, NoteMeta, NumberFormat, PropKind, PropValue, RollupConfig, SavedView, SavedViewSort, SealScopeInfo, SelectOption, SidebarOrder, TagFolder, VaultHistoryPoint, View, ViewPref } from "./lib/types";
+import type { DbIcon, DbLayout, NoteMeta, NumberFormat, PropKind, PropValue, RollupConfig, SavedView, SavedViewSort, SelectOption, SidebarOrder, TagFolder, View, ViewPref } from "./lib/types";
 import { foldedPropKey, foldedPropStr, FUNCTIONAL_TYPES, typeHome, viewKey } from "./lib/types";
 import { tagFolderApplyTags, tagFolderMatches, tagUniverse } from "./lib/tags";
 import { dbColumns } from "./lib/dbcolumns";
@@ -47,14 +46,10 @@ import {
   unassignKey,
 } from "./lib/keyassign";
 import { pinKeyLabels } from "./lib/shortcuts";
-import { addTagsUndoable, setPropUndoable, type PropWriter, type UndoRecorder } from "./lib/undoprops";
+import { addTagsUndoable, setPropUndoable, type UndoRecorder } from "./lib/undoprops";
 import { addOptionAndWriteUndoable } from "./lib/undoschema";
 import {
-  isIntrinsic,
-  MOUNT_SCHEME,
   mountStatus,
-  rowMetas,
-  scanStatLine,
 } from "./lib/mounts";
 import * as undoStack from "./lib/undo";
 import { UndoContext } from "./lib/undoContext";
@@ -72,62 +67,21 @@ import {
 } from "./lib/undostruct";
 import { announceRename } from "./lib/renamebus";
 import { migrateSessionFolds } from "./lib/foldsession";
+import { isAppFile, SETTINGS_PATH } from "./lib/settings";
 import {
-  isAppFile,
-  netAllowed,
-  parseAutoSync,
-  parseDbGrid,
-  parseModHud,
-  parseShowAppFiles,
-  parseTaskStaleChips,
-  parseTerminalActions,
-  parseWindowOpacity,
-  SETTINGS_PATH,
-} from "./lib/settings";
-import {
-  appearancePreviewPending,
-  applyAppearance,
-  DEFAULT_APPEARANCE,
-  parseAppearance,
-} from "./lib/appearance";
-import { DEFAULT_DATE_LOCALE, dateLocaleSetting, setDateLocale } from "./lib/dateLocale";
-import { applyWindowOpacity } from "./lib/vibrancy";
-import {
-  historyEnter,
-  historyLeave,
-  historyPoints,
-  historyProjectionActive,
-  historyRestore,
   fileOpen,
-  filePick,
   fileReveal,
   historySnapshot,
-  mountAdd,
-  mountAnnotate,
-  mountBind,
-  mountRemove,
-  mountRows,
-  drivesList,
-  mountsList,
   recallStatus,
   urlCapture,
-  vaultClearProp,
   vaultCreate,
   vaultCreateFolder,
-  vaultCreateType,
   vaultDelete,
   vaultDeleteMany,
-  vaultDeleteType,
   vaultFolderIconSet,
   vaultFolderMetaRead,
-  vaultFolders,
-  vaultList,
   vaultRead,
-  vaultRemoveSealScope,
-  vaultRenameProp,
-  vaultRenameType,
   vaultResolve,
-  vaultFolderFiles,
   vaultRoot,
   vaultSavedViewDelete,
   vaultSavedViewSet,
@@ -138,7 +92,6 @@ import {
   vaultSchemaSet,
   vaultSchemaSetIcon,
   vaultNoteAddTags,
-  vaultSealScopes,
   vaultSetSidebarOrder,
   vaultSidebarOrder,
   vaultTagFoldersRead,
@@ -181,19 +134,8 @@ import {
   templateTypeOf,
   TEMPLATES_DIR,
 } from "./lib/templates";
-import { parseCsv } from "./lib/sheet";
 import { parsePages } from "./lib/pages";
 import { errText } from "./lib/errtext";
-import {
-  deleteDbOutcome,
-  renameDbOutcome,
-  renamePropOutcome,
-  schemaOnlyClearOutcome,
-  stripPropOutcome,
-  withSnapshotWarning,
-} from "./lib/sweep";
-import { pickCsvFile } from "./lib/csvpick";
-import type { CsvEntry } from "./lib/csvimport";
 import ShareDialog from "./components/ShareDialog";
 import SealScopeDialog from "./components/SealScopeDialog";
 import TagFolderDialog from "./components/TagFolderDialog";
@@ -201,8 +143,7 @@ import TypeIcon from "./components/TypeIcon";
 import Sidebar, { type FolderEdit, type MenuTarget, type Section } from "./components/Sidebar";
 import ListPane from "./components/ListPane";
 import MiniPlayer from "./components/MiniPlayer";
-import { playableFiles } from "./lib/folderfiles";
-import { getQueue, startQueue, subscribeQueue, syncQueue } from "./lib/playqueue";
+import { getQueue, subscribeQueue } from "./lib/playqueue";
 import { getPrintable, subscribePrintable } from "./lib/printable";
 import NotePane from "./components/NotePane";
 import DashboardPane from "./components/DashboardPane";
@@ -264,47 +205,14 @@ import { useSearch } from "./hooks/useSearch";
 import { useVaultIndex } from "./hooks/useVaultIndex";
 import { queueViewsWrite, useVaultConfigs } from "./hooks/useVaultConfigs";
 import { useSidebarOrderModel } from "./hooks/useSidebarOrderModel";
-
-/** Membership. `tagFolders` is only consulted by the tagfolder kind — a view
-    naming a folder that no longer exists matches nothing, which is what keeps
-    a deleted tag folder from showing the whole vault. */
-function inView(n: NoteMeta, view: View, tagFolders: TagFolder[] = []): boolean {
-  switch (view.kind) {
-    case "notes":
-      return isScratchNote(n);
-    case "all":
-      return true;
-    case "db":
-      return foldedPropStr(n.props, "type")?.toLowerCase() === view.type.toLowerCase();
-    case "folder":
-      return n.folder === view.path || n.folder.startsWith(`${view.path}/`);
-    case "tagfolder": {
-      const folder = tagFolders.find((f) => f.id === view.id);
-      return folder ? tagFolderMatches(folder, n.tags ?? []) : false;
-    }
-    case "tag":
-      return (n.tags ?? []).some((t) => t.toLowerCase() === view.tag.toLowerCase());
-    case "search":
-    case "saved":
-    // a mount's rows come from its index, not from the note list
-    case "mount":
-    case "dashboard":
-    case "trash":
-    case "assets":
-    // a drive's rows come from its catalog, the same way a mount's come from
-    // its index
-    case "shelf":
-    case "drive":
-    case "doctor":
-    case "calendar":
-    case "today":
-    case "vaultsync":
-    case "changelog":
-    case "cookbook":
-    case "dbmanager":
-      return false;
-  }
-}
+import { useAppSettings } from "./hooks/useAppSettings";
+import { useMounts } from "./hooks/useMounts";
+import { useDbAdmin } from "./hooks/useDbAdmin";
+import { useTimeTravel } from "./hooks/useTimeTravel";
+import { useSealScopes } from "./hooks/useSealScopes";
+import { useFolderFiles } from "./hooks/useFolderFiles";
+import { useIconPickers } from "./hooks/useIconPickers";
+import { inView } from "./lib/inview";
 
 /** one shared identity for "no persisted order", so the memo boundary holds */
 const EMPTY_ORDER: string[] = [];
@@ -347,11 +255,6 @@ export default function App() {
   const [overlay, setOverlay] = useState<null | "palette" | "capture">(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [timeTravelOpen, setTimeTravelOpen] = useState(false);
-  const [timePoints, setTimePoints] = useState<VaultHistoryPoint[]>([]);
-  const [timePoint, setTimePoint] = useState<VaultHistoryPoint | null>(null);
-  const [timeBusy, setTimeBusy] = useState(false);
-  const [timeError, setTimeError] = useState<string | null>(null);
   const {
     termOpen,
     termSettings,
@@ -365,48 +268,14 @@ export default function App() {
   } = useTerminalHud(mobile);
   const { sidebarHidden, toggleSidebar } = useSidebarHidden();
   const [paletteStart, setPaletteStart] = useState<StartStage | null>(null);
-  // `mod-hud` in Settings.md, default on until a read says otherwise
-  const [modHud, setModHud] = useState(true);
-  // `show-agent-files` in Settings.md — the seeded
-  // AGENTS.md/CLAUDE.md and Settings.md itself stay ordinary files on disk
-  // (and in the engine index), but the app's own note surfaces conceal them
-  // unless this is explicitly true, so a vault reads as the user's content
-  // rather than the tooling's
-  const [showAppFiles, setShowAppFiles] = useState(false);
-  // `db-grid` in Settings.md — the global default for table grid
-  // lines; a database's ViewPref `grid` overrides it either way
-  const [dbGrid, setDbGrid] = useState(true);
-  // `task-stale-chips` in Settings.md — the global default for the
-  // Tasks board's age chips; a board's own `stale_days` and a note's
-  // `stale: never` both override it
-  const [taskStaleChips, setTaskStaleChips] = useState(true);
-  // `auto-sync` in Settings.md — the timer lane of vault sync (push on
-  // settle, pull on open/focus/interval). Inert without a remote.
-  const [autoSync, setAutoSync] = useState(true);
-  // `net-link-titles` in Settings.md — gates the page-title fetch
-  // behind a pasted link. The capture itself is local and always happens, so
-  // this only decides whether the engine then asks that site anything.
-  // `net-share-relay`, the other request this app makes, is enforced inside
-  // the share door, which reads Settings.md for the relay URL anyway.
-  const [netLinkTitles, setNetLinkTitles] = useState(true);
-  /** `number-locale`: the one dialect every number in the app is
-      written in — the machine's own dialect until Settings.md says otherwise,
-      so the first paint of a vault that never chose one already reads like
-      the country it is in. Held as state as well as in the
-      numberLocale.ts binding: the surfaces that take it as a prop (db cells,
-      calc lines) then repaint on the next vaultEpoch bump rather than waiting
-      for whatever else happens to re-render them. Rides the settings read
-      below, so a pick in the ⌘, pane reaches both in the same pass. */
-  const [numberLocale, setNumberLocaleState] = useState<NumberLocale>(systemNumberLocale);
-  /** The key picker opened from a sidebar row's "Assign key…" — its
-      own state, so the parent menu can close itself around it */
-  const [keyPicker, setKeyPicker] = useState<{ target: string; x: number; y: number } | null>(null);
-  /** the folder-icon picker set from a folder's context menu */
-  const [folderIconMenu, setFolderIconMenu] = useState<{ path: string; anchor: AnchorRect } | null>(
-    null
-  );
-  /** the db-icon picker set from a database's context menu */
-  const [dbIconMenu, setDbIconMenu] = useState<{ type: string; anchor: AnchorRect } | null>(null);
+  const {
+    keyPicker,
+    setKeyPicker,
+    folderIconMenu,
+    setFolderIconMenu,
+    dbIconMenu,
+    setDbIconMenu,
+  } = useIconPickers();
   const [renamingViewId, setRenamingViewId] = useState<string | null>(null);
   // session-local layout inside an open pin — persisted only by re-saving it
   const [svPref, setSvPref] = useState<ViewPref | null>(null);
@@ -440,46 +309,8 @@ export default function App() {
   const { zoom, applyZoom } = useZoom(showToast);
   const { checkNow: checkUpdates } = useUpdater(showToast);
   useWidgetSummary(indexedNotes, vaultEpoch);
-  // Database management: which admin dialog is open (null = none);
-  // create's fromSidebar marks the Folders "+" entry point — the new db is
-  // homed into the tree on creation; homeFolder is the folder
-  // menu's "Open as database…" birth — the new db homes on that
-  // exact folder instead of an eponymous root
-  const [dbDialog, setDbDialog] = useState<
-    | { kind: "create"; fromSidebar?: boolean; homeFolder?: string }
-    | { kind: "rename-db"; dbType: string }
-    | { kind: "delete-db"; dbType: string }
-    | { kind: "rename-prop"; dbType: string; prop: string }
-    | {
-        kind: "strip-prop";
-        dbType: string;
-        prop: string;
-        count: number;
-        wasNumber: boolean;
-      }
-    | null
-  >(null);
-  // CSV import: the picked, parsed file waiting on the import dialog
-  const [csvImport, setCsvImport] = useState<{ fileName: string; rows: string[][] } | null>(null);
   // The note whose share door is open
   const [share, setShare] = useState<NoteMeta | null>(null);
-  // "Mount a folder…": the dialog's open state
-  const [mountDialog, setMountDialog] = useState(false);
-  /** every mount in the vault, with this machine's binding resolved */
-  const [mounts, setMounts] = useState<MountInfo[]>([]);
-  /** the Drive Shelf's own list — the sidebar's row count and its drive rows.
-      Drives ARE mounts, but the shelf's totals and staleness come from the
-      catalog rather than the registry, so it is its own read. */
-  const [drives, setDrives] = useState<DriveInfo[]>([]);
-  /** the open mount's rows — its last-known index merged with its sidecars */
-  const [mountRowList, setMountRowList] = useState<MountRow[]>([]);
-  /** the mount whose "unmount and trash its notes" is awaiting confirmation */
-  const [unmountAsk, setUnmountAsk] = useState<MountInfo | null>(null);
-  const [sealScopes, setSealScopes] = useState<SealScopeInfo[]>([]);
-  const [sealScopeDialog, setSealScopeDialog] = useState<{
-    path: string;
-    mode?: "seal" | "confirm";
-  } | null>(null);
   const editorFocusRef = useRef<(() => void) | null>(null);
   // drops a block at the note pane's cursor (the saved-view pin's "Embed in
   // this note"). Null whenever no editable note pane is mounted.
@@ -543,41 +374,14 @@ export default function App() {
     };
   }, [savedViews]);
 
-  const reloadSealScopes = useCallback(() => {
-    vaultSealScopes().then(setSealScopes).catch((e) => showToast(`couldn't read vault seals (${errText(e)})`));
-  }, [showToast]);
-
-  useEffect(() => {
-    reloadSealScopes();
-  }, [reloadSealScopes]);
-
-  // Only a confirmed marker seals anything, so an unconfirmed one
-  // must not hide "Seal folder…" on the rows underneath it either.
-  const scopeInheritedAt = useCallback(
-    (path: string) =>
-      sealScopes.some(
-        (scope) =>
-          scope.confirmed &&
-          (scope.path === "" || path === scope.path || path.startsWith(`${scope.path}/`))
-      ),
-    [sealScopes]
-  );
-
-  const removeSealScope = useCallback(
-    (path: string, rejecting = false) => {
-      vaultRemoveSealScope(path)
-        .then(() => {
-          reloadSealScopes();
-          showToast(
-            rejecting
-              ? `Unconfirmed seal rejected — nothing was encrypted or purged`
-              : `${path ? "Folder" : "Vault"} inheritance stopped — existing encrypted notes stay sealed`
-          );
-        })
-        .catch((e) => showToast(errText(e)));
-    },
-    [reloadSealScopes, showToast]
-  );
+  const {
+    sealScopes,
+    sealScopeDialog,
+    setSealScopeDialog,
+    reloadSealScopes,
+    scopeInheritedAt,
+    removeSealScope,
+  } = useSealScopes(showToast);
 
   // window drag: `data-tauri-drag-region` only fires when the
   // mousedown target IS the marked element — the header bars are mostly covered
@@ -604,6 +408,18 @@ export default function App() {
      prop only the private build carries has to arrive through an object the
      strip pass can leave empty. */
 
+  const {
+    modHud,
+    showAppFiles,
+    dbGrid,
+    taskStaleChips,
+    autoSync,
+    setAutoSync,
+    netLinkTitles,
+    numberLocale,
+  } = useAppSettings(vaultEpoch, setTerminalActions);
+
+
   const ledgerSidebarProps: Record<string, boolean> = {};
   const ledgerPaletteProps: Record<string, boolean> = {};
   const ledgerListProps: Record<string, ReadonlySet<string>> = {};
@@ -611,72 +427,6 @@ export default function App() {
      build does not carry at all. */
   const lensPaletteProps: Record<string, { id: string; relay: string; label: string }[]> = {};
 
-
-  // palette quick actions come from Settings.md, so they must be
-  // known before the palette first opens — not only when the HUD spawns. Read
-  // once at boot; the HUD's own re-reads below keep it fresh after an edit.
-  // The hold-⌘ HUD's off switch rides the same read, re-run on
-  // vaultEpoch so toggling it in the settings pane takes effect immediately.
-  useEffect(() => {
-    // a dial the user is still holding has not reached the note, so
-    // this read would repaint the old value over it — see lib/appearance.ts
-    const overtaken = () => appearancePreviewPending();
-    vaultRead(SETTINGS_PATH)
-      .then((c) => {
-        setTerminalActions(parseTerminalActions(c.props));
-        setModHud(parseModHud(c.props));
-        setDbGrid(parseDbGrid(c.props));
-        setTaskStaleChips(parseTaskStaleChips(c.props));
-        setAutoSync(parseAutoSync(c.props));
-        setShowAppFiles(parseShowAppFiles(c.props));
-        // The appearance dials land on the document element rather
-        // than in React state — they are CSS inputs, nothing renders off
-        // them. This is also the write that CORRECTS the settings pane's
-        // optimistic preview once the note has actually taken the value.
-        // The window ground is previewed by the same drag and lost
-        // the same race, so it rides the same claim — outside one, this is
-        // still the write that corrects the pane's optimistic preview.
-        if (!overtaken()) {
-          applyAppearance(document.documentElement, parseAppearance(c.props));
-          applyWindowOpacity(parseWindowOpacity(c.props));
-        }
-        setNetLinkTitles(netAllowed(c.props, "link-titles"));
-        // both seams from the one read: the binding for the module-scope
-        // formatters (sheet cells, file sizes, dashboards), the state for the
-        // props-threaded ones
-        {
-          const locale = numberLocaleSetting(c.props);
-          setNumberLocale(locale);
-          setNumberLocaleState(locale);
-        }
-        // `date-locale` is a module binding, not React state — every
-        // date formatter in the app is module-scope or inline, and this read
-        // re-runs on vaultEpoch, which is also what repaints them.
-        setDateLocale(dateLocaleSetting(c.props));
-      })
-      .catch(() => {
-        setTerminalActions([]);
-        // an unreadable Settings.md falls back to the shipped look rather than
-        // leaving whatever happened to be applied last — unless a dial is
-        // mid-drag, in which case the live preview outranks the fallback
-        // the pane, not a failed read, is what the user is
-        // holding, and the release repaints from the note either way.
-        if (!overtaken()) applyAppearance(document.documentElement, DEFAULT_APPEARANCE);
-        // the number dialect falls back the same way and for the same reason
-        // a settings note we cannot read is not evidence for any
-        // particular dial, so it falls to the machine's own dialect — the same
-        // answer a vault that never chose one gets, honest and recoverable:
-        // the next successful read restores the chosen dialect.
-        // Numbers stay canonical dot-decimal on disk throughout, so a fallback
-        // render never rewrites a file.
-        {
-          const locale = systemNumberLocale();
-          setNumberLocale(locale);
-          setNumberLocaleState(locale);
-        }
-        setDateLocale(DEFAULT_DATE_LOCALE);
-      });
-  }, [vaultEpoch]);
 
   // What the rest of the app calls `notes` — the index minus the
   // concealed app files. One boundary here, so every downstream surface
@@ -738,6 +488,65 @@ export default function App() {
   // the timer lane of vault sync — push on settle, pull on open/focus/interval
   useAutoSync(autoSync);
 
+  // Shared by the mount lane and the admin lane below, so both hooks take
+  // them rather than owning them.
+  // re-read the .vault JSONs the bulk engine ops move behind the scenes
+  const reloadDbMeta = useCallback(() => {
+    vaultSchemaRead().then(setSchema).catch(console.error);
+    vaultViewsRead().then(setViewsConfig).catch(console.error);
+    vaultSidebarOrder().then(setSidebarOrder).catch(console.error);
+    vaultSavedViewsRead().then(setSavedViews).catch(console.error);
+  }, []);
+
+  // Safety rail: every bulk sweep starts with an explicit snapshot; history
+  // being unavailable (no git) never blocks the op — but it must not pass in
+  // silence either, or a sweep runs unprotected and nothing says so.
+  // Resolves false when NO restore point exists (see history_snapshot's
+  // contract); each caller then appends the warning to its outcome toast — a
+  // toast fired here would be replaced unseen milliseconds later by the op's
+  // own (same reasoning as homeErr above).
+  const presweepSnapshot = useCallback(
+    (label: string): Promise<boolean> =>
+      historySnapshot(label).catch((e) => {
+        console.warn("pre-sweep snapshot failed:", e);
+        return false;
+      }),
+    []
+  );
+
+  const {
+    mountDialog,
+    setMountDialog,
+    mounts,
+    drives,
+    unmountAsk,
+    setUnmountAsk,
+    mountByType,
+    mountDbNames,
+    viewForDb,
+    openDatabase,
+    activeMount,
+    mountNotes,
+    mountRowByPath,
+    mountReveal,
+    mountOpen,
+    setMountOpen,
+    mountSubmit,
+    unmountNow,
+    unmount,
+    openMountHit,
+    mountWriteProp,
+    locateMount,
+  } = useMounts({
+    vaultEpoch,
+    view,
+    setView,
+    showToast,
+    refresh,
+    reloadDbMeta,
+    presweepSnapshot,
+  });
+
   // types with at least one note (dashboard excluded) — the single source of
   // truth for which types are databases: the sidebar unions
   // schema-registered types on top, the views partition takes this set
@@ -791,44 +600,6 @@ export default function App() {
       })
       .sort((a, b) => b.count - a.count || a.type.localeCompare(b.type));
   }, [usedTypes, schema, mounts]);
-
-  /** mount by its database name — a mount's name IS its schema type, so any
-      surface holding a type string can find out it is really a mount */
-  const mountByType = useMemo(
-    () => new Map(mounts.map((m) => [m.name.toLowerCase(), m])),
-    [mounts]
-  );
-
-  /** folded names of the mounted folders, for surfaces that only want to know
-      whether a database IS one (the sidebar's glyph) */
-  const mountDbNames = useMemo(() => new Set(mountByType.keys()), [mountByType]);
-
-  /** Where a database name really goes: its mount view when the name is a
-      mounted folder, its database view otherwise. Every "open this database"
-      path resolves through here, so a mount is reachable from the manager,
-      the sidebar and the palette without any of them knowing what a mount
-      is — the callers differ only in what else their navigation does. */
-  const viewForDb = useCallback(
-    (type: string): View => {
-      const mount = mountByType.get(type.toLowerCase());
-      return mount ? { kind: "mount", id: mount.id } : { kind: "db", type };
-    },
-    [mountByType]
-  );
-
-  const openDatabase = useCallback((type: string) => setView(viewForDb(type)), [viewForDb]);
-
-  /** the mount the current view is about, or null */
-  const activeMount = useMemo(
-    () => (view.kind === "mount" ? (mounts.find((m) => m.id === view.id) ?? null) : null),
-    [view, mounts]
-  );
-
-  /** its rows in note shape, which is all DatabasePane ever wanted */
-  const mountNotes = useMemo(
-    () => (activeMount ? rowMetas(activeMount, mountRowList) : []),
-    [activeMount, mountRowList]
-  );
 
   const dashboards = useMemo(
     () =>
@@ -1016,158 +787,36 @@ export default function App() {
     return null;
   }, [indexedNotes, selected, ghostPath]);
 
-  const selectTimePoint = useCallback(
-    async (id: string) => {
-      setTimeBusy(true);
-      setTimeError(null);
-      try {
-        const snapshot = await historyEnter(id);
-        setTimePoint(snapshot.point);
-        setNotes(snapshot.notes);
-        setFolders(snapshot.folders);
-        setViewsConfig(snapshot.views);
-        setSchema(snapshot.schema);
-        setSidebarOrder(snapshot.sidebar_order);
-        setSavedViews(snapshot.saved_views);
-        setFolderMeta(snapshot.folder_meta);
-        setChangedPaths(null);
-        setVaultEpoch((epoch) => epoch + 1);
-        setOverlay(null);
-        setSettingsOpen(false);
-      } catch (error) {
-        setTimeError(errText(error));
-      } finally {
-        setTimeBusy(false);
-      }
-    },
-    [
-      setChangedPaths,
-      setFolderMeta,
-      setFolders,
-      setNotes,
-      setSavedViews,
-      setSchema,
-      setSidebarOrder,
-      setVaultEpoch,
-      setViewsConfig,
-    ]
-  );
-
-  const openTimeTravel = useCallback(async () => {
-    setTimeTravelOpen(true);
-    setTimeError(null);
-    setTimeBusy(true);
-    try {
-      await (flushOpenRef.current?.() ?? Promise.resolve());
-      // Make the departure state a real commit before any historical restore
-      // can replace a live note. A clean tree already has that restore point.
-      await historySnapshot("before vault time travel");
-      const points = await historyPoints();
-      setTimePoints(points);
-      if (points.length === 0) setTimeError("No vault snapshots yet");
-    } catch (error) {
-      setTimeError(errText(error));
-    } finally {
-      setTimeBusy(false);
-    }
-  }, []);
-
-  const reloadPresent = useCallback(async (reselect: string | null) => {
-    const [liveNotes, liveFolders, liveViews, liveSchema, liveSidebar, liveSaved, liveFolderMeta] =
-      await Promise.all([
-        vaultList(),
-        vaultFolders(),
-        vaultViewsRead(),
-        vaultSchemaRead(),
-        vaultSidebarOrder(),
-        vaultSavedViewsRead(),
-        vaultFolderMetaRead(),
-      ]);
-    setNotes(liveNotes);
-    setFolders(liveFolders);
-    setViewsConfig(liveViews);
-    setSchema(liveSchema);
-    setSidebarOrder(liveSidebar);
-    setSavedViews(liveSaved);
-    setFolderMeta(liveFolderMeta);
-    setChangedPaths(null);
-    setVaultEpoch((epoch) => epoch + 1);
-    setSelected(reselect && liveNotes.some((note) => note.path === reselect) ? reselect : null);
-  }, [
-    setChangedPaths,
-    setFolderMeta,
-    setFolders,
+  const {
+    timeTravelOpen,
+    setTimeTravelOpen,
+    setTimeError,
+    timePoints,
+    timePoint,
+    timeBusy,
+    timeError,
+    selectTimePoint,
+    openTimeTravel,
+    returnToPresent,
+    restoreFromTime,
+  } = useTimeTravel({
+    selected,
+    setSelected,
+    setView,
     setNotes,
-    setSavedViews,
+    setFolders,
+    setViewsConfig,
     setSchema,
     setSidebarOrder,
+    setSavedViews,
+    setFolderMeta,
+    setChangedPaths,
     setVaultEpoch,
-    setViewsConfig,
-  ]);
-
-  const returnToPresent = useCallback(async () => {
-    const reselect = selected;
-    setTimeBusy(true);
-    setTimeError(null);
-    setSelected(null);
-    // Live reads begin now, but shortcuts and every IPC mutation stay blocked
-    // until their results have replaced the historical projection in React.
-    historyLeave(false);
-    try {
-      await reloadPresent(reselect);
-      historyLeave();
-      setTimePoint(null);
-      setTimeTravelOpen(false);
-    } catch (error) {
-      setTimeError(errText(error));
-      // Recovery must never dead-end: the guard is still on with no
-      // projection behind it, so a failed re-entry would leave every write
-      // blocked and no working control on screen. Re-show the past
-      // if we can; otherwise release the guard and land in the present, where
-      // the error message is at least actionable.
-      try {
-        if (!timePoint) throw new Error("no snapshot to return to");
-        await selectTimePoint(timePoint.id);
-      } catch {
-        historyLeave();
-        setTimePoint(null);
-        setTimeTravelOpen(false);
-      }
-    } finally {
-      setTimeBusy(false);
-    }
-  }, [reloadPresent, selected, selectTimePoint, timePoint]);
-
-  const restoreFromTime = useCallback(
-    async (note: NoteMeta) => {
-      if (!timePoint) return;
-      setTimeBusy(true);
-      setTimeError(null);
-      try {
-        // the baseline is the version being restored: any live
-        // file newer than it means this restore would bury someone else's
-        // change, which is exactly what the detection + rescue
-        // snapshot exist for. Passing 0 disabled both.
-        await historyRestore(note.path, timePoint.id, note.path, note.updated_ms);
-        setSelected(null);
-        historyLeave(false);
-        await reloadPresent(note.path);
-        historyLeave();
-        setTimePoint(null);
-        setTimeTravelOpen(false);
-        setView({ kind: "all" });
-        showToast(`Restored ${note.title}`);
-      } catch (error) {
-        if (!historyProjectionActive() && timePoint) await selectTimePoint(timePoint.id);
-        setTimeError(errText(error));
-      } finally {
-        setTimeBusy(false);
-      }
-    },
-    [reloadPresent, selectTimePoint, showToast, timePoint]
-  );
-
-  useEffect(() => () => historyLeave(), []);
+    setOverlay,
+    setSettingsOpen,
+    flushOpenRef,
+    showToast,
+  });
 
   // leaving a ghost daily discards it — nothing was ever written
   useEffect(() => {
@@ -1577,351 +1226,35 @@ export default function App() {
     vaultFolderMetaRead().then(setFolderMeta).catch(console.error);
   }, []);
 
-  /* ----- reality mounts ----- */
-
-  // the registry plus THIS machine's bindings — both halves can change
-  // without a note changing, so mounts reload on their own schedule
-  const reloadMounts = useCallback(
-    () =>
-      mountsList()
-        .then(setMounts)
-        .catch((e) => console.error(e)),
-    []
-  );
-
-  // the registry rides the same epoch as everything else — a scan, a bind,
-  // the migration at boot all bump it. Cheap: one .vault read.
-  useEffect(() => {
-    reloadMounts();
-  }, [vaultEpoch, reloadMounts]);
-
-  // …and the shelf, on the same epoch: the drive poller emits `vault:changed`
-  // when a disk appears or vanishes, which is exactly what bumps it, so a
-  // plugged-in drive reaches the sidebar without a second timer here.
-  useEffect(() => {
-    drivesList()
-      .then(setDrives)
-      .catch((e) => console.error(e));
-  }, [vaultEpoch]);
-
-  // …and the open mount's rows, which are its index merged with its sidecars.
-  // Only the mount being looked at is loaded: a folder can hold thousands of
-  // files, and nothing off-screen needs them.
-  useEffect(() => {
-    if (view.kind !== "mount") {
-      setMountRowList([]);
-      return;
-    }
-    let live = true;
-    mountRows(view.id)
-      .then((rows) => {
-        if (live) setMountRowList(rows);
-      })
-      .catch((e) => {
-        console.error(e);
-        if (live) setMountRowList([]);
-      });
-    return () => {
-      live = false;
-    };
-  }, [view, vaultEpoch]);
-
   /* ----- database management ----- */
 
-  // re-read the .vault JSONs the bulk engine ops move behind the scenes
-  const reloadDbMeta = useCallback(() => {
-    vaultSchemaRead().then(setSchema).catch(console.error);
-    vaultViewsRead().then(setViewsConfig).catch(console.error);
-    vaultSidebarOrder().then(setSidebarOrder).catch(console.error);
-    vaultSavedViewsRead().then(setSavedViews).catch(console.error);
-  }, []);
-
-  // Safety rail: every bulk sweep starts with an explicit snapshot; history
-  // being unavailable (no git) never blocks the op — but it must not pass in
-  // silence either, or a sweep runs unprotected and nothing says so.
-  // Resolves false when NO restore point exists (see history_snapshot's
-  // contract); each caller then appends the warning to its outcome toast — a
-  // toast fired here would be replaced unseen milliseconds later by the op's
-  // own (same reasoning as homeErr above).
-  const presweepSnapshot = useCallback(
-    (label: string): Promise<boolean> =>
-      historySnapshot(label).catch((e) => {
-        console.warn("pre-sweep snapshot failed:", e);
-        return false;
-      }),
-    []
-  );
-
-  const createDatabase = useCallback(
-    (name: string, props: NewTypeProp[], homeInTree?: boolean, homeFolder?: string): Promise<void> =>
-      vaultCreateType(name, props).then(async (cfg) => {
-        setSchema(cfg);
-        setDbDialog(null);
-        const type = name.trim();
-        // born from the Folders "+": the db lands in the tree
-        // immediately — a root folder named like its sidebar label becomes
-        // its home, created now or REUSED when one already exists
-        // (never "Name 2"); engine refusals surface as THE toast (the plain
-        // "created" one would replace it unseen), the db itself still stands.
-        // A folder's "Open as database…" skips the eponymous-root
-        // dance: homeFolder IS the home, it already exists.
-        let homeErr: string | null = null;
-        if (homeFolder) {
-          try {
-            setSchema(await vaultSchemaHomeSet(type, homeFolder));
-            refresh();
-          } catch (e) {
-            homeErr = errText(e);
-          }
-        } else if (homeInTree) {
-          const label = type.charAt(0).toUpperCase() + type.slice(1);
-          try {
-            const existing = folders.find(
-              (f) => !f.includes("/") && f.toLowerCase() === label.toLowerCase()
-            );
-            const home = existing ?? (await vaultCreateFolder(label));
-            setSchema(await vaultSchemaHomeSet(type, home));
-            refresh();
-          } catch (e) {
-            homeErr = errText(e);
-          }
-        }
-        setView({ kind: "db", type });
-        showToast(homeErr ?? `Database “${type}” created`);
-      }),
-    [showToast, folders, refresh]
-  );
-
-  // CSV import: pick → parse → dialog. The dialog's confirm creates
-  // the type through the same vault_create_type path as "New database", then
-  // one vault_create per row — best-effort per row, so a title the engine
-  // guards skips that row instead of aborting the whole import
-  const openCsvImport = useCallback(() => {
-    pickCsvFile()
-      .then((picked) => {
-        if (!picked) return;
-        const rows = parseCsv(picked.text);
-        if (rows.length === 0) {
-          showToast(`${picked.name} has no rows`);
-          return;
-        }
-        setCsvImport({ fileName: picked.name, rows });
-      })
-      .catch((e) => showToast(errText(e)));
-  }, [showToast]);
-
-  const importCsv = useCallback(
-    (name: string, props: NewTypeProp[], entries: CsvEntry[]): Promise<void> =>
-      vaultCreateType(name, props)
-        .then((cfg) => setSchema(cfg))
-        .then(async () => {
-          let imported = 0;
-          let failed = 0;
-          for (const e of entries) {
-            try {
-              await vaultCreate(e.title, undefined, name, e.props);
-              imported++;
-            } catch (rowErr) {
-              failed++;
-              console.error(`csv import: row "${e.title}" failed:`, rowErr);
-            }
-          }
-          setCsvImport(null);
-          setView({ kind: "db", type: name.trim() });
-          refresh();
-          showToast(
-            failed > 0
-              ? `Imported ${imported} ${imported === 1 ? "entry" : "entries"} — ${failed} skipped`
-              : `Imported ${imported} ${imported === 1 ? "entry" : "entries"}`
-          );
-        }),
-    [refresh, showToast]
-  );
-
-  // "Mount a folder…": register the mount, bind it here and scan it
-  // once, all inside mount_add — then read that one scan's stats back for the
-  // dialog to show inline. Nothing is imported: the scan only writes the
-  // mount's own index, so the refresh is for the new database appearing.
-  const mountSubmit = useCallback(
-    async (name: string, path: string, globs: string[], watch: boolean): Promise<MountScanStats> => {
-      const stats = await mountAdd(name, path, globs, watch);
-      await reloadMounts();
-      reloadDbMeta();
-      refresh();
-      return stats;
-    },
-    [reloadMounts, reloadDbMeta, refresh]
-  );
-
-  // Unmounting is two different acts. Plain "Unmount" forgets the
-  // folder and leaves every sidecar behind as an ordinary note — remounting
-  // the same folder reattaches them, which is why it needs no confirmation.
-  // The cleanup variant trashes those notes, so it goes through a dialog and
-  // a pre-sweep snapshot like every other bulk destructive op.
-  const unmountNow = useCallback(
-    async (mount: MountInfo, cleanup: boolean): Promise<void> => {
-      const snapped = cleanup
-        ? await presweepSnapshot(`before unmounting ${mount.name}`)
-        : true;
-      await mountRemove(mount.id, cleanup);
-      setUnmountAsk(null);
-      // the mount was a database: its view, its rows and its schema all go
-      setView((v) => (v.kind === "mount" && v.id === mount.id ? { kind: "dbmanager" } : v));
-      await reloadMounts();
-      reloadDbMeta();
-      refresh();
-      showToast(
-        withSnapshotWarning(
-          cleanup
-            ? `Unmounted “${mount.name}” and moved its notes to Trash`
-            : `Unmounted “${mount.name}” — its notes stay in the vault`,
-          snapped
-        )
-      );
-    },
-    [presweepSnapshot, reloadMounts, reloadDbMeta, refresh, showToast]
-  );
-
-  const unmount = useCallback(
-    (mount: MountInfo, cleanup: boolean) => {
-      if (cleanup) setUnmountAsk(mount);
-      else unmountNow(mount, false).catch((e) => showToast(errText(e)));
-    },
-    [unmountNow, showToast]
-  );
-
-  /** the open mount's rows keyed the way the board keys them — by virtual
-      path AND by sidecar path, because a row answers to whichever it has */
-  const mountRowByPath = useMemo(() => {
-    const by = new Map<string, MountRow>();
-    if (!activeMount) return by;
-    for (const r of mountRowList) {
-      by.set(`${MOUNT_SCHEME}${activeMount.id}/${r.rel}`, r);
-      if (r.note) by.set(r.note, r);
-    }
-    return by;
-  }, [activeMount, mountRowList]);
-
-  /** The mounted file a global-search hit named, on its way to its
-      board. `n` distinguishes two requests for the same row, so opening the
-      same hit twice reveals it twice. */
-  const [mountHit, setMountHit] = useState<{ id: string; rel: string; n: number } | null>(null);
-
-  /** Send a search hit that landed inside a mounted document to its board.
-      `false` when this machine has no such mount: the vault carries the index,
-      the machine carries the folder, so a hit can name a file that is real
-      elsewhere and absent here — saying so beats a board that opens empty.
-
-      The search pane never reaches that branch: it drops hits into absent
-      mounts before it draws them, deliberately, so nothing there can be
-      clicked. The notice is for the callers that hand over a name from
-      somewhere other than a rendered row — and for the narrow race where a
-      mount goes away between a row being drawn and being clicked. */
-  const openMountHit = useCallback(
-    (id: string, rel: string) => {
-      if (!mounts.some((m) => m.id === id)) {
-        showToast("That folder isn’t mounted on this machine");
-        return false;
-      }
-      setView({ kind: "mount", id });
-      setMountHit((h) => ({ id, rel, n: (h?.n ?? 0) + 1 }));
-      return true;
-    },
-    [mounts, showToast]
-  );
-
-  /** The row the board should put itself on, once its rows are in. A row with
-      a sidecar answers to the note's path and one without to the virtual path,
-      so which one to reveal is only knowable from the loaded rows — and they
-      arrive after the board does. Null until then, and null for a hit into
-      some other mount than the open one. */
-  const mountReveal = useMemo(() => {
-    if (!mountHit || !activeMount || activeMount.id !== mountHit.id) return null;
-    const row = mountRowList.find((r) => r.rel === mountHit.rel);
-    if (!row) return null;
-    return { path: row.note ?? `${MOUNT_SCHEME}${activeMount.id}/${row.rel}`, n: mountHit.n };
-  }, [mountHit, activeMount, mountRowList]);
-
-  /** Which row the board draws as open, kept apart from the request that put
-      it there. The request is spent the moment the board has it — held any
-      longer, every later rows fetch would hand the board the same one again
-      and drag the user back to the row they arrived on, and so would leaving
-      the board and coming back. The MARK has to outlive it, though: it is the
-      answer to "which file was I sent to", and it stays until something else
-      is opened. Kept per mount so another board never inherits it. */
-  const [mountOpen, setMountOpen] = useState<{ id: string; path: string } | null>(null);
-
-  /** The board queues the focus in its own effect, which runs before this
-      one, so the request is safe to retire here. */
-  useEffect(() => {
-    if (!mountReveal || !mountHit) return;
-    setMountOpen({ id: mountHit.id, path: mountReveal.path });
-    setMountHit(null);
-  }, [mountReveal, mountHit]);
-
-  /** The row set the board was showing when a request came in — see below. */
-  const mountHitRows = useRef<MountRow[] | null>(null);
-
-  /** …and the other end of the same request: one no board can answer. A hit
-      names a file the vault's index knows; the folder on this machine may not
-      hold it any more, and then no rows ever carry that name. Waiting on it
-      is not a wait that ends — it sits pending through the day, and the first
-      rescan that does turn the name up drags whatever board is open then onto
-      a row nobody asked for. So the board gets one answer: the first rows to
-      land after the request, which always come, because arriving re-enters the
-      board and that refetches. Rows without it retire it. */
-  useEffect(() => {
-    if (!mountHit) {
-      mountHitRows.current = null;
-      return;
-    }
-    // the board isn't on the requested mount yet; its rows are another mount's
-    if (activeMount?.id !== mountHit.id) return;
-    // the rows carry it — answered by `mountReveal`, not retired here
-    if (mountRowList.some((r) => r.rel === mountHit.rel)) return;
-    if (mountHitRows.current === null) mountHitRows.current = mountRowList;
-    else if (mountHitRows.current !== mountRowList) setMountHit(null);
-  }, [mountHit, activeMount, mountRowList]);
-
-  /** A mount row's property write. Ordinary notes go through
-      vaultSetProp; a mount row can't, because the note it would write to may
-      not exist until this very edit creates it. `mount_annotate` creates the
-      sidecar on demand and returns the note either way.
-
-      Undo needs a `prior` to restore and the engine doesn't return one, so it
-      comes from the row the board is showing — the same value the cell was
-      displaying when it was edited. The guard vaultSetProp takes is dropped:
-      a mount row's props live in a file the vault alone writes. */
-  const mountWriteProp = useCallback<PropWriter>(
-    async (path, key, value) => {
-      if (!activeMount) throw new Error("no mounted folder is open");
-      const row = mountRowByPath.get(path);
-      if (!row) throw new Error("that row is no longer in the folder");
-      if (isIntrinsic(key)) throw new Error(`${key} comes from the file itself`);
-      const prior = (row.props[key] ?? null) as PropValue;
-      const meta = await mountAnnotate(activeMount.id, row.rel, key, value);
-      return { meta, prior };
-    },
-    [activeMount, mountRowByPath]
-  );
-
-  /** Point a mount at a folder on THIS machine — the "Locate folder…" lane,
-      and the same call the board's banner offers when a bound folder has gone
-      away. Binding rescans, so the rows are true again the moment it lands. */
-  const locateMount = useCallback(
-    (mount: MountInfo) => {
-      filePick(true)
-        .then(async (picked) => {
-          if (!picked) return;
-          const stats = await mountBind(mount.id, picked);
-          await reloadMounts();
-          refresh();
-          showToast(`“${mount.name}” → ${picked} — ${scanStatLine(stats)}`);
-        })
-        .catch((e) => showToast(errText(e)));
-    },
-    [reloadMounts, refresh, showToast]
-  );
+  const {
+    dbDialog,
+    setDbDialog,
+    csvImport,
+    setCsvImport,
+    createDatabase,
+    openCsvImport,
+    importCsv,
+    renameDatabase,
+    deleteDatabase,
+    renameProperty,
+    removeProperty,
+    stripPropValues,
+  } = useDbAdmin({
+    notes,
+    folders,
+    schema,
+    setSchema,
+    setView,
+    refresh,
+    showToast,
+    reloadDbMeta,
+    reloadSidebarOrder,
+    presweepSnapshot,
+    schemaDbKey,
+    schemaPropKey,
+  });
 
   /** A mount row's context menu. The file is the subject, so its lanes come
       first; the sidecar note is bookkeeping and only listed once it exists. */
@@ -1999,158 +1332,6 @@ export default function App() {
       } else showToast(mountStatus(activeMount) ?? `${row.name} isn’t on this machine`);
     },
     [activeMount, mountRowByPath, openNote, showToast]
-  );
-
-  const renameDatabase = useCallback(
-    (dbType: string, newName: string): Promise<void> =>
-      presweepSnapshot(`before rename database ${dbType}`).then((snapped) => {
-        const storedDb = schemaDbKey(dbType);
-        return vaultRenameType(storedDb, newName).then((sweep) => {
-          // a partial sweep still changed the vault, so both paths refresh
-          reloadDbMeta();
-          refresh();
-          // the engine retargets a key bound to this database
-          reloadSidebarOrder();
-          if (sweep.failed) {
-            // the rename did NOT land (the type keeps its old name) and notes
-            // were partially retyped — that message must outlive a 4s toast,
-            // so it rejects back into the dialog's persistent inline error
-            // surface, which stays open exactly as it did pre
-            return Promise.reject(
-              withSnapshotWarning(renameDbOutcome(dbType, newName, sweep), snapped)
-            );
-          }
-          setDbDialog(null);
-          // an open database view follows the rename
-          setView((v) =>
-            v.kind === "db" && v.type.toLowerCase() === dbType.toLowerCase()
-              ? { kind: "db", type: newName }
-              : v
-          );
-          showToast(withSnapshotWarning(renameDbOutcome(dbType, newName, sweep), snapped));
-        });
-      }),
-    [presweepSnapshot, reloadDbMeta, refresh, reloadSidebarOrder, showToast, schemaDbKey]
-  );
-
-  const deleteDatabase = useCallback(
-    (dbType: string, trashNotes: boolean): Promise<void> =>
-      presweepSnapshot(`before delete database ${dbType}`).then((snapped) => {
-        const storedDb = schemaDbKey(dbType);
-        return vaultDeleteType(storedDb, trashNotes).then((sweep) => {
-          // a partial sweep still changed the vault, so both paths refresh
-          reloadDbMeta();
-          refresh();
-          // …and drops it when the database goes
-          reloadSidebarOrder();
-          if (sweep.failed) {
-            // the database survives a sweep that failed partway; the partial
-            // count must outlive a 4s toast, so it rejects into the dialog's
-            // inline error surface (the dialog stays open)
-            return Promise.reject(
-              withSnapshotWarning(deleteDbOutcome(dbType, trashNotes, sweep), snapped)
-            );
-          }
-          setDbDialog(null);
-          setView((v) =>
-            v.kind === "db" && v.type.toLowerCase() === dbType.toLowerCase()
-              ? { kind: "notes" }
-              : v
-          );
-          showToast(
-            withSnapshotWarning(deleteDbOutcome(dbType, trashNotes, sweep), snapped)
-          );
-        });
-      }),
-    [presweepSnapshot, reloadDbMeta, refresh, reloadSidebarOrder, showToast, schemaDbKey]
-  );
-
-  const renameProperty = useCallback(
-    (dbType: string, prop: string, newName: string): Promise<void> =>
-      presweepSnapshot(`before rename property ${dbType}.${prop}`).then((snapped) => {
-        const storedDb = schemaDbKey(dbType);
-        const storedProp = schemaPropKey(dbType, prop);
-        return vaultRenameProp(storedDb, storedProp, newName).then((sweep) => {
-          // a partial sweep still changed the vault, so both paths refresh
-          reloadDbMeta();
-          refresh();
-          if (sweep.failed) {
-            // the schema key never moved — the partial message outlives a 4s
-            // toast by rejecting into the dialog's inline error (stays open,
-            // the pre-change failure behavior)
-            return Promise.reject(
-              withSnapshotWarning(renamePropOutcome(prop, newName, sweep), snapped)
-            );
-          }
-          setDbDialog(null);
-          showToast(
-            withSnapshotWarning(renamePropOutcome(prop, newName, sweep), snapped)
-          );
-        });
-      }),
-    [presweepSnapshot, reloadDbMeta, refresh, showToast, schemaDbKey, schemaPropKey]
-  );
-
-  // remove property = instant schema demote; the value strip is a separate,
-  // separately-confirmed sweep offered only when notes actually carry values
-  const removeProperty = useCallback(
-    (dbType: string, prop: string) => {
-      const storedDb = schemaDbKey(dbType);
-      const storedProp = schemaPropKey(dbType, prop);
-      const count = notes.filter(
-        (n) =>
-          foldedPropStr(n.props, "type")?.toLowerCase() === dbType.toLowerCase() &&
-          Object.prototype.hasOwnProperty.call(n.props, foldedPropKey(n.props, prop))
-      ).length;
-      const wasNumber = byFoldedKey(typeSchemaFor(schema, storedDb), storedProp)?.kind === "number";
-      vaultSchemaSet(storedDb, storedProp, [])
-        .then((cfg) => {
-          setSchema(cfg);
-          if (count > 0)
-            setDbDialog({ kind: "strip-prop", dbType: storedDb, prop: storedProp, count, wasNumber });
-          else
-            // There are no note values to confirm destructively, but the
-            // backend still has to drop saved-view query/column references.
-            vaultClearProp(storedDb, storedProp, wasNumber, false)
-              .then((sweep) => {
-                const outcome = schemaOnlyClearOutcome(prop, sweep);
-                if (!outcome.completed) {
-                  // The schema demotion already landed. Keep that local state
-                  // and report the metadata failure without reloading stale
-                  // saved views or claiming the whole removal completed.
-                  showToast(outcome.message);
-                  return;
-                }
-                reloadDbMeta();
-                showToast(outcome.message);
-              })
-              .catch((e) => showToast(errText(e)));
-        })
-        .catch((e) => showToast(errText(e)));
-    },
-    [notes, reloadDbMeta, schema, showToast, schemaDbKey, schemaPropKey]
-  );
-
-  const stripPropValues = useCallback(
-    (dbType: string, prop: string, wasNumber: boolean): Promise<void> =>
-      presweepSnapshot(`before strip ${dbType}.${prop} values`).then((snapped) => {
-        const storedDb = schemaDbKey(dbType);
-        const storedProp = schemaPropKey(dbType, prop);
-        return vaultClearProp(storedDb, storedProp, wasNumber, true).then((sweep) => {
-          // a partial sweep still changed the vault, so both paths refresh
-          reloadDbMeta();
-          refresh();
-          if (sweep.failed) {
-            // partial count outlives the toast via the dialog's inline error
-            return Promise.reject(
-              withSnapshotWarning(stripPropOutcome(prop, sweep), snapped)
-            );
-          }
-          setDbDialog(null);
-          showToast(withSnapshotWarning(stripPropOutcome(prop, sweep), snapped));
-        });
-      }),
-    [presweepSnapshot, reloadDbMeta, refresh, showToast, schemaDbKey, schemaPropKey]
   );
 
   // union of values in use across a type — the picker's no-ceremony bootstrap;
@@ -4874,65 +4055,8 @@ export default function App() {
     focusSoon(() => editorFocusRef.current?.());
   }, []);
 
-  /* ----- a folder's loose files, and the listening queue -----
-
-     The vault index is `.md`-only by design, so non-note files come from a
-     lazy per-folder call made when a folder view opens — never from the scan.
-     Nothing is cached across folders: the fetch is one `read_dir`, and
-     holding stale listings would only produce rows for files that moved. */
   const folderPath = view.kind === "folder" ? view.path : null;
-  const [folderFiles, setFolderFiles] = useState<FolderListing>({ files: [], total: 0 });
-  useEffect(() => {
-    if (folderPath === null) {
-      setFolderFiles({ files: [], total: 0 });
-      return;
-    }
-    let live = true;
-    vaultFolderFiles(folderPath)
-      .then((listing) => {
-        if (!live) return;
-        setFolderFiles(listing);
-        // a file added or removed under a playing queue re-seats it without
-        // changing what is playing; a queue whose file vanished is dropped
-        syncQueue(
-          folderPath,
-          playableFiles(listing.files).map((f) => ({ key: f.path, rel: f.rel, name: f.name }))
-        );
-      })
-      .catch(() => {
-        // a folder that can't be read lists no files — the notes still show,
-        // which is exactly the pre-change pane rather than an error state
-        if (live) setFolderFiles({ files: [], total: 0 });
-      });
-    return () => {
-      live = false;
-    };
-  }, [folderPath, vaultEpoch]);
-
-  /* Pressing play on a file row seats the queue on THIS folder's playable
-     files, at that file — the row's own AudioPropButton does the playing, so
-     a second press on the same row still just pauses it. */
-  const onPlayFile = useCallback(
-    (rel: string) => {
-      if (folderPath === null) return;
-      const tracks = playableFiles(folderFiles.files).map((f) => ({
-        key: f.path,
-        rel: f.rel,
-        name: f.name,
-      }));
-      const at = tracks.findIndex((t) => t.rel === rel);
-      if (at !== -1) startQueue(folderPath, tracks, at);
-    },
-    [folderPath, folderFiles]
-  );
-  /* ----- blind comparison -----
-
-     A session compares two versions with the labels hidden, and lands its
-     verdict on a note as plain markdown. Launched from a note (its audio
-     props) or from a folder (its audio files); a folder has no note of its
-     own, so one in that folder adopts the log — the note named after the
-     folder if there is one, else the folder's most recently touched note,
-     else a listening note made for the purpose. */
+  const { folderFiles, onPlayFile } = useFolderFiles(folderPath, vaultEpoch);
 
   const onOpenFile = useCallback(
     (path: string) => {

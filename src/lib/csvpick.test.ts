@@ -11,7 +11,8 @@ import { fileURLToPath } from "node:url";
    Worth guarding rather than obvious: the failure is silent, because a file
    chooser that shows too little looks exactly like a file chooser. */
 const PICK = fileURLToPath(new URL("./csvpick.ts", import.meta.url));
-const APP = fileURLToPath(new URL("../App.tsx", import.meta.url));
+// the CSV import lane lives in the db-admin hook since the App.tsx split
+const APP = fileURLToPath(new URL("../hooks/useDbAdmin.ts", import.meta.url));
 
 test("the CSV import takes the picker's default", () => {
   const app = readFileSync(APP, "utf8");
