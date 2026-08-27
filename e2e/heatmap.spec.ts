@@ -256,8 +256,12 @@ test("a hub body renders a heatmap fence beside its other fences (SUB-966)", asy
   await expect(heat).toHaveCount(2);
   await expect(heat.first().locator(".dash-section-label")).toHaveText("Task per day");
   await expect(heat.first().locator(".heatmap-grid")).toHaveCount(1);
-  // the query is the filter-bar language, and the foot says which one ran
-  await expect(heat.first().locator(".dash-foot")).toHaveText("database: task · status:todo");
+  // the query is the filter-bar language, and the foot says which one ran —
+  // on its own line, because a foot states one fact per line
+  await expect(heat.first().locator(".dash-foot .dash-foot-line")).toHaveText([
+    "database: task",
+    "query: status:todo",
+  ]);
   await expect(heat.first().locator(".dash-alert")).toHaveCount(0);
 
   const err = heat.nth(1).locator(".dash-alert");

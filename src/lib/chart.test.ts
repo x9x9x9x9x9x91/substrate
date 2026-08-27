@@ -1300,7 +1300,7 @@ test("historySeries: a long lane keeps the window that ends TODAY, not the oldes
   assert.equal(s.points[s.points.length - 1].key, "2026-08-04");
   assert.equal(s.points[s.points.length - 1].value, 99);
   assert.equal(s.points[0].key, "2025-07-01"); // 400 days back, inclusive
-  assert.equal(s.note, "no history before 2023-09-01 · showing from Jul 1 2025");
+  assert.equal(s.note, "no history before 2023-09-01, showing from Jul 1 2025");
   // a window spanning two years says which year every label belongs to
   assert.equal(s.points[0].label, "Jul 1 2025");
 });

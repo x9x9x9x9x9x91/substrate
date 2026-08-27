@@ -377,8 +377,9 @@ export function heatmapTitle(c: HeatmapConfig): string {
   return c.value.fn === "count" ? `${cap(src)} per day` : `Sum of ${c.value.prop} per day`;
 }
 
-/** Provenance line for the heatmap foot. */
+/** Provenance line for the heatmap foot. Names the source and nothing else —
+    a query is a second fact and gets its own line in the foot, the way
+    design-principles §1.6 asks and §6 names the chain a bug. */
 export function heatmapSourceDesc(c: HeatmapConfig): string {
-  const src = c.source.kind === "db" ? `database: ${c.source.type}` : `sheet: ${c.source.name}`;
-  return c.query ? `${src} · ${c.query}` : src;
+  return c.source.kind === "db" ? `database: ${c.source.type}` : `sheet: ${c.source.name}`;
 }

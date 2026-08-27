@@ -335,11 +335,11 @@ function daysPhrase(daysLeft: number): string {
 export function paceText(pace: ProgressPace, format?: string, digits?: number): string {
   const fmt = (n: number) => fmtCard(n, format, digits);
   const when = daysPhrase(pace.daysLeft);
-  if (pace.remaining === 0) return `target reached · ${when}`;
+  if (pace.remaining === 0) return `target reached, ${when}`;
   if (pace.delta !== null) {
-    if (pace.delta === 0) return `on pace · ${when}`;
-    return `${pace.delta > 0 ? "ahead by" : "behind by"} ${fmt(Math.abs(pace.delta))} · ${when}`;
+    if (pace.delta === 0) return `on pace, ${when}`;
+    return `${pace.delta > 0 ? "ahead by" : "behind by"} ${fmt(Math.abs(pace.delta))}, ${when}`;
   }
-  if (pace.requiredPerDay !== null) return `${when} · ${fmt(pace.requiredPerDay)}/day to go`;
-  return `${when} · ${fmt(pace.remaining)} to go`;
+  if (pace.requiredPerDay !== null) return `${when}, ${fmt(pace.requiredPerDay)}/day to go`;
+  return `${when}, ${fmt(pace.remaining)} to go`;
 }

@@ -97,7 +97,7 @@ function stateLabel(
   if (overdue > 0) parts.push(`${overdue} overdue`);
   if (dueToday > 0) parts.push(`${dueToday} today`);
   if (nowCount > 0) parts.push(`${nowCount} now`);
-  if (parts.length > 0) return parts.join(" · ");
+  if (parts.length > 0) return parts.join(", ");
   if (total > 0) return `${total} open`;
   // An `areas:` filter that matched none of the open work is not work
   // finished. Green and "clear" on a board whose allowlist is a typo told the

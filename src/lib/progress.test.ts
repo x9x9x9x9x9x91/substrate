@@ -301,7 +301,7 @@ test("without a start there is no ahead/behind — only days left and the rate r
   assert.equal(p.requiredPerDay, 0.6);
   assert.equal(p.expected, null);
   assert.equal(p.delta, null);
-  assert.equal(paceText(p, "number", 1), "10 days left · 0,6/day to go");
+  assert.equal(paceText(p, "number", 1), "10 days left, 0,6/day to go");
 });
 
 test("with a start the line runs 0 → target and the delta is the distance from it", () => {
@@ -309,15 +309,15 @@ test("with a start the line runs 0 → target and the delta is the distance from
   const p = progressPace(7, 10, "2026-08-13", "2026-08-03", "2026-08-08");
   assert.equal(p.expected, 5);
   assert.equal(p.delta, 2);
-  assert.equal(paceText(p, "number"), "ahead by 2 · 5 days left");
+  assert.equal(paceText(p, "number"), "ahead by 2, 5 days left");
 
   const behind = progressPace(3, 10, "2026-08-13", "2026-08-03", "2026-08-08");
   assert.equal(behind.delta, -2);
-  assert.equal(paceText(behind, "number"), "behind by 2 · 5 days left");
+  assert.equal(paceText(behind, "number"), "behind by 2, 5 days left");
 
   const onPace = progressPace(5, 10, "2026-08-13", "2026-08-03", "2026-08-08");
   assert.equal(onPace.delta, 0);
-  assert.equal(paceText(onPace, "number"), "on pace · 5 days left");
+  assert.equal(paceText(onPace, "number"), "on pace, 5 days left");
 });
 
 test("the line doesn't extrapolate past either end", () => {
@@ -329,31 +329,31 @@ test("the line doesn't extrapolate past either end", () => {
   assert.equal(late.expected, 10);
   assert.equal(late.delta, -2);
   assert.equal(late.requiredPerDay, null);
-  assert.equal(paceText(late, "number"), "behind by 2 · 7 days past the deadline");
+  assert.equal(paceText(late, "number"), "behind by 2, 7 days past the deadline");
 });
 
 test("the deadline day itself reads as due today, with the amount left rather than a rate", () => {
   const p = progressPace(6, 10, "2026-08-03", null, "2026-08-03");
   assert.equal(p.daysLeft, 0);
   assert.equal(p.requiredPerDay, null);
-  assert.equal(paceText(p, "number"), "due today · 4 to go");
+  assert.equal(paceText(p, "number"), "due today, 4 to go");
 });
 
 test("one day left reads singular", () => {
-  assert.equal(paceText(progressPace(9, 10, "2026-08-04", null, "2026-08-03"), "number"), "1 day left · 1/day to go");
+  assert.equal(paceText(progressPace(9, 10, "2026-08-04", null, "2026-08-03"), "number"), "1 day left, 1/day to go");
 });
 
 test("a reached target outranks the pace line", () => {
   const p = progressPace(12, 10, "2026-08-13", "2026-08-03", "2026-08-08");
   assert.equal(p.remaining, 0);
-  assert.equal(paceText(p, "number"), "target reached · 5 days left");
+  assert.equal(paceText(p, "number"), "target reached, 5 days left");
   const past = progressPace(10, 10, "2026-08-01", null, "2026-08-03");
-  assert.equal(paceText(past, "number"), "target reached · 2 days past the deadline");
+  assert.equal(paceText(past, "number"), "target reached, 2 days past the deadline");
 });
 
 test("pace numbers wear the card's format", () => {
   const p = progressPace(12000, 50000, "2026-08-13", "2026-08-03", "2026-08-08");
-  assert.equal(paceText(p, "eur"), "behind by 13.000 € · 5 days left");
+  assert.equal(paceText(p, "eur"), "behind by 13.000 €, 5 days left");
 });
 
 test("pace is pure calendar arithmetic across a DST boundary", () => {

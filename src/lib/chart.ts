@@ -531,7 +531,7 @@ export function historySeries(
     missing: null,
     bands: null,
     note: truncated
-      ? `${note} · showing from ${bucketLabelWithYear(startKey, bucket)}`
+      ? `${note}, showing from ${bucketLabelWithYear(startKey, bucket)}`
       : note,
   };
 }

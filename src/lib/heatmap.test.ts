@@ -560,11 +560,11 @@ test("the title is derived, since a heatmap declares none", () => {
   assert.equal(heatmapTitle(cfg("source: s\ndate: d\nvalue: sum:minutes")), "Sum of minutes per day");
 });
 
-test("the source line names the source and any query", () => {
+test("the source line names the source alone — a query is the foot's own fact", () => {
   assert.equal(heatmapSourceDesc(COUNT), "database: session");
   assert.equal(
     heatmapSourceDesc(cfg("source: session\ndate: d\nvalue: count\nquery: status:done")),
-    "database: session · status:done",
+    "database: session",
   );
   assert.equal(heatmapSourceDesc(cfg("source: {{Time Log}}\ndate: d\nvalue: count")), "sheet: Time Log");
 });

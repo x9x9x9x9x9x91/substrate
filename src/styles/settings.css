@@ -30,19 +30,28 @@
 /* The sheet's tab strip, in the agent ledger's idiom: latched buttons under
    the title rather than a second chrome. Six of them fit the sheet's width at
    this size, and they wrap rather than widen it if a tab is ever added. */
+/* The row that swaps which settings surface you are looking at, so it wears
+   labelled underline-dashes and not a pill group (design-principles §5). It
+   was the last boxed segmented control in the sheet: a radius, a hairline
+   frame and a filled active cell, exactly what that rule names. The share
+   door, the feed and the proxy panes already speak the underline-dash, and
+   the gesture is only learned once if it is the same one everywhere. The
+   exception in §5 is a row that picks a VALUE while the pane behind it stays
+   put — these six pick the pane. */
 .settings-tabs {
   display: flex;
   flex-wrap: wrap;
-  gap: 2px;
+  gap: 14px;
   /* 18px lines the strip up with the title above it and, once the body's own
      6px is added, with the label of every row below it */
   padding: 0 18px 10px;
 }
 
 .settings-tab {
-  padding: 3px 9px;
-  border: 1px solid transparent;
-  border-radius: 6px;
+  position: relative;
+  padding: 2px 1px 6px;
+  border: 0;
+  border-radius: 0;
   background: transparent;
   color: var(--text-3);
   font-size: 12px;
@@ -50,13 +59,25 @@
 }
 
 .settings-tab:hover {
-  background: var(--hover);
+  background: transparent;
+  color: var(--text-2);
 }
 
 .settings-tab.on {
   color: var(--text-1);
-  border-color: var(--border);
-  background: var(--surface-faint);
+  background: transparent;
+}
+
+/* The dash itself — the active cell's whole affordance, so hue is never the
+   only carrier of which tab is on (§3 rule 6): the label goes sharp too. */
+.settings-tab.on::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--text-2);
 }
 
 .settings-raw {

@@ -107,7 +107,7 @@ test("a hub body hosts the same thermometer between its other blocks", async ({ 
   await expect(bound.locator(".progress-track")).toHaveAttribute("role", "progressbar");
   // deadline without a start anchor: days left and the rate still required,
   // and no ahead/behind claim the vault can't back
-  await expect(bound.locator(".progress-foot")).toHaveText(/days left · .*\/day to go/);
+  await expect(bound.locator(".progress-foot")).toHaveText(/days left, .*\/day to go/);
   await expect(bound.locator(".progress-foot")).not.toContainText("behind by");
   await expect(bound.locator(".progress-foot")).not.toContainText("ahead by");
 

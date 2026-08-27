@@ -25,7 +25,7 @@ test("tasks: the spine is urgency-first and the header counts what's pressing (S
 }) => {
   await openTasks(page);
 
-  await expect(page.locator(".dash-state")).toHaveText("2 overdue · 1 today · 1 now");
+  await expect(page.locator(".dash-state")).toHaveText("2 overdue, 1 today, 1 now");
   await expect(page.locator(".tasks-group-name")).toHaveText([
     "Overdue",
     "Due today",

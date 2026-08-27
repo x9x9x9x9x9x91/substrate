@@ -223,20 +223,20 @@ test("scanSummary: activity in order, errors appended", () => {
   assert.equal(scanSummary([stat({ scanned: 12 })]), "Mounts: everything up to date");
   assert.equal(
     scanSummary([stat({ scanned: 5, added: 3, updated: 1, renamed: 2, missing: 4 })]),
-    "Mounts: 3 new · 1 updated · 2 moved · 4 missing"
+    "Mounts: 3 new, 1 updated, 2 moved, 4 missing"
   );
   assert.equal(
     scanSummary([stat({ added: 1 }), stat({ error: "not a folder: /gone" })]),
-    "Mounts: 1 new · 1 folder unreadable"
+    "Mounts: 1 new — 1 folder unreadable"
   );
   assert.equal(
     scanSummary([stat({ error: "x" }), stat({ error: "y" })]),
-    "Mounts: everything up to date · 2 folders unreadable"
+    "Mounts: everything up to date — 2 folders unreadable"
   );
 });
 
 test("a failed mount's stale counts never inflate the summary", () => {
-  assert.equal(scanSummary([stat({ added: 9, error: "gone" })]), "Mounts: everything up to date · 1 folder unreadable");
+  assert.equal(scanSummary([stat({ added: 9, error: "gone" })]), "Mounts: everything up to date — 1 folder unreadable");
 });
 
 test("scanStatLine: one mount's counts inline, or its error", () => {

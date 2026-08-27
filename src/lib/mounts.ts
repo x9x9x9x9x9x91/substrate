@@ -232,9 +232,9 @@ export function scanSummary(stats: MountScanStats[]): string {
   if (updated) parts.push(`${updated} updated`);
   if (renamed) parts.push(`${renamed} moved`);
   if (missing) parts.push(`${missing} missing`);
-  let base = parts.length ? `Mounts: ${parts.join(" · ")}` : "Mounts: everything up to date";
+  let base = parts.length ? `Mounts: ${parts.join(", ")}` : "Mounts: everything up to date";
   const bad = stats.filter((s) => s.error).length;
-  if (bad) base += ` · ${bad} folder${bad === 1 ? "" : "s"} unreadable`;
+  if (bad) base += ` — ${bad} folder${bad === 1 ? "" : "s"} unreadable`;
   return base;
 }
 

@@ -295,6 +295,7 @@ function HeatmapSection({
       <DashFoot
         facts={[
           heatmapSourceDesc(c),
+          c.query ? `query: ${c.query}` : "",
           tally && tally.skipped > 0 ? `${tally.skipped} rows skipped` : "",
         ]}
       />
