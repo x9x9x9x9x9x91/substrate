@@ -80,8 +80,8 @@ function hudTheme() {
   const v = (name: string, fallback: string) => css.getPropertyValue(name).trim() || fallback;
   return {
     background: v("--bg-panel", "#101011"),
-    foreground: v("--text-1", "#f5f6f6"),
-    cursor: v("--text-1", "#f5f6f6"),
+    foreground: v("--text-1", "#f6f6f6"),
+    cursor: v("--text-1", "#f6f6f6"),
     // a neutral wash, not a tone: a hardcoded sky here would be the wrong
     // family on the other three tones and nobody would see it
     selectionBackground: resolveTokenColor("--accent-soft", "rgba(255, 255, 255, 0.18)"),

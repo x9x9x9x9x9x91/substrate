@@ -136,7 +136,7 @@ test("metrics: Print clones the live cards into #print-surface and hands off", a
   await expect(surface).toBeVisible();
   await expect(page.locator("#root")).toBeHidden();
   await expect(surface.locator(".dash-actions")).toBeHidden();
-  await expect(surface.locator(".dash-label").first()).toHaveCSS("color", "rgb(113, 118, 126)");
+  await expect(surface.locator(".dash-label").first()).toHaveCSS("color", "rgb(110, 110, 110)");
   await expect(surface.locator(".dash-card:not(.sunk) .dash-card-eur").first()).toHaveCSS(
     "text-shadow",
     "none"
@@ -244,7 +244,7 @@ test("charts: bars and the line chart clone with their geometry", async ({ page 
   // checked (review).
   const inset = surface.locator(".dash-bar-val.is-inset");
   expect(await inset.count()).toBeGreaterThan(0);
-  await expect(inset.first()).toHaveCSS("color", "rgb(27, 30, 34)");
+  await expect(inset.first()).toHaveCSS("color", "rgb(30, 30, 30)");
 });
 
 test("hub: cards, table and link text clone — links stay on paper as content", async ({

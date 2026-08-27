@@ -31,7 +31,7 @@
     content: "Nothing is staged to print — use this pane's own Print or Export PDF action.";
     display: block;
     padding: 24px;
-    color: #1b1e22;
+    color: #1e1e1e;
     font-family: var(--font);
     font-size: 12.5px;
     line-height: 1.65;
@@ -39,7 +39,7 @@
 
   #print-surface {
     display: block;
-    color: #1b1e22;
+    color: #1e1e1e;
     font-family: var(--font);
     font-size: 12.5px;
     line-height: 1.65;
@@ -54,16 +54,16 @@
      verdict and vote chips nobody has marked, the quick-add forms. Links,
      checkbox states and marked verdicts/votes are content and stay. */
   #print-surface {
-    --text-1: #1b1e22;
-    --text-2: #565b63;
-    --text-3: #71767e;
-    /* the screen ramp's faintest tier has no legible paper weight: on the
-       near-black ground #9198a1 is a quiet fourth voice, on white it reads at
-       2.91:1 — under the 4.5:1 floor, which on a printed page means a caption
-       a reader squints at rather than reads. Paper therefore has one tier
-       fewer than screen: the fourth voice merges into the third at 4.57:1 and
-       keeps its place in the hierarchy by size and weight instead of hue. */
-    --text-4: #71767e;
+    --text-1: #1e1e1e;
+    --text-2: #5b5b5b;
+    --text-3: #6e6e6e;
+    /* paper keeps all four voices, and the fourth is pinned by the contrast
+       floor rather than by the screen ramp's arithmetic: #767676 on white
+       reads 4.54:1, just clear of the 4.5:1 minimum, and anything fainter is
+       a caption a reader squints at rather than reads. So the ramp runs
+       16.7:1 / 6.8:1 / 5.1:1 / 4.5:1 — four distinct steps, no hue, the last
+       one sitting on the floor instead of merging into the third. */
+    --text-4: #767676;
     --hair: #d5d8dc;
     --hair-soft: #e6e8eb;
     --border: #dfe2e6;
@@ -246,7 +246,7 @@
      5.05:1–6.36:1, clear of the 4.5:1 this block holds text to. The wash under
      it is the mark and stays as it is. */
   #print-surface .opt-pill {
-    color: color-mix(in srgb, var(--pill) 45%, #1b1e22);
+    color: color-mix(in srgb, var(--pill) 45%, #1e1e1e);
   }
 
   /* the chart language now draws in accent tokens, which the block above
@@ -271,17 +271,17 @@
      white on white. The ink flips with the surface, so it is named here rather
      than inherited. */
   #print-surface .dash-chart .dash-bar-val.is-inset {
-    color: #1b1e22;
+    color: #1e1e1e;
   }
 
   /* a goal bar's fill is a hardcoded white wash on screen (the ground it sits
      on is near-black), so on paper it printed white on a white track and the
      board carried no goal — only its percent hint. Same neutral grayscale
      voice as on screen, in paper ink: the fill reads against the remapped
-     --track at 3.7:1 and against the page at 4.6:1 — a bar is a mark, so
+     --track at 4.2:1 and against the page at 5.1:1 — a bar is a mark, so
      the 3:1 floor is the one that applies. */
   #print-surface .progress-fill {
-    background: #71767e;
+    background: #6e6e6e;
   }
 
   /* a stack is drawn by its slices — the id-scoped rule above would otherwise
@@ -434,7 +434,7 @@
   }
 
   #print-surface .print-props {
-    color: #71767e;
+    color: #6e6e6e;
     font-size: 10.5px;
     margin-bottom: 18px;
   }
@@ -487,7 +487,7 @@
     font-size: 9px;
     line-height: 11px;
     text-align: center;
-    color: #565b63;
+    color: #5b5b5b;
     vertical-align: -1px;
   }
 
@@ -522,7 +522,7 @@
   #print-surface blockquote {
     border-left: 2.5px solid #d5d8dc;
     padding-left: 12px;
-    color: #565b63;
+    color: #5b5b5b;
   }
 
   #print-surface table {
@@ -557,7 +557,7 @@
 
   #print-surface .print-missing,
   #print-surface .print-embed {
-    color: #71767e;
+    color: #6e6e6e;
     font-size: 11px;
     font-style: italic;
   }
@@ -610,7 +610,7 @@
 
   #print-surface .os-byline {
     font-size: 13px;
-    color: #565b63;
+    color: #5b5b5b;
     margin-top: 5px;
   }
 
@@ -634,7 +634,7 @@
   }
 
   #print-surface .os-fact-label {
-    color: #71767e;
+    color: #6e6e6e;
     text-transform: uppercase;
     letter-spacing: 0.07em;
     font-size: 9.5px;
@@ -642,7 +642,7 @@
   }
 
   #print-surface .os-fact-value {
-    color: #1b1e22;
+    color: #1e1e1e;
     font-weight: 500;
     text-align: right;
     font-variant-numeric: tabular-nums;
@@ -669,7 +669,7 @@
   }
 
   #print-surface .ts-meta {
-    color: #71767e;
+    color: #6e6e6e;
     font-size: 10.5px;
     margin: 4px 0 20px;
   }
@@ -690,7 +690,7 @@
   }
 
   #print-surface .print-sheet th {
-    color: #71767e;
+    color: #6e6e6e;
     text-transform: uppercase;
     letter-spacing: 0.07em;
     font-size: 9.5px;

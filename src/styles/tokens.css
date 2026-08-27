@@ -1,7 +1,10 @@
 :root {
-  /* The grey ramp is NEUTRAL (equal-ish RGB, no cool tint) — the blue
-     cast we flagged came from cool-hued greys; the accent family lives only
-     in interactive tokens (--accent/--link), never in surfaces or text greys */
+  /* The grey ramp carries no hue: --text-1..4 are dead neutral (equal
+     R/G/B channels), and the surface greys sit within one step of neutral.
+     The cool cast that used to sit in the text ramp — cool-tinted greys
+     under a comment claiming otherwise — is gone. The accent family lives
+     only in interactive tokens (--accent/--link), never in surfaces or
+     text greys */
   --bg: #090909;
   --bg-panel: #101011;
   --bg-elevated: #1a1a1b;
@@ -11,9 +14,9 @@
   /* `db-grid` column rules only — fainter than --border-soft so the
      grid orients without competing with the row hairlines */
   --grid-line: rgba(255, 255, 255, 0.04);
-  --text-1: #f5f6f6;
-  --text-2: #a9abae;
-  --text-3: #75777b;
+  --text-1: #f6f6f6;
+  --text-2: #ababab;
+  --text-3: #777777;
   /* The interactive family, routed through the tone presets further
      down: the Settings tone dial moves the WHOLE app at once — cell cursor,
      focus rings, text selection, filled buttons, links and dashboard
@@ -108,8 +111,8 @@
   /* Dashboard instrument language. Mono carries data and labels,
      Inter carries the title and sentences; structure is hairlines, never
      boxes; hue stays in the interactive/state tokens above. --text-4 extends
-     the neutral ramp one step (same tint delta as --text-3), for plot
-     axes and page footers only. */
+     the neutral ramp one step below --text-3 — no tint on either, the step
+     is brightness alone — for plot axes and page footers only. */
   --hair: rgba(255, 255, 255, 0.1);
   --hair-soft: rgba(255, 255, 255, 0.055);
   /* The strong page rule, routed through the tone family. The
@@ -122,7 +125,7 @@
     color-mix(in srgb, var(--tone-accent-text) 85%, transparent) 70%,
     transparent
   );
-  --text-4: #54565a;
+  --text-4: #565656;
   --bg-input: #0d0d0e;
   --r: 2px;
   /* The one app-chrome slot: the keyboard button sits fixed at this

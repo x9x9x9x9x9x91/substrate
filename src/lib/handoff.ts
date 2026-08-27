@@ -132,11 +132,11 @@ export function docCss(accent: string = SHIPPED_PAPER_ACCENT): string {
   return `
 :root { color-scheme: light; }
 body { margin: 0; background: #f6f7f8; font: 15px/1.65 -apple-system, BlinkMacSystemFont,
-  "Segoe UI", Roboto, sans-serif; color: #1b1e22; }
+  "Segoe UI", Roboto, sans-serif; color: #1e1e1e; }
 main { max-width: 44rem; margin: 0 auto; padding: 3rem 1.5rem 5rem; background: #fff;
   min-height: 100vh; box-sizing: border-box; }
 h1.print-title { font-size: 1.7rem; line-height: 1.25; margin: 0 0 .35rem; }
-.print-props { color: #71767e; font-size: .82rem; margin-bottom: 2rem; }
+.print-props { color: #6e6e6e; font-size: .82rem; margin-bottom: 2rem; }
 .print-sep { color: #b6bac1; }
 h1, h2, h3, h4, h5, h6 { line-height: 1.3; margin: 1.6em 0 .5em; }
 p { margin: .75em 0; }
@@ -146,7 +146,7 @@ pre { background: #f2f3f5; border-radius: 6px; padding: .8em 1em; overflow-x: au
 code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; }
 p code, li code, td code { background: #f2f3f5; border-radius: 3px; padding: .1em .3em; }
 blockquote { border-left: 3px solid #d5d8dc; margin: 1em 0; padding: .1em 0 .1em 1em;
-  color: #565b63; }
+  color: #5b5b5b; }
 table { border-collapse: collapse; margin: 1em 0; font-size: .92em; }
 th, td { border: 1px solid #dfe2e6; padding: .35em .7em; text-align: left; }
 th { background: #f6f7f8; }
@@ -159,7 +159,7 @@ li.print-task { list-style: none; margin-left: -1.4em; }
   text-align: center; vertical-align: -.1em; }
 .print-task.done .print-box { background: ${accent}; border-color: ${accent}; color: #fff; }
 .print-link { color: ${accent}; }
-.print-embed, .print-missing { color: #71767e; font-style: italic; }
+.print-embed, .print-missing { color: #6e6e6e; font-style: italic; }
 `;
 }
 
