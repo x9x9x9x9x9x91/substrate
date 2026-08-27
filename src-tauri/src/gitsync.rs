@@ -2057,23 +2057,28 @@ pub fn sync_resolve_finish(root: &Path) -> Result<SyncReport, String> {
 /// `gate` is called once the repository is open and returns a guard (in the
 /// app: history and engine `MutexGuard`s, in that order) held for the whole
 /// function — the clean-tree check, merge, checkout, and branch update. It has
-/// to span all four: the checkout runs
-/// `force().recreate_missing(true).remove_untracked(true)`, so a note created
-/// between the check and checkout is deleted outright, while a snapshot moving
-/// HEAD between its re-read and the branch update would be orphaned. Unlike a
-/// pull there is no network phase to keep out of the critical section — this
-/// is local-only. The HEAD re-read remains a defensive check for external git
-/// and ungated library callers.
+/// to span all four: the checkout runs `force().recreate_missing(true)`, so an
+/// edit landing between the check and checkout is overwritten outright, while a
+/// snapshot moving HEAD between its re-read and the branch update would be
+/// orphaned. Unlike a pull there is no network phase to keep out of the
+/// critical section — this is local-only. The HEAD re-read remains a defensive
+/// check for external git and ungated library callers.
 ///
 /// The gate only covers writers inside this process, so a file created in the
 /// vault by anything else — Finder, an editor, a sync daemon — during the
 /// window between [`ensure_clean`] and the checkout is untracked when the
-/// checkout runs, and `remove_untracked(true)` would delete it without a
-/// prompt. The tree is therefore re-read immediately before the checkout and
-/// the finish refuses on anything that appeared, with the recorded choices
-/// kept. The flag stays as it is: dropping it would instead leave a
-/// half-merged tree carrying files the merge decided against, which is the
-/// worse failure.
+/// checkout runs. The tree is therefore re-read immediately before the checkout
+/// and the finish refuses on anything that appeared, with the recorded choices
+/// kept. The checkout deliberately does not pass `remove_untracked(true)`:
+/// every deletion the merge can decide on sits at a path tracked in the
+/// checkout baseline — HEAD, which `ensure_clean` proved equal to the index and
+/// the worktree — and a forced checkout removes a baseline-tracked path absent
+/// from the target tree with or without the flag. The flag governed only paths
+/// tracked in neither tree, so its one reachable effect here was deleting an
+/// outside writer's file that landed in the sliver between that final re-read
+/// and the checkout: the very writer the re-read exists to protect. The
+/// enumeration behind that claim is in
+/// `docs/conflict-finish-deletions-spec.md`.
 ///
 /// NO APP-FILE BACKFILL HERE, deliberately: this path does its own
 /// merge and checkout and never reaches [`pull_local_phase`], so a first join
@@ -2182,24 +2187,31 @@ pub fn sync_resolve_finish_gated<G>(
     run_post_check_race_hook();
     // The clean-tree check at the top of this function and the checkout below
     // are separated by the merge, the per-file staging and the tree write —
-    // work proportional to the conflict, not an instant. The checkout runs
-    // `remove_untracked(true)`, and the gate cannot exclude a writer outside
-    // this process, so a file that landed in that window would be deleted with
-    // no prompt. The tree was empty of statuses when `ensure_clean` passed, so
-    // anything this walk reports appeared or changed since — refuse and keep
-    // it. The flag stays: dropping it would instead leave a half-merged tree
-    // carrying the files the merge decided against, which is the worse failure.
+    // work proportional to the conflict, not an instant. The checkout is
+    // forced, and the gate cannot exclude a writer outside this process, so an
+    // edit that landed in that window to a path the merge touches would be
+    // overwritten with no prompt. The tree was empty of statuses when
+    // `ensure_clean` passed, so anything this walk reports appeared or changed
+    // since — refuse and keep it. What lands after the walk is no longer lost
+    // outright: the checkout stopped removing untracked files, so a new file at
+    // a path neither tree knows survives as an ordinary unsnapshotted change.
+    // A write at a path the merge decided on is still carried away by the
+    // force — the residual `docs/conflict-finish-deletions-spec.md` accepts.
     if let Some(path) = first_changed_worktree_path(&repo)? {
         return Err(format!("{TREE_CHANGED_DURING_MERGE}: “{path}”"));
     }
+    #[cfg(test)]
+    run_pre_checkout_race_hook();
     let merge_oid = commit_and_checkout(
         &repo,
         &message,
         &tree,
         &[&local_commit, &remote_commit],
-        // a file landing in the window above is refused, not deleted, by the
-        // re-read that guards this call
-        CheckoutBuilder::new().force().recreate_missing(true).remove_untracked(true),
+        // No `remove_untracked`: every path the merge decides to delete is
+        // tracked in the baseline this checkout forces away from, so the
+        // deletions land regardless, and the flag's only remaining reach was an
+        // untracked file that appeared past the walk above.
+        CheckoutBuilder::new().force().recreate_missing(true),
     )?;
     clear_pending_merge(&repo)?;
 
@@ -2215,10 +2227,17 @@ thread_local! {
     /// committed. Thread-local, so parallel tests can't see each other's hook.
     static FINISH_RACE_HOOK: std::cell::RefCell<Option<Box<dyn Fn()>>> =
         const { std::cell::RefCell::new(None) };
-    /// Runs after the defensive HEAD re-read, immediately before checkout.
-    /// Uses it to prove the app's history gate—not timing luck—keeps a
+    /// Runs after the defensive HEAD re-read, still before the final status
+    /// walk. Uses it to prove the app's history gate—not timing luck—keeps a
     /// snapshot out of the former check-to-checkout window.
     static POST_CHECK_RACE_HOOK: std::cell::RefCell<Option<Box<dyn Fn()>>> =
+        const { std::cell::RefCell::new(None) };
+    /// Runs in the sliver the status walk cannot cover: after that walk has
+    /// found the tree quiet and immediately before the merge is committed and
+    /// checked out. Resolve-finish only — the two hooks above fire before the
+    /// walk and are shared with the pull path, which has no such sliver to
+    /// exercise.
+    static PRE_CHECKOUT_RACE_HOOK: std::cell::RefCell<Option<Box<dyn Fn()>>> =
         const { std::cell::RefCell::new(None) };
 }
 
@@ -2233,6 +2252,14 @@ fn run_finish_race_hook() {
 #[cfg(test)]
 fn run_post_check_race_hook() {
     let hook = POST_CHECK_RACE_HOOK.with(|h| h.borrow_mut().take());
+    if let Some(hook) = hook {
+        hook();
+    }
+}
+
+#[cfg(test)]
+fn run_pre_checkout_race_hook() {
+    let hook = PRE_CHECKOUT_RACE_HOOK.with(|h| h.borrow_mut().take());
     if let Some(hook) = hook {
         hook();
     }
@@ -4927,8 +4954,8 @@ mod tests {
 
     /// The window the gate cannot cover, because it only excludes writers
     /// inside this process: a file landing between the clean-tree check and the
-    /// checkout. The checkout removes untracked files, so that one used to go
-    /// with nothing said. The re-read immediately before it refuses instead,
+    /// checkout. Back when the checkout removed untracked files, that one went
+    /// with nothing said. The re-read before the checkout refuses instead,
     /// names the file, and keeps the choices.
     #[test]
     fn resolve_finish_refuses_a_file_that_lands_after_the_clean_check() {
@@ -4937,8 +4964,9 @@ mod tests {
         sync_resolve_set(&pair.b, "Note.md", "mine").unwrap();
         let before = Repository::open(&pair.b).unwrap().head().unwrap().target();
 
-        // The seam sits exactly where an outside writer would land: past the
-        // clean-tree check, past the HEAD re-read, one step before checkout.
+        // The seam sits where an outside writer would land: past the clean-tree
+        // check and past the HEAD re-read, with only the status walk this test
+        // is about — and the pre-checkout seam after it — left to run.
         let root = pair.b.clone();
         POST_CHECK_RACE_HOOK.with(|h| {
             *h.borrow_mut() = Some(Box::new(move || {
@@ -4991,6 +5019,148 @@ mod tests {
 
         assert_eq!(fs::read_to_string(pair.b.join("Note.md")).unwrap(), "local\n");
         assert!(!pair.b.join("Gone.md").exists(), "the merge's deletion never reached the disk");
+        assert_clean(&pair.b);
+        assert!(!sync_conflicts(&pair.b).unwrap().active);
+    }
+
+    /// The sliver the walk above cannot cover: a file landing between that walk
+    /// and the checkout itself. It sits at a path neither tree knows anything
+    /// about, so the forced checkout has no business with it — the finish
+    /// lands and the file stays, untracked, for the next snapshot to pick up.
+    /// Run against a checkout carrying `remove_untracked(true)`, this test
+    /// fails with the file deleted.
+    #[test]
+    fn resolve_finish_keeps_a_file_that_lands_in_the_checkout_sliver() {
+        let pair = paired_vaults(&[("Note.md", "base\n")]);
+        pair.diverge(&[("Note.md", "remote\n")], &[("Note.md", "local\n")]);
+        sync_resolve_set(&pair.b, "Note.md", "mine").unwrap();
+
+        // Past the clean check, past the HEAD re-read, past the status walk:
+        // the last place an outside writer can still reach.
+        let root = pair.b.clone();
+        PRE_CHECKOUT_RACE_HOOK.with(|h| {
+            *h.borrow_mut() = Some(Box::new(move || {
+                write_note(&root, "Landed.md", "written by something outside the app\n");
+            }));
+        });
+
+        let report = sync_resolve_finish(&pair.b).unwrap();
+
+        // The merge landed: two parents, the choice applied, the park cleared.
+        assert!(!report.head.is_empty());
+        let repo = Repository::open(&pair.b).unwrap();
+        let head = repo.head().unwrap().peel_to_commit().unwrap();
+        assert_eq!(head.parent_count(), 2, "the merge commit did not land");
+        assert_eq!(fs::read_to_string(pair.b.join("Note.md")).unwrap(), "local\n");
+        // Read the refs directly: `sync_conflicts` clears both lazily once HEAD
+        // descends from the remote, so it would report an inactive merge even
+        // if the success path had never called `clear_pending_merge`.
+        assert!(
+            repo.find_reference(MERGE_REF).is_err(),
+            "the finish left the parked merge ref behind"
+        );
+        assert!(
+            repo.find_reference(RESOLUTIONS_REF).is_err(),
+            "the finish left the recorded choices behind"
+        );
+        assert!(!sync_conflicts(&pair.b).unwrap().active, "the recorded choice was not consumed");
+
+        // And the file the checkout was never asked about is still there.
+        assert!(
+            pair.b.join("Landed.md").exists(),
+            "the checkout deleted a file the merge decided nothing about"
+        );
+        assert_eq!(
+            fs::read_to_string(pair.b.join("Landed.md")).unwrap(),
+            "written by something outside the app\n",
+            "the checkout deleted a file the merge decided nothing about"
+        );
+        let mut options = StatusOptions::new();
+        options.include_untracked(true).recurse_untracked_dirs(true);
+        let statuses = repo.statuses(Some(&mut options)).unwrap();
+        assert!(
+            statuses.iter().any(|entry| entry.path() == Some("Landed.md")
+                && entry.status().contains(git2::Status::WT_NEW)),
+            "the surviving file did not read as an ordinary untracked change"
+        );
+    }
+
+    /// Second row of the enumeration, which nothing else pins directly: the
+    /// file conflicted — ours modified it, theirs deleted it — and the user
+    /// picked the deletion. `stage_side` skips an absent side, so the path
+    /// simply stays out of the merged tree and the forced checkout has to carry
+    /// the removal to disk on its own. The two-sided-content divergence helper
+    /// cannot express a deletion, hence the manual push/pull fixture.
+    #[test]
+    fn resolve_finish_lands_a_modify_delete_resolved_to_the_deletion() {
+        let pair = paired_vaults(&[("Note.md", "base\n"), ("Keep.md", "keep\n")]);
+        fs::remove_file(pair.a.join("Note.md")).unwrap();
+        pair.history_a.snapshot("snapshot").unwrap();
+        sync_push(&pair.a, &pair.credentials_a).unwrap();
+        write_note(&pair.b, "Note.md", "local edit\n");
+        pair.history_b.snapshot("snapshot").unwrap();
+        sync_pull(&pair.b, &pair.credentials_b).unwrap();
+
+        let state = sync_conflicts(&pair.b).unwrap();
+        assert!(state.active, "the fixture did not conflict");
+        let file = &state.files[0];
+        assert_eq!(file.path, "Note.md");
+        assert!(file.ours.present, "the fixture lost the modified side");
+        assert!(!file.theirs.present, "the fixture lost the deleting side");
+
+        sync_resolve_set(&pair.b, "Note.md", "theirs").unwrap();
+        sync_resolve_finish(&pair.b).unwrap();
+
+        assert!(!pair.b.join("Note.md").exists(), "the chosen deletion never reached the disk");
+        assert_eq!(fs::read_to_string(pair.b.join("Keep.md")).unwrap(), "keep\n");
+        assert_clean(&pair.b);
+        assert!(!sync_conflicts(&pair.b).unwrap().active);
+    }
+
+    /// The accepted residual, pinned so a later design that closes it has to
+    /// flip this test on purpose rather than by accident: a sliver write to a
+    /// path the merge decided to delete is a write to a *baseline-tracked*
+    /// path, and the forced checkout removes it along with the deletion. This
+    /// is inherent to a forced checkout, not something the dropped flag was
+    /// carrying.
+    #[test]
+    fn resolve_finish_still_deletes_a_decided_deletion_recreated_in_the_sliver() {
+        let pair = paired_vaults(&[("Note.md", "base\n"), ("Gone.md", "the remote deletes me\n")]);
+        fs::remove_file(pair.a.join("Gone.md")).unwrap();
+        write_note(&pair.a, "Note.md", "remote\n");
+        pair.history_a.snapshot("snapshot").unwrap();
+        sync_push(&pair.a, &pair.credentials_a).unwrap();
+        write_note(&pair.b, "Note.md", "local\n");
+        pair.history_b.snapshot("snapshot").unwrap();
+        sync_pull(&pair.b, &pair.credentials_b).unwrap();
+        assert!(sync_conflicts(&pair.b).unwrap().active, "the fixture did not conflict");
+
+        sync_resolve_set(&pair.b, "Note.md", "mine").unwrap();
+        // Without this flag the test would pass vacuously if the seam never
+        // fired: the merge deletes `Gone.md` on its own, so a silent hook is
+        // indistinguishable from the plain decided-deletion case.
+        let fired = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let hook_fired = Arc::clone(&fired);
+        let root = pair.b.clone();
+        PRE_CHECKOUT_RACE_HOOK.with(|h| {
+            *h.borrow_mut() = Some(Box::new(move || {
+                fs::remove_file(root.join("Gone.md")).unwrap();
+                write_note(&root, "Gone.md", "re-created past the walk\n");
+                hook_fired.store(true, std::sync::atomic::Ordering::SeqCst);
+            }));
+        });
+
+        sync_resolve_finish(&pair.b).unwrap();
+
+        assert!(
+            fired.load(std::sync::atomic::Ordering::SeqCst),
+            "the pre-checkout seam never fired, so this proves nothing"
+        );
+        assert!(
+            !pair.b.join("Gone.md").exists(),
+            "the accepted residual moved: the re-created path survived the checkout"
+        );
+        assert_eq!(fs::read_to_string(pair.b.join("Note.md")).unwrap(), "local\n");
         assert_clean(&pair.b);
         assert!(!sync_conflicts(&pair.b).unwrap().active);
     }
