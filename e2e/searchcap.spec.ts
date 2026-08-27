@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./fixtures";
+import { expect, seedMatching, test, type Page } from "./fixtures";
 
 // What the engine's result cap does to a filtered query,
 // and whether a quoted query can display what it found. Both run against the
@@ -7,37 +7,17 @@ import { expect, test, type Page } from "./fixtures";
 /** Seed the cap-buster before the app mounts: 210 untyped notes matching in
     the TITLE (they win the ranking) and 12 `type: inventory` ones matching
     late in the BODY (they lose it). Any cap applied before the caller's
-    `type:` filter therefore returns 200 notes of which none are inventory. */
+    `type:` filter therefore returns 200 notes of which none are inventory.
+    Staged, not polled: under full-suite load a polled install can land after
+    the app's first listing, and every hit then drops out client-side. */
 async function seedCapFixture(page: Page) {
-  await page.addInitScript(() => {
-    const install = () => {
-      const seed = (window as unknown as { __mockSeedMatching?: unknown })
-        .__mockSeedMatching as
-        | ((o: {
-            folder: string;
-            count: number;
-            token: string;
-            where: "title" | "body";
-            noteType?: string;
-          }) => void)
-        | undefined;
-      if (!seed) return false;
-      seed({ folder: "Bulk", count: 210, token: "quillon", where: "title" });
-      seed({
-        folder: "Stock",
-        count: 12,
-        token: "quillon",
-        where: "body",
-        noteType: "inventory",
-      });
-      return true;
-    };
-    if (!install()) {
-      // the mock installs its hooks at module scope — poll until it lands
-      const t = setInterval(() => {
-        if (install()) clearInterval(t);
-      }, 5);
-    }
+  await seedMatching(page, { folder: "Bulk", count: 210, token: "quillon", where: "title" });
+  await seedMatching(page, {
+    folder: "Stock",
+    count: 12,
+    token: "quillon",
+    where: "body",
+    noteType: "inventory",
   });
 }
 

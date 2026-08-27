@@ -1,0 +1,27 @@
+{
+  "name": "create-dedupe",
+  "summary": "create sanitizes the title, then dedupes the filename inside the target folder",
+  "drift": ["filename dedupe", "create-time title sanitization"],
+  "folder": "ParityCreateDedupe",
+  "ops": [
+    { "op": "create", "title": "Idea", "expect": { "path": "ParityCreateDedupe/Idea.md", "title": "Idea" } },
+    { "op": "create", "title": "Idea", "expect": { "path": "ParityCreateDedupe/Idea 2.md", "title": "Idea 2" } },
+    { "op": "create", "title": "Idea", "expect": { "path": "ParityCreateDedupe/Idea 3.md", "title": "Idea 3" } },
+    { "op": "create", "title": "  Idea  ", "expect": { "path": "ParityCreateDedupe/Idea 4.md", "title": "Idea 4" } },
+    { "op": "create", "title": "A/B:C*D?E\"F<G>H|I", "expect": { "path": "ParityCreateDedupe/A B C D E F G H I.md", "title": "A B C D E F G H I" } },
+    { "op": "create", "title": "   ", "expect": { "path": "ParityCreateDedupe/Untitled.md", "title": "Untitled" } },
+    {
+      "op": "list",
+      "expect": {
+        "paths": [
+          "ParityCreateDedupe/A B C D E F G H I.md",
+          "ParityCreateDedupe/Idea 2.md",
+          "ParityCreateDedupe/Idea 3.md",
+          "ParityCreateDedupe/Idea 4.md",
+          "ParityCreateDedupe/Idea.md",
+          "ParityCreateDedupe/Untitled.md"
+        ]
+      }
+    }
+  ]
+}

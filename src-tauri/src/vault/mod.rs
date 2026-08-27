@@ -7385,3 +7385,6 @@ mod tests {
 
 #[cfg(test)]
 mod proptests;
+
+#[cfg(test)]
+mod parity;

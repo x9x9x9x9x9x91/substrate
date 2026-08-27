@@ -11,8 +11,9 @@
    fence"). The short version: add the entry here, mirror the id into the Rust
    twin (machine_fence_re in src-tauri/src/vault/mod.rs — check-fence-langs
    fails `npm test` until both sides agree), write the parser and renderer,
-   dispatch it in HubDashboard's renderMarkdown, and give it a /slash
-   scaffold in slashmenu.ts.
+   give the renderer its row in HubDashboard's renderer map (a `hub: true`
+   entry without one is a type error, so the compiler asks for it), and give
+   it a /slash scaffold in slashmenu.ts.
 
    This module is DATA ONLY and must import nothing from fences.ts (or
    anything that reaches it): fences.ts reads these entries at module load to
@@ -51,7 +52,13 @@ export interface FenceEntry {
   hub: boolean;
 }
 
-export const FENCE_REGISTRY: readonly FenceEntry[] = [
+/* `as const satisfies` rather than a `readonly FenceEntry[]` annotation: the
+   annotation widened every `id` back to `string`, and the ids ARE the keys the
+   hub's renderer map is checked against. Kept literal, a fence whose renderer
+   was never written is a compile error at the map instead of a source scan
+   noticing later. `satisfies` still holds each entry to FenceEntry, so a typo
+   in `form` or a missing `noun` fails here as it always did. */
+export const FENCE_REGISTRY = [
   // ── tailed (live-dispatch) ────────────────────────────────────────────
   { id: "view", form: "tailed", foldsCase: true, noun: null, hub: true },
   { id: "chart", form: "tailed", foldsCase: true, noun: "A chart", hub: true },
@@ -63,10 +70,17 @@ export const FENCE_REGISTRY: readonly FenceEntry[] = [
   { id: "heatmap", form: "bare", foldsCase: true, noun: "A heatmap", hub: true },
   { id: "calendar", form: "bare", foldsCase: true, noun: "A calendar", hub: true },
   { id: "timeline", form: "bare", foldsCase: true, noun: "A timeline", hub: true },
-];
+] as const satisfies readonly FenceEntry[];
+
+/** The languages the hub canvas draws live, as a type — what the hub's
+    renderer map is keyed by, so the map and the registry cannot disagree
+    about the roster without `tsc` saying so. */
+export type HubFenceId = Extract<(typeof FENCE_REGISTRY)[number], { hub: true }>["id"];
 
 /** The lang ids the hub canvas draws live, in registry order — the fences
-    that make a keyless dashboard note renderable. */
+    that make a keyless dashboard note renderable. Deliberately `string[]`
+    rather than `HubFenceId[]`: its readers ask it about a lang word taken off
+    a fence opener, which is a string until this list answers. */
 export const HUB_FENCE_LANGS: readonly string[] = FENCE_REGISTRY.filter((f) => f.hub).map(
   (f) => f.id
 );

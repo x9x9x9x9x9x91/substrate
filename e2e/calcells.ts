@@ -20,8 +20,10 @@ import { expect, type Locator } from "@playwright/test";
     (`MONTH_CAP`, src/components/CalendarPane.tsx:119). */
 export const MONTH_CAP = 4;
 /** The week's all-day strip caps its cards lower — the canvas owns the
-    vertical room (`ALLDAY_CAP`, src/components/CalendarPane.tsx:123). */
-export const ALLDAY_CAP = 3;
+    vertical room, and the cap has to be what fits the strip at its worst
+    case: a day of wrapping three-line titles sliced the third card and the
+    "+N more" chip with it (`ALLDAY_CAP`, src/components/CalendarPane.tsx). */
+export const ALLDAY_CAP = 2;
 
 /** The N behind a collapsed cell's "+N more", read off the control itself.
     Asserts the cell is actually overflowing — a day that stopped overflowing

@@ -32,6 +32,8 @@ import { DashHead } from "./DashHead";
 import { PlusIcon } from "./Icons";
 import InlineEdit from "./InlineEdit";
 import EmbedViewTable, { type EmbedEdit } from "./EmbedViewTable";
+import { useEdgeFade } from "../hooks/useEdgeFade";
+import { DashAlert } from "./DashNotice";
 import SheetGrid from "./SheetGrid";
 import SwitchGroup from "./SwitchGroup";
 
@@ -61,13 +63,21 @@ export interface WorkbookProps {
 const PAGE_COLS = 8;
 const PAGE_ROWS = 200;
 
+/** A page entry the workbook could not turn into a page. It used to speak in
+    the faint mono footer voice — the quietest ink the app owns, for the one
+    line a reader most needs — in a pane with none of the chrome its working
+    siblings carry, so a broken page read as a half-rendered app rather than
+    as an answer. It now wears the page head every other workbook page wears,
+    with the sentence under it in the app’s one failure voice: the marked
+    banner every other broken read uses. */
 function PageError({ label, error }: { label: string; error: string }) {
   return (
     <div className="note">
       <div className="dash-inner">
-        <div className="dash-foot wb-page-err">
+        <DashHead title={label} state={{ label: "can’t render" }} />
+        <DashAlert>
           Page “{label}” can’t render — {error}. Edit pages: in the workbook note’s frontmatter.
-        </div>
+        </DashAlert>
       </div>
     </div>
   );
@@ -372,6 +382,7 @@ function ViewPage({
   onOpenView?: (dbType: string, savedId?: string) => void;
   embedEdit?: EmbedEdit;
 }) {
+  const viewFade = useEdgeFade<HTMLDivElement>("x");
   if ("error" in result) return <PageError label={title} error={result.error} />;
   return (
     <div className="note">
@@ -400,12 +411,19 @@ function ViewPage({
             )
           }
         />
-        <EmbedViewTable
-          result={result}
-          onOpenSource={onOpenSource}
-          className="wb-view-table"
-          edit={embedEdit}
-        />
+        {/* A full-page cut is wide enough to run past the page's own column at
+            common pane widths, and the cells that overhang were simply cut off
+            — no ellipsis, no scrollbar, nothing saying a column continued.
+            The table now sits in its own sideways scroller wearing the app's
+            edge fade, so the overhang is both visible and reachable. */}
+        <div className={`wb-view-scroll${viewFade.className}`} {...viewFade.props}>
+          <EmbedViewTable
+            result={result}
+            onOpenSource={onOpenSource}
+            className="wb-view-table"
+            edit={embedEdit}
+          />
+        </div>
       </div>
     </div>
   );

@@ -250,10 +250,11 @@ test("a prop-only fact surfaces its note in the palette", async ({ page }) => {
 });
 
 // The bottom edge fade tells you more rows exist — but scrollIntoView's
-// default aligns a keyboard-selected row flush with the scrollport bottom,
-// and the trailing clearance padding keeps the fade gate open there, so the
-// walk's landing row sat half-dissolved in the mask band. scroll-padding on
-// .edge-fade-y makes keyboard walks land clear of both bands.
+// default aligns a keyboard-selected row flush with the scrollport bottom, so
+// the walk's landing row sat half-dissolved in the mask band. scroll-padding on
+// .edge-fade-y makes keyboard walks land clear of both bands, and the gate no
+// longer counts the scroller's trailing padding as something left to reach —
+// at the last row there is nothing more below, so the fade is off entirely.
 
 test("arrow-walking to the last row lands it clear of the bottom fade (SUB-1218)", async ({ page }) => {
   await page.goto("/");
@@ -265,25 +266,26 @@ test("arrow-walking to the last row lands it clear of the bottom fade (SUB-1218)
   await expect(page.locator(".palette-item-snippet").first()).toBeVisible();
 
   const rows = page.locator(".palette-results .palette-item");
-  // the batch lands over more than one paint, so the first snippet appearing
-  // does not mean the list has stopped growing: take the count only once two
-  // consecutive reads agree, or the walk is sized to a list that outgrew it
-  let prev = -1;
+  // The Content batch lands over several paints, so no count taken up front is
+  // safe: read it a moment too early and the walk is sized to a list that then
+  // outgrew it, stopping short with real rows still below. Counting is the
+  // wrong instrument — step until the row that is currently last is the
+  // selected one, re-reading the list on every step, so a batch that arrives
+  // mid-walk costs a few more presses instead of a wrong landing. The
+  // assertions below are about the END of the list; they only mean anything
+  // once the walk has provably reached it.
   await expect
-    .poll(async () => {
-      const n = await rows.count();
-      const settled = n > 0 && n === prev;
-      prev = n;
-      return settled;
-    })
+    .poll(
+      async () => {
+        await page.keyboard.press("ArrowDown");
+        return rows.last().evaluate((el) => el.classList.contains("selected"));
+      },
+      { timeout: 20000 }
+    )
     .toBe(true);
-  const count = await rows.count();
-  for (let i = 0; i < count + 2; i++) await page.keyboard.press("ArrowDown");
 
   const selected = page.locator(".palette-item.selected");
   await expect(selected).toHaveCount(1);
-  // the walk really landed on the LAST row — the geometry below is about it
-  await expect(rows.last()).toHaveClass(/selected/);
   const geom = await page.evaluate(() => {
     const r = document.querySelector(".palette-results")!;
     const sel = document.querySelector(".palette-item.selected")!;
@@ -295,9 +297,11 @@ test("arrow-walking to the last row lands it clear of the bottom fade (SUB-1218)
       fadeBandTop: rb.bottom - 20,
     };
   });
-  // the fade is still telling the truth (clearance padding remains below)…
-  expect(geom.fadeOpen).toBe(true);
-  // …but the selected row sits fully above the 20px band it used to dissolve in
+  // nothing is left below but the scroller's own clearance padding, and
+  // padding is not content — the gate closes rather than promising a row
+  // that isn't there
+  expect(geom.fadeOpen).toBe(false);
+  // and the selected row sits fully above the 20px band it used to dissolve in
   expect(geom.rowBottom).toBeLessThanOrEqual(geom.fadeBandTop + 0.5);
 });
 

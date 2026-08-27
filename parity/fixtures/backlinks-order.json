@@ -1,0 +1,54 @@
+{
+  "name": "backlinks-order",
+  "summary": "backlinks come back sorted by title, embeds are not links, and a note never backlinks itself",
+  "drift": ["backlink ordering", "list ordering"],
+  "folder": "ParityBacklinks",
+  "ops": [
+    {
+      "op": "create",
+      "title": "Target",
+      "body": "see [[Target]] itself\n",
+      "expect": {
+        "path": "ParityBacklinks/Target.md",
+        "title": "Target"
+      }
+    },
+    {
+      "op": "create",
+      "title": "Zeta",
+      "body": "points at [[Target]]\n",
+      "expect": {
+        "path": "ParityBacklinks/Zeta.md",
+        "title": "Zeta"
+      }
+    },
+    {
+      "op": "create",
+      "title": "Alpha",
+      "body": "also [[target]] cased differently\n",
+      "expect": {
+        "path": "ParityBacklinks/Alpha.md",
+        "title": "Alpha"
+      }
+    },
+    {
+      "op": "create",
+      "title": "Middle",
+      "body": "only embeds ![[Target]]\n",
+      "expect": {
+        "path": "ParityBacklinks/Middle.md",
+        "title": "Middle"
+      }
+    },
+    {
+      "op": "backlinks",
+      "path": "ParityBacklinks/Target.md",
+      "expect": {
+        "paths": [
+          "ParityBacklinks/Alpha.md",
+          "ParityBacklinks/Zeta.md"
+        ]
+      }
+    }
+  ]
+}

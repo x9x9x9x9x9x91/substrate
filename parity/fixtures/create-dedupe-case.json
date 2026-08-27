@@ -1,0 +1,12 @@
+{
+  "name": "create-dedupe-case",
+  "summary": "the create-time dedupe is case-insensitive, like the engine's exists() check on a case-insensitive volume, and the deduped filename becomes the note's title",
+  "drift": ["filename dedupe"],
+  "folder": "ParityCreateCase",
+  "requires": ["case-insensitive-fs"],
+  "ops": [
+    { "op": "create", "title": "Idea", "expect": { "path": "ParityCreateCase/Idea.md", "title": "Idea" } },
+    { "op": "create", "title": "idea", "expect": { "path": "ParityCreateCase/idea 2.md", "title": "idea 2" } },
+    { "op": "create", "title": "IDEA", "expect": { "path": "ParityCreateCase/IDEA 3.md", "title": "IDEA 3" } }
+  ]
+}

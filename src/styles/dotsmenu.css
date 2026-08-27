@@ -103,9 +103,14 @@
   flex: 1;
   min-width: 0;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .dots-hint {
+  flex: none;
+  padding-left: 4px;
+  white-space: nowrap;
   font-size: 11px;
   color: var(--text-3);
 }

@@ -32,13 +32,15 @@
   opacity: 0.7;
 }
 
-.wb-page-err {
-  margin-top: 24px;
+/* the page's sideways scroller — the table's own margin moves up here so the
+   fade's band lines up with the table, not with the gap above it */
+.wb-view-scroll {
+  margin-top: 18px;
 }
 
 /* full-page view tables drop the inline widget's tight column cap look */
 .wb-view-table {
-  margin-top: 18px;
+  margin-top: 0;
 }
 
 .wb-view-table th {

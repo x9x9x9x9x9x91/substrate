@@ -1,0 +1,92 @@
+{
+  "name": "title-refusals",
+  "summary": "the title refusals land before any write, in create and in rename alike - a control character survives the slug collapse and is refused there, not at the filesystem",
+  "drift": ["control-character refusal", "create-time title sanitization"],
+  "folder": "ParityTitleRefusals",
+  "ops": [
+    {
+      "op": "create",
+      "title": "Keeper",
+      "body": "see [[Keeper]] itself\n",
+      "expect": {
+        "path": "ParityTitleRefusals/Keeper.md",
+        "title": "Keeper"
+      }
+    },
+    {
+      "op": "create",
+      "title": ".hidden",
+      "expect": {
+        "error": "titles cannot start with a dot"
+      }
+    },
+    {
+      "op": "create",
+      "title": "square [brackets]",
+      "expect": {
+        "error": "titles cannot contain [ or ]"
+      }
+    },
+    {
+      "op": "create",
+      "title": "bell\u0007ringer",
+      "expect": {
+        "error": "titles cannot contain control characters"
+      }
+    },
+    {
+      "op": "create",
+      "title": "delete\u007f",
+      "expect": {
+        "error": "titles cannot contain control characters"
+      }
+    },
+    {
+      "op": "rename",
+      "path": "ParityTitleRefusals/Keeper.md",
+      "title": ".hidden",
+      "expect": {
+        "error": "titles cannot start with a dot"
+      }
+    },
+    {
+      "op": "rename",
+      "path": "ParityTitleRefusals/Keeper.md",
+      "title": "square [brackets]",
+      "expect": {
+        "error": "titles cannot contain [ or ]"
+      }
+    },
+    {
+      "op": "rename",
+      "path": "ParityTitleRefusals/Keeper.md",
+      "title": "bell\u0007ringer",
+      "expect": {
+        "error": "titles cannot contain control characters"
+      }
+    },
+    {
+      "op": "rename",
+      "path": "ParityTitleRefusals/Keeper.md",
+      "title": "   ",
+      "expect": {
+        "error": "title cannot be empty"
+      }
+    },
+    {
+      "op": "list",
+      "expect": {
+        "paths": [
+          "ParityTitleRefusals/Keeper.md"
+        ]
+      }
+    },
+    {
+      "op": "body",
+      "path": "ParityTitleRefusals/Keeper.md",
+      "expect": {
+        "body": "see [[Keeper]] itself\n"
+      }
+    }
+  ]
+}

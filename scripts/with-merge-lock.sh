@@ -7,13 +7,11 @@
 #     'git merge --no-ff sub/foo &&
 #      GATED=$(git rev-parse HEAD) &&
 #      <run the gate suite on "$GATED"> &&
-#      scripts/push-gated-main.sh "$GATED"'
+#      git push origin "$GATED":refs/heads/main'
 #
-# The push step is scripts/push-gated-main.sh, never a bare
-# `git push origin main`: the branch name resolves at push time,
-# so a commit landing on main between the gate run and the push ships
-# ungated. push-gated-main.sh pushes the gated COMMIT and aborts loudly if
-# main moved under the run.
+# The push step names the gated COMMIT, never a bare `git push origin main`:
+# a branch name resolves at push time, so a commit that lands on main between
+# the gate run and the push ships ungated.
 #
 # Runs <command...> while holding an exclusive on-disk mutex in the repo's
 # common gitdir, so two sessions merging concurrently queue instead of
@@ -42,13 +40,6 @@
 # branches". This is a WARNING, never a refusal: the lock must always come
 # off, and a session that genuinely cannot push (offline, rejected) still
 # needs its exit code intact.
-# A session that cannot take the lock does not have to wait for it: it can
-# append its reviewed branches to the running train instead
-# (the merge-queue handshake, scripts/merge-queue.sh). This script only points
-# at that queue — it prints what is waiting when the lock is taken and again
-# when it is released, so a train never finishes without seeing branches that
-# arrived under it. Claiming them is the train's own call, at its own integration
-# boundary; merge-queue.sh owns the protocol and the crash-safety rules.
 #
 # Preflight (before taking the lock, refuse loudly rather than mutate):
 #  - the tree we run in must not be mid-merge (MERGE_HEAD)
@@ -202,10 +193,10 @@ warn_unpushed_main() {
     printf 'with-merge-lock: lands. Gate this tip and push it:\n'
     printf 'with-merge-lock:   GATED=$(git rev-parse refs/heads/main)\n'
     printf 'with-merge-lock:   run the gate suite on "$GATED"\n'
-    printf 'with-merge-lock:   scripts/push-gated-main.sh "$GATED"\n'
-    printf 'with-merge-lock: (push-gated-main.sh pushes the gated commit, not the\n'
-    printf 'with-merge-lock:  branch name — a plain `git push origin main` ships\n'
-    printf 'with-merge-lock:  whatever landed on main since, ungated. SUB-1070.)\n'
+    printf 'with-merge-lock:   git push origin "$GATED":refs/heads/main\n'
+    printf 'with-merge-lock: (push the gated COMMIT, not the branch name — a plain\n'
+    printf 'with-merge-lock:  `git push origin main` ships whatever landed on main\n'
+    printf 'with-merge-lock:  since the gate run, ungated.)\n'
     printf '========================================================================\n'
   } >&2
 }
@@ -582,15 +573,6 @@ if [[ -n "$PREFLIGHT" ]]; then
   trap - EXIT
   die "$PREFLIGHT (it appeared while this run was waiting for the lock)"
 fi
-# Branches other sessions appended to the merge queue while we were queueing.
-# Printed, never acted on: what the train integrates stays the train's
-# decision. Never fatal — a broken queue must not take a merge down with it.
-QUEUE_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/merge-queue.sh"
-merge_queue_notice() {
-  [[ -f "$QUEUE_SCRIPT" ]] || return 0
-  bash "$QUEUE_SCRIPT" notify || true
-}
-merge_queue_notice
 
 
 # The handshake the main commit guard reads (scripts/git-hooks/lib/
@@ -607,8 +589,5 @@ status=0
 "$@" || status=$?
 
 
-# Late arrivals: a branch appended while the wrapped command ran would
-# otherwise be seen by nobody until the next train happened to start.
-merge_queue_notice
 
 exit "$status"

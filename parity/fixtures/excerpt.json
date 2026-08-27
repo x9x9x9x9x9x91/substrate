@@ -1,0 +1,116 @@
+{
+  "name": "excerpt",
+  "summary": "the excerpt is the first non-empty body line with markdown leaders and wikilink brackets stripped, capped at 120 characters with an ellipsis",
+  "drift": ["excerpt derivation"],
+  "folder": "ParityExcerpt",
+  "ops": [
+    {
+      "op": "create",
+      "title": "Headed",
+      "body": "# Heading line\n\nbody prose\n",
+      "expect": {
+        "path": "ParityExcerpt/Headed.md",
+        "title": "Headed"
+      }
+    },
+    {
+      "op": "note",
+      "path": "ParityExcerpt/Headed.md",
+      "expect": {
+        "title": "Headed",
+        "type": null,
+        "excerpt": "Heading line"
+      }
+    },
+    {
+      "op": "create",
+      "title": "Linked",
+      "body": "see [[Target]] now\n",
+      "expect": {
+        "path": "ParityExcerpt/Linked.md",
+        "title": "Linked"
+      }
+    },
+    {
+      "op": "note",
+      "path": "ParityExcerpt/Linked.md",
+      "expect": {
+        "title": "Linked",
+        "type": null,
+        "excerpt": "see Target now"
+      }
+    },
+    {
+      "op": "create",
+      "title": "Bulleted",
+      "body": "- * quoted > item\n",
+      "expect": {
+        "path": "ParityExcerpt/Bulleted.md",
+        "title": "Bulleted"
+      }
+    },
+    {
+      "op": "note",
+      "path": "ParityExcerpt/Bulleted.md",
+      "expect": {
+        "title": "Bulleted",
+        "type": null,
+        "excerpt": "quoted > item"
+      }
+    },
+    {
+      "op": "create",
+      "title": "Blanked",
+      "body": "\n\n   \nreal first line\n",
+      "expect": {
+        "path": "ParityExcerpt/Blanked.md",
+        "title": "Blanked"
+      }
+    },
+    {
+      "op": "note",
+      "path": "ParityExcerpt/Blanked.md",
+      "expect": {
+        "title": "Blanked",
+        "type": null,
+        "excerpt": "real first line"
+      }
+    },
+    {
+      "op": "create",
+      "title": "Longform",
+      "body": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz\n",
+      "expect": {
+        "path": "ParityExcerpt/Longform.md",
+        "title": "Longform"
+      }
+    },
+    {
+      "op": "note",
+      "path": "ParityExcerpt/Longform.md",
+      "expect": {
+        "title": "Longform",
+        "type": null,
+        "excerpt": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz…"
+      }
+    },
+    {
+      "op": "create",
+      "title": "Bodyless",
+      "type": "parityKind",
+      "expect": {
+        "path": "ParityExcerpt/Bodyless.md",
+        "title": "Bodyless"
+      }
+    },
+    {
+      "op": "note",
+      "path": "ParityExcerpt/Bodyless.md",
+      "expect": {
+        "title": "Bodyless",
+        "type": "parityKind",
+        "excerpt": ""
+      }
+    }
+  ]
+}

@@ -60,7 +60,7 @@ test("a view page accepts YAML-list columns with the natural Title leader", asyn
 
   await page.locator(".side-item", { hasText: "Label Books" }).click();
   await page.locator(".wb-tab", { hasText: "Projection" }).click();
-  await expect(page.locator(".wb-page-err")).toHaveCount(0);
+  await expect(page.locator(".note .dash-alert")).toHaveCount(0);
   await expect(page.locator(".wb-view-table thead th")).toHaveText(["Title", "artist"]);
   await expect(page.locator(".wb-view-table .dash-link", { hasText: "Static Bouquet" })).toBeVisible();
 });
@@ -68,7 +68,7 @@ test("a view page accepts YAML-list columns with the natural Title leader", asyn
 test("a broken entry is an error page in place — siblings unaffected", async ({ page }) => {
   await openWorkbook(page);
   await page.locator(".wb-tab", { hasText: "Broken" }).click();
-  await expect(page.locator(".wb-page-err")).toContainText("No Such Sheet");
+  await expect(page.locator(".note .dash-alert")).toContainText("No Such Sheet");
   // switching back still works
   await page.locator(".wb-tab", { hasText: "Cash" }).click();
   await expect(page.locator(".sheet")).toBeVisible();

@@ -1,0 +1,153 @@
+{
+  "name": "delete-trash-order",
+  "summary": "a bulk delete shares one deleted_ms across the selection, so the trash lists it deleted_ms DESC then path ASC rather than in the order the notes were named; and a trashed note leaves the search index and its target's backlinks with it",
+  "drift": ["trash list ordering", "delete index mappings"],
+  "folder": "ParityDeleteOrder",
+  "ops": [
+    {
+      "op": "create",
+      "title": "Beacon",
+      "body": "the note the others point at\n",
+      "expect": {
+        "path": "ParityDeleteOrder/Beacon.md",
+        "title": "Beacon"
+      }
+    },
+    {
+      "op": "create",
+      "title": "Charlie",
+      "body": "quibblesnark, and [[Beacon]]\n",
+      "expect": {
+        "path": "ParityDeleteOrder/Charlie.md",
+        "title": "Charlie"
+      }
+    },
+    {
+      "op": "create",
+      "title": "Alpha",
+      "body": "quibblesnark, and [[Beacon]]\n",
+      "expect": {
+        "path": "ParityDeleteOrder/Alpha.md",
+        "title": "Alpha"
+      }
+    },
+    {
+      "op": "create",
+      "title": "Bravo",
+      "body": "quibblesnark, and [[Beacon]]\n",
+      "expect": {
+        "path": "ParityDeleteOrder/Bravo.md",
+        "title": "Bravo"
+      }
+    },
+    {
+      "op": "search",
+      "q": "quibblesnark",
+      "expect": {
+        "paths": [
+          "ParityDeleteOrder/Alpha.md",
+          "ParityDeleteOrder/Bravo.md",
+          "ParityDeleteOrder/Charlie.md"
+        ]
+      }
+    },
+    {
+      "op": "backlinks",
+      "path": "ParityDeleteOrder/Beacon.md",
+      "expect": {
+        "paths": [
+          "ParityDeleteOrder/Alpha.md",
+          "ParityDeleteOrder/Bravo.md",
+          "ParityDeleteOrder/Charlie.md"
+        ]
+      }
+    },
+    {
+      "op": "deleteMany",
+      "paths": [
+        "ParityDeleteOrder/Charlie.md",
+        "ParityDeleteOrder/Alpha.md",
+        "ParityDeleteOrder/Nope.md"
+      ],
+      "expect": {
+        "results": [
+          "ok",
+          "ok",
+          "note not found"
+        ]
+      }
+    },
+    {
+      "op": "list",
+      "expect": {
+        "paths": [
+          "ParityDeleteOrder/Beacon.md",
+          "ParityDeleteOrder/Bravo.md"
+        ]
+      }
+    },
+    {
+      "op": "search",
+      "q": "quibblesnark",
+      "expect": {
+        "paths": [
+          "ParityDeleteOrder/Bravo.md"
+        ]
+      }
+    },
+    {
+      "op": "backlinks",
+      "path": "ParityDeleteOrder/Beacon.md",
+      "expect": {
+        "paths": [
+          "ParityDeleteOrder/Bravo.md"
+        ]
+      }
+    },
+    {
+      "op": "trashList",
+      "expect": {
+        "paths": [
+          "ParityDeleteOrder/Alpha.md",
+          "ParityDeleteOrder/Charlie.md"
+        ]
+      }
+    },
+    {
+      "op": "delete",
+      "path": "ParityDeleteOrder/Bravo.md",
+      "expect": {
+        "trashed": true
+      }
+    },
+    {
+      "op": "delete",
+      "path": "ParityDeleteOrder/Bravo.md",
+      "expect": {
+        "error": "note not found"
+      }
+    },
+    {
+      "op": "list",
+      "expect": {
+        "paths": [
+          "ParityDeleteOrder/Beacon.md"
+        ]
+      }
+    },
+    {
+      "op": "search",
+      "q": "quibblesnark",
+      "expect": {
+        "paths": []
+      }
+    },
+    {
+      "op": "backlinks",
+      "path": "ParityDeleteOrder/Beacon.md",
+      "expect": {
+        "paths": []
+      }
+    }
+  ]
+}

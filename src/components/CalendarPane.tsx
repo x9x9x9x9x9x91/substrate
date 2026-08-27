@@ -119,9 +119,14 @@ const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
     cell holds four without crowding */
 const MONTH_CAP = 4;
 /** the week surface's all-day strip keeps the tighter cap: its height is
-    bounded (34%) and a strip pushed into internal scrolling turns Chromium's
-    drag auto-scroll loose under every card drag */
-const ALLDAY_CAP = 3;
+    bounded and a strip pushed into internal scrolling turns Chromium's
+    drag auto-scroll loose under every card drag.
+    Two, not three: a card is as tall as its title wraps, and a day of
+    three-line titles outgrew even the taller strip — the third card was sliced
+    across the canvas's top edge and the "+N more" chip that says the rest is
+    there was cut in half with it. Two cards fit the strip at its worst case,
+    so anything past them collapses into the chip instead of being halved. */
+const ALLDAY_CAP = 2;
 /** week canvas scale: one hour of the day, in px — 24h ≈ 1150px */
 const HOUR_PX = 48;
 /** the canvas time cursor's step: ↑/↓ half-hours, Shift quarters —

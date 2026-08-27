@@ -143,18 +143,19 @@ test("week cards peek on click, open their note on double-click, keep the entry 
 });
 
 test("drag a strip card to another day reschedules it", async ({ page }) => {
-  // compose a probe entry on today so the drag never touches fixtures
-  await page.locator(".cal .db-new", { hasText: "New" }).click();
+  // compose a probe entry so the drag never touches fixtures — on the week's
+  // last day rather than today, because today is the loaded cell in the mock
+  // vault and a capped strip may sort a fresh entry in behind "+N more"
+  const dow = (todayBase().getDay() + 6) % 7; // Monday = 0
+  const source = page.locator(`.cal-day[data-iso="${isoDay(6 - dow)}"]`);
+  await source.locator(".cal-daynum").click();
   await page.locator(".cal-draft-input").fill("Week drag probe");
   await page.locator(".cal-draft-input").press("Enter");
-  const source = page.locator(`.cal-day[data-iso="${isoDay(0)}"]`);
   const card = source.locator(".cal-entry", { hasText: "Week drag probe" });
   await expect(card).toBeVisible();
 
-  // a guaranteed-visible target ≠ today: this week's Monday — or Tuesday when
-  // today IS Monday
-  const dow = (todayBase().getDay() + 6) % 7; // Monday = 0
-  const target = page.locator(`.cal-day[data-iso="${isoDay(dow === 0 ? 1 : -dow)}"]`);
+  // a guaranteed-visible target ≠ the source: this week's Monday
+  const target = page.locator(`.cal-day[data-iso="${isoDay(-dow)}"]`);
 
   await card.dragTo(target);
   await expect(target.locator(".cal-entry", { hasText: "Week drag probe" })).toBeVisible();
@@ -263,6 +264,25 @@ async function heightFrac(block: Locator): Promise<number> {
 /** the peek's "Ends" field — the typed twin of the bottom-edge drag */
 function endsField(page: Page) {
   return page.locator(".cal-peek-end");
+}
+
+/** How deep into the canvas column a pointer can actually be put, as a
+    fraction of that column.
+
+    The column is a full 24 h tall, but only the part of it that is inside the
+    scrollport AND inside the window can take a drop — a release below that
+    lands off the canvas and is deliberately a no-op. The all-day strip above
+    the canvas owns a share of the pane, so that depth is a property of the
+    running layout, not a constant: a strip that sizes itself to its cards
+    moves it every time the fixture week changes. Specs that hard-coded a
+    fraction of the column were really hard-coding one strip height. */
+async function reachableFrac(page: Page, box: { y: number; height: number }) {
+  const floor = await page.locator(".cal-wk-scroll").evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return Math.min(r.bottom, window.innerHeight);
+  });
+  // a few px clear of the edge, so the release is unambiguously inside
+  return (floor - 8 - box.y) / box.height;
 }
 
 /** Esc out of the peek: the first press inside a field only reverts and
@@ -390,9 +410,21 @@ test("drag a block's top edge sets the event's start, holding the end (SUB-1514)
   const start = (await block.locator(".cal-entry-time").textContent())!;
   const min = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
 
+  // the two drops below are placed against what the canvas can actually be
+  // handed, not against a fixed slice of the column. The floor guards the
+  // assertions themselves: with less than ~3 h of reachable canvas under the
+  // probe's start, a real resize and a clamped no-op look alike, and a green
+  // run would stop meaning anything. A red here is the all-day strip having
+  // taken the canvas's working resolution — a design question about the
+  // strip's height, not a spec to re-fit.
+  const deepest = await reachableFrac(page, box);
+  expect(deepest).toBeGreaterThan(0.1 + 3 / 24);
+  const endAt = Math.min(0.3, deepest);
+  const topAt = 0.1 + (endAt - 0.1) / 2; // halfway between the start and the end
+
   // give it a real end first, a few hours down the canvas
   await block.locator(".cal-wk-grip:not(.top)").dragTo(col, {
-    targetPosition: { x: box.width / 2, y: box.height * 0.3 },
+    targetPosition: { x: box.width / 2, y: box.height * endAt },
   });
   await expect.poll(() => heightFrac(block)).toBeGreaterThan(2 / 24);
   await block.click();
@@ -400,10 +432,10 @@ test("drag a block's top edge sets the event's start, holding the end (SUB-1514)
   const end = await endsField(page).inputValue();
   await closePeek(page);
 
-  // pull the TOP edge down to ~20% of the day (≈ 04:45): the start moves
-  // onto the drop's quarter-hour, the END stays exactly where it was
+  // pull the TOP edge down to halfway between the start and the end: the
+  // start moves onto the drop's quarter-hour, the END stays where it was
   await block.locator(".cal-wk-grip.top").dragTo(col, {
-    targetPosition: { x: box.width / 2, y: box.height * 0.2 },
+    targetPosition: { x: box.width / 2, y: box.height * topAt },
   });
   await expect
     .poll(async () => min((await block.locator(".cal-entry-time").textContent())!))
@@ -416,11 +448,11 @@ test("drag a block's top edge sets the event's start, holding the end (SUB-1514)
 
   // dropped ON its own end's minute — inside the 15-minute floor — the
   // start clamps to the last slot before the end: never flipping the event
-  // around, never moving the end. (The drop stays at 0.3 of the day: any
-  // deeper y sits below the 720px viewport and the release would land off
-  // the canvas, which is deliberately a no-op.)
+  // around, never moving the end. (The drop returns to the end's own depth:
+  // any deeper y sits below the reachable canvas and the release would land
+  // off it, which is deliberately a no-op.)
   await block.locator(".cal-wk-grip.top").dragTo(col, {
-    targetPosition: { x: box.width / 2, y: box.height * 0.3 },
+    targetPosition: { x: box.width / 2, y: box.height * endAt },
   });
   await expect
     .poll(async () => min((await block.locator(".cal-entry-time").textContent())!))

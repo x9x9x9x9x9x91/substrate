@@ -178,7 +178,13 @@
   text-overflow: ellipsis;
 }
 
+/* The hint is the row's second column, never a wrapping one: it holds its
+   natural width and keeps a real lane between itself and the label, so a long
+   label truncates against the hint instead of running under it. */
 .ctx-hint {
+  flex: none;
+  padding-left: 4px;
+  white-space: nowrap;
   font-size: 11px;
   color: var(--text-3);
 }

@@ -392,12 +392,19 @@
 }
 
 /* the all-day strip: sizes to its tallest cell's cards, capped so a loaded
-   week never squeezes the canvas out; scrolls internally past the cap */
+   week never squeezes the canvas out; scrolls internally past the cap.
+   The cap has to be able to hold what the cell caps itself to. At 34% of a
+   normal pane it could not: a capped day of wrapping titles plus its "+N more"
+   measures ~203px, and 34% is short of that, so the last card was sliced across
+   the canvas's top edge and the more-chip — the one control that says the rest
+   is there — was cut in half with it. The floor is what a capped cell needs
+   with a little headroom; the half-pane ceiling is what keeps a short window
+   from handing the strip the whole pane. */
 .cal-grid.week {
   flex: none;
   grid-auto-rows: max-content;
   align-content: start;
-  max-height: 34%;
+  max-height: max(34%, min(216px, 50%));
   overflow-y: scroll;
   border-bottom: 1px solid var(--border-soft);
 }

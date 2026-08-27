@@ -1,9 +1,9 @@
 import { expect, test } from "./fixtures";
 
 // The sidebar's folder tree hard-clipped its last visible row against
-// the fixed bottom zone (Vault sync/Trash) when it overflowed. The scroller now
-// carries the same gated edge-fade idiom the table edges use:
-// .side-more-y paints a bottom mask only while it can still scroll down, so at
+// the fixed bottom zone (Vault sync/Trash) when it overflowed. The scroller
+// carries the app's shared gated edge-fade idiom (useEdgeFade):
+// .edge-more-y paints a bottom mask only while it can still scroll down, so at
 // the stop the last row renders crisp and a tree that fits never fades.
 // Runs against the deterministic mock backend (fresh page = fresh vault).
 
@@ -25,25 +25,25 @@ test("overflowing tree: fade while more is below, gone at the bottom stop", asyn
   expect(overflows(dims)).toBe(true);
 
   // at scroll 0 there is more below → the mask paints
-  await expect(scroll).toHaveClass(/side-more-y/);
+  await expect(scroll).toHaveClass(/edge-more-y/);
   const maskAt0 = await scroll.evaluate((el) => getComputedStyle(el).maskImage);
   expect(maskAt0).not.toBe("none");
 
   // at scroll 0 nothing is clipped above → no top fade
-  await expect(scroll).not.toHaveClass(/side-scrolled-y/);
+  await expect(scroll).not.toHaveClass(/edge-scrolled-y/);
 
   // mid-scroll both ends are clipped → both fades
   await scroll.evaluate((el) => {
     el.scrollTop = 40;
   });
-  await expect(scroll).toHaveClass(/side-more-y/);
-  await expect(scroll).toHaveClass(/side-scrolled-y/);
+  await expect(scroll).toHaveClass(/edge-more-y/);
+  await expect(scroll).toHaveClass(/edge-scrolled-y/);
 
   // bottom stop: the last row renders crisp — fade gone
   await scroll.evaluate((el) => {
     el.scrollTop = el.scrollHeight;
   });
-  await expect(scroll).not.toHaveClass(/side-more-y/);
+  await expect(scroll).not.toHaveClass(/edge-more-y/);
   // the top fade legitimately stays (we are scrolled off the top stop), but
   // the mask must no longer end transparent — that is the clipped-row cue
   const maskAtEnd = await scroll.evaluate((el) => getComputedStyle(el).maskImage);
@@ -67,7 +67,7 @@ test("tree that fits its pane never fades (SUB-627)", async ({ page }) => {
       scroll.evaluate((el) => el.scrollHeight <= el.clientHeight + 1)
     )
     .toBe(true);
-  await expect(scroll).not.toHaveClass(/side-more-y/);
+  await expect(scroll).not.toHaveClass(/edge-more-y/);
   const mask = await scroll.evaluate((el) => getComputedStyle(el).maskImage);
   expect(mask).toBe("none");
 });
@@ -82,7 +82,7 @@ test("collapsing a folder re-checks scrollability without a scroll event (SUB-62
   await page.setViewportSize({ width: 1280, height: 560 });
   await page.goto("/");
   const scroll = page.locator(".sidebar-scroll");
-  await expect(scroll).toHaveClass(/side-more-y/);
+  await expect(scroll).toHaveClass(/edge-more-y/);
 
   // shrinking the content is a geometry change that fires no scroll event —
   // the ResizeObserver is what keeps the gate honest
@@ -94,7 +94,7 @@ test("collapsing a folder re-checks scrollability without a scroll event (SUB-62
     .poll(async () =>
       scroll.evaluate((el) => ({
         fits: el.scrollHeight <= el.clientHeight + 1,
-        gated: el.classList.contains("side-more-y"),
+        gated: el.classList.contains("edge-more-y"),
       }))
     )
     .toEqual({ fits: true, gated: false });

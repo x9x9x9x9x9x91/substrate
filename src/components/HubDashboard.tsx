@@ -21,6 +21,7 @@ import {
 } from "../lib/wikilinks";
 import { parseHub, type HubCallout } from "../lib/hub";
 import { isTailedBareFence } from "../lib/fences";
+import type { HubFenceId } from "../lib/fenceRegistry";
 import { scanMdBlocks } from "../lib/mdblocks";
 import { embedQueryFor, parseViewSpec } from "../lib/embeds";
 import { collectCardsFences, parseCardsBlock, type CardsBlock } from "../lib/metriccards";
@@ -355,6 +356,68 @@ function HubCardsFence({ slot }: { slot: CardsSlot }) {
   return <MetricCardStrip cards={slot.block.cards} sharp={slot.sharp} cardValue={slot.cardValue} />;
 }
 
+/** What one fence's renderer is handed. `nextCards` is asked for the fence's
+    ordinal WITHIN this markdown chunk, and only by a renderer about to use
+    it — a cards fence that ends up a code box for want of inputs must not
+    consume a page slot that belongs to a real one. */
+interface HubFenceInput {
+  /** the fence body, without its opener and closer */
+  inner: string;
+  ctx: Ctx;
+  /** this block's position among the chunk's rendered children */
+  key: number;
+  nextCards: () => number;
+}
+
+/** A live hub fence, or `null` when this hub cannot draw it — a callout body
+    hands markdown a ctx with the widget inputs dropped, and a cards fence
+    past the page's last slot has nothing to draw. `null` falls through to the
+    code box, which is what a non-live fence gets anyway. */
+type HubFenceRenderer = (input: HubFenceInput) => ReactNode | null;
+
+/** THE hub's fence roster: which widget each machine fence mounts on the
+    canvas. Keyed by `HubFenceId`, so the registry's `hub: true` rows and this
+    map are the same set by construction — a fence declared live with no
+    renderer, or a renderer for a fence the registry does not declare, is a
+    `tsc` error rather than something a source scan has to go looking for.
+    Reached only after the tailed-bare-form guard in renderBlocks; each entry
+    still checks its own ctx, because that is per-hub, not per-lang. */
+const HUB_FENCE_RENDERERS: Record<HubFenceId, HubFenceRenderer> = {
+  view: ({ inner, ctx, key }) =>
+    ctx.view ? <HubViewFence key={key} inner={inner} view={ctx.view} /> : null,
+  chart: ({ inner, ctx, key }) =>
+    ctx.chart ? <HubChartFence key={key} inner={inner} chart={ctx.chart} /> : null,
+  progress: ({ inner, ctx, key }) =>
+    ctx.progress ? <HubProgressFence key={key} inner={inner} progress={ctx.progress} /> : null,
+  cards: ({ ctx, key, nextCards }) => {
+    if (ctx.cards === undefined) return null;
+    // the count is derived from position, never from a render-order counter,
+    // so a re-render can't shift a strip onto another fence's cards
+    const slot = ctx.cards.slot(nextCards());
+    return slot ? <HubCardsFence key={key} slot={slot} /> : null;
+  },
+  heatmap: ({ inner, ctx, key }) =>
+    ctx.heatmap ? <HubHeatmapFence key={key} inner={inner} heatmap={ctx.heatmap} /> : null,
+  calendar: ({ inner, ctx, key }) =>
+    ctx.calendar ? <HubCalendarFence key={key} inner={inner} calendar={ctx.calendar} /> : null,
+  timeline: ({ inner, ctx, key }) =>
+    ctx.timeline ? (
+      <TimelineFence
+        key={key}
+        inner={inner}
+        notes={ctx.timeline.notes}
+        schema={ctx.timeline.schema}
+        onOpenSource={ctx.timeline.onOpenSource}
+      />
+    ) : null,
+};
+
+/** The map read by a lang word taken off a fence opener — a string until this
+    lookup answers, which is why the cast is here and not at the call site. */
+function hubFenceRenderer(lang: string): HubFenceRenderer | undefined {
+  return (HUB_FENCE_RENDERERS as Record<string, HubFenceRenderer | undefined>)[lang];
+}
+
 /** The ctx for markdown nested inside a callout body or a plain quote (§5.2):
     that markdown is quoted TEXT, not a second dashboard surface, so a
     ```chart, ```cards, ```heatmap, ```progress, ```calendar or ```timeline
@@ -407,54 +470,26 @@ function renderBlocks(md: string, ctx: Ctx): ReactNode[] {
       // here would publish its config through the index. Falls through to the code box, which is what
       // stripMachineFences already assumes.
       const bareOnly = isTailedBareFence(lang, block.tail);
-      // fences the hub renders live; anything else stays a code box
-      if (bareOnly) {
-        out.push(
-          <pre className="hub-pre" key={k++}>
+      // fences the hub renders live come from the roster above; a lang with no
+      // row, a bare-form lang written with a tail, and a row that has no inputs
+      // to draw from all land on the same code box
+      const key = k++;
+      const live = bareOnly
+        ? null
+        : (hubFenceRenderer(lang)?.({
+            inner,
+            ctx,
+            key,
+            // this chunk's n-th cards fence is the page's (base + n)-th
+            nextCards: () => cardsSeen++,
+          }) ?? null);
+      out.push(
+        live ?? (
+          <pre className="hub-pre" key={key}>
             <code>{inner}</code>
           </pre>
-        );
-      } else if (lang === "view" && ctx.view !== undefined) {
-        out.push(<HubViewFence key={k++} inner={inner} view={ctx.view} />);
-      } else if (lang === "chart" && ctx.chart !== undefined) {
-        out.push(<HubChartFence key={k++} inner={inner} chart={ctx.chart} />);
-      } else if (lang === "heatmap" && ctx.heatmap !== undefined) {
-        out.push(<HubHeatmapFence key={k++} inner={inner} heatmap={ctx.heatmap} />);
-      } else if (lang === "progress" && ctx.progress !== undefined) {
-        out.push(<HubProgressFence key={k++} inner={inner} progress={ctx.progress} />);
-      } else if (lang === "calendar" && ctx.calendar !== undefined) {
-        out.push(<HubCalendarFence key={k++} inner={inner} calendar={ctx.calendar} />);
-      } else if (lang === "cards" && ctx.cards !== undefined) {
-        // this chunk's n-th cards fence is the page's (base + n)-th — the
-        // count is derived from position, never from a render-order counter,
-        // so a re-render can't shift a strip onto another fence's cards
-        const slot = ctx.cards.slot(cardsSeen++);
-        out.push(
-          slot ? (
-            <HubCardsFence key={k++} slot={slot} />
-          ) : (
-            <pre className="hub-pre" key={k++}>
-              <code>{inner}</code>
-            </pre>
-          )
-        );
-      } else if (lang === "timeline" && ctx.timeline !== undefined) {
-        out.push(
-          <TimelineFence
-            key={k++}
-            inner={inner}
-            notes={ctx.timeline.notes}
-            schema={ctx.timeline.schema}
-            onOpenSource={ctx.timeline.onOpenSource}
-          />
-        );
-      } else {
-        out.push(
-          <pre className="hub-pre" key={k++}>
-            <code>{inner}</code>
-          </pre>
-        );
-      }
+        )
+      );
       continue;
     }
     if (block.kind === "heading") {

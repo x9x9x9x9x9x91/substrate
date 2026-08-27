@@ -1,0 +1,164 @@
+{
+  "name": "props-and-search",
+  "summary": "a prop write reports the value it replaced, an empty list or null removes the key, numbers and bools round-trip as themselves, and the search index answers on title, body and prop VALUES - never on a prop's key",
+  "drift": ["search index maintenance", "prop read-back parity"],
+  "folder": "ParityProps",
+  "ops": [
+    {
+      "op": "create",
+      "title": "Zorblatt Recipe",
+      "type": "dish",
+      "body": "quorbling with fentwhistle\n",
+      "expect": {
+        "path": "ParityProps/Zorblatt Recipe.md",
+        "title": "Zorblatt Recipe"
+      }
+    },
+    {
+      "op": "setProp",
+      "path": "ParityProps/Zorblatt Recipe.md",
+      "key": "chef",
+      "value": "Grimsby",
+      "expect": {
+        "value": "Grimsby",
+        "prior": null
+      }
+    },
+    {
+      "op": "setProp",
+      "path": "ParityProps/Zorblatt Recipe.md",
+      "key": "chef",
+      "value": "Halvard",
+      "expect": {
+        "value": "Halvard",
+        "prior": "Grimsby"
+      }
+    },
+    {
+      "op": "search",
+      "q": "Halvard",
+      "expect": {
+        "paths": [
+          "ParityProps/Zorblatt Recipe.md"
+        ]
+      }
+    },
+    {
+      "op": "search",
+      "q": "quorbling",
+      "expect": {
+        "paths": [
+          "ParityProps/Zorblatt Recipe.md"
+        ]
+      }
+    },
+    {
+      "op": "search",
+      "q": "zorblatt",
+      "expect": {
+        "paths": [
+          "ParityProps/Zorblatt Recipe.md"
+        ]
+      }
+    },
+    {
+      "op": "search",
+      "q": "fentwhis",
+      "expect": {
+        "paths": [
+          "ParityProps/Zorblatt Recipe.md"
+        ]
+      }
+    },
+    {
+      "op": "search",
+      "q": "entwhistle",
+      "expect": {
+        "paths": []
+      }
+    },
+    {
+      "op": "setProp",
+      "path": "ParityProps/Zorblatt Recipe.md",
+      "key": "tags",
+      "value": [
+        "quorb",
+        "fent"
+      ],
+      "expect": {
+        "value": [
+          "quorb",
+          "fent"
+        ],
+        "prior": null
+      }
+    },
+    {
+      "op": "setProp",
+      "path": "ParityProps/Zorblatt Recipe.md",
+      "key": "tags",
+      "value": [],
+      "expect": {
+        "value": null,
+        "prior": [
+          "quorb",
+          "fent"
+        ]
+      }
+    },
+    {
+      "op": "setProp",
+      "path": "ParityProps/Zorblatt Recipe.md",
+      "key": "chef",
+      "value": null,
+      "expect": {
+        "value": null,
+        "prior": "Halvard"
+      }
+    },
+    {
+      "op": "search",
+      "q": "Halvard",
+      "expect": {
+        "paths": []
+      }
+    },
+    {
+      "op": "setProp",
+      "path": "ParityProps/Zorblatt Recipe.md",
+      "key": "servings",
+      "value": 4,
+      "expect": {
+        "value": 4,
+        "prior": null
+      }
+    },
+    {
+      "op": "setProp",
+      "path": "ParityProps/Zorblatt Recipe.md",
+      "key": "servings",
+      "value": "4",
+      "expect": {
+        "value": "4",
+        "prior": 4
+      }
+    },
+    {
+      "op": "setProp",
+      "path": "ParityProps/Zorblatt Recipe.md",
+      "key": "vegan",
+      "value": true,
+      "expect": {
+        "value": true,
+        "prior": null
+      }
+    },
+    {
+      "op": "search",
+      "q": "vegan",
+      "expect": {
+        "paths": []
+      }
+    }
+  ]
+}

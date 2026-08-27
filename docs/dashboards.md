@@ -970,10 +970,12 @@ new row:
 3. **Write the parser and renderer.** A `parse…Blocks(body)` function in its
    own module and a component that draws the parsed config; the existing
    pairs — chart, heatmap, calendar — are the templates to copy.
-4. **Dispatch it on the hub canvas**: one branch in `renderMarkdown` in
-   `src/components/HubDashboard.tsx`, beside the others. A registry pin in
-   `src/lib/fenceRegistry.test.ts` scans that dispatch chain and fails when
-   it and the registry's hub set drift apart.
+4. **Dispatch it on the hub canvas**: one row in the renderer map in
+   `src/components/HubDashboard.tsx`, beside the others. The map is keyed by
+   the registry's own hub ids, so a row you declared live and never wrote a
+   renderer for does not compile — there is no list to remember to update.
+   `src/lib/hubFenceDispatch.component.test.ts` then renders every declared
+   fence and fails if one comes back a code box.
 5. **Give it a `/` scaffold** in `src/lib/slashmenu.ts`, so typing `/` in the
    editor offers the fence with a ready body and the cursor placed inside.
 

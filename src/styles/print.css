@@ -20,6 +20,23 @@
     display: none !important;
   }
 
+  /* Printing is something the app does FOR a surface: every Print / Export PDF
+     action fills #print-surface and only then opens the dialog, and hiding the
+     app is what lets the surface be the page. A print the app did not stage —
+     ⌘P, or a browser print preview — reaches this same block with the surface
+     empty or not built yet, and hid the app against nothing: a blank sheet,
+     which reads as a broken printer rather than as an answer. The page now
+     says what happened, in the paper voice the surface itself prints in. */
+  body:not(:has(#print-surface > *))::after {
+    content: "Nothing is staged to print — use this pane's own Print or Export PDF action.";
+    display: block;
+    padding: 24px;
+    color: #1b1e22;
+    font-family: var(--font);
+    font-size: 12.5px;
+    line-height: 1.65;
+  }
+
   #print-surface {
     display: block;
     color: #1b1e22;

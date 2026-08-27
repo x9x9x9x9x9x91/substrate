@@ -21,7 +21,7 @@ test("a database name becomes a view page, and the strip switches to it", async 
   await expect(tabs.nth(4)).toHaveText("release");
   await expect(tabs.nth(4)).toHaveClass(/active/);
   // it is a real page, not an error entry
-  await expect(page.locator(".wb-page-err")).toHaveCount(0);
+  await expect(page.locator(".note .dash-alert")).toHaveCount(0);
   await expect(page.locator(".wb-view-table")).toBeVisible();
   // the pages already there are untouched
   await expect(tabs.nth(1)).toHaveText("Cash");

@@ -82,14 +82,13 @@ test("every registry fence has a /slash scaffold, so a new entry cannot ship unt
   }
 });
 
-test("the hub canvas dispatches exactly the registry's hub set", async () => {
-  // read the dispatch chain out of the source the way check-kinds.ts reads
-  // kind inventories: renderMarkdown's `lang === "x"` comparisons ARE the
-  // hub's fence roster, and nothing else ties them to the registry. The
-  // if-chain's literal shape is load-bearing for this scan — refolding it
-  // into a map or switch needs this pattern updated with it
-  const { readFile } = await import("node:fs/promises");
-  const src = await readFile(new URL("../components/HubDashboard.tsx", import.meta.url), "utf8");
-  const dispatched = new Set([...src.matchAll(/\blang === "([a-z-]+)"/g)].map((m) => m[1]));
-  assert.deepEqual(dispatched, new Set(HUB_FENCE_LANGS));
-});
+/* The hub's dispatch roster used to be pinned here by READING
+   HubDashboard.tsx and counting its `lang === "…"` comparisons — the only tie
+   there was between the registry and a hand-ordered if-chain. The canvas now
+   holds a renderer map keyed by `HubFenceId`, so that tie is the compiler's:
+   a `hub: true` row with no renderer and a renderer for a row that does not
+   exist are both build errors, and neither can be written past by a source
+   scan that matched a comparison in a comment. What a type cannot check —
+   that the map is actually reached, rather than complete and unused — is
+   pinned by rendering every declared fence in
+   `hubFenceDispatch.component.test.ts`. */

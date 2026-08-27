@@ -1,0 +1,20 @@
+{
+  "name": "rename-case-collision",
+  "summary": "a rename onto a name another note already holds is refused case-insensitively, while a case-only rename of the note itself is allowed",
+  "drift": ["case-collision refusal"],
+  "folder": "ParityRenameCollision",
+  "requires": ["case-insensitive-fs"],
+  "ops": [
+    { "op": "create", "title": "Alpha", "expect": { "path": "ParityRenameCollision/Alpha.md", "title": "Alpha" } },
+    { "op": "create", "title": "Beta", "expect": { "path": "ParityRenameCollision/Beta.md", "title": "Beta" } },
+    { "op": "rename", "path": "ParityRenameCollision/Beta.md", "title": "ALPHA", "expect": { "error": "a note named “ALPHA” already exists here" } },
+    { "op": "list", "expect": { "paths": ["ParityRenameCollision/Alpha.md", "ParityRenameCollision/Beta.md"] } },
+    {
+      "op": "rename",
+      "path": "ParityRenameCollision/Alpha.md",
+      "title": "ALPHA",
+      "expect": { "path": "ParityRenameCollision/ALPHA.md", "title": "ALPHA", "touched": ["ParityRenameCollision/ALPHA.md"] }
+    },
+    { "op": "list", "expect": { "paths": ["ParityRenameCollision/ALPHA.md", "ParityRenameCollision/Beta.md"] } }
+  ]
+}

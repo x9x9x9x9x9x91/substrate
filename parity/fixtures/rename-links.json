@@ -1,0 +1,35 @@
+{
+  "name": "rename-links",
+  "summary": "a rename rewrites every [[wikilink]] aimed at the old title or stem, leaves ![[embeds]] alone, reports every note it rewrote, and keeps the exact title as a title: prop only when sanitizing changed it",
+  "drift": ["rename link rewriting"],
+  "folder": "ParityRenameLinks",
+  "ops": [
+    { "op": "create", "title": "Alpha", "body": "seed line\n", "expect": { "path": "ParityRenameLinks/Alpha.md", "title": "Alpha" } },
+    { "op": "create", "title": "Beta", "body": "see [[Alpha]] and ![[Alpha]] and [[Alpha#heading|display]]\n", "expect": { "path": "ParityRenameLinks/Beta.md", "title": "Beta" } },
+    { "op": "create", "title": "Gamma", "body": "no link here\n", "expect": { "path": "ParityRenameLinks/Gamma.md", "title": "Gamma" } },
+    {
+      "op": "rename",
+      "path": "ParityRenameLinks/Alpha.md",
+      "title": "Alpha Prime",
+      "expect": {
+        "path": "ParityRenameLinks/Alpha Prime.md",
+        "title": "Alpha Prime",
+        "touched": ["ParityRenameLinks/Alpha Prime.md", "ParityRenameLinks/Beta.md"]
+      }
+    },
+    { "op": "body", "path": "ParityRenameLinks/Beta.md", "expect": { "body": "see [[Alpha Prime]] and ![[Alpha]] and [[Alpha Prime#heading|display]]\n" } },
+    { "op": "body", "path": "ParityRenameLinks/Gamma.md", "expect": { "body": "no link here\n" } },
+    { "op": "note", "path": "ParityRenameLinks/Alpha Prime.md", "expect": { "title": "Alpha Prime", "type": null, "excerpt": "seed line" } },
+    {
+      "op": "rename",
+      "path": "ParityRenameLinks/Gamma.md",
+      "title": "Gamma: Two",
+      "expect": {
+        "path": "ParityRenameLinks/Gamma Two.md",
+        "title": "Gamma: Two",
+        "touched": ["ParityRenameLinks/Gamma Two.md"]
+      }
+    },
+    { "op": "list", "expect": { "paths": ["ParityRenameLinks/Alpha Prime.md", "ParityRenameLinks/Beta.md", "ParityRenameLinks/Gamma Two.md"] } }
+  ]
+}

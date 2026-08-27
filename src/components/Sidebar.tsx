@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import type { DbIcon, DriveInfo, FolderMetaMap, NoteMeta, SavedView, TagFolder, View } from "../lib/types";
 import { viewKey } from "../lib/types";
 import { vaultRoot } from "../lib/ipc";
@@ -20,6 +20,7 @@ import { keyForTarget, keyLabel } from "../lib/keyassign";
 import { tooltip } from "./Tooltip";
 import { tagFolderSummary } from "../lib/tags";
 import { shelfRowHint } from "../lib/shelf";
+import { useEdgeFade } from "../hooks/useEdgeFade";
 import InlineEdit from "./InlineEdit";
 import InfoView from "./InfoView";
 import TypeIcon from "./TypeIcon";
@@ -277,28 +278,6 @@ function Sidebar({
       .catch(() => undefined);
   }, []);
 
-  // Geometry changes that fire no scroll event still flip the gate —
-  // a resized window moves clientHeight, expanding/collapsing a folder moves
-  // scrollHeight. ResizeObserver catches the first, MutationObserver the
-  // second; both are mount-once, so nothing runs per render or per frame.
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const sync = () => {
-      setScrolledY(el.scrollTop > 0);
-      setMoreBelow(el.scrollTop < el.scrollHeight - el.clientHeight - 1);
-    };
-    sync();
-    const ro = new ResizeObserver(sync);
-    ro.observe(el);
-    const mo = new MutationObserver(sync);
-    mo.observe(el, { childList: true, subtree: true });
-    return () => {
-      ro.disconnect();
-      mo.disconnect();
-    };
-  }, []);
-
   const foldersOpen = !collapsedIds.includes("folders");
   const dashboardsOpen = !collapsedIds.includes("dashboards");
   const pinnedOpen = !collapsedIds.includes("pinned");
@@ -306,13 +285,15 @@ function Sidebar({
   // a note dragged over the Pinned section highlights the section
   const [pinDrop, setPinDrop] = useState(false);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const [scrolledY, setScrolledY] = useState(false);
   // The tree's last visible row was hard-clipped by .side-bottom's
-  // divider when it overflowed — nothing said "more below". Same gate idiom
-  // the table edges use: paint the fade only while the scroller can
-  // still move, so at the stop the last row renders crisp.
-  const [moreBelow, setMoreBelow] = useState(false);
-  const scrollRef = useRef<HTMLDivElement | null>(null);
+  // divider when it overflowed — nothing said "more below". The rail rode its
+  // own copy of the gate for a while; it now takes the shared one, which is
+  // what stops the fade from dissolving a row that is already all the way on
+  // screen with only the scroller's trailing padding left to travel.
+  const fade = useEdgeFade<HTMLDivElement>();
+  // the head's hairline turns on with the tree's top fade — same fact, read
+  // off the gate the scroller already publishes
+  const scrolledY = fade.className.includes(" edge-scrolled-y");
   const [dropFolder, setDropFolder] = useState<string | null>(null);
   // the tag folder a dragged note is hovering — its own state, not
   // dropFolder's, because the two lanes mean different things: one moves the
@@ -1204,17 +1185,7 @@ function Sidebar({
       </div>
       {/* An unchanged boolean bails out of re-render, so the rail
           only re-renders when the header hairline actually flips */}
-      <div
-        className={`sidebar-scroll${scrolledY ? " side-scrolled-y" : ""}${
-          moreBelow ? " side-more-y" : ""
-        }`}
-        ref={scrollRef}
-        onScroll={(e) => {
-          const el = e.currentTarget;
-          setScrolledY(el.scrollTop > 0);
-          setMoreBelow(el.scrollTop < el.scrollHeight - el.clientHeight - 1);
-        }}
-      >
+      <div className={`sidebar-scroll${fade.className}`} {...fade.props}>
         {item("today", "Today", <SunIcon />, () => setView({ kind: "today" }), undefined, "⌘1")}
         {item("notes", "Notes", <NotesIcon />, () => setView({ kind: "notes" }), scratchCount, "⌘2")}
         {item("all", "All notes", <NoteIcon />, () => setView({ kind: "all" }), undefined, "⌘3")}

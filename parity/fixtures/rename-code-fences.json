@@ -1,0 +1,77 @@
+{
+  "name": "rename-code-fences",
+  "summary": "a [[wikilink]] inside a fenced or inline code span is an example of the syntax, not a link: a rename leaves it exactly as written",
+  "drift": ["rename link rewriting"],
+  "folder": "ParityRenameFences",
+  "pendingMock": "the mock's rename regex has no code-fence awareness, so it rewrites [[wikilinks]] inside fenced and inline code and a rename edits a note's documented examples; the engine skips them (vault/mod.rs rename_tracked, in_code). Only the two body reads below see that difference — every other op here runs against the mock strictly, and each marked op fails the run the day the mock stops diverging.",
+  "ops": [
+    {
+      "op": "create",
+      "title": "Src",
+      "body": "x\n",
+      "expect": {
+        "path": "ParityRenameFences/Src.md",
+        "title": "Src"
+      }
+    },
+    {
+      "op": "create",
+      "title": "Ref",
+      "body": "live [[Src]]\n```\n[[Src]]\n```\ninline `[[Src]]`\n",
+      "expect": {
+        "path": "ParityRenameFences/Ref.md",
+        "title": "Ref"
+      }
+    },
+    {
+      "op": "create",
+      "title": "Selfy",
+      "body": "self [[Selfy]] and\n```\n[[Selfy]]\n```\n",
+      "expect": {
+        "path": "ParityRenameFences/Selfy.md",
+        "title": "Selfy"
+      }
+    },
+    {
+      "op": "rename",
+      "path": "ParityRenameFences/Src.md",
+      "title": "Dst",
+      "expect": {
+        "path": "ParityRenameFences/Dst.md",
+        "title": "Dst",
+        "touched": [
+          "ParityRenameFences/Dst.md",
+          "ParityRenameFences/Ref.md"
+        ]
+      }
+    },
+    {
+      "op": "body",
+      "path": "ParityRenameFences/Ref.md",
+      "pendingMock": true,
+      "expect": {
+        "body": "live [[Dst]]\n```\n[[Src]]\n```\ninline `[[Src]]`\n"
+      }
+    },
+    {
+      "op": "rename",
+      "path": "ParityRenameFences/Selfy.md",
+      "title": "Selfish",
+      "expect": {
+        "path": "ParityRenameFences/Selfish.md",
+        "title": "Selfish",
+        "touched": [
+          "ParityRenameFences/Selfish.md"
+        ]
+      }
+    },
+    {
+      "op": "body",
+      "path": "ParityRenameFences/Selfish.md",
+      "pendingMock": true,
+      "expect": {
+        "body": "self [[Selfish]] and\n```\n[[Selfy]]\n```\n"
+      }
+    }
+  ]
+}

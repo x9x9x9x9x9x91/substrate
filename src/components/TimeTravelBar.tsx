@@ -24,6 +24,21 @@ const exactTime = (ms: number) =>
     minute: "2-digit",
   }).format(ms);
 
+/** The line under the bar's title: when a snapshot was committed under a real
+    label the line names it after the time, and when it wasn't the line is just
+    the time and the word.
+
+    Both backends fall back to the literal subject "snapshot" for an unlabelled
+    commit (`gitsync.rs`, and the browser mock alongside it), so appending the
+    subject unconditionally read "… snapshot · snapshot" for every ordinary
+    point in the history — the same word twice, offered as if it were extra. */
+export function snapshotLine(when: string, subject?: string | null): string {
+  const named = (subject ?? "").trim();
+  return named && named.toLowerCase() !== "snapshot"
+    ? `${when} snapshot · ${named}`
+    : `${when} snapshot`;
+}
+
 export default function TimeTravelBar({
   points,
   active,
@@ -67,7 +82,7 @@ export default function TimeTravelBar({
           {error
             ? error
             : picked
-              ? `${exactTime(picked.ts_ms)} snapshot${picked.subject ? ` · ${picked.subject}` : ""}`
+              ? snapshotLine(exactTime(picked.ts_ms), picked.subject)
               : busy
                 ? "Reading version history…"
                 : "No snapshots yet"}

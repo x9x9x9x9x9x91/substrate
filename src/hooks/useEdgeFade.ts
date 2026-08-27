@@ -1,13 +1,31 @@
 import { useCallback, useEffect, useState } from "react";
 
+/** How much of the scroller's own CONTENT is still hidden past the far edge.
+ *
+ * A scroller's trailing padding is part of its scrollable length but none of
+ * it is content: a settings tab whose last row is fully on screen still had
+ * 34px of padding left to travel, so the gate stayed open and the fade ate
+ * the copy of a row the reader had already reached. Discounting the padding
+ * is what makes "there is more below" mean it. */
+function hiddenAhead(el: HTMLElement, axis: Axis) {
+  const cs = getComputedStyle(el);
+  return axis === "x"
+    ? el.scrollWidth - el.clientWidth - el.scrollLeft - (parseFloat(cs.paddingRight) || 0)
+    : el.scrollHeight - el.clientHeight - el.scrollTop - (parseFloat(cs.paddingBottom) || 0);
+}
+
+const startOffset = (el: HTMLElement, axis: Axis) => (axis === "x" ? el.scrollLeft : el.scrollTop);
+
+type Axis = "x" | "y";
+
 /**
- * Vertical scroll affordance. The sidebar tree and the
+ * Scroll affordance for one axis. The sidebar tree and the
  * table edges each grew their own copy of the same gate: a
  * mask-image fade that paints only on the side the scroller can still move
  * toward, so the row at a scroll stop stays crisp and a surface that fits
  * never fades at all. This is that gate, once — a caller opts in by calling
  * the hook and spreading its props; the hook emits `edge-fade-y` and the
- * direction classes itself.
+ * direction classes itself, or the `-x` family when asked for the other axis.
  *
  * Spread the returned props onto the scrolling element:
  *
@@ -22,16 +40,16 @@ import { useCallback, useEffect, useState } from "react";
  * grown underneath a scroller that never moved — characterData included, so
  * a pure text-node write deep in the list re-gates too.
  */
-export function useEdgeFade<T extends HTMLElement = HTMLDivElement>() {
+export function useEdgeFade<T extends HTMLElement = HTMLDivElement>(axis: Axis = "y") {
   const [el, setEl] = useState<T | null>(null);
   const [scrolled, setScrolled] = useState(false);
   const [more, setMore] = useState(false);
 
   const sync = useCallback(() => {
     if (!el) return;
-    setScrolled(el.scrollTop > 0);
-    setMore(el.scrollTop < el.scrollHeight - el.clientHeight - 1);
-  }, [el]);
+    setScrolled(startOffset(el, axis) > 0);
+    setMore(hiddenAhead(el, axis) > 1);
+  }, [el, axis]);
 
   // The gate state belongs to the node, so it is re-taken at every attach and
   // dropped at every detach. One hook instance can serve a scroller that MOVES
@@ -45,11 +63,14 @@ export function useEdgeFade<T extends HTMLElement = HTMLDivElement>() {
   // render, so React detaches and re-attaches the SAME node): clearing alone
   // would blank the fade on every render and never restore it, because `el`
   // never changes and the effect below never re-runs.
-  const ref = useCallback((node: T | null) => {
-    setEl(node);
-    setScrolled(!!node && node.scrollTop > 0);
-    setMore(!!node && node.scrollTop < node.scrollHeight - node.clientHeight - 1);
-  }, []);
+  const ref = useCallback(
+    (node: T | null) => {
+      setEl(node);
+      setScrolled(!!node && startOffset(node, axis) > 0);
+      setMore(!!node && hiddenAhead(node, axis) > 1);
+    },
+    [axis]
+  );
 
   useEffect(() => {
     if (!el) return;
@@ -69,7 +90,7 @@ export function useEdgeFade<T extends HTMLElement = HTMLDivElement>() {
   }, [el, sync]);
 
   return {
-    className: ` edge-fade-y${scrolled ? " edge-scrolled-y" : ""}${more ? " edge-more-y" : ""}`,
+    className: ` edge-fade-${axis}${scrolled ? ` edge-scrolled-${axis}` : ""}${more ? ` edge-more-${axis}` : ""}`,
     props: { ref, onScroll: sync },
   };
 }

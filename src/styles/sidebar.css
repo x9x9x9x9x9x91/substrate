@@ -184,48 +184,13 @@ button.side-item {
   padding-bottom: 6px;
 }
 
-/* An overflowing tree used to hard-clip its last row against
-   .side-bottom's divider — half a row, and nothing saying more was below.
-   Same gate idiom as the table edges: the fade paints only
-   while the scroller can still move down, so at the stop the last row
-   renders crisp, and a tree that fits never fades. A mask, not a scrim, so
-   it needs no background token and can't drift from the sidebar's ground. */
-.sidebar-scroll.side-more-y {
-  -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 20px), transparent);
-  mask-image: linear-gradient(to bottom, black calc(100% - 20px), transparent);
-}
-
-/* the head's hairline already says rows passed under it, but the row
-   itself still clipped mid-glyph — same gate, other end, off at scroll 0 */
-.sidebar-scroll.side-scrolled-y {
-  -webkit-mask-image: linear-gradient(to bottom, transparent, black 14px);
-  mask-image: linear-gradient(to bottom, transparent, black 14px);
-}
-
-.sidebar-scroll.side-scrolled-y.side-more-y {
-  -webkit-mask-image: linear-gradient(
-    to bottom,
-    transparent,
-    black 14px,
-    black calc(100% - 20px),
-    transparent
-  );
-  mask-image: linear-gradient(
-    to bottom,
-    transparent,
-    black 14px,
-    black calc(100% - 20px),
-    transparent
-  );
-}
-
 /* The same gate, generalised. Surfaces were clipping content
    mid-glyph at a container edge with nothing saying more was there; rather
    than a bespoke fade each, any scroller opting in via useEdgeFade() gets this
    one — a dozen call sites by now, across settings, Today, the charts
    dashboard, the database manager, the palette, the shortcut overlay, the
    calendar (agenda and expanded cell) and the db board/list/gallery bodies.
-   The list moves; `grep -rn useEdgeFade src/components` is the current one. Depths match the sidebar (14px in, 20px out) so every fade in the app
+   The list moves; `grep -rn useEdgeFade src/components` is the current one. Depths are 14px in and 20px out on every axis, so every fade in the app
    reads the same. Mask, not scrim: no background token, no theme coupling.
    scroll-padding mirrors the band depths: keyboard walks land rows via
    scrollIntoView(nearest), which otherwise aligns the selected row flush
@@ -256,6 +221,42 @@ button.side-item {
   );
   mask-image: linear-gradient(
     to bottom,
+    transparent,
+    black 14px,
+    black calc(100% - 20px),
+    transparent
+  );
+}
+
+/* The sideways half of the same gate, for a table wider than the box that
+   shows it: the right band says columns continue past the edge, the left one
+   says columns passed behind it, and a table that fits carries neither. */
+.edge-fade-x {
+  overflow-x: auto;
+  scroll-padding-left: 14px;
+  scroll-padding-right: 20px;
+}
+
+.edge-fade-x.edge-more-x {
+  -webkit-mask-image: linear-gradient(to right, black calc(100% - 20px), transparent);
+  mask-image: linear-gradient(to right, black calc(100% - 20px), transparent);
+}
+
+.edge-fade-x.edge-scrolled-x {
+  -webkit-mask-image: linear-gradient(to right, transparent, black 14px);
+  mask-image: linear-gradient(to right, transparent, black 14px);
+}
+
+.edge-fade-x.edge-scrolled-x.edge-more-x {
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent,
+    black 14px,
+    black calc(100% - 20px),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to right,
     transparent,
     black 14px,
     black calc(100% - 20px),

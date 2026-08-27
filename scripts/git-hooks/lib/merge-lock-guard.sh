@@ -10,7 +10,7 @@
 # The hole it closes: the merge lock (scripts/with-merge-lock.sh) serializes
 # merge trains by convention, but a session that never took it can still
 # `git commit` straight onto main in .worktrees/_main mid-train. That commit
-# becomes an ungated rider on the train's push — push-gated-main.sh catches it
+# becomes an ungated rider on the train's push — the gated-sha push catches it
 # and aborts, which is correct but leaves the train stalled and the recovery
 # (resetting local main back to the gated tip) is a hard reset a session may
 # not perform unattended. Refusing the commit is the cheap end of that.
@@ -96,7 +96,8 @@ merge_lock_guard() {
     printf '%s\n' \
       "A commit landing on main now is an ungated" \
       "rider on that train's push: the push aborts, and unwinding it takes a hard reset" \
-      "of local main (scripts/drop-rider.sh)." \
+      "of local main back to the gated tip." >&2
+    printf '%s\n' \
       "" \
       "Wait for pid $holder to finish, or route this commit through the lock:" \
       "  scripts/with-merge-lock.sh --wait bash -c 'git commit -m \"docs: …\"'" \
