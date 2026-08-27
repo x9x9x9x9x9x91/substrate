@@ -33,7 +33,7 @@ import { useNumberLocale } from "../hooks/useNumberLocale";
 import { DashHead, DashPrintButton } from "./DashHead";
 import { dashboardSheets, type DashboardSheetState } from "../lib/dashboardSheets";
 import { useFxRates } from "./useFx";
-import { DashAlert, DashEmpty } from "./DashNotice";
+import { DashAlert, DashEmpty, DashFoot } from "./DashNotice";
 import { errText } from "../lib/errtext";
 
 interface HeatmapDashboardProps {
@@ -144,7 +144,7 @@ function HeatmapPlot({ config, tally }: { config: HeatmapConfig; tally: HeatmapT
   const readout =
     cur !== null
       ? dayLabel(days.get(cur)!, config)
-      : `${year} · ${grid.active} ${grid.active === 1 ? "day" : "days"} with rows · ${fmtNum(grid.total)} total`;
+      : `${year} — ${grid.active} ${grid.active === 1 ? "day" : "days"} with rows, ${fmtNum(grid.total)} total`;
 
   return (
     <div className="heatmap">
@@ -292,10 +292,12 @@ function HeatmapSection({
       ) : (
         <HeatmapPlot config={c} tally={tally} />
       )}
-      <div className="dash-foot" style={{ margin: "10px 0 0" }}>
-        {heatmapSourceDesc(c)}
-        {tally && tally.skipped > 0 ? ` · ${tally.skipped} rows skipped` : ""}
-      </div>
+      <DashFoot
+        facts={[
+          heatmapSourceDesc(c),
+          tally && tally.skipped > 0 ? `${tally.skipped} rows skipped` : "",
+        ]}
+      />
     </div>
   );
 }

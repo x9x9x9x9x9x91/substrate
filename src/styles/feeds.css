@@ -1,45 +1,49 @@
 
-/* Topic chips: the same quiet-chip chrome as .feed-vote, sitting
-   between head and stream. "all" is a real chip so the cleared state reads as
-   a selection, not an absence; active chips lift with hover-tier chrome
-   rather than a color fill — the topic dot already carries the hue. */
+/* Topic chips: a toggle group, so it wears labelled underline-dashes rather
+   than the bordered rounded pills principle 5 names (and principle 2 keeps
+   uppercase mono for data labels, not topic names). "all" is a real chip so
+   the cleared state reads as a selection, not an absence; the topic dot still
+   carries the hue, and the dash carries the on/off. */
 .feed-filter {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 14px;
   margin-top: 16px;
 }
 
 .feed-chip {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 24px;
-  padding: 0 10px;
-  border: 1px solid var(--border-soft);
-  border-radius: 12px;
+  padding: 2px 1px 6px;
+  border: 0;
+  border-radius: 0;
   background: none;
   font: var(--dash-label);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-3);
+  letter-spacing: 0.04em;
+  color: var(--text-4);
   cursor: pointer;
-  transition:
-    color 120ms ease-out,
-    background 120ms ease-out,
-    border-color 120ms ease-out;
+  transition: color 120ms ease-out;
 }
 
 .feed-chip:hover {
-  background: var(--hover);
-  border-color: var(--border);
-  color: var(--text-1);
+  color: var(--text-2);
 }
 
 .feed-chip.is-on {
-  background: var(--hover);
-  border-color: var(--border-strong);
   color: var(--text-1);
+}
+
+/* the switcher's mark, so one gesture reads as "on" everywhere */
+.feed-chip.is-on::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--text-2);
 }
 
 /* the curator's own stamp, in the head's actions slot */

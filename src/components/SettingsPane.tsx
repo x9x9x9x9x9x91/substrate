@@ -1642,9 +1642,12 @@ export default function SettingsPane({
           )}
         </div>
         <div className="palette-foot">
+          {/* one fact per span, the palette's own idiom — the two used to be
+              middot-chained inside a single one (principle 6) */}
           <span>
-            <span className="key">esc</span> close · changes apply within a second
+            <span className="key">esc</span> close
           </span>
+          <span>changes apply within a second</span>
         </div>
       </div>
       {/* stop the mousedown here: the settings overlay closes on any

@@ -37,7 +37,7 @@ import type { ChartSize } from "../lib/styletokens";
 import { useHistoryLanes } from "./useHistory";
 import { DashHead, DashPrintButton } from "./DashHead";
 import { optionColor } from "./SelectMenu";
-import { DashAlert, DashEmpty } from "./DashNotice";
+import { DashAlert, DashEmpty, DashFoot } from "./DashNotice";
 import { errText } from "../lib/errtext";
 
 interface ChartsDashboardProps {
@@ -805,13 +805,15 @@ function ChartSection({
           ) : null}
         </>
       )}
-      <div className="dash-foot" style={{ margin: "10px 0 0" }}>
-        {sourceDesc ?? chartSourceDesc(c)} · {series?.points.length ?? 0}{" "}
-        {series && series.points.length === 1 ? "point" : "points"}
-        {series && series.skipped > 0
-          ? ` · ${series.skipped} ${c.bind === "history" ? "non-numeric values" : "rows"} skipped`
-          : ""}
-      </div>
+      <DashFoot
+        facts={[
+          sourceDesc ?? chartSourceDesc(c),
+          `${series?.points.length ?? 0} ${series && series.points.length === 1 ? "point" : "points"}`,
+          series && series.skipped > 0
+            ? `${series.skipped} ${c.bind === "history" ? "non-numeric values" : "rows"} skipped`
+            : "",
+        ]}
+      />
     </div>
   );
 }
@@ -1075,7 +1077,7 @@ export default function ChartsDashboard({
       : null,
   ]
     .filter((part): part is string => part !== null)
-    .join(" · ");
+    .join(", ");
 
   return (
     <div className={`note${fade.className}`} {...fade.props}>

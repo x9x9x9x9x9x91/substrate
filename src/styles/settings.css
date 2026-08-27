@@ -383,11 +383,24 @@
   margin-top: 8px;
 }
 
-/* the sheet's section headings reuse the palette's label voice; they need
-   room above them because a settings row is taller than a palette row —
-   except the one that opens a tab, which has the strip right above it */
+/* The sheet's section headings are sentence-case Inter (principle 2): a
+   settings heading names a group of prose rows, and the uppercase mono voice
+   it used to borrow from the palette is reserved for data labels — a column,
+   a unit, a field. The palette itself keeps that voice, since its sections
+   label a machine index rather than a page. They need room above them because
+   a settings row is taller than a palette row — except the one that opens a
+   tab, which has the strip right above it.
+   The size comes from --dash-sentence rather than a literal: principle 2
+   defines the four voices as tokens and calls a fresh font-size in a
+   surface rule a bug, so only the weight is set here — a heading sits one
+   step above the prose rows it names, and weight is the step that costs no
+   new token. */
 .settings-sheet .palette-section {
   margin-top: 10px;
+  font: var(--dash-sentence);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .settings-sheet .shortcut-sheet-body > .palette-section:first-child {

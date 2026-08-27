@@ -73,7 +73,7 @@ test("a fence-only hub heads with its block count, not \"0 sections · 0 cards\"
   // a hub with sections and cards keeps its counts, zero segments dropped
   await page.locator(".side-item", { hasText: "Umbra Home" }).click();
   await expect(page.locator(".dash-title")).toHaveText("Umbra Home");
-  await expect(page.locator(".dash-state")).toHaveText(/sections · .*cards/);
+  await expect(page.locator(".dash-state")).toHaveText(/sections, .*cards/);
   await expect(page.locator(".dash-state")).not.toContainText("0 sections");
 });
 

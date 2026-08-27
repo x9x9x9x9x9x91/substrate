@@ -85,7 +85,7 @@ test("a board carrying both counts both, charts first", async (t) => {
     "```chart\n" + "source: release\nx: released:month\ny: count\n" + "```\n";
   const rendered = await charts(t, fence, 3);
 
-  assert.equal(rendered.one(".dash-state")?.textContent, "1 chart · 3 heatmaps");
+  assert.equal(rendered.one(".dash-state")?.textContent, "1 chart, 3 heatmaps");
   // it is a chart board that also hangs heatmaps, so the foot stays the
   // charts sentence
   assert.match(rendered.text(), /Charts are chart fences in this note/);

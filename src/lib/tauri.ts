@@ -2380,6 +2380,78 @@ function mockValidateNoteTitle(title: string, slug: string) {
     throw new Error("titles cannot contain control characters");
 }
 
+/** Offset ranges of `body` that are literal code: fenced blocks (``` or ~~~,
+    any language) and inline `code` spans.
+
+    Twin of `code_ranges` in `src-tauri/src/vault/mod.rs` — the two must agree,
+    or a rename rewrites the example links in a note's own documentation here
+    and leaves them alone in the real app.
+
+    Fence rule (CommonMark-shaped, deliberately lenient): a line whose first
+    non-space run is 3+ backticks or tildes opens; the next line whose run is
+    the same character and at least as long closes it; end of body closes an
+    unclosed fence. Inline spans are same-line only — an opening run of N
+    backticks closes at the next run of exactly N, and an unterminated run
+    opens nothing. */
+function mockCodeRanges(body: string): [number, number][] {
+  const out: [number, number][] = [];
+  // marker char, opening run length, block start offset
+  let fence: [string, number, number] | null = null;
+  let at = 0;
+  for (const line of body.split(/(?<=\n)/)) {
+    const trimmed = line.replace(/^\s+/, "");
+    const indent = line.length - trimmed.length;
+    const first = trimmed[0];
+    const marker = first === "`" || first === "~" ? first : null;
+    let run = 0;
+    if (marker) while (trimmed[run] === marker) run++;
+    if (fence) {
+      const [openMarker, openLen, start] = fence;
+      if (run >= 3 && marker === openMarker && run >= openLen) {
+        out.push([start, at + line.length]);
+        fence = null;
+      }
+    } else if (run >= 3) {
+      fence = [marker as string, run, at + indent];
+    } else {
+      // inline spans, this line only
+      let i = 0;
+      while (i < line.length) {
+        if (line[i] !== "`") {
+          i++;
+          continue;
+        }
+        const open = i;
+        while (i < line.length && line[i] === "`") i++;
+        const len = i - open;
+        let j = i;
+        while (j < line.length) {
+          if (line[j] !== "`") {
+            j++;
+            continue;
+          }
+          const close = j;
+          while (j < line.length && line[j] === "`") j++;
+          if (j - close === len) {
+            out.push([at + open, at + j]);
+            i = j;
+            break;
+          }
+        }
+        if (j >= line.length) break; // unterminated run opens nothing
+      }
+    }
+    at += line.length;
+  }
+  if (fence) out.push([fence[2], body.length]); // unclosed fence runs to end
+  return out;
+}
+
+/** Does `[from, to)` touch any literal-code range? Mirrors `in_code`. */
+function mockInCode(ranges: [number, number][], from: number, to: number): boolean {
+  return ranges.some(([a, b]) => from < b && to > a);
+}
+
 /** Ages the mock history reports for the windowed facts, keyed
     `path#lowercased prop` — days since a person set the value, or `null` for
     a value no person is recorded behind. Anything absent here keeps the
@@ -3720,8 +3792,13 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       for (const m of mockNotes) {
         // mirrors Engine::rename — ![[…]] embeds name assets, stay untouched
         const before = m.body;
-        m.body = m.body.replace(/!?\[\[([^[\]]+)\]\]/g, (whole, inner) => {
+        const code = mockCodeRanges(m.body);
+        m.body = m.body.replace(/!?\[\[([^[\]]+)\]\]/g, (whole, inner, offset: number) => {
           if (whole.startsWith("!")) return whole;
+          // a fenced or inline-code link is an example of the syntax;
+          // rewriting it would edit someone's documentation out from
+          // under them
+          if (mockInCode(code, offset, offset + whole.length)) return whole;
           // only the target moves; the anchor and the author's display text
           // ride along untouched
           const { target, anchor, alias } = parseWikiLink(String(inner));

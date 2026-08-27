@@ -701,7 +701,7 @@ export default function HubDashboard({
       <div className="dash-inner">
         <DashHead
           title={meta.title}
-          state={headParts.length > 0 ? { label: headParts.join(" · ") } : null}
+          state={headParts.length > 0 ? { label: headParts.join(", ") } : null}
           actions={<DashPrintButton />}
           sourcePath={meta.path}
           onOpenSource={onOpenSource}

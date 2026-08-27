@@ -29,11 +29,12 @@ import { appendPage } from "../lib/pagesedit";
 import { embedQueryFor, type EmbedResult } from "../lib/embeds";
 import { errText } from "../lib/errtext";
 import { DashHead } from "./DashHead";
+import { DashAlert } from "./DashNotice";
+import { parseSheet } from "../lib/sheet";
 import { PlusIcon } from "./Icons";
 import InlineEdit from "./InlineEdit";
 import EmbedViewTable, { type EmbedEdit } from "./EmbedViewTable";
 import { useEdgeFade } from "../hooks/useEdgeFade";
-import { DashAlert } from "./DashNotice";
 import SheetGrid from "./SheetGrid";
 import SwitchGroup from "./SwitchGroup";
 
@@ -67,16 +68,22 @@ const PAGE_ROWS = 200;
     the faint mono footer voice — the quietest ink the app owns, for the one
     line a reader most needs — in a pane with none of the chrome its working
     siblings carry, so a broken page read as a half-rendered app rather than
-    as an answer. It now wears the page head every other workbook page wears,
-    with the sentence under it in the app’s one failure voice: the marked
-    banner every other broken read uses. */
+    as an answer. It now wears the page head every other workbook page wears
+    (principle 5: one header), so stepping through a workbook's tabs does not
+    change what the top of the page means, with the sentence under it in the
+    app’s one failure voice: the marked banner every other broken read uses.
+
+    The head carries the whole claim — this page's name, and that it can’t
+    render — so the banner does not restate it. Repeating the state word
+    beside the state mark is the anti-pattern §6 names; the banner's job is
+    the part the head cannot say, which is why. */
 function PageError({ label, error }: { label: string; error: string }) {
   return (
     <div className="note">
-      <div className="dash-inner">
-        <DashHead title={label} state={{ label: "can’t render" }} />
+      <div className="dash-inner wb-page-err">
+        <DashHead title={label} state={{ color: "var(--danger)", label: "can’t render" }} />
         <DashAlert>
-          Page “{label}” can’t render — {error}. Edit pages: in the workbook note’s frontmatter.
+          {error}. Edit pages: in the workbook note’s frontmatter.
         </DashAlert>
       </div>
     </div>
@@ -192,12 +199,14 @@ function SheetPage({
   vaultEpoch,
   onMutated,
   onFollowLink,
+  onOpenSource,
   onToast,
 }: {
   meta: NoteMeta;
   vaultEpoch: number;
   onMutated: () => void;
   onFollowLink: (name: string) => void;
+  onOpenSource: (path: string) => void;
   onToast?: (msg: string, action?: { label: string; run: () => void }) => void;
 }) {
   const [loaded, setLoaded] = useState<{ path: string; body: string; nonce: number } | null>(null);
@@ -331,10 +340,24 @@ function SheetPage({
   // leaving the page flushes the pending edit (tab switch unmounts)
   useEffect(() => flush, [flush]);
 
+  // the sibling pages count what they show in the head, so this one does too —
+  // memoised because parsing the whole sheet for one number on every render
+  // (every keystroke reaches this component) is the parse repeated for nothing
+  const rows = useMemo(() => parseSheet(loaded?.body ?? "").rows.length, [loaded?.body]);
+
   if (!loaded || loaded.path !== meta.path) return <div className="note" />;
   return (
     <div className="note">
       <div className="note-inner note-inner-sheet">
+        {/* one header, shared with the view and error pages (principle 5) —
+            a sheet page used to open with no header at all, so stepping to it
+            from a sibling tab dropped the title and the source button */}
+        <DashHead
+          title={meta.title}
+          state={{ label: `${rows} ${rows === 1 ? "row" : "rows"}` }}
+          sourcePath={meta.path}
+          onOpenSource={onOpenSource}
+        />
         {failure && (
           <div className="note-feedback">
             {failure.kind === "past" && (
@@ -558,6 +581,7 @@ function NotePage({
         vaultEpoch={vaultEpoch}
         onMutated={ctx.onMutated}
         onFollowLink={ctx.onFollowLink}
+        onOpenSource={ctx.onOpenSource}
         onToast={ctx.onToast}
       />
     );

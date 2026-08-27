@@ -65,7 +65,7 @@ export default function ShareDialog({
       >
         <div className="dbform-title">Share “{target}”</div>
         {MODES.length > 1 && (
-          <div className="sendlink-expiry" role="radiogroup" aria-label="How to share">
+          <div className="share-door-modes" role="radiogroup" aria-label="How to share">
             {MODES.map((m) => (
               <button
                 key={m.id}
@@ -73,7 +73,7 @@ export default function ShareDialog({
                 role="radio"
                 aria-checked={mode === m.id}
                 title={m.hint}
-                className={`selmenu-btn${mode === m.id ? " sendlink-expiry-on" : ""}`}
+                className={`share-door-mode${mode === m.id ? " is-on" : ""}`}
                 onClick={() => setMode(m.id)}
               >
                 {m.label}

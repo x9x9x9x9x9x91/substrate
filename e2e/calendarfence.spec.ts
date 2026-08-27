@@ -59,7 +59,13 @@ test("a standalone calendar fence draws the month with its entries on their days
   ).toHaveCount(0);
 
   // the foot states the source it read and how much it found
-  await expect(page.locator(".calfence .dash-foot")).toContainText("event · date");
+  // per line, so "date" is the date PROPERTY's own line rather than a
+  // substring of "database: event"; the tally is seed- and month-relative
+  const footLines = page.locator(".calfence .dash-foot .dash-foot-line");
+  await expect(footLines).toHaveCount(3);
+  await expect(footLines.nth(0)).toHaveText("database: event");
+  await expect(footLines.nth(1)).toHaveText("date");
+  await expect(footLines.nth(2)).toHaveText(/^\d+ (entry|entries) this month$/);
   await expect(page.locator(".dash-alert")).toHaveCount(0);
 });
 

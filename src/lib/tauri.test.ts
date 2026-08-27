@@ -1390,3 +1390,101 @@ test("mock parent mark drops when its prop stops being a self-relation", async (
 
   await invoke("vault_delete_type", { dbType: db, trashNotes: false });
 });
+
+test("mock rename leaves wikilinks inside fenced and inline code alone", async () => {
+  // Twin of the engine's rename_tracked + code_ranges: a [[link]] written
+  // inside a code fence or a backtick span is an example of the syntax, so a
+  // rename must leave it exactly as the author typed it while the live link on
+  // the same page follows the note.
+  const src = await invoke<NoteMeta>("vault_create", {
+    title: "Fence Source 1569",
+    folder: "FenceParity1569",
+    body: "x\n",
+  });
+  const ref = await invoke<NoteMeta>("vault_create", {
+    title: "Fence Ref 1569",
+    folder: "FenceParity1569",
+    body:
+      "live [[Fence Source 1569]]\n" +
+      "```\n[[Fence Source 1569]]\n```\n" +
+      "inline `[[Fence Source 1569]]` and live again [[Fence Source 1569]]\n",
+  });
+
+  const result = await invoke<RenameResult>("vault_rename", {
+    path: src.path,
+    title: "Fence Dest 1569",
+  });
+  assert.equal(result.meta.path, "FenceParity1569/Fence Dest 1569.md");
+  assert.deepEqual(result.touched, [
+    "FenceParity1569/Fence Dest 1569.md",
+    "FenceParity1569/Fence Ref 1569.md",
+  ]);
+
+  const after = await invoke<{ body: string }>("vault_read", { path: ref.path });
+  assert.equal(
+    after.body,
+    "live [[Fence Dest 1569]]\n" +
+      "```\n[[Fence Source 1569]]\n```\n" +
+      "inline `[[Fence Source 1569]]` and live again [[Fence Dest 1569]]\n",
+    "prose links move, the fenced and inline-code examples stay as written"
+  );
+});
+
+test("mock rename rewrites a note's own live self-link but not its fenced one", async () => {
+  // The renamed note is swept like any other: the self-reference in prose
+  // follows the new title, the one quoted in a fence does not.
+  const self = await invoke<NoteMeta>("vault_create", {
+    title: "Fence Selfy 1569",
+    folder: "FenceParity1569",
+    body: "self [[Fence Selfy 1569]] and\n```\n[[Fence Selfy 1569]]\n```\n",
+  });
+  const result = await invoke<RenameResult>("vault_rename", {
+    path: self.path,
+    title: "Fence Selfish 1569",
+  });
+  assert.deepEqual(
+    result.touched,
+    ["FenceParity1569/Fence Selfish 1569.md"],
+    "only the renamed note was rewritten"
+  );
+  const after = await invoke<{ body: string }>("vault_read", { path: result.meta.path });
+  assert.equal(
+    after.body,
+    "self [[Fence Selfish 1569]] and\n```\n[[Fence Selfy 1569]]\n```\n"
+  );
+});
+
+test("mock rename mirrors the engine's fence edge cases", async () => {
+  // Each line of the recorded body pins one edge of code_ranges:
+  // an indented fence, a tilde fence, a longer closer, an inline run of two
+  // backticks, a lone backtick that opens nothing, and — last — an unclosed
+  // fence that swallows everything after it.
+  const src = await invoke<NoteMeta>("vault_create", {
+    title: "Fence Edges Src 1569",
+    folder: "FenceEdges1569",
+    body: "x\n",
+  });
+  const body =
+    "live [[Fence Edges Src 1569]]\n" +
+    "   ```js\n   [[Fence Edges Src 1569]]\n   ```\n" +
+    "~~~\n[[Fence Edges Src 1569]]\n~~~~\n" +
+    "``a [[Fence Edges Src 1569]] b``\n" +
+    "a ` lone backtick [[Fence Edges Src 1569]]\n" +
+    "```\n[[Fence Edges Src 1569]]\nno closer here\n";
+  const ref = await invoke<NoteMeta>("vault_create", {
+    title: "Fence Edges Ref 1569",
+    folder: "FenceEdges1569",
+    body,
+  });
+  await invoke("vault_rename", { path: src.path, title: "Fence Edges Dst 1569" });
+  const after = await invoke<{ body: string }>("vault_read", { path: ref.path });
+  assert.equal(
+    after.body,
+    "live [[Fence Edges Dst 1569]]\n" +
+      "   ```js\n   [[Fence Edges Src 1569]]\n   ```\n" +
+      "~~~\n[[Fence Edges Src 1569]]\n~~~~\n" +
+      "``a [[Fence Edges Src 1569]] b``\n" +
+      "a ` lone backtick [[Fence Edges Dst 1569]]\n" +
+      "```\n[[Fence Edges Src 1569]]\nno closer here\n"
+  );
+});

@@ -19,9 +19,14 @@ test("food: hero, band verdict, metrics from the seeded log", async ({ page }) =
   await expect(page.locator(".dash-state")).toContainText("under floor");
   // under the floor the sub-line leads with distance to goal,
   // and the seeded Gym row surfaces as burned kcal
-  await expect(page.locator(".dash-sub")).toContainText("1.550 kcal to goal · 1.950 to ceiling");
-  await expect(page.locator(".dash-sub")).toContainText("300 burned");
-  await expect(page.locator(".dash-sub")).toContainText("45 g protein");
+  // the four facts, in order, one per line — the split IS the claim, so a
+  // presence check cannot carry it
+  await expect(page.locator(".dash-sub .dash-sub-line")).toHaveText([
+    "1.550 kcal to goal",
+    "1.950 to ceiling",
+    "300 burned",
+    "45 g protein",
+  ]);
   // band metric renders the props, day strip carries 14 columns
   await expect(page.locator(".dash-metric", { hasText: "band" })).toContainText("1.900–2.300");
   // week vs goal over the seeded window: 4 logged days, all rows
@@ -62,7 +67,9 @@ test("food: weight overlay rides the strip, dots only on weigh-in days (SUB-707)
   const dotCy = dotBox.y + dotBox.height / 2;
   expect(Math.abs(firstBox.y + firstBox.height - (dotCy - 7))).toBeLessThan(2);
   // the real numbers reach the footer, from the named log
-  await expect(page.locator(".dash-foot")).toContainText("weight line 77,4–78,4 kg from Weight Log");
+  await expect(page.locator(".dash-foot .dash-foot-line").last()).toHaveText(
+    "weight line 77,4–78,4 kg from Weight Log"
+  );
 });
 
 test("food: clicking a weight dot selects its day and keeps its hover title (SUB-730)", async ({
@@ -87,7 +94,12 @@ test("food: goal-met sub-line once past the floor (SUB-374)", async ({ page }) =
   // net 2050: inside the band → goal met, headroom to ceiling remains
   await expect(page.locator(".dash-apr")).toHaveText("2.050");
   await expect(page.locator(".dash-state")).toContainText("in the band");
-  await expect(page.locator(".dash-sub")).toContainText("goal met · 250 kcal headroom");
+  await expect(page.locator(".dash-sub .dash-sub-line")).toHaveText([
+    "goal met",
+    "250 kcal headroom",
+    "300 burned",
+    "45 g protein",
+  ]);
 });
 
 test("food: a minus-typed kcal logs an exercise row, protein dropped (SUB-702)", async ({ page }) => {
@@ -263,7 +275,7 @@ test("food: day arrows navigate hero + rows, quick-add backdates (SUB-408)", asy
   await page.getByRole("button", { name: "Previous day" }).click();
   // hero + rows describe yesterday (700 Ramen + 90 Flat white + 780 Tortellini + 320 Porridge)
   await expect(page.locator(".dash-apr")).toHaveText("1.890");
-  await expect(page.locator(".dash-label", { hasText: "net kcal" })).toHaveText(`net kcal · ${y}`);
+  await expect(page.locator(".dash-label", { hasText: "net kcal" })).toHaveText(`net kcal ${y}`);
   await expect(page.locator(".food-daynav-day")).toHaveText(y);
   await expect(page.locator(".food-row")).toHaveCount(4);
   // the quick-add lands on the focused day, not today
@@ -436,7 +448,9 @@ test("food: database section adds, applies, removes, ⌘Z restores (SUB-408)", a
   await dbForm.locator("label", { hasText: "kcal" }).locator("input").fill("60");
   await dbForm.locator("label", { hasText: "Protein" }).locator("input").fill("11");
   await dbForm.locator(".dash-add").click();
-  await expect(page.locator(".food-db-toggle")).toContainText("Database · 4");
+  await expect(page.locator(".food-db-toggle")).toContainText("Database");
+  // the count is a fact ABOUT the section, so it rides right of the label's tail
+  await expect(page.locator(".food-db-head .dash-section-meta")).toHaveText("4 entries");
   await expect(page.locator(".food-db-rows .food-row", { hasText: "Skyr" })).toContainText("60 kcal/100g");
   // the log form prices it straight from the DB
   const logForm = page.locator(".dash-form:not(.food-db-form)");

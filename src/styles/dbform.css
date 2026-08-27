@@ -47,6 +47,47 @@
   color: var(--text-1);
 }
 
+/* The share door's mode row picks which pane the dialog shows, so it is a tab
+   group and wears labelled underline-dashes (principle 5) rather than the
+   segmented button row below — which stays as it is, because expiry and
+   tag-folder pick a VALUE and never swap the surface. */
+.share-door-modes {
+  display: flex;
+  gap: 14px;
+  margin-bottom: 2px;
+}
+
+.share-door-mode {
+  position: relative;
+  border: 0;
+  border-radius: 0;
+  padding: 2px 1px 6px;
+  background: none;
+  font: var(--dash-label);
+  letter-spacing: 0.04em;
+  color: var(--text-4);
+  cursor: pointer;
+  transition: color 120ms ease-out;
+}
+
+.share-door-mode:hover {
+  color: var(--text-2);
+}
+
+.share-door-mode.is-on {
+  color: var(--text-1);
+}
+
+.share-door-mode.is-on::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--text-2);
+}
+
 .dbform-select {
   border: 1px solid var(--border);
   border-radius: 6px;

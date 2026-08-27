@@ -63,3 +63,40 @@ export function DashAlert({
     </div>
   );
 }
+
+/** A board's provenance footer: where the numbers came from, how old they
+    are, what they exclude. Every fact gets its OWN line.
+
+    The facts used to arrive middot-chained — "polled 14:02 · every 10s ·
+    rates avg 10m · quota every 5m · 127.0.0.1:8318" — which design-principles
+    lists twice as a bug: §1.6 asks prose for one fact per line, and §6 names
+    the chain itself an anti-pattern. A chain reads as one long unparseable
+    string precisely where the reader is scanning for a single fact ("how
+    stale is this?"), because nothing tells them where one fact ends.
+
+    Facts are `ReactNode`, so a line can carry a formatted number or a link,
+    and `null`/`false`/`""` entries drop out — a conditional fact is written
+    inline as a ternary rather than filtered by every caller. `children` slots
+    a control (a refresh button) after the lines. */
+export function DashFoot({
+  className,
+  facts,
+  children,
+}: {
+  className?: string;
+  facts: ReactNode[];
+  children?: ReactNode;
+}) {
+  const lines = facts.filter((f) => f !== null && f !== undefined && f !== false && f !== "");
+  if (lines.length === 0 && !children) return null;
+  return (
+    <div className={className ? `dash-foot ${className}` : "dash-foot"}>
+      {lines.map((f, i) => (
+        <div className="dash-foot-line" key={i}>
+          {f}
+        </div>
+      ))}
+      {children}
+    </div>
+  );
+}

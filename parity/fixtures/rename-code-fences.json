@@ -3,7 +3,6 @@
   "summary": "a [[wikilink]] inside a fenced or inline code span is an example of the syntax, not a link: a rename leaves it exactly as written",
   "drift": ["rename link rewriting"],
   "folder": "ParityRenameFences",
-  "pendingMock": "the mock's rename regex has no code-fence awareness, so it rewrites [[wikilinks]] inside fenced and inline code and a rename edits a note's documented examples; the engine skips them (vault/mod.rs rename_tracked, in_code). Only the two body reads below see that difference — every other op here runs against the mock strictly, and each marked op fails the run the day the mock stops diverging.",
   "ops": [
     {
       "op": "create",
@@ -48,7 +47,6 @@
     {
       "op": "body",
       "path": "ParityRenameFences/Ref.md",
-      "pendingMock": true,
       "expect": {
         "body": "live [[Dst]]\n```\n[[Src]]\n```\ninline `[[Src]]`\n"
       }
@@ -68,7 +66,6 @@
     {
       "op": "body",
       "path": "ParityRenameFences/Selfish.md",
-      "pendingMock": true,
       "expect": {
         "body": "self [[Selfish]] and\n```\n[[Selfy]]\n```\n"
       }

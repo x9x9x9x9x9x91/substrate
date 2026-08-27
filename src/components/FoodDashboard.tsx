@@ -27,7 +27,7 @@ import { ChevronLeftIcon, ChevronRightIcon, NoteIcon } from "./Icons";
 import { DashHead } from "./DashHead";
 import SwitchGroup from "./SwitchGroup";
 import { useDashUndo, type DashUndoStore } from "./useDashUndo";
-import { DashAlert, DashEmpty } from "./DashNotice";
+import { DashAlert, DashEmpty, DashFoot } from "./DashNotice";
 import { errText } from "../lib/errtext";
 
 interface FoodDashboardProps {
@@ -571,28 +571,40 @@ export default function FoodDashboard({
               <div className="dash-hero food-hero">
                 <div>
                   <div className="dash-label">
-                    {dayOffset === 0 ? "net kcal today" : `net kcal · ${dayLabel(focusDay)}`}
+                    {dayOffset === 0 ? "net kcal today" : `net kcal ${dayLabel(focusDay)}`}
                   </div>
                   <div className="dash-apr">{fmt(d.todayKcal)}</div>
+                  {/* one fact per line (principle 1.6) — these used to arrive
+                      middot-chained, which is the reading the anti-patterns
+                      name: the day's four separate numbers ran together as one
+                      string in the place the eye lands first. */}
                   <div className="dash-sub">
                     {/* the question the pane answers first is "how far to the
                         goal floor"; the ceiling only leads once the
                         floor is met — and turns red once it's blown */}
                     {d.headroom < 0 ? (
-                      <span style={{ color: "var(--danger)" }}>
+                      <div className="dash-sub-line" style={{ color: "var(--danger)" }}>
                         {fmt(-d.headroom)} over ceiling
-                      </span>
+                      </div>
                     ) : d.toGoal > 0 ? (
-                      `${fmt(d.toGoal)} kcal to goal · ${fmt(d.headroom)} to ceiling`
+                      <>
+                        <div className="dash-sub-line">{fmt(d.toGoal)} kcal to goal</div>
+                        <div className="dash-sub-line">{fmt(d.headroom)} to ceiling</div>
+                      </>
                     ) : (
-                      `goal met · ${fmt(d.headroom)} kcal headroom`
+                      <>
+                        <div className="dash-sub-line">goal met</div>
+                        <div className="dash-sub-line">{fmt(d.headroom)} kcal headroom</div>
+                      </>
                     )}
                     {d.todayBurn > 0 && (
-                      <span style={{ color: "var(--opt-teal)" }}>
-                        {" "}· {fmt(d.todayBurn)} burned
-                      </span>
+                      <div className="dash-sub-line" style={{ color: "var(--opt-teal)" }}>
+                        {fmt(d.todayBurn)} burned
+                      </div>
                     )}
-                    {d.todayProtein > 0 && ` · ${fmt(d.todayProtein)} g protein`}
+                    {d.todayProtein > 0 && (
+                      <div className="dash-sub-line">{fmt(d.todayProtein)} g protein</div>
+                    )}
                   </div>
                 </div>
                 <div className="food-daynav">
@@ -665,7 +677,10 @@ export default function FoodDashboard({
                       : "—"}
                   </div>
                   {d.weekDelta !== null && (
-                    <div className="dash-metric-sub">vs {fmt(floor)}/day · {d.daysLogged7}/7 logged</div>
+                    <div className="dash-metric-sub">
+                      <div className="dash-sub-line">vs {fmt(floor)}/day</div>
+                      <div className="dash-sub-line">{d.daysLogged7}/7 logged</div>
+                    </div>
                   )}
                 </div>
                 <div className="dash-metric">
@@ -676,6 +691,18 @@ export default function FoodDashboard({
                 </div>
               </div>
 
+              {/* The strip draws two units at once — bars in kcal, the
+                  overlay a weight line in kg on its own padded scale — and
+                  said so nowhere, which leaves a reader to guess which number
+                  belongs to which mark (principle 0). The section names what
+                  it plots and the units ride right of the hairline as the data
+                  labels they are (principles 1.5 and 2). */}
+              <div className="dash-section-label">
+                Days
+                <span className="dash-section-meta">
+                  {weight !== null ? "kcal bars, kg line" : "kcal bars"}
+                </span>
+              </div>
               <div className="food-strip">
                 <div className={`food-plot${split ? " split" : ""}`}>
                   <div
@@ -1071,9 +1098,12 @@ export default function FoodDashboard({
                     aria-expanded={dbOpen}
                     onClick={() => setDbOpen((v) => !v)}
                   >
-                    Database{dbEntries.length > 0 ? ` · ${dbEntries.length}` : ""}
+                    Database
                     <span className={`food-db-caret${dbOpen ? " open" : ""}`}>▸</span>
                   </button>
+                  {dbEntries.length > 0 && (
+                    <span className="dash-section-meta">{dbEntries.length} entries</span>
+                  )}
                   {dbPath !== null && (
                     <button
                       className="dash-source"
@@ -1208,15 +1238,24 @@ export default function FoodDashboard({
                   ))}
               </div>
 
-              <div className="dash-foot">
-                net kcal · negative rows = exercise · band {fmt(floor)}–{fmt(ceiling)} is a floor,
-                not a target · ringed bar = selected day · data lives in {logPath!.split("/").pop()}
-                {dbPath !== null && ` · db in ${dbPath.split("/").pop()}`}
-                {/* the overlay has no axis, so the footer says what the line
-                    is and over what range it's scaled */}
-                {weight !== null &&
-                  ` · weight line ${weight.min.toLocaleString(numberLocale(), { maximumFractionDigits: 1 })}–${weight.max.toLocaleString(numberLocale(), { maximumFractionDigits: 1 })} kg from ${weightName}`}
-              </div>
+              <DashFoot
+                /* Footer lines are lowercase fragments without terminal
+                   punctuation, the same voice every other board's provenance
+                   foot speaks — these arrived as a mix of full sentences and
+                   fragments, which reads as two writers on one surface. */
+                facts={[
+                  "negative rows are exercise",
+                  `band ${fmt(floor)}–${fmt(ceiling)} is a floor, not a target`,
+                  "ringed bar = selected day",
+                  `data lives in ${logPath!.split("/").pop()}`,
+                  dbPath !== null ? `db in ${dbPath.split("/").pop()}` : "",
+                  /* the overlay's own scale — the strip's label names the two
+                     units, this says over what range the line is drawn */
+                  weight !== null
+                    ? `weight line ${weight.min.toLocaleString(numberLocale(), { maximumFractionDigits: 1 })}–${weight.max.toLocaleString(numberLocale(), { maximumFractionDigits: 1 })} kg from ${weightName}`
+                    : "",
+                ]}
+              />
             </>
           )
         )}

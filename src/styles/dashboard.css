@@ -234,6 +234,12 @@
   margin-top: 6px;
 }
 
+/* A sub-line under a figure states ONE fact (principle 1.6). Two of them
+   stack; they never chain on a middot. */
+.dash-sub-line {
+  display: block;
+}
+
 /* stat tiles: a ruled row — one hairline over each figure, no boxes.
    The rule used to run down each tile's left edge, which only ever
    divides tiles that share a row. This grid wraps (auto-fit), so the tile
@@ -296,6 +302,21 @@
   content: "";
   flex: 1;
   border-bottom: 1px solid var(--hair-soft);
+}
+
+/* Facts ABOUT a section — a unit, a count, a rate — right-aligned past the
+   hairline tail (principle 1.5: the label is the noun, meta moves right).
+   Chaining them into the label with a middot is what this replaces, and the
+   ::after rule is the last child by construction, so ordering past it is what
+   puts the tail between the noun and its facts. The uppercase mono voice is
+   the one §2 reserves for data labels, which is exactly what a unit is. */
+.dash-section-meta {
+  order: 1;
+  font: var(--dash-label);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-4);
+  white-space: nowrap;
 }
 
 

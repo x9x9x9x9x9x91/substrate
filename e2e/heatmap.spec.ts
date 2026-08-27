@@ -77,11 +77,16 @@ test("a heatmap fence draws the year its data lands in, summed per day (SUB-966)
   await expect(page.locator(".heatmap-day:not([data-level='0'])")).toHaveCount(2);
 
   // the readout says the year before anything is selected
-  await expect(page.locator(".heatmap-readout")).toHaveText("2026 · 2 days with rows · 85 total");
+  await expect(page.locator(".heatmap-readout")).toHaveText("2026 — 2 days with rows, 85 total");
 
   // provenance, and the row that could not be summed is reported rather than
   // quietly dropped
-  await expect(page.locator(".dash-foot").first()).toHaveText("sheet: Holdings · 1 rows skipped");
+  // one fact per line, and BOTH lines exactly — a presence pair would still
+  // pass if the two facts re-chained into a single line
+  await expect(page.locator(".dash-foot").first().locator(".dash-foot-line")).toHaveText([
+    "sheet: Holdings",
+    "1 rows skipped",
+  ]);
 
   // a square states its day in the tooltip and to a screen reader
   const jan1 = page.locator(".heatmap-day").first();
@@ -132,7 +137,7 @@ test("a source spanning two years offers the switch, and switching redraws (SUB-
 
   await years.nth(0).click();
   await expect(years.nth(0)).toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator(".heatmap-readout")).toHaveText("2025 · 1 day with rows · 10 total");
+  await expect(page.locator(".heatmap-readout")).toHaveText("2025 — 1 day with rows, 10 total");
   await expect(page.locator('.heatmap-day[data-level="4"]')).toHaveCount(1);
 });
 
@@ -166,7 +171,7 @@ test("a note carrying charts and heatmaps renders both (SUB-966)", async ({ page
   // the charts lead and keep the pane head; the heatmaps hang under them, so
   // neither kind goes unrendered for having been written second — and the
   // head counts both, because the page draws both
-  await expect(page.locator(".dash-state")).toHaveText("1 chart · 1 heatmap · 1 sheet");
+  await expect(page.locator(".dash-state")).toHaveText("1 chart, 1 heatmap, 1 sheet");
   await expect(page.locator(".dash-chart .dash-bar-col")).toHaveCount(3);
   await expect(page.locator(".heatmap-grid")).toHaveCount(1);
   await expect(

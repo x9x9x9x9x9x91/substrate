@@ -29,7 +29,7 @@ import { iconForType, iconsByType, typeTint } from "../lib/dbicons";
 import { ChevronLeftIcon, ChevronRightIcon, RepeatIcon } from "./Icons";
 import { DashHead } from "./DashHead";
 import { useTodayIso } from "./useTodayIso";
-import { DashAlert, DashEmpty } from "./DashNotice";
+import { DashAlert, DashEmpty, DashFoot } from "./DashNotice";
 import { errText } from "../lib/errtext";
 
 interface CalendarFenceDashboardProps {
@@ -212,11 +212,15 @@ function CalendarSection({
           </div>
         </div>
       )}
-      <div className="dash-foot" style={{ margin: embed ? "8px 0 0" : "10px 0 0" }}>
-        {calendarSourceDesc(config)} · {config.date}
-        {config.query ? ` · ${config.query}` : ""} ·{" "}
-        {inMonth === 1 ? "1 entry" : `${inMonth} entries`} this month
-      </div>
+      <DashFoot
+        className={embed ? "dash-foot-tight" : undefined}
+        facts={[
+          calendarSourceDesc(config),
+          config.date,
+          config.query,
+          `${inMonth === 1 ? "1 entry" : `${inMonth} entries`} this month`,
+        ]}
+      />
     </div>
   );
 }

@@ -5,8 +5,10 @@
    band shaded behind them — the band is what makes over/under read at a
    glance. Bar color carries the day's band verdict. */
 
+/* the section label above it now carries the air (principle 4: block
+   spacing on the 8 grid), so the strip sits directly under its own label */
 .food-strip {
-  margin-top: 28px;
+  margin-top: 0;
 }
 
 .food-plot {

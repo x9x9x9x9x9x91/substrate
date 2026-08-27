@@ -103,5 +103,7 @@ test("a chart over a cross-referencing sheet plots real values (SUB-671)", async
   await expect(page.getByText("No rows matched")).toHaveCount(0);
   await expect(page.getByText("object Object")).toHaveCount(0);
   await expect(page.locator(".dash-foot", { hasText: "rows skipped" })).toHaveCount(0);
-  await expect(page.locator(".dash-foot", { hasText: "sheet: Holdings · 2 points" })).toBeVisible();
+  const foot = page.locator(".dash-foot", { hasText: "sheet: Holdings" });
+  await expect(foot).toBeVisible();
+  await expect(foot).toContainText("2 points");
 });

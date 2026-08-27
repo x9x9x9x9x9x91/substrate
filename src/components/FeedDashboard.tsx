@@ -349,10 +349,10 @@ export default function FeedDashboard({
             label: missing
               ? "sheet missing"
               : staleness.stale
-                ? `stale · ${staleness.age}`
+                ? `stale, ${staleness.age}`
                 : body === null
                   ? "…"
-                  : `${filtered ? `${visible.length} of ` : ""}${items.length} item${items.length === 1 ? "" : "s"}${rated > 0 ? ` · ${rated} rated` : ""}`,
+                  : `${filtered ? `${visible.length} of ` : ""}${items.length} item${items.length === 1 ? "" : "s"}${rated > 0 ? `, ${rated} rated` : ""}`,
           }}
           actions={
             <>

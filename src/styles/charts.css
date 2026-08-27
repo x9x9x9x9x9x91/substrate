@@ -1161,6 +1161,25 @@
   color: var(--text-4);
 }
 
+/* One provenance fact per line (principle 1.6; the middot chain these lines
+   replaced is named in the anti-patterns). The lines sit tight against each
+   other on purpose: the gap between two facts is optical spacing INSIDE one
+   footer, not a rhythm the reader scans the page by, so it is tuned by eye
+   rather than put on the 8 grid. */
+.dash-foot-line {
+  display: block;
+}
+
+.dash-foot-line + .dash-foot-line {
+  margin-top: 1px;
+}
+
+/* a fence's footer inside a hub body sits closer to its block than a
+   standalone pane's does — the hub already spaces its sections */
+.dash-foot-tight {
+  margin-top: 8px;
+}
+
 /* ————— the one empty voice and the one error voice —————
    Every dashboard kind speaks these two sentences and nothing else when it
    has no content to draw. Before this there were four dialects of empty (a

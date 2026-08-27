@@ -109,7 +109,7 @@ test("feed: a stamp older than ~36h reads as a stale warning, not an item count"
   await page.locator(".side-item", { hasText: "News" }).click();
   await expect(page.locator(".dash-title")).toHaveText("News");
   // the dead pipeline is the headline: warning dot + age, no innocent count
-  await expect(page.locator(".dash-state")).toContainText("stale · 5d");
+  await expect(page.locator(".dash-state")).toContainText("stale, 5d");
   await expect(page.locator(".dash-state")).not.toContainText("items");
   await expect(page.locator(".dash-state .dash-dot")).toHaveAttribute("style", /--opt-yellow/);
   // additive only: the stamp still renders verbatim, the stream still renders
