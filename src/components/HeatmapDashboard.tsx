@@ -63,7 +63,7 @@ function dayLabel(day: HeatmapDay, config: HeatmapConfig): string {
   if (config.value.fn === "count")
     return day.n === 0 ? `${when} — nothing` : `${when} — ${day.n} ${day.n === 1 ? "entry" : "entries"}`;
   if (day.n === 0) return `${when} — nothing`;
-  return `${when} — ${fmtNum(day.value)} ${config.value.prop} · ${day.n} ${day.n === 1 ? "row" : "rows"}`;
+  return `${when} — ${fmtNum(day.value)} ${config.value.prop}, ${day.n} ${day.n === 1 ? "row" : "rows"}`;
 }
 
 const LEVELS = [0, 1, 2, 3, 4];

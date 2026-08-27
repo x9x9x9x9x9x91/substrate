@@ -90,8 +90,8 @@ test("a heatmap fence draws the year its data lands in, summed per day (SUB-966)
 
   // a square states its day in the tooltip and to a screen reader
   const jan1 = page.locator(".heatmap-day").first();
-  await expect(jan1).toHaveAttribute("title", "Jan 1, 2026 — 45 minutes · 2 rows");
-  await expect(jan1).toHaveAttribute("aria-label", "Jan 1, 2026 — 45 minutes · 2 rows");
+  await expect(jan1).toHaveAttribute("title", "Jan 1, 2026 — 45 minutes, 2 rows");
+  await expect(jan1).toHaveAttribute("aria-label", "Jan 1, 2026 — 45 minutes, 2 rows");
 });
 
 test("the grid is one tab stop and the arrows walk it (SUB-966)", async ({ page }) => {
@@ -104,7 +104,7 @@ test("the grid is one tab stop and the arrows walk it (SUB-966)", async ({ page 
   // the first keypress lands on the newest day that carries rows, not on a
   // January corner the reader would have to walk out of
   await grid.press("ArrowDown");
-  await expect(readout).toHaveText("Feb 14, 2026 — 40 minutes · 1 row");
+  await expect(readout).toHaveText("Feb 14, 2026 — 40 minutes, 1 row");
   // and the cursor is carried by aria-activedescendant, never by DOM focus:
   // 365 squares must not become 365 tab stops
   await expect(page.locator(".heatmap-day.is-cursor")).toHaveCount(1);
@@ -118,9 +118,9 @@ test("the grid is one tab stop and the arrows walk it (SUB-966)", async ({ page 
 
   // Home and End are the year's ends, and the walk never leaves the year
   await grid.press("Home");
-  await expect(readout).toHaveText("Jan 1, 2026 — 45 minutes · 2 rows");
+  await expect(readout).toHaveText("Jan 1, 2026 — 45 minutes, 2 rows");
   await grid.press("ArrowUp");
-  await expect(readout).toHaveText("Jan 1, 2026 — 45 minutes · 2 rows");
+  await expect(readout).toHaveText("Jan 1, 2026 — 45 minutes, 2 rows");
   await grid.press("End");
   await expect(readout).toHaveText("Dec 31, 2026 — nothing");
 });

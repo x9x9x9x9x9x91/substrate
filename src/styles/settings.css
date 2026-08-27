@@ -570,6 +570,29 @@
   color: var(--text-3);
 }
 
+/* One fact per line (principle 1.6), the dash-foot shape in the settings
+   column: mode, expiry and created are quiet meta, so they stay in the
+   column's own ink and only the two deviations speak. */
+.letterbox-box-facts {
+  min-width: 0;
+}
+
+.letterbox-box-fact {
+  display: block;
+}
+
+.letterbox-box-fact + .letterbox-box-fact {
+  margin-top: 1px;
+}
+
+.letterbox-box-pending {
+  color: var(--text-2);
+}
+
+.letterbox-box-failed {
+  color: var(--danger);
+}
+
 .mcp-error {
   margin-top: 8px;
   color: var(--danger);
