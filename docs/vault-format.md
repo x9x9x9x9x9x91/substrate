@@ -225,6 +225,8 @@ type: release
 | `captured`, `duration`, `transcribed` | voice notes: recording start (full ISO datetime, text), length in seconds, and the datetime the transcript landed — absent means pending, `unavailable`/`failed` are the two non-datetime answers (§5.11) |
 | `handles` | the addresses a person answers to — the appearances rail on a person page matches them across the vault (§5.13) |
 | `tags` | tag list, unioned with the body's inline `#tags` (§3b) |
+| `import-source`, `import-id` | where an imported note came from, and what it was there (§2b) |
+| `import-log` | marks a note as one import run’s record, naming the source (§2b) |
 
 Everything else is yours. Unknown props are preserved and shown as chips.
 
@@ -513,6 +515,60 @@ External-writer contract:
   record of which markers its user confirmed; a copied one would hand an
   external writer back the ability to seal and purge. Like the journal it is
   excluded from app-owned history and sync.
+
+## 2b. Import stamps — where a note came from
+
+A note written by an import carries two props naming its origin:
+
+```yaml
+---
+title: Reeds
+import-source: logseq
+import-id: graph/pages/Reeds.md
+---
+```
+
+- `import-source` is the source app, as a lowercase slug (`logseq`). It is the
+  adapter's own name, never a path.
+- `import-id` is what that note was in the source. For a file-backed source it
+  is the picked folder's own name, then the path relative to it —
+  `<graph-name>/<relative-path>`. The leading name is what keeps two folders
+  that each hold a `pages/Reeds.md` from reading as one another's re-runs. The
+  honest cost of deriving it from the folder name rather than writing a marker
+  into the source: **rename the picked folder and a re-run no longer recognizes
+  the earlier import**, and would write a second copy of every note.
+- `created` on an imported note is set from the source *after* the note lands,
+  not as part of writing it. Creating a note always stamps the current day, so
+  the source's own date is a second write on top — which is why an import can
+  report a note as written and its date as not.
+
+**The pair is what makes re-importing safe.** Before an import writes anything
+it reads the note index, collects every `(import-source, import-id)` pair
+already present, and drops from the run every note whose pair is already there
+— counted and shown in the preview as already-imported rather than written a
+second time. Matching is on the pair, not on either half: two sources may each
+number their notes from one, and a stamp only ever shadows a note from the same
+source. So the safe thing to do with an import that was interrupted, or a source
+folder that has grown since, is simply to run it again.
+
+The stamp is written last, after the source's own properties, so a source page
+carrying a property literally named `import-id` cannot forge another note's
+identity — its value is overwritten by the real one.
+
+Neither prop is otherwise special: nothing renders differently, and deleting
+them from a note is allowed. The only consequence is that a later import from
+the same source no longer recognizes that note and would write a second copy.
+
+Sealing an imported note has that same effect, without looking like it does.
+A sealed note's props are not in the note index (§2a), so the stamp an import
+matches on is no longer visible to it: re-running the same import writes a
+second, unsealed copy of every note that was sealed since. Delete or unseal
+the imported note first if a re-run is what you want.
+
+A finished run also leaves one record note in `Imported/Logs`, carrying
+`import-log: <source>` and listing what ran, when, the counts, the skipped
+files by reason, and a link to every note written. That note carries no stamp
+of its own: a run's record is not something a later run should skip.
 
 ## 3. Links and embeds
 
