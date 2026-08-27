@@ -255,9 +255,14 @@ in the config:
   `x.md`. A link that *asked* to climb out is refused rather than quietly
   reinterpreted. Absolute paths, separators smuggled inside a segment (`%2f`,
   `\`), control characters, and non-`.md` targets die in the same pass.
-- **Two routes exist and unknown ones are refused** — `note` and `capture`. The
-  scheme is not a generic command channel, and adding a route is a deliberate
-  act, not a config edit.
+- **Three targets exist and unknown ones are refused** — `note`, `view` and
+  `capture`. The scheme is not a generic command channel, and adding a target
+  is a deliberate act, not a config edit.
+- **`view` names a destination, never a location.** The name is decoded,
+  bounded (200 chars), refused if it carries control characters or more than
+  one segment, and then matched against the app's fixed destination catalogue.
+  It reaches nothing outside that table — a name that matches no entry opens
+  the app and says so.
 - **`capture`'s `?text=` prefill is attacker-controlled**, so it is trimmed and
   capped (4096 chars) and only ever lands in the capture *input* — a human still
   presses Enter. Nothing a link carries is written to disk without that.

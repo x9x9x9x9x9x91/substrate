@@ -1,6 +1,12 @@
 //! `substrate://` deeplinks — the OS-level door into a running or
 //! cold app: `substrate://note/<vault-relative path>.md` opens a note,
+//! `substrate://view/<name>` opens a destination, and
 //! `substrate://capture?text=…` opens quick capture prefilled.
+//!
+//! The shape is `substrate://<target>/<rest>` — a target word, then whatever
+//! that target means by it. Targets are matched one at a time and an unknown
+//! one is a worded refusal rather than a guess, so a link kind added later
+//! (an id, a query) joins without changing what today's links mean.
 //!
 //! This is a different mechanism from `kinds.rs`'s `substrate-kind:` handler:
 //! that one serves bytes *inside* the webview via `register_uri_scheme_protocol`
@@ -35,12 +41,19 @@ pub(crate) const SCHEME: &str = "substrate";
 /// somebody meant to type.
 const MAX_PREFILL: usize = 4096;
 
+/// A destination name is a word or two from the app's own catalogue. The cap
+/// is here so a link can't hand the frontend — or a toast — a novel; nothing
+/// this long was ever a name somebody meant.
+const MAX_VIEW_NAME: usize = 200;
+
 /// What a well-formed `substrate://` URL asks for. Nothing here has been
-/// checked against the vault yet — `OpenNote`'s path is syntactically safe
-/// (relative, no traversal, `.md`), not known to exist.
+/// checked against the app or the vault yet — `OpenNote`'s path is
+/// syntactically safe (relative, no traversal, `.md`), not known to exist, and
+/// `OpenView`'s name is decoded and bounded, not known to name anything.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Action {
     OpenNote(String),
+    OpenView(String),
     Capture { text: Option<String> },
 }
 
@@ -84,6 +97,7 @@ pub(crate) fn parse(raw: &str) -> Result<Action, String> {
     };
     match route.to_ascii_lowercase().as_str() {
         "note" => Ok(Action::OpenNote(note_path(&rest)?)),
+        "view" => Ok(Action::OpenView(view_name(&rest)?)),
         "capture" => Ok(Action::Capture { text: capture_text(&url) }),
         "" => Err(format!("Substrate link with nothing to open: {raw}")),
         other => Err(format!("Substrate doesn't know how to open “{other}” links.")),
@@ -123,6 +137,38 @@ fn note_path(raw: &str) -> Result<String, String> {
     Ok(rel)
 }
 
+/// Validate the view route's name. A destination name is one segment of
+/// ordinary text — `substrate://view/Today`, `substrate://view/All%20notes`,
+/// `substrate://view/Prüfung` — so the work here is decoding it and refusing
+/// what could not be a name. What the name *means* is not decided here: the
+/// destination catalogue is a frontend table (`src/lib/deeplink.ts`), and the
+/// resolution happens where it already lives rather than in a second copy.
+fn view_name(raw: &str) -> Result<String, String> {
+    // one trailing slash is how a link builder spells a "directory"; past
+    // that, extra segments mean the link asked for something this doesn't do
+    let raw = raw.strip_suffix('/').unwrap_or(raw);
+    if raw.is_empty() {
+        return Err("A substrate://view/… link needs a view name.".into());
+    }
+    if raw.contains('/') {
+        return Err(format!("A substrate://view/… link takes one name: {raw}"));
+    }
+    let name = percent_decode(raw).ok_or_else(|| format!("Bad escape in view link: {raw}"))?;
+    // control characters would travel into a toast and a pane title; nothing
+    // in the catalogue has any, so a name carrying one names nothing anyway
+    if name.chars().any(char::is_control) {
+        return Err(format!("Refused an unsafe view link: {raw}"));
+    }
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("A substrate://view/… link needs a view name.".into());
+    }
+    if name.chars().count() > MAX_VIEW_NAME {
+        return Err("That substrate://view/… link's name is too long to be one.".into());
+    }
+    Ok(name.to_string())
+}
+
 /// `?text=` prefill for the capture route, trimmed and capped. Absent, blank
 /// and oversized all collapse to "open capture empty" rather than an error:
 /// the user asked for the capture box, and they get it.
@@ -137,19 +183,30 @@ fn capture_text(url: &Url) -> Option<String> {
 
 // ---------- pending state ----------
 
-/// One drained link, as the frontend sees it: either a note to open or a
-/// message to show. Exactly one field is set.
+/// One drained link, as the frontend sees it: a note to open, a view name to
+/// open, or a message to show. Exactly one field is set.
 #[derive(Debug, Clone, serde::Serialize)]
 pub(crate) struct Resolved {
     pub(crate) path: Option<String>,
+    pub(crate) view: Option<String>,
     pub(crate) error: Option<String>,
+}
+
+/// A link that survived parsing, waiting for the main window. A note still
+/// has to be found in the vault (which is why the drain resolves rather than
+/// arrival); a view name is handed across as it stands, because the catalogue
+/// that answers it is the frontend's.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Pending {
+    Note(String),
+    View(String),
 }
 
 #[derive(Default)]
 struct Inner {
-    /// `Ok` = a syntactically valid path still to be resolved against the
-    /// vault; `Err` = a rejection already worded for the user.
-    queue: Vec<Result<String, String>>,
+    /// `Ok` = a syntactically valid link still to be resolved; `Err` = a
+    /// rejection already worded for the user.
+    queue: Vec<Result<Pending, String>>,
     /// flipped by the first drain — i.e. the main window is mounted and
     /// listening, so later links can nudge it instead of only queueing
     main_ready: bool,
@@ -162,7 +219,7 @@ pub(crate) struct DeepLinks(Mutex<Inner>);
 impl DeepLinks {
     /// Hand over everything queued and mark the main window ready — the two
     /// are one step on purpose: a drain IS the window saying it can receive.
-    pub(crate) fn take_pending(&self) -> Vec<Result<String, String>> {
+    pub(crate) fn take_pending(&self) -> Vec<Result<Pending, String>> {
         let mut g = self.0.lock().unwrap();
         g.main_ready = true;
         std::mem::take(&mut g.queue)
@@ -200,12 +257,13 @@ pub(crate) fn handle_url(app: &tauri::AppHandle, raw: &str) {
             // `tauri://focus`, so tell it to pull directly too
             app.emit_to("capture", "capture:prefill", ()).ok();
         }
-        Ok(Action::OpenNote(rel)) => queue_note(app, Ok(rel)),
-        Err(msg) => queue_note(app, Err(msg)),
+        Ok(Action::OpenNote(rel)) => queue_link(app, Ok(Pending::Note(rel))),
+        Ok(Action::OpenView(name)) => queue_link(app, Ok(Pending::View(name))),
+        Err(msg) => queue_link(app, Err(msg)),
     }
 }
 
-fn queue_note(app: &tauri::AppHandle, item: Result<String, String>) {
+fn queue_link(app: &tauri::AppHandle, item: Result<Pending, String>) {
     let ready = {
         let state = app.state::<DeepLinks>();
         let mut g = state.0.lock().unwrap();
@@ -248,6 +306,13 @@ mod tests {
         match parse(url) {
             Ok(Action::OpenNote(p)) => p,
             other => panic!("expected a note route, got {other:?}"),
+        }
+    }
+
+    fn view(url: &str) -> String {
+        match parse(url) {
+            Ok(Action::OpenView(n)) => n,
+            other => panic!("expected a view route, got {other:?}"),
         }
     }
 
@@ -324,6 +389,48 @@ mod tests {
         assert!(refused("https://example.com/note/a.md").contains("Not a Substrate link"));
         assert!(refused("substrate://wipe/everything").contains("doesn't know how to open"));
         assert!(refused("not a url at all").contains("Not a valid link"));
+    }
+
+    #[test]
+    fn opens_a_named_view() {
+        assert_eq!(view("substrate://view/today"), "today");
+        assert_eq!(view("substrate://view/All%20notes"), "All notes");
+        // the authority-less spelling and a trailing slash are both shapes
+        // link builders emit — same destination
+        assert_eq!(view("substrate:view/Calendar"), "Calendar");
+        assert_eq!(view("substrate://view/Calendar/"), "Calendar");
+    }
+
+    #[test]
+    fn a_view_name_keeps_its_non_ascii_and_its_case() {
+        // decoding happens here; matching is the frontend catalogue's job, so
+        // nothing is folded on the way past
+        assert_eq!(view("substrate://view/Pr%C3%BCfung"), "Prüfung");
+        assert_eq!(view("substrate://view/Vault%20Doctor"), "Vault Doctor");
+    }
+
+    #[test]
+    fn rejects_empty_multi_segment_and_oversized_view_names() {
+        assert!(refused("substrate://view").contains("needs a view name"));
+        assert!(refused("substrate://view/").contains("needs a view name"));
+        assert!(refused("substrate://view/%20%20").contains("needs a view name"));
+        assert!(refused("substrate://view/today/rows").contains("takes one name"));
+        let long = "x".repeat(MAX_VIEW_NAME + 1);
+        assert!(refused(&format!("substrate://view/{long}")).contains("too long"));
+    }
+
+    #[test]
+    fn rejects_control_characters_and_bad_escapes_in_view_names() {
+        assert!(refused("substrate://view/To%00day").contains("unsafe"));
+        assert!(refused("substrate://view/a%2.md").contains("Bad escape"));
+    }
+
+    #[test]
+    fn an_unknown_target_is_a_worded_refusal_not_a_guess() {
+        // the shape is substrate://<target>/<rest>; a target this build has
+        // no route for is told so, and nothing else about the link is acted on
+        assert!(refused("substrate://noteid/abc123").contains("doesn't know how to open"));
+        assert!(refused("substrate://query/status%3Adone").contains("doesn't know how to open"));
     }
 
     #[test]

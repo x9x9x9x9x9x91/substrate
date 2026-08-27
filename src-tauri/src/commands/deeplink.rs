@@ -3,7 +3,7 @@
 //! `crate::deeplink`; these are the moments a window says "I'm ready, give me
 //! what arrived".
 
-use crate::deeplink::{DeepLinks, Resolved};
+use crate::deeplink::{DeepLinks, Pending, Resolved};
 use crate::AppState;
 use tauri::Manager;
 
@@ -14,6 +14,11 @@ use tauri::Manager;
 /// the index lookup is the second gate after `parse` — a path that survived
 /// validation but names nothing in *this* vault comes back as a message, never
 /// as silence.
+///
+/// A view name passes through unresolved. Its second gate is the destination
+/// catalogue, which is a frontend table (`src/lib/deeplink.ts`) rather than
+/// anything the engine knows — so the name travels and the window that owns
+/// the catalogue answers it, on the same never-silent terms.
 #[tauri::command]
 pub(crate) fn deeplink_take_pending(
     app: tauri::AppHandle,
@@ -29,15 +34,23 @@ pub(crate) fn deeplink_take_pending(
         .map(|item| match item {
             Err(msg) => Resolved {
                 path: None,
+                view: None,
                 error: Some(msg),
             },
-            Ok(rel) => match engine.meta(&rel) {
+            Ok(Pending::View(name)) => Resolved {
+                path: None,
+                view: Some(name),
+                error: None,
+            },
+            Ok(Pending::Note(rel)) => match engine.meta(&rel) {
                 Some(_) => Resolved {
                     path: Some(rel),
+                    view: None,
                     error: None,
                 },
                 None => Resolved {
                     path: None,
+                    view: None,
                     error: Some(format!("No note at “{rel}” in this vault.")),
                 },
             },

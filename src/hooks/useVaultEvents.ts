@@ -6,6 +6,7 @@ import { hotkeyRejectedMessage, type HotkeyRejection } from "../lib/hotkey";
 import { dropClaimedNear } from "../lib/dragdrop";
 import { basename } from "../lib/files";
 import { parseEverywhereView } from "../lib/everywhere";
+import { resolveViewName, unknownViewMessage } from "../lib/deeplink";
 import { splitEcho } from "../lib/ownwrites";
 import { resetAudioSources } from "../lib/assets";
 import { refreshAudioPlayers } from "../lib/editor-widgets";
@@ -333,6 +334,9 @@ export function useVaultEvents(opts: {
 
   // a due-date notification click or a tray agenda item opens the note
   const openNoteRef = useRef<(path: string) => void>(() => {});
+  // declared up here with its sibling because two effects reach for it: the
+  // palette's `app:open-view` below, and the deeplink drain that follows this
+  const openViewRef = useRef<(view: View) => void>(() => {});
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     let cancelled = false;
@@ -346,14 +350,17 @@ export function useVaultEvents(opts: {
     };
   }, []);
 
-// `substrate://note/…` links the OS handed the app. The first
-  // drain is what tells Rust this window is ready, so it also collects
-  // anything that arrived during a cold start; after that every warm link
-  // announces itself with `deeplink:pending` and drains the same way.
+// `substrate://note/…` and `substrate://view/…` links the OS handed
+  // the app. The first drain is what tells Rust this window is ready, so it
+  // also collects anything that arrived during a cold start; after that every
+  // warm link announces itself with `deeplink:pending` and drains the same way.
   //
   // A link that named a note this vault doesn't have comes back as a message
   // rather than a path — opening nothing is the one outcome the feature rules
-  // out, and App's opener would show an empty pane for a path with no note.
+  // out, and App's opener would show an empty pane for a path with no note. A
+  // view name is looked up here for the same reason the palette's payload is
+  // (`parseEverywhereView`): the destination catalogue is this window's, and a
+  // name it has no case for would render an empty pane.
   useEffect(() => {
     let cancelled = false;
     const drain = () => {
@@ -362,7 +369,11 @@ export function useVaultEvents(opts: {
           if (cancelled) return;
           for (const item of items) {
             if (item.path) openNoteRef.current(item.path);
-            else if (item.error) showToast(item.error);
+            else if (item.view) {
+              const view = resolveViewName(item.view);
+              if (view) openViewRef.current(view);
+              else showToast(unknownViewMessage(item.view));
+            } else if (item.error) showToast(item.error);
           }
         })
         .catch(() => undefined);
@@ -402,7 +413,6 @@ export function useVaultEvents(opts: {
   // own event for the same reason the sheet row has one, and the payload is
   // checked here (`parseEverywhereView`) rather than trusted: a kind this
   // build has no case for would show an empty pane.
-  const openViewRef = useRef<(view: View) => void>(() => {});
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     let cancelled = false;

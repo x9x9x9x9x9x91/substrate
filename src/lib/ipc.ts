@@ -961,8 +961,9 @@ export const paletteSeedQuery = () => invoke<string>("palette_seed_query");
 /** Drain `substrate://` links the OS handed us. Called on mount —
     which is also what tells Rust the window is ready, so a cold-start link
     queued before the vault loaded resolves here — and again on
-    `deeplink:pending`. Each entry carries either a note path to open or a
-    message to show; a link that resolves to nothing is never silent. */
+    `deeplink:pending`. Each entry carries a note path to open, a destination
+    name to look up, or a message to show; a link that resolves to nothing is
+    never silent. */
 export const deeplinkTakePending = () => invoke<DeeplinkResolved[]>("deeplink_take_pending");
 // Capture's side of the `substrate://capture?text=` handoff
 // (`deeplink_capture_prefill` / `deeplink_clear_capture_prefill`) is invoked

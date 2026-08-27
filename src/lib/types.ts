@@ -282,10 +282,13 @@ export interface DoctorReport {
 
 /** One drained `substrate://` link. Exactly one field is set:
     `path` is a note that survived validation AND exists in this vault;
-    `error` is already-worded text to show — a refused link, or one naming a
-    note this vault doesn't have. */
+    `view` is a decoded destination name still to be looked up in the
+    catalogue (`resolveViewName`), which is a frontend table rather than
+    anything the engine knows; `error` is already-worded text to show — a
+    refused link, or one naming a note this vault doesn't have. */
 export interface DeeplinkResolved {
   path?: string | null;
+  view?: string | null;
   error?: string | null;
 }
 

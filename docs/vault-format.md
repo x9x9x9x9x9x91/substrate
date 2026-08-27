@@ -570,6 +570,7 @@ A finished run also leaves one record note in `Imported/Logs`, carrying
 files by reason, and a link to every note written. That note carries no stamp
 of its own: a run's record is not something a later run should skip.
 
+
 ## 3. Links and embeds
 
 ### Wikilinks

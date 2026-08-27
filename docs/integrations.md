@@ -270,13 +270,22 @@ almost always the `type:` string: matching is exact and case-sensitive.
 
 Files are how you get data in; `substrate://` links are how you point a human
 at it. Anything that can open a URL — a shell script, a note in another app, an
-HTML page, a calendar invite — can hand Substrate one of two:
+HTML page, a calendar invite — can hand Substrate one of these:
 
 ```sh
 open "substrate://note/Inbox/Some%20note.md"   # bring the app up on that note
+open "substrate://view/today"                  # …on a destination
+open "substrate://view/All%20notes"            # names with spaces, encoded
 open "substrate://capture"                     # the ⌥Space capture box
 open "substrate://capture?text=call%20the%20studio"   # …prefilled
 ```
+
+A **view** name is one of the app's own destinations, matched the way you'd
+say it: case and spacing are ignored, and both spellings work — the words the
+palette shows (`All notes`, `Vault doctor`, `What's new`) and the short key
+behind them (`all`, `doctor`, `changelog`, `today`, `calendar`, `search`,
+`trash`, `shelf`, `dbmanager`, `cookbook`, `vaultsync`, `assets`). A name this
+build has no destination for opens the app and says so.
 
 The note path is **vault-relative and percent-encoded**, ends in `.md`, and is
 resolved against the vault index — not the filesystem. The rules, in full:
@@ -289,8 +298,10 @@ resolved against the vault index — not the filesystem. The rules, in full:
 - **A link that resolves to nothing still opens the app and says so.** A miss
   is a message, never silence — so a stale link in somebody's notes reads as a
   stale link, not as a broken app.
-- Unknown routes (`substrate://something-else`) are refused the same way. The
-  two above are the whole surface.
+- Unknown targets (`substrate://something-else`) are refused the same way. A
+  link is `substrate://<target>/<rest>`, and the three targets above are the
+  whole surface today — a target added later joins without changing what any
+  of these means.
 
 Cold start is handled: a link that arrives while the app is launching queues
 until the vault is loaded, then opens. Scheme registration comes from the
