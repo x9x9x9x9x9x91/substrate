@@ -5,11 +5,11 @@ import { isTyping, isTypingNow } from "./lib/dom";
 import { MENU_SURFACES } from "./lib/menusurfaces";
 import type { DbIcon, DbLayout, NoteMeta, NumberFormat, PropKind, PropValue, RollupConfig, SavedView, SavedViewSort, SelectOption, SidebarOrder, View, ViewPref } from "./lib/types";
 import { foldedPropKey, foldedPropStr, FUNCTIONAL_TYPES, typeHome, viewKey } from "./lib/types";
-import { tagFolderApplyTags, tagFolderMatches } from "./lib/tags";
+import { tagFolderApplyTags } from "./lib/tags";
 import { dbColumns } from "./lib/dbcolumns";
 import { savedViewPref } from "./lib/vieweval";
 import { byFoldedKey, foldedObjectKey, isTypePropName, typeSchemaFor } from "./lib/schemalookup";
-import { folderDefaultIcon, iconForType, iconsByType } from "./lib/dbicons";
+import { folderDefaultIcon, iconsByType } from "./lib/dbicons";
 import { dashboardKindOption, newDashboardProps } from "./lib/newdashboard";
 import { dbTypesByRecency } from "./lib/dbRecency";
 import { looksLikeUrl } from "./lib/url";
@@ -108,8 +108,6 @@ import {
   splitPins,
 } from "./lib/sidebar";
 import { duplicateNote as duplicateNoteInVault } from "./lib/noteactions";
-import SealedNoteDialog from "./components/SealedNoteDialog";
-import { forgetSealed, holdSealed } from "./lib/sealedsession";
 import { embedQueryFor, type ViewSpecResult } from "./lib/embeds";
 import {
   buildEntryBody,
@@ -123,27 +121,12 @@ import {
 } from "./lib/templates";
 import { parsePages } from "./lib/pages";
 import { errText } from "./lib/errtext";
-import ShareDialog from "./components/ShareDialog";
-import SealScopeDialog from "./components/SealScopeDialog";
-import TagFolderDialog from "./components/TagFolderDialog";
 import Sidebar, { type FolderEdit, type Section } from "./components/Sidebar";
-import ListPane from "./components/ListPane";
 import MiniPlayer from "./components/MiniPlayer";
 import { getQueue, subscribeQueue } from "./lib/playqueue";
 import { getPrintable, subscribePrintable } from "./lib/printable";
-import NotePane from "./components/NotePane";
-import DashboardPane from "./components/DashboardPane";
 import { useDashUndoState } from "./components/useDashUndo";
-import DbPaneStack, { type DbPaneCtx } from "./components/DbPaneStack";
-import DbManagerPane from "./components/DbManagerPane";
-import TodayPane from "./components/TodayPane";
-import SearchPane from "./components/SearchPane";
-import TrashPane from "./components/TrashPane";
-import DoctorPane from "./components/DoctorPane";
-import ChangelogPane from "./components/ChangelogPane";
-import CookbookPane from "./components/CookbookPane";
-import AssetsPane from "./components/AssetsPane";
-import ShelfPane from "./components/ShelfPane";
+import { type DbPaneCtx } from "./components/DbPaneStack";
 import Palette, { type StartStage } from "./components/Palette";
 import ShortcutOverlay from "./components/ShortcutOverlay";
 import KeyHints, { type HoldHudCtx } from "./components/KeyHints";
@@ -151,37 +134,17 @@ import KeyAssignHud from "./components/KeyAssignHud";
 import InfoView from "./components/InfoView";
 import TooltipHost from "./components/Tooltip";
 import TimeTravelBar from "./components/TimeTravelBar";
-import ReceiptsPeek from "./components/ReceiptsPeek";
-// lazy: TerminalHud is the only xterm.js importer, and the web/mock surface
-// (e2e) never renders it — code-splitting keeps xterm's parse cost out of
-// every mock page load entirely; desktop fetches the chunk once at mount
-const TerminalHud = lazy(() => import("./components/TerminalHud"));
-/* lazy tier 1 — route-exclusive panes, none of them on the cold-open path
-   (`{kind:"notes"}`). Each is behind a view kind or a flag the first paint
-   never satisfies, and together they are the bulk of the non-editor bundle:
-   CalendarPane 3.2k lines, SettingsPane 1.9k (gated on `settingsOpen`),
-   VaultSyncPane 1.2k, plus the two machine-local surfaces below. Every
-   fallback is `null` inside the pane's own container, so nothing reflows
-   while the chunk arrives. Deliberately NOT lazy: DatabasePane, NotePane,
-   Sidebar, ListPane and Palette — ⌘K has to stay instant. */
-const CalendarPane = lazy(() => import("./components/CalendarPane"));
+import AppDialogs from "./components/AppDialogs";
+import AppMenus from "./components/AppMenus";
+import PaneRouter from "./components/PaneRouter";
+/* lazy tier 1, App's own share — SettingsPane is 1.9k lines behind
+   `settingsOpen`, which the first paint never satisfies. The route-exclusive
+   panes are lazy too, inside `PaneRouter` where their arms live. Deliberately
+   NOT lazy: Sidebar and Palette — ⌘K has to stay instant. */
 const SettingsPane = lazy(() => import("./components/SettingsPane"));
-const VaultSyncPane = lazy(() => import("./components/VaultSyncPane"));
-import ContextMenu, { type MenuItem } from "./components/ContextMenu";
-import IconPicker from "./components/IconPicker";
+import type { MenuItem } from "./components/ContextMenu";
 import type { AnchorRect } from "./components/SelectMenu";
-import {
-  DeleteDatabaseDialog,
-  CsvImportDialog,
-  MountFolderDialog,
-  NewDatabaseDialog,
-  RenameDialog,
-  StripPropDialog,
-  UnmountDialog,
-} from "./components/DbAdmin";
-import { ClockIcon, FolderIcon, MenuIcon, MountIcon, NoteIcon, PinIcon, PlusIcon, SidebarIcon, XIcon, ChevronLeftIcon, ChevronUpIcon, ChevronDownIcon } from "./components/Icons";
-import { HeroNote } from "./components/HeroIcons";
-import EmptyState from "./components/EmptyState";
+import { ClockIcon, FolderIcon, MenuIcon, MountIcon, NoteIcon, PlusIcon, SidebarIcon, ChevronLeftIcon, ChevronUpIcon, ChevronDownIcon } from "./components/Icons";
 import { useSidebarHidden } from "./hooks/useSidebarHidden";
 import { useZoom } from "./hooks/useZoom";
 import { useTerminalHud } from "./hooks/useTerminalHud";
@@ -3603,438 +3566,140 @@ export default function App() {
           Vault couldn’t be read: {bootError}
         </div>
       )}
-      {view.kind === "search" ? (
-        <div className="main">
-          <SearchPane
-            notes={notes}
-            // a hit inside a mounted file names no note — its mount is what
-            // makes it renderable
-            mounts={mounts}
-            excludeAppFiles={!showAppFiles}
-            query={searchQuery}
-            setQuery={setSearchQuery}
-            onOpenMatch={openSearchHit}
-            onClose={closeSearch}
-            restoreSel={searchRestore}
-            onRestoredSel={() => setSearchRestore(null)}
-            onRowContextMenu={onRowMenu}
-            recallEnabled={recallEnabled}
-            onOpenPast={openPastVersion}
-          />
-        </div>
-      ) : view.kind === "trash" ? (
-        <div className="main">
-          <TrashPane
-            vaultEpoch={vaultEpoch}
-            onRestored={(m) => {
-              // seed the restored note into state before the async refresh so
-              // the selection effect finds it and keeps it selected
-              setNotes((ns) => [...ns.filter((n) => n.path !== m.path), m]);
-              setView({ kind: "all" });
-              setSelected(m.path);
-              showMobileDetail();
-              refresh();
-            }}
-            onRestoredFolder={(path) => {
-              setView({ kind: "folder", path });
-              setMobilePane("list");
-              refresh();
-            }}
-          />
-        </div>
-      ) : view.kind === "vaultsync" ? (
-        <div className="main">
-          <Suspense fallback={null}>
-            <VaultSyncPane autoSync={autoSync} onAutoSyncChange={setAutoSync} />
-          </Suspense>
-        </div>
-      ) : view.kind === "changelog" ? (
-        <div className="main">
-          <ChangelogPane
-          />
-        </div>
-      ) : view.kind === "cookbook" ? (
-        <div className="main">
-          <CookbookPane
-            onOpenNote={(path) => {
-              // the install just wrote it, so the index doesn't carry it yet.
-              // Select only once the refreshed list holds it, or the
-              // selection-guard snaps straight back to the old top row. "all"
-              // is the one view guaranteed to contain it whatever folder it
-              // went to.
-              setView({ kind: "all" });
-              refresh().then(() => {
-                setSelected(path);
-                showMobileDetail();
-              });
-            }}
-          />
-        </div>
-      ) : view.kind === "assets" ? (
-        <div className="main">
-          <AssetsPane vaultEpoch={vaultEpoch} />
-        </div>
-      ) : view.kind === "shelf" || view.kind === "drive" ? (
-        <div className="main">
-          {/* One pane for both: a drive's catalog is the shelf zoomed in, and
-              splitting them would double the staleness copy that is the whole
-              point of the surface. */}
-          <ShelfPane view={view} setView={setView} vaultEpoch={vaultEpoch} />
-        </div>
-      ) : view.kind === "doctor" ? (
-        <div className="main">
-          <DoctorPane
-            vaultEpoch={vaultEpoch}
-            onOpenNote={(path) => {
-              // leave the report to show the note itself — "all" is the one
-              // view guaranteed to contain it whatever folder it lives in
-              setView({ kind: "all" });
-              setSelected(path);
-              showMobileDetail();
-            }}
-          />
-        </div>
-      ) : view.kind === "dbmanager" ? (
-        <div className="main">
-          <DbManagerPane
-            databases={databases}
-            icons={dbIcons}
-            schema={schema}
-            onOpen={openDatabase}
-            onRowMenu={dbManagerMenu}
-            onNewDatabase={() => setDbDialog({ kind: "create" })}
-          />
-        </div>
-      ) : view.kind === "dashboard" && dashMeta ? (
-        <div className="main">
-          <DashboardPane
-            meta={dashMeta}
-            notes={notes}
-            vaultEpoch={vaultEpoch}
-            schema={schema}
-            savedViews={savedViews}
-            // the databases' display prefs, for a vault kind's `ctx.view`: the
-            // pin is composed over the same pref the database pane composes it
-            // over, so a kind's table sections where the pane's does
-            viewPrefs={viewsConfig}
-            onOpenSource={openNote}
-            onMutated={refresh}
-            onFollowLink={followLink}
-            onOpenView={openEmbedView}
-            onToast={showToast}
-            onCreateEntry={createEntry}
-            pageStepRef={pageStepRef}
-            dashUndo={dashUndo}
-            taskStaleChips={taskStaleChips}
-            embedEdit={embedEdit}
-          />
-        </div>
-      ) : view.kind === "today" ? (
-        <div className="main">
-          <TodayPane
-            notes={notes}
-            schema={schema}
-            icons={dbIcons}
-            onOpenNote={openNote}
-            onOpenJournal={() => openJournal(todayIso())}
-            onMutated={refresh}
-            onToast={showToast}
-            onRowContextMenu={onRowMenu}
-          />
-        </div>
-      ) : view.kind === "calendar" ? (
-        <div className="main">
-          <Suspense fallback={null}>
-          <CalendarPane
-            notes={notes}
-            schema={schema}
-            newSignal={calNewSeq}
-            onOpenNote={openNote}
-            onMutated={refresh}
-            onTrashNote={trashNote}
-            onToast={showToast}
-            onRenameNote={renameNote}
-            onOpenJournal={openJournal}
-          />
-          </Suspense>
-        </div>
-      ) : view.kind === "mount" ? (
-        <div className="main">
-          {activeMount ? (
-            // A mounted folder is a database whose rows are files.
-            // Same pane, same layouts, same views — the only differences are
-            // where the rows come from (the mount's index, not the note list),
-            // where a cell write lands (`mount_annotate`), and the banner that
-            // appears when the folder isn't reachable from this machine.
-            <div className="db-mount">
-              {mountStatus(activeMount) && (
-                <div className="mount-banner">
-                  <span>{mountStatus(activeMount)}</span>
-                  <button className="mount-locate" onClick={() => locateMount(activeMount)}>
-                    Locate folder…
-                  </button>
-                </div>
-              )}
-              <DbPaneStack
-                key={view.id}
-                ctx={dbPaneCtx}
-                dbType={activeMount.name}
-                notes={mountNotes}
-                pref={byFoldedKey(viewsConfig, activeMount.name)}
-                // the row a search hit arrived on — marked as the
-                // open one, and revealed (scrolled to, focused) once the
-                // board's rows are in
-                openPath={
-                  mountReveal?.path ??
-                  (mountOpen?.id === activeMount.id ? mountOpen.path : null)
-                }
-                reveal={mountReveal}
-                newSignal={0}
-                onPrefChange={mountPrefChange}
-                // a row IS a file: opening one opens the file, and its cell
-                // writes go through the mount's own annotate path
-                onOpenNote={openMountRow}
-                onNoteMenu={mountRowMenu}
-                writeProp={mountWriteProp}
-                // rows are the folder's contents — nothing here trashes a file
-                onTrashNotes={onTrashMountRows}
-              />
-            </div>
-          ) : (
-            <div className="db">
-              {/* No verb here yet: remounting is the Databases pane's verb, not
-                  one this pane can run — glyph + text until copy work lands. */}
-              <EmptyState
-                icon={<MountIcon />}
-                title="Mounted folder not found"
-                hint="It may have been unmounted in another window"
-              />
-            </div>
-          )}
-        </div>
-      ) : view.kind === "db" || view.kind === "saved" ? (
-        <div className={`main${mobile && dbNoteMeta ? " mobile-detail" : ""}`}>
-          {view.kind === "db" ? (
-            <DbPaneStack
-              key={view.type}
-              ctx={dbPaneCtx}
-              dbType={view.type}
-              notes={viewNotes}
-              pref={byFoldedKey(viewsConfig, view.type)}
-              openPath={dbNote}
-              newSignal={dbNewSeq}
-              numberLocale={numberLocale}
-              onPrefChange={dbPrefChange}
-              onOpenNote={openNote}
-              onNoteMenu={onRowMenu}
-              onCellMenu={onCellMenu}
-              onTrashNotes={trashNotes}
-              onRenameNote={renameNote}
-            />
-          ) : activeSaved ? (
-            <DbPaneStack
-              key={`sv:${activeSaved.id}`}
-              ctx={dbPaneCtx}
-              dbType={activeSaved.db}
-              notes={savedNotes}
-              // A pin's pref is composed in ONE place (`savedViewPref`), the
-              // same call a headless reader of the same pin makes: the pin's
-              // own layout, grouping and sort over the database's, the
-              // presentation keys no pin captures (aggregations, widths,
-              // wrap, grid) following the database, and the database's
-              // curation — hidden sets, dragged column order — staying out.
-              // Until it is re-saved, `svPref` holds the session's edits.
-              pref={savedPref}
-              openPath={dbNote}
-              newSignal={dbNewSeq}
-              numberLocale={numberLocale}
-              onPrefChange={setSvPref}
-              onOpenNote={openNote}
-              onNoteMenu={onRowMenu}
-              onCellMenu={onCellMenu}
-              onTrashNotes={trashNotes}
-              onRenameNote={renameNote}
-              initialQuery={activeSaved.query}
-              initialColumns={activeSaved.columns}
-              onColumnsChange={savedColumnsChange}
-              saveViewSeed={activeSaved.name}
-              activeViewId={activeSaved.id}
-              onOpenDb={openSavedsDb}
-            />
-          ) : (
-            <div className="db">
-              {/* No verb here yet: the pin is gone, and re-pinning happens on
-                  the view it came from, so there is none to offer here. */}
-              <EmptyState
-                icon={<PinIcon />}
-                title="Saved view not found"
-                hint="The pin may have been removed outside the app"
-              />
-            </div>
-          )}
-          {dbNoteMeta && (
-            <div className="db-note">
-              <button className="db-note-x" onClick={() => setDbNote(null)} title="Close (Esc)">
-                <XIcon />
-              </button>
-              <NotePane
-                meta={dbNoteMeta}
-                schema={schema}
-                usedValues={usedValues}
-                vaultEpoch={vaultEpoch}
-                numberLocale={numberLocale}
-                changedPaths={changedPaths}
-                onSaveSchema={saveSchemaProp}
-                onPromoteOption={promoteSchemaOption}
-                relationCandidates={relCandidates}
-                onCreateEntry={createEntry}
-                dbTypes={dbTypes}
-                dbTypesRecent={dbTypesRecent}
-                onFollowLink={followLink}
-                noteTitles={noteTitles}
-                vaultNotes={notes}
-                linkedNoteBody={linkedNoteBody}
-                sheetTitles={sheetTitles}
-                onOpenTag={openTag}
-                tagUniverse={tagCounts}
-                onOpenNote={openNote}
-                embedQuery={embedQuery}
-                onOpenView={openEmbedView}
-                onEmbedSetProp={embedSetProp}
-                onEmbedCreate={embedCreateEntry}
-                onEmbedCreateRelation={embedCreateRelation}
-                onRenamed={onRenamed}
-                onRenameUndone={onRenameApplied}
-                onMutated={refresh}
-                onTrash={trashNote}
-                onMoveToFolder={startMoveToFolder}
-                onDuplicate={duplicateNote}
-                onShare={setShare}
-                onTogglePick={togglePickToday}
-                onTogglePin={setPinned}
-                pinned={pinnedPaths.includes(dbNoteMeta.path)}
-                flushRef={flushOpenRef}
-                onTyped={followTyped}
-                onJournalDay={openJournal}
-                editorFocusRef={editorFocusRef}
-                savedViewPins={savedViewPins}
-                dbPropNames={dbPropNames}
-                onEscape={onNoteEscape}
-                reveal={reveal}
-                onRevealed={clearReveal}
-                revealRow={sheetReveal}
-                onRowRevealed={clearSheetReveal}
-                onToast={showToast}
-                readOnly={timePoint !== null}
-                onReceipts={(key, anchor) =>
-                  setReceipts({ path: dbNoteMeta.path, key, anchor })
-                }
-                openHistoryFor={historyFor}
-              />
-            </div>
-          )}
-        </div>
-      ) : (
-      <div className="main">
-        {(!mobile || mobilePane === "list") && (
-        <ListPane
-          notes={viewRows.loose}
-          blocks={viewRows.blocks}
-          icons={dbIcons}
-          onOpenDb={onListOpenDb}
-          view={view}
-          selected={selected}
-          onSelect={onListSelect}
-          renaming={renaming}
-          onRenameNote={renameNote}
-          onRenameCancel={onListRenameCancel}
-          onRowContextMenu={onRowMenu}
-          onBackgroundContextMenu={onListBgMenu}
-          onActivate={onListActivate}
-          {...ledgerListProps}
-          folderIcon={listFolderIcon}
-          onNewHere={newInFolder}
-          onNewNote={createHere}
-          tagFolders={tagFolders}
-          mobile={mobile}
-          files={folderFiles.files}
-          fileTotal={folderFiles.total}
-          onPlayFile={onPlayFile}
-          onOpenFile={onOpenFile}
-          onRevealFile={onRevealFile}
-        />
-        )}
-        {(!mobile || mobilePane === "detail") && (selectedMeta ? (
-          <NotePane
-            meta={selectedMeta}
-            schema={schema}
-            usedValues={usedValues}
-            vaultEpoch={vaultEpoch}
-            numberLocale={numberLocale}
-            changedPaths={changedPaths}
-            onSaveSchema={saveSchemaProp}
-            onPromoteOption={promoteSchemaOption}
-            relationCandidates={relCandidates}
-            onCreateEntry={createEntry}
-            dbTypes={dbTypes}
-            dbTypesRecent={dbTypesRecent}
-            onFollowLink={followLink}
-            noteTitles={noteTitles}
-            vaultNotes={notes}
-            linkedNoteBody={linkedNoteBody}
-            sheetTitles={sheetTitles}
-            onOpenTag={openTag}
-            tagUniverse={tagCounts}
-            onOpenNote={openNote}
-            embedQuery={embedQuery}
-            onOpenView={openEmbedView}
-            onEmbedSetProp={embedSetProp}
-            onEmbedCreate={embedCreateEntry}
-            onEmbedCreateRelation={embedCreateRelation}
-            onRenamed={onRenamed}
-            onRenameUndone={onRenameApplied}
-            onMutated={refresh}
-            onTrash={trashNote}
-            onMoveToFolder={startMoveToFolder}
-            onDuplicate={duplicateNote}
-            onShare={setShare}
-            onTogglePick={togglePickToday}
-            onTogglePin={setPinned}
-            pinned={pinnedPaths.includes(selectedMeta.path)}
-            flushRef={flushOpenRef}
-            ghost={selectedMeta.path === ghostPath}
-            onGhostCreated={adoptGhost}
-            onTyped={followTyped}
-            onJournalDay={openJournal}
-            editorFocusRef={editorFocusRef}
-            editorInsertRef={noteInsertRef}
-            savedViewPins={savedViewPins}
-            dbPropNames={dbPropNames}
-            titleFocusRef={titleFocusRef}
-            onEscape={onNoteEscape}
-            reveal={reveal}
-            onRevealed={clearReveal}
-            revealRow={sheetReveal}
-            onRowRevealed={clearSheetReveal}
-            onToast={showToast}
-            readOnly={timePoint !== null}
-            onReceipts={(key, anchor) => setReceipts({ path: selectedMeta.path, key, anchor })}
-            openHistoryFor={historyFor}
-          />
-        ) : (
-          <div className="note">
-            <EmptyState
-              icon={<HeroNote />}
-              title="No note selected"
-              hint="⌘K to find something, ⌘N to capture"
-              /* the ⌘K half of the hint, made clickable — same overlay the
-                 shortcut opens, under the shortcut registry's own label */
-              action={{ label: "Command palette", onClick: () => setOverlay("palette") }}
-            />
-          </div>
-        ))}
-      </div>
-      )}
+      <PaneRouter
+        view={view}
+        setView={setView}
+        selected={selected}
+        setSelected={setSelected}
+        setOverlay={setOverlay}
+        showToast={showToast}
+        notes={notes}
+        setNotes={setNotes}
+        vaultEpoch={vaultEpoch}
+        changedPaths={changedPaths}
+        refresh={refresh}
+        mobile={mobile}
+        mobilePane={mobilePane}
+        setMobilePane={setMobilePane}
+        showMobileDetail={showMobileDetail}
+        searchQuery={searchQuery}
+        setSearchQuery={setSearchQuery}
+        searchRestore={searchRestore}
+        setSearchRestore={setSearchRestore}
+        closeSearch={closeSearch}
+        openSearchHit={openSearchHit}
+        reveal={reveal}
+        onNoteEscape={onNoteEscape}
+        mounts={mounts}
+        activeMount={activeMount}
+        mountNotes={mountNotes}
+        mountReveal={mountReveal}
+        mountOpen={mountOpen}
+        mountWriteProp={mountWriteProp}
+        locateMount={locateMount}
+        openDatabase={openDatabase}
+        showAppFiles={showAppFiles}
+        taskStaleChips={taskStaleChips}
+        autoSync={autoSync}
+        setAutoSync={setAutoSync}
+        numberLocale={numberLocale}
+        timePoint={timePoint}
+        recallEnabled={recallEnabled}
+        openPastVersion={openPastVersion}
+        onRowMenu={onRowMenu}
+        databases={databases}
+        dbIcons={dbIcons}
+        schema={schema}
+        dbManagerMenu={dbManagerMenu}
+        setDbDialog={setDbDialog}
+        dashMeta={dashMeta}
+        savedViews={savedViews}
+        viewsConfig={viewsConfig}
+        pageStepRef={pageStepRef}
+        dashUndo={dashUndo}
+        embedEdit={embedEdit}
+        openNote={openNote}
+        followLink={followLink}
+        openEmbedView={openEmbedView}
+        createEntry={createEntry}
+        calNewSeq={calNewSeq}
+        trashNote={trashNote}
+        renameNote={renameNote}
+        openJournal={openJournal}
+        dbPaneCtx={dbPaneCtx}
+        mountPrefChange={mountPrefChange}
+        openMountRow={openMountRow}
+        mountRowMenu={mountRowMenu}
+        onTrashMountRows={onTrashMountRows}
+        viewNotes={viewNotes}
+        dbPrefChange={dbPrefChange}
+        onCellMenu={onCellMenu}
+        trashNotes={trashNotes}
+        dbNote={dbNote}
+        setDbNote={setDbNote}
+        dbNewSeq={dbNewSeq}
+        activeSaved={activeSaved}
+        savedNotes={savedNotes}
+        savedPref={savedPref}
+        setSvPref={setSvPref}
+        savedColumnsChange={savedColumnsChange}
+        openSavedsDb={openSavedsDb}
+        dbNoteMeta={dbNoteMeta}
+        selectedMeta={selectedMeta}
+        usedValues={usedValues}
+        saveSchemaProp={saveSchemaProp}
+        promoteSchemaOption={promoteSchemaOption}
+        relCandidates={relCandidates}
+        dbTypes={dbTypes}
+        dbTypesRecent={dbTypesRecent}
+        noteTitles={noteTitles}
+        linkedNoteBody={linkedNoteBody}
+        sheetTitles={sheetTitles}
+        openTag={openTag}
+        tagCounts={tagCounts}
+        embedQuery={embedQuery}
+        embedSetProp={embedSetProp}
+        embedCreateEntry={embedCreateEntry}
+        embedCreateRelation={embedCreateRelation}
+        onRenamed={onRenamed}
+        onRenameApplied={onRenameApplied}
+        startMoveToFolder={startMoveToFolder}
+        duplicateNote={duplicateNote}
+        setShare={setShare}
+        togglePickToday={togglePickToday}
+        setPinned={setPinned}
+        pinnedPaths={pinnedPaths}
+        flushOpenRef={flushOpenRef}
+        ghostPath={ghostPath}
+        adoptGhost={adoptGhost}
+        followTyped={followTyped}
+        editorFocusRef={editorFocusRef}
+        noteInsertRef={noteInsertRef}
+        savedViewPins={savedViewPins}
+        dbPropNames={dbPropNames}
+        titleFocusRef={titleFocusRef}
+        clearReveal={clearReveal}
+        sheetReveal={sheetReveal}
+        clearSheetReveal={clearSheetReveal}
+        setReceipts={setReceipts}
+        historyFor={historyFor}
+        viewRows={viewRows}
+        onListOpenDb={onListOpenDb}
+        onListSelect={onListSelect}
+        renaming={renaming}
+        onListRenameCancel={onListRenameCancel}
+        onListBgMenu={onListBgMenu}
+        onListActivate={onListActivate}
+        ledgerListProps={ledgerListProps}
+        listFolderIcon={listFolderIcon}
+        newInFolder={newInFolder}
+        createHere={createHere}
+        tagFolders={tagFolders}
+        folderFiles={folderFiles}
+        onPlayFile={onPlayFile}
+        onOpenFile={onOpenFile}
+        onRevealFile={onRevealFile}
+      />
       {overlay && (
         <Palette
           mode={overlay}
@@ -4171,230 +3836,80 @@ export default function App() {
         />
         </Suspense>
       )}
-      {sealScopeDialog && (
-        <SealScopeDialog
-          path={sealScopeDialog.path}
-          mode={sealScopeDialog.mode}
-          onClose={() => {
-            setSealScopeDialog(null);
-            // A refused seal is not a no-op: the files may already be
-            // ciphertext with the marker left pending, so the
-            // sidebar and the folder menu have to re-read the truth.
-            reloadSealScopes();
-            refresh();
-          }}
-          onDone={(result) => {
-            setSealScopeDialog(null);
-            reloadSealScopes();
-            refresh();
-            showToast(
-              `${result.path ? "Folder" : "Vault"} sealed — ${result.sealed} note${result.sealed === 1 ? "" : "s"} converted`
-            );
-          }}
-        />
-      )}
-      {isTauri && !mobile && (
-        <Suspense fallback={null}>
-          <TerminalHud
-            open={termOpen}
-            settings={termSettings}
-            inject={termInject}
-            onSized={setTerminalSize}
-            onSettingsChanged={refreshTerminalSettings}
-            onToast={showToast}
-          />
-        </Suspense>
-      )}
-      {dbDialog?.kind === "create" && (
-        <NewDatabaseDialog
-          dbTypes={dbTypes}
-          onCreate={(name, props) =>
-            createDatabase(name, props, dbDialog.fromSidebar, dbDialog.homeFolder)
-          }
-          onClose={() => setDbDialog(null)}
-        />
-      )}
-      {csvImport && (
-        <CsvImportDialog
-          fileName={csvImport.fileName}
-          rows={csvImport.rows}
-          onImport={importCsv}
-          onClose={() => setCsvImport(null)}
-        />
-      )}
-      {share && (
-        <ShareDialog meta={share} onClose={() => setShare(null)} onToast={showToast} />
-      )}
-      {/* Seal/unlock/unseal invoked from a surface that is not the open note:
-          the row menu or the palette. Same dialog the pane uses. */}
-      {sealDialog && (
-        <SealedNoteDialog
-          /* The unlock→unseal chain swaps the mode under one mount; without a
-             fresh key React keeps the dialog's own busy/error state and the
-             confirm button stays stuck reading "Removing seal…". */
-          key={`${sealDialog.note.path}:${sealDialog.mode}`}
-          meta={sealDialog.note}
-          mode={sealDialog.mode}
-          onClose={() => setSealDialog(null)}
-          onDone={(result) => {
-            const { note, mode, then } = sealDialog;
-            if (mode === "unlock") {
-              // the unlock leg of "Remove seal…": register the hold before the
-              // confirm, so an abandoned confirm leaves honest state behind
-              holdSealed(note.path);
-              setSealDialog(then === "unseal" ? { note, mode: "unseal" } : null);
-              return;
-            }
-            setSealDialog(null);
-            if (mode === "seal") {
-              const quick = (result as { device_unlock?: boolean } | undefined)?.device_unlock;
-              if (quick === false) showToast("Sealed — use the vault password to unlock on this device");
-            }
-            // seal and unseal both leave the engine holding nothing for this
-            // path: drop the bookkeeping without asking it to lock again
-            forgetSealed(note.path);
-            // unsealing drops every authorization in the engine; the pane
-            // watching this note picks the change up through sealedsession
-            refresh();
-          }}
-        />
-      )}
-      {tagFolderEdit && (
-        <TagFolderDialog
-          folder={tagFolderEdit.folder}
-          universe={tagCounts}
-          matchCount={(d) => notes.filter((n) => tagFolderMatches(d, n.tags ?? [])).length}
-          onSave={saveTagFolder}
-          onDelete={deleteTagFolder}
-          onClose={() => setTagFolderEdit(null)}
-        />
-      )}
-      {mountDialog && (
-        <MountFolderDialog onMount={mountSubmit} onClose={() => setMountDialog(false)} />
-      )}
-      {/* The destructive half of unmounting — the notes go to Trash,
-          so it asks first and snapshots before sweeping */}
-      {unmountAsk && (
-        <UnmountDialog
-          mount={unmountAsk}
-          onConfirm={() => unmountNow(unmountAsk, true)}
-          onClose={() => setUnmountAsk(null)}
-        />
-      )}
-      {dbDialog?.kind === "rename-db" && (
-        <RenameDialog
-          title={`Rename database “${dbDialog.dbType}”`}
-          initial={dbDialog.dbType}
-          submitLabel="Rename database"
-          onSubmit={(name) => renameDatabase(dbDialog.dbType, name)}
-          onClose={() => setDbDialog(null)}
-        />
-      )}
-      {dbDialog?.kind === "delete-db" && (
-        <DeleteDatabaseDialog
-          dbType={dbDialog.dbType}
-          noteCount={
-            notes.filter(
-              (n) => foldedPropStr(n.props, "type")?.toLowerCase() === dbDialog.dbType.toLowerCase()
-            ).length
-          }
-          onChoice={(trash) => deleteDatabase(dbDialog.dbType, trash)}
-          onClose={() => setDbDialog(null)}
-        />
-      )}
-      {dbDialog?.kind === "rename-prop" && (
-        <RenameDialog
-          title={`Rename property “${dbDialog.prop}”`}
-          initial={dbDialog.prop}
-          submitLabel="Rename property"
-          onSubmit={(name) => renameProperty(dbDialog.dbType, dbDialog.prop, name)}
-          onClose={() => setDbDialog(null)}
-        />
-      )}
-      {dbDialog?.kind === "strip-prop" && (
-        <StripPropDialog
-          dbType={dbDialog.dbType}
-          prop={dbDialog.prop}
-          count={dbDialog.count}
-          onStrip={() =>
-            stripPropValues(dbDialog.dbType, dbDialog.prop, dbDialog.wasNumber)
-          }
-          onClose={() => setDbDialog(null)}
-        />
-      )}
+      <AppDialogs
+        notes={notes}
+        dbTypes={dbTypes}
+        mobile={mobile}
+        share={share}
+        setShare={setShare}
+        showToast={showToast}
+        refresh={refresh}
+        dbDialog={dbDialog}
+        setDbDialog={setDbDialog}
+        csvImport={csvImport}
+        setCsvImport={setCsvImport}
+        createDatabase={createDatabase}
+        importCsv={importCsv}
+        renameDatabase={renameDatabase}
+        deleteDatabase={deleteDatabase}
+        renameProperty={renameProperty}
+        stripPropValues={stripPropValues}
+        mountDialog={mountDialog}
+        setMountDialog={setMountDialog}
+        unmountAsk={unmountAsk}
+        setUnmountAsk={setUnmountAsk}
+        mountSubmit={mountSubmit}
+        unmountNow={unmountNow}
+        sealScopeDialog={sealScopeDialog}
+        setSealScopeDialog={setSealScopeDialog}
+        reloadSealScopes={reloadSealScopes}
+        sealDialog={sealDialog}
+        setSealDialog={setSealDialog}
+        tagFolderEdit={tagFolderEdit}
+        setTagFolderEdit={setTagFolderEdit}
+        tagCounts={tagCounts}
+        saveTagFolder={saveTagFolder}
+        deleteTagFolder={deleteTagFolder}
+        termOpen={termOpen}
+        termSettings={termSettings}
+        termInject={termInject}
+        setTerminalSize={setTerminalSize}
+        refreshTerminalSettings={refreshTerminalSettings}
+      />
       {/* App chrome, so audio outlives every view switch below it.
           The component renders nothing until a folder row starts a queue. */}
       <MiniPlayer />
-      {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
-      {/* the receipts peek (spec §6) — one at a time, anchored on whatever
-          chip or cell asked for it */}
-      {receipts && (
-        <ReceiptsPeek
-          path={receipts.path}
-          factKey={receipts.key}
-          anchor={receipts.anchor}
-          vaultEpoch={vaultEpoch}
-          onClose={() => setReceipts(null)}
-          onScrub={(commit) => void scrubToCommit(commit)}
-          onOpenHistory={() => {
-            setReceipts(null);
-            setSelected(receipts.path);
-            historyNonce.current += 1;
-            setHistoryFor({ path: receipts.path, nonce: historyNonce.current });
-          }}
-        />
-      )}
-      {/* The second stage of the row menu's key lane */}
-      {keyPicker && (
-        <ContextMenu
-          x={keyPicker.x}
-          y={keyPicker.y}
-          items={keyPickerItems(keyPicker.target)}
-          onClose={() => setKeyPicker(null)}
-        />
-      )}
-      {homePicker && (
-        <ContextMenu
-          x={homePicker.x}
-          y={homePicker.y}
-          items={homePickerItems(homePicker.dbType)}
-          onClose={() => setHomePicker(null)}
-        />
-      )}
-      {dashMovePicker && (
-        <ContextMenu
-          x={dashMovePicker.x}
-          y={dashMovePicker.y}
-          items={dashMoveItems(dashMovePicker.path)}
-          onClose={() => setDashMovePicker(null)}
-        />
-      )}
-      {openAsPicker && (
-        <ContextMenu
-          x={openAsPicker.x}
-          y={openAsPicker.y}
-          items={openAsItems(openAsPicker.path)}
-          onClose={() => setOpenAsPicker(null)}
-        />
-      )}
-      {folderIconMenu && (
-        <IconPicker
-          anchor={folderIconMenu.anchor}
-          type={folderIconMenu.path.split("/").pop() ?? folderIconMenu.path}
-          icon={folderMeta[folderIconMenu.path]?.icon}
-          onSave={(ic) => saveFolderIcon(folderIconMenu.path, ic)}
-          onClose={() => setFolderIconMenu(null)}
-        />
-      )}
-      {dbIconMenu && (
-        <IconPicker
-          anchor={dbIconMenu.anchor}
-          type={dbIconMenu.type}
-          icon={iconForType(dbIcons, dbIconMenu.type)}
-          onSave={(ic) => saveSchemaIcon(dbIconMenu.type, ic)}
-          onClose={() => setDbIconMenu(null)}
-        />
-      )}
+      <AppMenus
+        menu={menu}
+        setMenu={setMenu}
+        receipts={receipts}
+        setReceipts={setReceipts}
+        vaultEpoch={vaultEpoch}
+        scrubToCommit={scrubToCommit}
+        setSelected={setSelected}
+        historyNonceRef={historyNonce}
+        setHistoryFor={setHistoryFor}
+        keyPicker={keyPicker}
+        setKeyPicker={setKeyPicker}
+        keyPickerItems={keyPickerItems}
+        homePicker={homePicker}
+        setHomePicker={setHomePicker}
+        homePickerItems={homePickerItems}
+        dashMovePicker={dashMovePicker}
+        setDashMovePicker={setDashMovePicker}
+        dashMoveItems={dashMoveItems}
+        openAsPicker={openAsPicker}
+        setOpenAsPicker={setOpenAsPicker}
+        openAsItems={openAsItems}
+        folderIconMenu={folderIconMenu}
+        setFolderIconMenu={setFolderIconMenu}
+        folderMeta={folderMeta}
+        saveFolderIcon={saveFolderIcon}
+        dbIconMenu={dbIconMenu}
+        setDbIconMenu={setDbIconMenu}
+        dbIcons={dbIcons}
+        saveSchemaIcon={saveSchemaIcon}
+      />
       {/* One bubble for every `tooltip()` in the tree — mounted here
           so any pane can adopt it without mounting anything of its own */}
       <TooltipHost />

@@ -6,7 +6,7 @@
  *  does not read, and check the number did not move.
  *
  *  It is opt-in rather than dev-gated so the same seam serves a component test
- *  (`dbPaneMemo.test.ts`) and a hand check in the dev console, without a build
+ *  (`dbPaneMemo.component.test.ts`) and a hand check in the dev console, without a build
  *  flag in between. Nobody installs the object, nobody pays: the cost in a
  *  shipped build is one property read per render of an instrumented component.
  *
