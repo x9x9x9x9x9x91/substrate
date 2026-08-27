@@ -1,9 +1,8 @@
 import { strict as assert } from "node:assert";
-import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { sourceFiles } from "../../scripts/live-tree.ts";
 import { stylesheetSource } from "../../scripts/styles-source.ts";
 
 /* A `var(--x)` naming a token nothing declares is not a CSS error —
@@ -35,11 +34,9 @@ function declaredTokens(css: string): Set<string> {
 function runtimeInjectedTokens(): Set<string> {
   const out = new Set<string>();
   const root = fileURLToPath(new URL("../", import.meta.url));
-  for (const entry of readdirSync(root, { recursive: true, withFileTypes: true })) {
-    if (!entry.isFile() || !/\.tsx?$/.test(entry.name)) continue;
-    const src = readFileSync(join(entry.parentPath, entry.name), "utf8");
-    for (const m of src.matchAll(/setProperty\(\s*["'`](--[a-z0-9-]+)/g)) out.add(m[1]);
-    for (const m of src.matchAll(/["'](--[a-z0-9-]+)["']\s*:/g)) out.add(m[1]);
+  for (const { text } of sourceFiles(root)) {
+    for (const m of text.matchAll(/setProperty\(\s*["'`](--[a-z0-9-]+)/g)) out.add(m[1]);
+    for (const m of text.matchAll(/["'](--[a-z0-9-]+)["']\s*:/g)) out.add(m[1]);
   }
   return out;
 }

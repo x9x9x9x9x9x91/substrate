@@ -213,6 +213,19 @@ no snapshot framework, no second test runner.
   state → render). Nothing is needed in a test; a surface that keeps crypto
   permanently in flight falls back to the two-turn guarantee after 20 rounds
   rather than hanging.
+- **A fixture staged in `src/` is named `*.probe.tsx`.** A few tests have to
+  write a real module beside the component they mount, because its imports are
+  relative and only that folder resolves them. That file is visible to every
+  other test in the run — `node --test` runs several files at once — and the
+  guards that walk the live tree used to discover it and then find it deleted,
+  reddening an innocent branch on a file it never touched. So a staged fixture
+  carries the `.probe.tsx` suffix and the writing process's pid:
+  `scripts/live-tree.ts` skips the suffix, `.gitignore`, `tsconfig.json` and
+  ESLint exclude it, and the pid keeps two runs over one checkout from deleting
+  each other's. Walk the live tree through `sourceFiles()` from that module
+  rather than a hand-rolled `readdirSync` — it also treats an entry that
+  vanishes between the listing and the read as a skip, which is the same race
+  seen from the other side.
 - **`click()` is the only interaction the harness synthesizes.** Typing,
   focus, and keyboard events aren't built — a test that needs them belongs in
   the browser spec.

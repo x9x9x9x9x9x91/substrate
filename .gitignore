@@ -57,3 +57,8 @@ dist-ssr
 # Coverage reports (scripts/coverage-report.ts). Report-only output, regenerated
 # by `npm run coverage` and published by the nightly pass — never committed.
 /coverage/
+
+# Probe fixtures a test plants in the tracked tree and removes again
+# (scripts/live-tree.ts PROBE_SUFFIX). Transient by construction — a committed
+# one would only ever be the leftover of a run that died mid-test.
+*.probe.tsx

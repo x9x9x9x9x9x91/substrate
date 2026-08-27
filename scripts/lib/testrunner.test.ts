@@ -16,6 +16,7 @@ import {
   resolveBudgets,
   resolveConcurrency,
   resolveCoverageDir,
+  suiteEnv,
   TIMEOUT_EXIT_CODE,
   type ProcessRow,
 } from "./testrunner.ts";
@@ -281,3 +282,21 @@ async function waitFor<T>(probe: () => T | undefined, timeoutMs = 15_000): Promi
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
 }
+
+test("the suite's environment drops per-invocation-only switches", () => {
+  const { env, dropped } = suiteEnv({
+    PATH: "/usr/bin",
+    SHARE_MIRROR_LISTS_FROM_WORKTREE: "1",
+  });
+  assert.deepEqual(dropped, ["SHARE_MIRROR_LISTS_FROM_WORKTREE"]);
+  assert.equal(env.SHARE_MIRROR_LISTS_FROM_WORKTREE, undefined);
+  assert.equal(env.PATH, "/usr/bin", "everything else is passed through untouched");
+});
+
+test("an environment without one of them is handed on unchanged", () => {
+  const source = { PATH: "/usr/bin", SUBSTRATE_TEST_TIMEOUT_MS: "5000" };
+  const { env, dropped } = suiteEnv(source);
+  assert.deepEqual(dropped, []);
+  assert.deepEqual(env, source);
+  assert.notEqual(env, source, "a copy, so the caller's own environment is never mutated");
+});

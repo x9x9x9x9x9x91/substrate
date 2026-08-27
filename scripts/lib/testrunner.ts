@@ -72,6 +72,35 @@ function parseBudget(name: string, raw: string | undefined, fallback: number): n
 }
 
 /**
+ * Switches that are only ever correct for ONE command, and are wrong for a
+ * whole test run that inherits them.
+ *
+ * `SHARE_MIRROR_LISTS_FROM_WORKTREE` is the case that named this list: it
+ * tells the mirror guard to read its lists from the checkout instead of from
+ * the ref under test. The mirror tests that want it pass it in the env of the
+ * single process they spawn. Exported into the shell a whole suite is
+ * launched from, it reaches every one of them, and dozens of mirror tests fail
+ * against lists nobody asked them to read — a red that describes the operator's
+ * shell, not the branch.
+ *
+ * So the runner drops them. A per-invocation switch belongs on the front of
+ * one command; nothing is lost by refusing to inherit it.
+ */
+export const PER_INVOCATION_ONLY = ["SHARE_MIRROR_LISTS_FROM_WORKTREE"] as const;
+
+/** The environment the suite runs under, and the names dropped to get there. */
+export function suiteEnv(env: NodeJS.ProcessEnv): { env: NodeJS.ProcessEnv; dropped: string[] } {
+  const out = { ...env };
+  const dropped: string[] = [];
+  for (const name of PER_INVOCATION_ONLY) {
+    if (out[name] === undefined) continue;
+    delete out[name];
+    dropped.push(name);
+  }
+  return { env: out, dropped };
+}
+
+/**
  * Read both budgets from the environment. `0` disables a bound deliberately —
  * useful when bisecting a genuinely slow suite — and anything unparseable is a
  * loud error rather than a silent fallback to the default.

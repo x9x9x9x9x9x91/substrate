@@ -12,7 +12,7 @@ import jsxA11y from "eslint-plugin-jsx-a11y";
 export default tseslint.config(
   {
     // build output, deps, generated reports, and the Rust tree
-    ignores: ["dist/", "node_modules/", "src-tauri/", "test-results/", "playwright-report/"],
+    ignores: ["dist/", "node_modules/", "src-tauri/", "test-results/", "playwright-report/", "**/*.probe.tsx"],
   },
   { files: ["**/*.{ts,tsx,js,mjs}"], ...js.configs.recommended },
   ...tseslint.configs.recommended.map((c) => ({ files: ["**/*.{ts,tsx}"], ...c })),

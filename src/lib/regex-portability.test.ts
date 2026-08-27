@@ -1,8 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { sourceFiles, type SourceFile } from "../../scripts/live-tree.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -10,17 +11,10 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
     bundle. Rust is deliberately out of scope: the `regex` crate compiles its
     patterns against a fixed, vendored engine, so the syntax it accepts is a
     property of the build, not of whatever browser the user happens to run. */
-function shippedSources(): string[] {
-  const out: string[] = [];
-  const walk = (dir: string) => {
-    for (const entry of readdirSync(dir).sort()) {
-      const p = join(dir, entry);
-      if (statSync(p).isDirectory()) walk(p);
-      else if (/\.tsx?$/.test(entry) && !/\.test\.tsx?$/.test(entry)) out.push(p);
-    }
-  };
-  walk(join(ROOT, "src"));
-  return out;
+function shippedSources(): SourceFile[] {
+  return [...sourceFiles(join(ROOT, "src"))]
+    .filter((f) => !/\.test\.tsx?$/.test(f.name))
+    .sort((a, b) => a.path.localeCompare(b.path));
 }
 
 /** The inline-modifier forms — a `(?` followed by flag letters and then either
@@ -47,9 +41,8 @@ test("no ES2025 regex pattern modifiers in shipped frontend source (SUB-1104)", 
   // syntax the engine may refuse, not about how case gets folded.
   const offenders: string[] = [];
   for (const file of shippedSources()) {
-    const src = readFileSync(file, "utf8");
-    src.split("\n").forEach((line, i) => {
-      if (MODIFIER_GROUP.test(line)) offenders.push(`${relative(ROOT, file)}:${i + 1}: ${line.trim()}`);
+    file.text.split("\n").forEach((line, i) => {
+      if (MODIFIER_GROUP.test(line)) offenders.push(`${relative(ROOT, file.path)}:${i + 1}: ${line.trim()}`);
     });
   }
   assert.deepEqual(

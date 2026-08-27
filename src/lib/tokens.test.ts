@@ -1,9 +1,8 @@
 import { strict as assert } from "node:assert";
-import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { sourceFiles } from "../../scripts/live-tree.ts";
 import { stylesheetSource } from "../../scripts/styles-source.ts";
 import { DANGER, OK, RGB, RUNNING, WARN } from "./tokens.ts";
 
@@ -51,15 +50,11 @@ test("no component re-types a status token as a literal", () => {
   const root = fileURLToPath(new URL("../", import.meta.url));
   const offenders: string[] = [];
 
-  for (const entry of readdirSync(root, { recursive: true, withFileTypes: true })) {
-    if (!entry.isFile() || !/\.tsx?$/.test(entry.name)) continue;
-    if (entry.name === "tokens.test.ts") continue; // names them on purpose
-    const path = join(entry.parentPath, entry.name);
-    readFileSync(path, "utf8")
-      .split("\n")
-      .forEach((line, i) => {
-        if (literals.test(line)) offenders.push(`${entry.name}:${i + 1} ${line.trim()}`);
-      });
+  for (const file of sourceFiles(root)) {
+    if (file.name === "tokens.test.ts") continue; // names them on purpose
+    file.text.split("\n").forEach((line, i) => {
+      if (literals.test(line)) offenders.push(`${file.name}:${i + 1} ${line.trim()}`);
+    });
   }
 
   assert.deepEqual(

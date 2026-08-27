@@ -21,6 +21,6 @@
     "noFallthroughCasesInSwitch": true
   },
   "include": ["src", "scripts", "docs/kind-api.d.ts"],
-  "exclude": ["scripts/ux-audit/shots"],
+  "exclude": ["scripts/ux-audit/shots", "**/*.probe.tsx"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

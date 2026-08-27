@@ -9,6 +9,7 @@ import {
   resolveBudgets,
   resolveConcurrency,
   resolveCoverageDir,
+  suiteEnv,
   TIMEOUT_EXIT_CODE,
   type Budgets,
 } from "./lib/testrunner.ts";
@@ -26,6 +27,16 @@ if (!process.env.SUBSTRATE_GATES_LOCK_HELD && existsSync("scripts/with-gates-loc
     stdio: "inherit",
   });
   process.exit(wrapped.status ?? 1);
+}
+
+// One switch on the way in: per-invocation-only variables do not get to
+// describe a whole run. Announced rather than dropped quietly — someone with
+// one exported in their shell should learn that here, not from a suite full
+// of failures that make no sense against the diff.
+const { env: testEnv, dropped } = suiteEnv(process.env);
+if (dropped.length > 0) {
+  const names = dropped.join(", ");
+  console.error(`test runner: ignoring ${names} from the environment — per-invocation only, never inherited`);
 }
 
 // Keep the suite's topology explicit. Shell globs that match nothing are
@@ -77,7 +88,10 @@ try {
 const coverageDir = resolveCoverageDir(process.env);
 if (coverageDir !== undefined) mkdirSync(coverageDir, { recursive: true });
 
-const child = spawn(process.execPath, buildNodeArgs(files, budgets, concurrency, coverageDir), { stdio: "inherit" });
+const child = spawn(process.execPath, buildNodeArgs(files, budgets, concurrency, coverageDir), {
+  stdio: "inherit",
+  env: testEnv,
+});
 
 // The suite watchdog. `--test-timeout` alone cannot save a run: a test blocked
 // inside a synchronous child process (execFileSync/spawnSync) never yields the
