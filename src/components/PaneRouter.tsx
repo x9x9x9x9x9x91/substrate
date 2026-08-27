@@ -9,8 +9,9 @@ import type { useMobileLayout } from "../hooks/useMobileLayout";
 import type { useMounts } from "../hooks/useMounts";
 import type { useSearch } from "../hooks/useSearch";
 import type { useTimeTravel } from "../hooks/useTimeTravel";
+import type { useDbAdmin } from "../hooks/useDbAdmin";
 import type { useVaultIndex } from "../hooks/useVaultIndex";
-import type { AnchorRect } from "./SelectMenu";
+import type AppMenus from "./AppMenus";
 import SearchPane from "./SearchPane";
 import TrashPane from "./TrashPane";
 import ChangelogPane from "./ChangelogPane";
@@ -46,8 +47,13 @@ type CalendarProps = ComponentProps<typeof CalendarPane>;
 type StackProps = ComponentProps<typeof DbPaneStack>;
 type NoteProps = ComponentProps<typeof NotePane>;
 type ListProps = ComponentProps<typeof ListPane>;
+/* The receipts peek travels PaneRouter -> App state -> <AppMenus>, which is
+   where the peek's shape is declared; reading the setter off there is what
+   makes a change to that shape a compile error on the side that opens it. */
+type MenusProps = ComponentProps<typeof AppMenus>;
 
 type AppSettings = ReturnType<typeof useAppSettings>;
+type DbAdmin = ReturnType<typeof useDbAdmin>;
 type MobileLayout = ReturnType<typeof useMobileLayout>;
 type Mounts = ReturnType<typeof useMounts>;
 type Search = ReturnType<typeof useSearch>;
@@ -120,7 +126,7 @@ export interface PaneRouterProps
   dbIcons: DbManagerProps["icons"];
   schema: DbManagerProps["schema"];
   dbManagerMenu: DbManagerProps["onRowMenu"];
-  setDbDialog: (dialog: { kind: "create" }) => void;
+  setDbDialog: DbAdmin["setDbDialog"];
   dashMeta: DashProps["meta"] | null;
   savedViews: DashProps["savedViews"];
   viewsConfig: DashProps["viewPrefs"];
@@ -194,7 +200,7 @@ export interface PaneRouterProps
   clearReveal: NoteProps["onRevealed"];
   sheetReveal: NoteProps["revealRow"];
   clearSheetReveal: NoteProps["onRowRevealed"];
-  setReceipts: (peek: { path: string; key: string; anchor: AnchorRect }) => void;
+  setReceipts: MenusProps["setReceipts"];
   historyFor: NoteProps["openHistoryFor"];
 
   /* ----- the default arm: list + note ----- */
@@ -205,6 +211,11 @@ export interface PaneRouterProps
   onListRenameCancel: ListProps["onRenameCancel"];
   onListBgMenu: ListProps["onBackgroundContextMenu"];
   onListActivate: ListProps["onActivate"];
+  /* Optional <ListPane> props only the private build carries, spread in as a
+     bag. Deliberately NOT read off ListProps like its neighbours: the shared
+     build strips those props off the pane, so naming one here would neither
+     resolve there nor be publishable — the bag is the same workaround App
+     builds it with, and it arrives empty in the shared build. */
   ledgerListProps: Record<string, ReadonlySet<string>>;
   listFolderIcon: ListProps["folderIcon"];
   newInFolder: ListProps["onNewHere"];
@@ -214,6 +225,67 @@ export interface PaneRouterProps
   onPlayFile: ListProps["onPlayFile"];
   onOpenFile: ListProps["onOpenFile"];
   onRevealFile: ListProps["onRevealFile"];
+}
+
+/** The props the two note splits pass through untouched.
+ *
+ *  The database pane's side note and the main column's note are the same pane
+ *  on a different note: of the ~50 props each takes, only the note itself, the
+ *  three things keyed off its path, and the main split's extras (ghost
+ *  adoption, the insert and title refs) differ. Spelled out twice, a prop
+ *  added to one split silently missed the other; this is the one place both
+ *  read from. Pure pass-through — every value is the one App handed the
+ *  router, so `<NotePane>`'s memo still sees the references it saw before. */
+function sharedNoteProps(p: PaneRouterProps) {
+  return {
+    schema: p.schema,
+    usedValues: p.usedValues,
+    vaultEpoch: p.vaultEpoch,
+    numberLocale: p.numberLocale,
+    changedPaths: p.changedPaths,
+    onSaveSchema: p.saveSchemaProp,
+    onPromoteOption: p.promoteSchemaOption,
+    relationCandidates: p.relCandidates,
+    onCreateEntry: p.createEntry,
+    dbTypes: p.dbTypes,
+    dbTypesRecent: p.dbTypesRecent,
+    onFollowLink: p.followLink,
+    noteTitles: p.noteTitles,
+    vaultNotes: p.notes,
+    linkedNoteBody: p.linkedNoteBody,
+    sheetTitles: p.sheetTitles,
+    onOpenTag: p.openTag,
+    tagUniverse: p.tagCounts,
+    onOpenNote: p.openNote,
+    embedQuery: p.embedQuery,
+    onOpenView: p.openEmbedView,
+    onEmbedSetProp: p.embedSetProp,
+    onEmbedCreate: p.embedCreateEntry,
+    onEmbedCreateRelation: p.embedCreateRelation,
+    onRenamed: p.onRenamed,
+    onRenameUndone: p.onRenameApplied,
+    onMutated: p.refresh,
+    onTrash: p.trashNote,
+    onMoveToFolder: p.startMoveToFolder,
+    onDuplicate: p.duplicateNote,
+    onShare: p.setShare,
+    onTogglePick: p.togglePickToday,
+    onTogglePin: p.setPinned,
+    flushRef: p.flushOpenRef,
+    onTyped: p.followTyped,
+    onJournalDay: p.openJournal,
+    editorFocusRef: p.editorFocusRef,
+    savedViewPins: p.savedViewPins,
+    dbPropNames: p.dbPropNames,
+    onEscape: p.onNoteEscape,
+    reveal: p.reveal,
+    onRevealed: p.clearReveal,
+    revealRow: p.sheetReveal,
+    onRowRevealed: p.clearSheetReveal,
+    onToast: p.showToast,
+    readOnly: p.timePoint !== null,
+    openHistoryFor: p.historyFor,
+  } satisfies Partial<NoteProps>;
 }
 
 export default function PaneRouter(props: PaneRouterProps) {
@@ -227,7 +299,6 @@ export default function PaneRouter(props: PaneRouterProps) {
     notes,
     setNotes,
     vaultEpoch,
-    changedPaths,
     refresh,
     mobile,
     mobilePane,
@@ -239,8 +310,6 @@ export default function PaneRouter(props: PaneRouterProps) {
     setSearchRestore,
     closeSearch,
     openSearchHit,
-    reveal,
-    onNoteEscape,
     mounts,
     activeMount,
     mountNotes,
@@ -254,7 +323,6 @@ export default function PaneRouter(props: PaneRouterProps) {
     autoSync,
     setAutoSync,
     numberLocale,
-    timePoint,
     recallEnabled,
     openPastVersion,
     onRowMenu,
@@ -297,43 +365,12 @@ export default function PaneRouter(props: PaneRouterProps) {
     openSavedsDb,
     dbNoteMeta,
     selectedMeta,
-    usedValues,
-    saveSchemaProp,
-    promoteSchemaOption,
-    relCandidates,
-    dbTypes,
-    dbTypesRecent,
-    noteTitles,
-    linkedNoteBody,
-    sheetTitles,
-    openTag,
-    tagCounts,
-    embedQuery,
-    embedSetProp,
-    embedCreateEntry,
-    embedCreateRelation,
-    onRenamed,
-    onRenameApplied,
-    startMoveToFolder,
-    duplicateNote,
-    setShare,
-    togglePickToday,
-    setPinned,
     pinnedPaths,
-    flushOpenRef,
     ghostPath,
     adoptGhost,
-    followTyped,
-    editorFocusRef,
     noteInsertRef,
-    savedViewPins,
-    dbPropNames,
     titleFocusRef,
-    clearReveal,
-    sheetReveal,
-    clearSheetReveal,
     setReceipts,
-    historyFor,
     viewRows,
     onListOpenDb,
     onListSelect,
@@ -630,57 +667,9 @@ export default function PaneRouter(props: PaneRouterProps) {
               </button>
               <NotePane
                 meta={dbNoteMeta}
-                schema={schema}
-                usedValues={usedValues}
-                vaultEpoch={vaultEpoch}
-                numberLocale={numberLocale}
-                changedPaths={changedPaths}
-                onSaveSchema={saveSchemaProp}
-                onPromoteOption={promoteSchemaOption}
-                relationCandidates={relCandidates}
-                onCreateEntry={createEntry}
-                dbTypes={dbTypes}
-                dbTypesRecent={dbTypesRecent}
-                onFollowLink={followLink}
-                noteTitles={noteTitles}
-                vaultNotes={notes}
-                linkedNoteBody={linkedNoteBody}
-                sheetTitles={sheetTitles}
-                onOpenTag={openTag}
-                tagUniverse={tagCounts}
-                onOpenNote={openNote}
-                embedQuery={embedQuery}
-                onOpenView={openEmbedView}
-                onEmbedSetProp={embedSetProp}
-                onEmbedCreate={embedCreateEntry}
-                onEmbedCreateRelation={embedCreateRelation}
-                onRenamed={onRenamed}
-                onRenameUndone={onRenameApplied}
-                onMutated={refresh}
-                onTrash={trashNote}
-                onMoveToFolder={startMoveToFolder}
-                onDuplicate={duplicateNote}
-                onShare={setShare}
-                onTogglePick={togglePickToday}
-                onTogglePin={setPinned}
+                {...sharedNoteProps(props)}
                 pinned={pinnedPaths.includes(dbNoteMeta.path)}
-                flushRef={flushOpenRef}
-                onTyped={followTyped}
-                onJournalDay={openJournal}
-                editorFocusRef={editorFocusRef}
-                savedViewPins={savedViewPins}
-                dbPropNames={dbPropNames}
-                onEscape={onNoteEscape}
-                reveal={reveal}
-                onRevealed={clearReveal}
-                revealRow={sheetReveal}
-                onRowRevealed={clearSheetReveal}
-                onToast={showToast}
-                readOnly={timePoint !== null}
-                onReceipts={(key, anchor) =>
-                  setReceipts({ path: dbNoteMeta.path, key, anchor })
-                }
-                openHistoryFor={historyFor}
+                onReceipts={(key, anchor) => setReceipts({ path: dbNoteMeta.path, key, anchor })}
               />
             </div>
           )}
@@ -718,59 +707,13 @@ export default function PaneRouter(props: PaneRouterProps) {
         {(!mobile || mobilePane === "detail") && (selectedMeta ? (
           <NotePane
             meta={selectedMeta}
-            schema={schema}
-            usedValues={usedValues}
-            vaultEpoch={vaultEpoch}
-            numberLocale={numberLocale}
-            changedPaths={changedPaths}
-            onSaveSchema={saveSchemaProp}
-            onPromoteOption={promoteSchemaOption}
-            relationCandidates={relCandidates}
-            onCreateEntry={createEntry}
-            dbTypes={dbTypes}
-            dbTypesRecent={dbTypesRecent}
-            onFollowLink={followLink}
-            noteTitles={noteTitles}
-            vaultNotes={notes}
-            linkedNoteBody={linkedNoteBody}
-            sheetTitles={sheetTitles}
-            onOpenTag={openTag}
-            tagUniverse={tagCounts}
-            onOpenNote={openNote}
-            embedQuery={embedQuery}
-            onOpenView={openEmbedView}
-            onEmbedSetProp={embedSetProp}
-            onEmbedCreate={embedCreateEntry}
-            onEmbedCreateRelation={embedCreateRelation}
-            onRenamed={onRenamed}
-            onRenameUndone={onRenameApplied}
-            onMutated={refresh}
-            onTrash={trashNote}
-            onMoveToFolder={startMoveToFolder}
-            onDuplicate={duplicateNote}
-            onShare={setShare}
-            onTogglePick={togglePickToday}
-            onTogglePin={setPinned}
+            {...sharedNoteProps(props)}
             pinned={pinnedPaths.includes(selectedMeta.path)}
-            flushRef={flushOpenRef}
+            onReceipts={(key, anchor) => setReceipts({ path: selectedMeta.path, key, anchor })}
             ghost={selectedMeta.path === ghostPath}
             onGhostCreated={adoptGhost}
-            onTyped={followTyped}
-            onJournalDay={openJournal}
-            editorFocusRef={editorFocusRef}
             editorInsertRef={noteInsertRef}
-            savedViewPins={savedViewPins}
-            dbPropNames={dbPropNames}
             titleFocusRef={titleFocusRef}
-            onEscape={onNoteEscape}
-            reveal={reveal}
-            onRevealed={clearReveal}
-            revealRow={sheetReveal}
-            onRowRevealed={clearSheetReveal}
-            onToast={showToast}
-            readOnly={timePoint !== null}
-            onReceipts={(key, anchor) => setReceipts({ path: selectedMeta.path, key, anchor })}
-            openHistoryFor={historyFor}
           />
         ) : (
           <div className="note">
