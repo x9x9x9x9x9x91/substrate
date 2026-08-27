@@ -101,7 +101,7 @@ test("renders the grid for a sheet", async (t) => {
 Five rules, each of which will bite if broken:
 
 1. **`await mockBackend()` before staging anything.** The `window.__mock*`
-   seams are installed by `src/lib/tauri.ts` as it evaluates, so staging
+   seams are installed by `src/lib/mockBackend.ts` (imported eagerly by `src/lib/tauri.ts`) as it evaluates, so staging
    written before anything imported the bridge would run against a window that
    has none of them. They are declared optional on `Window`, which is what
    makes the `win.__mockCloneNote?.(…)` shape compile — and a seam that is

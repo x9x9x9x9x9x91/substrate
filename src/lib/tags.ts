@@ -9,6 +9,7 @@
 // for live editor highlighting, where the buffer is ahead of the index.
 // The two implementations carry mirrored tests — change one, change both.
 
+import { CODE_SPAN_RE } from "./fences.ts";
 import type { NoteMeta, TagFolder } from "./types";
 import { wikiLinkContext } from "./wikilinks.ts";
 
@@ -29,13 +30,6 @@ export const TAG_RE = /#[A-Za-z][A-Za-z0-9_-]*/g;
 
     Lockstep twin: `linkish_re` in src-tauri/src/vault/tags.rs. */
 export const LINKISH_RE = /!?\[\[[^[\]]*\]\]|\]\([^)\s]*\)|[A-Za-z][A-Za-z0-9+.-]*:\/\/\S+|www\.\S+/g;
-
-/** Fenced blocks and inline code spans — tag-free zones, mirroring the Rust
-    `code_ranges` the link scanner already rides. Deliberately not `/m`: the
-    closing `$` must mean end-of-input (an unclosed fence runs to EOF), or a
-    closed fence would end at its first line break and the fence marker below
-    it would open a second, phantom block. */
-const CODE_RE = /(?:^|\n)(?:```|~~~)[^\n]*\n[\s\S]*?(?:\n(?:```|~~~)[^\n]*(?=\n|$)|$)|`[^`\n]*`/g;
 
 /** May a tag start at this index? The character before the `#` must not be
     alphanumeric, and not one of the four that mean something else: `&` (HTML
@@ -68,7 +62,7 @@ function inSpans(ranges: [number, number][], from: number, to: number): boolean 
     Offsets point at the `#`; `tag` excludes it. Not deduplicated: every
     occurrence is its own clickable chip. */
 export function inlineTagMatches(body: string): { tag: string; from: number; to: number }[] {
-  const code = spans(body, CODE_RE);
+  const code = spans(body, CODE_SPAN_RE);
   const linkish = spans(body, LINKISH_RE);
   const out: { tag: string; from: number; to: number }[] = [];
   for (const m of body.matchAll(TAG_RE)) {

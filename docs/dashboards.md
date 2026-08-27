@@ -1081,7 +1081,7 @@ Every kind above is built the same way, and the recipe is short enough to state
 in full: **one component, plus one line of dispatch in
 `src/components/DashboardPane.tsx`**. When the kind needs the OS — reading
 something outside the vault, talking to a service — that's **one Rust command in
-`src-tauri/src/lib.rs` plus a mock case in `src/lib/tauri.ts`**, so the
+`src-tauri/src/lib.rs` plus a mock case in `src/lib/mockBackend.ts`**, so the
 browser/e2e lane keeps working without a Tauri build.
 
 A kind's name is written out in several inventories that must agree — the

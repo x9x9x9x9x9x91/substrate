@@ -29,6 +29,7 @@
 // `.md` keeps the expression text and nothing else.
 
 import { CALC_ERR_DISPLAY } from "./calc.ts";
+import { CODE_SPAN_RE } from "./fences.ts";
 import { NO_MATCH, fuzzyScore } from "./fuzzy.ts";
 import {
   IDENT_SRC,
@@ -68,11 +69,6 @@ export interface LiveValue {
 }
 
 export const LIVE_ERR_DISPLAY = CALC_ERR_DISPLAY;
-
-// Fenced blocks and inline code spans, same grammar as tags.ts (which cites
-// the Rust `code_ranges` twin). Deliberately not `/m`: the closing `$` must
-// mean end-of-input, or a closed fence would end at its first line break.
-const CODE_RE = /(?:^|\n)(?:```|~~~)[^\n]*\n[\s\S]*?(?:\n(?:```|~~~)[^\n]*(?=\n|$)|$)|`[^`\n]*`/g;
 
 /** Is this match the fenced-block alternative rather than an inline span? */
 function isFence(text: string): boolean {
@@ -125,13 +121,13 @@ function indentedCodeRanges(body: string): [number, number][] {
  *    literal code span it already is, rather than becoming a dash where the
  *    reader's own words used to be.
  *
- * A double-backtick span (``` ``= 1 + 1`` ```) never matches either: CODE_RE's
+ * A double-backtick span (``` ``= 1 + 1`` ```) never matches either: CODE_SPAN_RE's
  * inline alternative is single-backtick, which makes doubling the escape hatch
  * for writing the syntax itself in prose. */
 export function liveExprMatches(body: string): LiveExprMatch[] {
   const out: LiveExprMatch[] = [];
   const indented = indentedCodeRanges(body);
-  for (const m of body.matchAll(CODE_RE)) {
+  for (const m of body.matchAll(CODE_SPAN_RE)) {
     if (isFence(m[0])) continue;
     const from = m.index;
     const to = m.index + m[0].length;

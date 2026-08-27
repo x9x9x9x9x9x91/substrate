@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useIndexReveal } from "../hooks/useIndexReveal";
 import type {
   FullSearchHit,
   ImageHit,
@@ -413,11 +414,7 @@ export default function SearchPane({
   // number — refining a query resets it to 0, which is a no-op when it already
   // was 0. The scroller keeps whatever offset the user had scrolled to, so
   // without `rows` here the selected hit is simply left off-screen.
-  useEffect(() => {
-    listRef.current
-      ?.querySelector(`[data-idx="${sel}"]`)
-      ?.scrollIntoView({ block: "nearest" });
-  }, [sel, rows]);
+  useIndexReveal(listRef, sel, [sel, rows]);
 
   const totalMatches = groups.reduce((s, g) => s + g.h.total, 0);
   // On a truncated page the match sum counts only the notes we were

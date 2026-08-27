@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useIndexReveal } from "./hooks/useIndexReveal";
 import ReactDOM from "react-dom/client";
 import "@fontsource-variable/inter";
 import "./styles.css";
@@ -144,16 +145,11 @@ function AgendaApp() {
   );
   const selectIdx = (i: number) => setSelKey(i >= 0 ? (rowKeys[i] ?? null) : null);
 
-  // keep the selected row visible when arrow-keying past the fold
-  useEffect(() => {
-    if (sel < 0) return;
-    // queried from the card, not the scroll list: the Capture row sits
-    // outside `.agenda-list` (inside the `.agenda-rows` listbox, but pinned
-    // below the scroller) and still has to be reachable by index
-    card.current?.querySelector(`[data-idx="${sel}"]`)?.scrollIntoView({ block: "nearest" });
-    // A reload can move the selected row to a different offset while
-    // its index stays put, and the scroller keeps whatever the user scrolled to
-  }, [sel, payload]);
+  // Revealed from the card, not the scroll list: the Capture row sits
+  // outside `.agenda-list` (inside the `.agenda-rows` listbox, but pinned
+  // below the scroller) and still has to be reachable by index. A reload can
+  // move the selected row to a different offset while its index stays put.
+  useIndexReveal(card, sel, [sel, payload]);
 
   const openItem = (path: string) => {
     // Rust surfaces the main window with the note open and hides the popover

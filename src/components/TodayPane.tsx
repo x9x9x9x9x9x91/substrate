@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useIndexReveal } from "../hooks/useIndexReveal";
 import type { DbIcon, NoteMeta, SchemaConfig } from "../lib/types";
 import { foldedPropStr } from "../lib/types";
 import {
@@ -630,11 +631,7 @@ export default function TodayPane({
     if (!active || active === document.body) listRef.current?.focus();
   }, [empty]);
 
-  // keep the selected row visible when arrow-keying past the fold
-  useEffect(() => {
-    if (sel < 0) return;
-    listRef.current?.querySelector(`[data-idx="${sel}"]`)?.scrollIntoView({ block: "nearest" });
-  }, [sel]);
+  useIndexReveal(listRef, sel, [sel]);
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     const row = sel >= 0 ? rows[sel] : undefined;

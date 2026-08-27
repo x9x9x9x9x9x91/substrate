@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useIndexReveal } from "./hooks/useIndexReveal";
 import ReactDOM from "react-dom/client";
 import "@fontsource-variable/inter";
 import "./styles.css";
@@ -185,10 +186,7 @@ export function PaletteApp() {
   }, [rows, selId]);
   const selectIdx = (i: number) => setSelId(rows[i]?.id ?? null);
 
-  // keep the selected row visible when arrow-keying past the fold
-  useEffect(() => {
-    listRef.current?.querySelector(`[data-idx="${sel}"]`)?.scrollIntoView({ block: "nearest" });
-  }, [sel, rows]);
+  useIndexReveal(listRef, sel, [sel, rows]);
 
   /* The chip shows for the capture this window can actually attach it to: a
      pasted link files through `url_capture`, which carries no props, so the

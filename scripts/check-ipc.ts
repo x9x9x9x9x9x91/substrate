@@ -10,7 +10,7 @@
  *   2. TS      — `invoke<T>("cmd", { … })` wrappers in src/lib/ipc.ts, plus
  *                the handful of direct invokes elsewhere under src/.
  *   3. Mock    — `case "cmd":` arms of the mock backend's dispatch switch in
- *                src/lib/tauri.ts, which the e2e suite runs against.
+ *                src/lib/mockBackend.ts, which the e2e suite runs against.
  *
  * Nothing keeps them in step but attention, and attention has already lost:
  * Shipped a snake_case arg key that the real IPC dropped silently
@@ -625,14 +625,21 @@ function tsSources(): string[] {
     }
   };
   walk(join(ROOT, "src"));
-  return out.filter((p) => p !== join(ROOT, "src", "lib", "tauri.ts"));
+  // the transport shell and the mock backend are the bridge itself, never
+  // caller files — the mock's 265 `case "cmd"` arms would otherwise be
+  // scanned as invoke sites
+  const bridge = new Set([
+    join(ROOT, "src", "lib", "tauri.ts"),
+    join(ROOT, "src", "lib", "mockBackend.ts"),
+  ]);
+  return out.filter((p) => !bridge.has(p));
 }
 
 export function collect(): Inventories {
   const libRs = readFileSync(join(ROOT, "src-tauri/src/lib.rs"), "utf8");
   const termRs = readFileSync(join(ROOT, "src-tauri/src/term.rs"), "utf8");
   const smokeRs = readFileSync(join(ROOT, "src-tauri/src/smoke.rs"), "utf8");
-  const mockTs = readFileSync(join(ROOT, "src/lib/tauri.ts"), "utf8");
+  const mockTs = readFileSync(join(ROOT, "src/lib/mockBackend.ts"), "utf8");
   const allowPath = join(ROOT, "scripts/ipc-allowlist.txt");
 
   // The command bodies live in src-tauri/src/commands/*.rs; lib.rs
@@ -667,7 +674,7 @@ export function collect(): Inventories {
     rustRegistered: parseHandlerList(libRs, "src-tauri/src/lib.rs"),
     rustCommands,
     tsInvokes,
-    mockCases: parseMockCases(mockTs, "src/lib/tauri.ts"),
+    mockCases: parseMockCases(mockTs, "src/lib/mockBackend.ts"),
     allow: parseAllowlist(readFileSync(allowPath, "utf8"), "scripts/ipc-allowlist.txt"),
   };
 }

@@ -3,7 +3,8 @@
 // config/data, not prose (vault-format §5) — their bodies stay out of search
 // indexing. Mirrors strip_machine_fences in
 // src-tauri/src/vault/mod.rs; keep the fence set and semantics in lockstep
-// with it.
+// with it (scripts/check-fence-langs.ts compares the two grammars and fails
+// `npm test` when they drift).
 //
 // WHICH languages are machine fences — and each one's form, case rule and
 // hub reach — is declared once in fenceRegistry.ts; the collections below
@@ -11,6 +12,18 @@
 // order, and the Rust twin spells the same order by hand).
 
 import { FENCE_REGISTRY } from "./fenceRegistry.ts";
+
+/** Fenced blocks and inline code spans — the tag-free / live-value-free zones,
+    mirroring the Rust `code_ranges` the link scanner rides (tags.rs). Shared
+    by tags.ts and livevalues.ts; both consume it via `matchAll` only, so the
+    shared `/g` object's lastIndex is never mutated. Deliberately not `/m`: the
+    closing `$` must mean end-of-input (an unclosed fence runs to EOF), or a
+    closed fence would end at its first line break and the fence marker below
+    it would open a second, phantom block. The inline alternative is
+    single-backtick only, which makes doubling the escape hatch for writing
+    the syntax itself in prose. */
+export const CODE_SPAN_RE =
+  /(?:^|\n)(?:```|~~~)[^\n]*\n[\s\S]*?(?:\n(?:```|~~~)[^\n]*(?=\n|$)|$)|`[^`\n]*`/g;
 
 /** Fence languages the hub/editor dispatch as live widgets on the FIRST WORD
     of the info string — so a tailed opener (```view table, ```chart compact)

@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useIndexReveal } from "../hooks/useIndexReveal";
 import { createPortal } from "react-dom";
 import type { RelationCandidate } from "../lib/relation";
 import { filterCandidates, toggleValue } from "../lib/relation";
@@ -94,14 +95,7 @@ export default function RelationMenu({
     setSel(0);
   }, [q]);
 
-  // Typing replaces the rows and resets the selection to the top,
-  // which is a no-op whenever it already was 0 — depend on the rows too, or a
-  // list the user had scrolled keeps its offset and hides the selection
-  useEffect(() => {
-    listRef.current
-      ?.querySelector(`[data-row="${sel}"]`)
-      ?.scrollIntoView({ block: "nearest" });
-  }, [sel, rows]);
+  useIndexReveal(listRef, sel, [sel, rows], "data-row");
 
   const pick = (row: Row | undefined) => {
     if (!row) {

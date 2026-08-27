@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useIndexReveal } from "../hooks/useIndexReveal";
 import type { DbIcon, DriveInfo, NoteMeta, SavedView, SearchHit, SnippetPart, TagCount, TagFolder, View } from "../lib/types";
 import { propStr } from "../lib/types";
 import { vaultRoot, vaultSearch, mountRescan } from "../lib/ipc";
@@ -1515,12 +1516,7 @@ export default function Palette({
     if (listRef.current) listRef.current.scrollTop = 0;
   }, [stage]);
 
-  // keep the selected row visible when arrow-keying past the fold
-  useEffect(() => {
-    listRef.current
-      ?.querySelector(`[data-idx="${sel}"]`)
-      ?.scrollIntoView({ block: "nearest" });
-  }, [sel]);
+  useIndexReveal(listRef, sel, [sel]);
 
   const run = (item: Item) => {
     if (item.keepOpen) {

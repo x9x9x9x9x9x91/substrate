@@ -218,7 +218,8 @@ pub struct FmState {
 /// used: the TS twin cannot have it (inline pattern modifiers are ES2025,
 /// WebKit 26.0+, and MACHINE_FENCE_RE is built in the boot bundle, so an
 /// older WKWebView would fail to parse it and the app would not start), and
-/// the two patterns are compared character for character.
+/// the two patterns are compared character for character by
+/// scripts/check-fence-langs.ts, which fails `npm test` when they drift.
 /// Lockstep twin: MACHINE_FENCE_RE in src/lib/fences.ts (mirrored by hand;
 /// change both together).
 fn machine_fence_re() -> &'static Regex {

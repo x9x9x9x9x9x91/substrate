@@ -59,7 +59,7 @@ arguments, and that name/argument set is written out by hand in **three** places
    in `generate_handler![…]` in `src-tauri/src/lib.rs`.
 2. **TypeScript** — the `invoke<T>("cmd", { … })` wrappers in `src/lib/ipc.ts`,
    which the rest of the front end calls instead of invoking directly.
-3. **The mock backend** — a `case "cmd":` arm in `src/lib/tauri.ts`, which is
+3. **The mock backend** — a `case "cmd":` arm in `src/lib/mockBackend.ts`, which is
    what runs when the app is served in a plain browser.
 
 Nothing keeps those three in step but attention, so `scripts/check-ipc.ts`
@@ -82,7 +82,8 @@ cannot ship explaining itself only as "a dashboard".
 
 `npm run dev` serves the front end against a deterministic mock backend in an
 ordinary browser — no Rust build, no Tauri, no real vault. The mock lives in
-`src/lib/tauri.ts` and seeds a fixed demo vault, so every run starts from the
+`src/lib/mockBackend.ts` (imported eagerly by the `src/lib/tauri.ts` transport
+shell) and seeds a fixed demo vault, so every run starts from the
 same state. The Playwright suite (`npm run e2e`) drives that same lane, which is
 why the e2e gate is fast enough to be a merge gate.
 

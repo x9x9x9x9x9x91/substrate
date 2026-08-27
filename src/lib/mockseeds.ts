@@ -4,9 +4,9 @@
     It was carved out of `tauri.ts`, which had grown to carry the production
     IPC bridge and the whole mock backend in one file. The DISPATCH — the
     `mockInvoke`/`mockDispatch` pair that answers a command with one of these
-    fixtures — deliberately stays there: `scripts/check-ipc.ts` reads the mock
-    case list out of `src/lib/tauri.ts` by name, and this lane may not edit
-    `scripts/`.
+    fixtures — now lives in `mockBackend.ts`, carved out in its turn together
+    with the `scripts/check-ipc.ts` read that pins the mock case list by
+    file name.
 
     Nothing here is imported by the app's own code, only by the bridge. The
     public seam the e2e suite drives (`window.__mock*`) is unchanged, and so
