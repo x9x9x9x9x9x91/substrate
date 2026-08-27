@@ -66,7 +66,6 @@ export const PANE_CONTROLS: ReadonlyMap<string, readonly string[]> = new Map([
   ["feed", ["feed-item", "feed-vote"]],
   ["music-work", ["mw-job", "mw-filter"]],
   ["tasks", ["tasks-row", "tasks-compose"]],
-  ["tax", ["tax-row", "tax-strip"]],
   ["charts", ["chart-line-slot", "chart-legend"]],
 ]);
 

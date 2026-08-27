@@ -131,7 +131,9 @@ test("the seeded agent door matches editable-view and recoverable-asset contract
   assert.doesNotMatch(seed, /Deleting one is permanent/);
   assert.doesNotMatch(seed, /machine-specific kinds/);
   // the roster wraps, so the gap between kinds is any run of whitespace
-  assert.match(seed, /`tasks`,\s+`tax`,\s+`charts`/);
+  assert.match(seed, /`tasks`,\s+`charts`/);
+  // the tax board is fences now, so the door must not name it as a renderer
+  assert.doesNotMatch(seed, /`tax`/);
   // the machine-specific boards are not named to a fresh vault at all
   assert.doesNotMatch(seed, /`sync`|`coding`|`jobs`/);
   assert.match(seed, /unknown value shows an “unknown kind” card/);

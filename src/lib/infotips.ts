@@ -1124,20 +1124,6 @@ export const TIPS: TipEntry[] = [
     },
   },
   {
-    selector: ".tax-strip",
-    tip: {
-      title: "Readiness figures",
-      body: "What the last export counted, and how much of it is still incomplete. These are computed here, not typed anywhere.",
-    },
-  },
-  {
-    selector: ".tax-row",
-    tip: (element) => ({
-      title: elementLabel(element.querySelector(".tax-name") ?? element, "Incomplete entry"),
-      body: "A booked line the export could not complete. The words at the end name the fields still missing.",
-    }),
-  },
-  {
     // the hero is shared chrome (`dash-hero`), so the day's own figure needs
     // its own entry ahead of it
     selector: ".food-hero",

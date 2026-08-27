@@ -6,8 +6,8 @@ created: 2026-08-03
 ---
 The rows still missing evidence, exported from wherever the books live. This
 is a snapshot, not the source: regenerate it whenever the books change, and let
-the `exported:` stamp say when it last agreed with them — past `stale_hours`
-the [[Tax Readiness]] board stops trusting it and says so.
+the `exported:` stamp say when it last agreed with them — then bring the
+[[Tax Readiness]] checklist back in step with it.
 
 ```csv
 sheet,name,date,missing

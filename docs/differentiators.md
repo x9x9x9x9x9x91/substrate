@@ -212,10 +212,9 @@ Capacities, Affine).*
   sort switch — urgency/priority/due/age), news feed with a pluggable agent
   curator (its ↻ runs whatever `feed-curator` command you plug in — trust-gated
   per machine, one-click setup card, agents can wire themselves in),
-  tax-year readiness (two sheets an external exporter owns become category
-  totals, a checklist of the documents still owed, and a plain
-  fit-to-hand-over verdict — read-only, and printable as the sheet you hand to
-  whoever files),
+  tax-year readiness (no kind of its own — a hub page whose cards fence binds
+  an aggregates sheet's totals over a checklist of the documents still owed,
+  printable as the sheet you hand to whoever files),
   plus **workbook pages** —
   any dashboard grows spreadsheet-style bottom tabs (sheet grid / dashboard /
   database cut).

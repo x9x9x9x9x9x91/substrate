@@ -30,8 +30,7 @@ not every page — through the same `@media print` surface notes use (Save as PD
 lives in the dialog). The rest stay screen-only: `calendar` carried the action
 once and lost it, because a month grid loses its last columns on paper — it can
 re-earn it. The
-machine-specific kinds never had it, `tax` excepted (it is built to be handed
-over on paper).
+machine-specific kinds never had it.
 
 ### `metrics` — stat cards over a sheet
 
@@ -788,91 +787,55 @@ written but isn't a kind this build knows renders that same card naming the
 value — a typo shows you the typo, rather than quietly handing you a different
 dashboard.
 
-### `tax` — tax-year readiness
+### Tax readiness — fences, not a kind
 
-Read-only over two sheets: the year's aggregates, and a snapshot of rows still
-missing evidence that an external exporter regenerates from wherever the books
-live. The app writes to neither — the books stay canonical. The board answers
-one question, "is this year fit to hand over": the totals up top, a category
-table under them, and a checklist of the documents still owed. It carries the
-head's **Print** action, which is the point — this is the surface you print and
-hand to whoever does the filing.
+There is no `tax` kind. A tax year is metrics and a checklist, and both of those
+are fences the app already has, so the board is an ordinary [`hub`](#hub--a-designed-home-page):
+a ` ```cards ` fence bound to an aggregates sheet's summaries, and the documents
+still owed written under it as a plain markdown checklist. It prints from the
+head like any other hub, which was the point of the board — the page you hand to
+whoever does the filing.
 
-The board knows nothing about any one country's filing. Its cards are the
-ordinary `cards:` bindings (the same `cards:` list [`metrics`](#metrics--stat-cards-over-a-sheet) uses),
-so the totals a year is judged on — and what they are called — are the note's
-decision; the sample below is one freelancer's shape, not a schema.
-
-The readiness dot is green when nothing is missing and the snapshot is fresh,
-amber while documents are outstanding, and red only when the snapshot itself
-can't be trusted (unreadable, or an export stamp that is missing, invalid, in
-the future, or older than `stale_hours`). Missing paperwork is ordinary work in
-progress, so it never reddens the board.
+Nothing about it knows a country's filing rules, and nothing about it is
+special-cased: the totals a year is judged on are the note's cards, and the
+checklist is yours to keep in step with whatever exports it. `cookbook/tax/` is
+the worked recipe — a board and the two sheets it reads.
 
 ````markdown
 ---
 type: dashboard
-dashboard: tax
-sheet: Tax 2026
-missing: Tax Missing
-stale_hours: 240
-cards:
-  - label: Income YTD
-    bind: "{{Tax 2026.income_ytd}}"
-    format: eur
-    emph: true
-  - label: Profit YTD
-    bind: "{{Tax 2026.profit_ytd}}"
-    format: eur
-    emph: true
-  - label: Documents
-    bind: "{{Tax 2026.documents}}"
-    format: number
+dashboard: hub
 ---
-````
+How ready the year is to hand over. Totals come from [[Tax 2026]]; what is still
+owed is the checklist below.
 
-````markdown
----
-type: sheet
-title: Tax 2026
----
+## The year so far
 
-```csv
-category,sheet,rows,amount_eur,basis
-Income,Income,38,21400,Business
-Business expenses,Expenses,52,9260,Business
-Equipment,Expenses,0,0,Business
+```cards
+- label: Income YTD
+  bind: "{{Tax 2026.income_ytd}}"
+  format: eur
+  emph: true
+- label: Profit YTD
+  bind: "{{Tax 2026.profit_ytd}}"
+  format: eur
+  emph: true
+- label: Documents
+  bind: "{{Tax 2026.documents}}"
+  format: number
 ```
 
-```formulas
-income_ytd = SUMIF(category, "Income", amount_eur)
-expenses_ytd = SUMIF(category, "Business expenses", amount_eur)
-profit_ytd = income_ytd - expenses_ytd
-documents = SUM(rows)
-```
+## Still owed
+
+- [ ] Studio rent — March · Receipt no.
+- [ ] Interface repair · Document Filed; Receipt
 ````
 
-````markdown
----
-type: sheet
-title: Tax Missing
-exported: 2026-08-03T06:00:00Z
----
-
-```csv
-sheet,name,date,missing
-Expenses,Studio rent — March,2026-03-01,Receipt no.
-Expenses,Interface repair,2026-05-14,Document Filed; Receipt
-Expenses,Domain renewal,,Receipt no.
-```
-````
-
-A card bound to a summary the sheet doesn't define says so on the card, so a
-half-configured year still shows what it has. In the snapshot, `missing` is a
-semicolon-joined list of the evidence fields still outstanding; a row with no
-name or no missing fields is skipped rather than raised, and the checklist sorts
-by sheet, then date (undated last), then name. Full contract:
-[vault-format.md §5.2](vault-format.md).
+The aggregates sheet is an ordinary [sheet](sheets-spec.md), so the year's
+numbers are `csv` + `formulas` and the cards bind to its summaries — a bind that
+names a summary the sheet doesn't define says so on the card. A vault that still
+carries a `dashboard: tax` note renders the unknown-kind card until the note is
+moved onto the shape above; nothing on disk is lost.
 
 
 ## Style tokens — `accent`, `size` and `span`

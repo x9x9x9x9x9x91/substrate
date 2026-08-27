@@ -274,24 +274,23 @@ test("hub: cards, table and link text clone — links stay on paper as content",
   await expect(surface.locator(".dash-actions")).toBeHidden();
 });
 
-test("tax: the readiness board clones — cards, category table and checklist", async ({
+test("readiness: the fenced tax board clones — its cards and its checklist", async ({
   page,
 }) => {
   await openDash(page, "Tax Readiness");
-  // the pane resolves both sheets before the clone: real card values, not "—"
+  // the fence resolves the aggregates sheet before the clone: real card
+  // values, not "—", and the documents owed as an ordinary checklist
   await expect(page.locator("#root .metrics-cards .dash-card")).toHaveCount(9);
   await expect(page.locator("#root .dash-card-miss")).toHaveCount(0);
-  await expect(page.locator("#root .tax-row")).toHaveCount(5);
+  await expect(page.locator("#root .hub-task")).toHaveCount(5);
   await printButton(page).click();
 
   const surface = page.locator("#print-surface");
   await expect(surface.locator(".dash-inner")).toHaveCount(1);
   await expect(surface.locator(".dash-title")).toHaveText("Tax Readiness");
   await expect(surface.locator(".metrics-cards .dash-card")).toHaveCount(9);
-  await expect(surface.locator(".tax-table tbody tr")).toHaveCount(6);
-  await expect(surface.locator(".tax-row")).toHaveCount(5);
+  await expect(surface.locator(".hub-task")).toHaveCount(5);
   await expectPrinted(page);
-  await expect(page.locator("#root .tax-strip")).toBeVisible();
 
   await page.emulateMedia({ media: "print" });
   await expect(surface).toBeVisible();

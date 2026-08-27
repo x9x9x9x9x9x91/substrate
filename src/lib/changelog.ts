@@ -267,7 +267,7 @@ export const CHANGELOG: ChangelogRelease[] = [
         kind: "new",
       },
       {
-        text: "The dashboard family goes public: cards, charts, progress thermometers, calendar grids, heatmaps and timelines are documented kinds with slash commands, joined by a board for tax season. ⌘K creates a dashboard by name with a starter note, and the cookbook comes to you — browse and install recipes inside the app, a ready personal-finance workbook included.",
+        text: "The dashboard family goes public: cards, charts, progress thermometers, calendar grids, heatmaps and timelines are documented kinds with slash commands. ⌘K creates a dashboard by name with a starter note, and the cookbook comes to you — browse and install recipes inside the app, a ready personal-finance workbook included.",
         kind: "new",
       },
       {
@@ -419,10 +419,6 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         text: "Browse the dashboard cookbook inside the app and install any recipe into your vault with one click.",
-        kind: "new",
-      },
-      {
-        text: "A tax-readiness dashboard over two sheets shows where the year stands — category totals, the receipts still owed, and a plain verdict on whether it is fit to hand over.",
         kind: "new",
       },
       {

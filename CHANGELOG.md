@@ -143,10 +143,9 @@
   seen — and a mounted folder of Ableton projects puts tempo, key, track count, and Live
   version on the board.
 - The dashboard family goes public: cards, charts, progress thermometers, calendar
-  grids, heatmaps and timelines are documented kinds with slash commands, joined by a
-  board for tax season. ⌘K creates a dashboard by name with a starter note, and the
-  cookbook comes to you — browse and install recipes inside the app, a ready
-  personal-finance workbook included.
+  grids, heatmaps and timelines are documented kinds with slash commands. ⌘K creates a
+  dashboard by name with a starter note, and the cookbook comes to you — browse and
+  install recipes inside the app, a ready personal-finance workbook included.
 - Speak a note: voice capture ships for everyone, started by hotkey or button, with the
   microphone prompt naming every way a recording can begin — and quick capture can show
   what you were doing as a chip on the capture window, off by default behind a new
@@ -307,9 +306,6 @@
   block, quiet fact rows) and a clean database table sheet.
 - Browse the dashboard cookbook inside the app and install any recipe into your vault
   with one click.
-- A tax-readiness dashboard over two sheets shows where the year stands — category
-  totals, the receipts still owed, and a plain verdict on whether it is fit to hand
-  over.
 
 ### Improved
 

@@ -38,7 +38,6 @@ export const BUILT_IN_KINDS: ReadonlySet<string> = new Set([
   "feed",
   "music-work",
   "tasks",
-  "tax",
   // the chart-fence renderer, dispatched by name
   "charts",
 ]);

@@ -405,11 +405,11 @@ const SHOTS: Shot[] = [
       { file: "Tax Missing.md", target: "Tax Missing.md" },
     ],
     ready: async (page) => {
+      // the board is fences now: a cards fence over the aggregates sheet, and
+      // the documents still owed as an ordinary checklist under it
       await expect(page.locator(".metrics-cards .dash-card")).toHaveCount(9);
       await expect(page.locator(".dash-card-miss")).toHaveCount(0);
-      await expect(page.locator(".tax-row")).toHaveCount(5);
-      // the recipe's own stale_hours outlives its literal `exported:` stamp,
-      // so the shipped sample opens trusted rather than warning about its age
+      await expect(page.locator(".hub-task")).toHaveCount(5);
       await expect(page.locator(".dash-alert")).toHaveCount(0);
     },
   },

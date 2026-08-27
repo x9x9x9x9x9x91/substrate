@@ -23,7 +23,6 @@ import FoodDashboard from "./FoodDashboard";
 import FeedDashboard from "./FeedDashboard";
 import MusicWorkDashboard from "./MusicWorkDashboard";
 import TasksDashboard from "./TasksDashboard";
-import TaxDashboard from "./TaxDashboard";
 import WorkbookPane from "./WorkbookPane";
 import type { EmbedEdit } from "./EmbedViewTable";
 import { parsePages } from "../lib/pages";
@@ -252,7 +251,6 @@ function builtInDashboard(kind: string, props: DashboardPaneProps) {
   if (kind === "feed") return <FeedDashboard {...props} />;
   if (kind === "music-work") return <MusicWorkDashboard {...props} />;
   if (kind === "tasks") return <TasksDashboard {...props} />;
-  if (kind === "tax") return <TaxDashboard {...props} />;
   // Everything past here reached the tail. A name that landed in
   // BUILT_IN_KINDS before its renderer did says so instead of
   // rendering an empty chart shell that looks like a dashboard with no data.

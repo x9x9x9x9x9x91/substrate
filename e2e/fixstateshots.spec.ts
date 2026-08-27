@@ -5,9 +5,9 @@ import { test, expect, type Page } from "./fixtures";
 //
 // The state-truth surfaces a fix wave touched, each staged into the state the
 // audits caught it in: an empty food board, an empty jobs board, a task
-// filter that matches nothing, a tax board whose source is broken while its
-// cards read fine, metric cards bound at a sheet and a format that do not
-// exist, a chart naming no database, and a view fence whose cut is empty.
+// filter that matches nothing, metric cards bound at a sheet and a format that
+// do not exist, a chart naming no database, and a view fence whose cut is
+// empty.
 //
 // Two grounds, as the audit lanes took them. Dark is the app as it runs;
 // "light" is the print pass — there is no runtime light theme, and
@@ -69,14 +69,7 @@ test("the state-truth surfaces, both grounds", async ({ page }) => {
   await open(page, "Tasks");
   await shoot(page, "tasks-nomatch");
 
-  // 4. tax: the source repointed at a note that is not a sheet, cards intact
-  await page.evaluate(() =>
-    window.__mockEditProp?.("Dashboards/Tax Readiness.md", "sheet", "Tax Readiness"),
-  );
-  await open(page, "Tax Readiness");
-  await shoot(page, "tax-broken-source");
-
-  // 5. metrics: one card at a sheet that isn't there, one at a format that
+  // 4. metrics: one card at a sheet that isn't there, one at a format that
   //    isn't a format, one that reads fine — the row's own baseline test
   await page.evaluate(() =>
     window.__mockEditProp?.("Dashboards/Portfolio.md", "cards", [
@@ -89,7 +82,7 @@ test("the state-truth surfaces, both grounds", async ({ page }) => {
   await open(page, "Portfolio");
   await shoot(page, "metrics-misses");
 
-  // 6. charts: a source naming no database, beside one that reads
+  // 5. charts: a source naming no database, beside one that reads
   await page.evaluate(() =>
     window.__mockEditNote?.(
       "Dashboards/Releases/Label Health.md",

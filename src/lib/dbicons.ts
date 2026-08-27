@@ -302,8 +302,6 @@ export function folderDefaultIcon(name: string): DbIcon | undefined {
    charts/metrics-fallback notes) keep the generic chart. */
 const DASHBOARD_ICONS: Record<string, DbIcon> = {
   food: { glyph: "flame" },
-  // filed paperwork, not money — the wallet already marks the metrics boards
-  tax: { glyph: "archive" },
   metrics: { glyph: "wallet" },
   hub: { glyph: "home" },
   feed: { glyph: "inbox" },

@@ -37,7 +37,7 @@ one-line prompt.
 | [`annual-report/`](annual-report) | metrics | the year in cards + charts, printable as a designed PDF |
 | [`studio-year/`](studio-year) | hub | a year of days as squares, shaded from one log sheet |
 | [`release-arc/`](release-arc) | hub | start-to-ship bars per release, lanes grouped by status |
-| [`tax/`](tax) | tax | tax-year readiness: totals, documents still owed, printable |
+| [`tax/`](tax) | hub | tax-year readiness: totals, documents still owed, printable |
 | [`tasks/`](tasks) | tasks | a working board over your task notes, late work first |
 | [`week-numbers/`](week-numbers) | week-numbers | a renderer you own, shipped in the vault beside the board |
 

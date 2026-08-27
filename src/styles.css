@@ -26,7 +26,6 @@
 @import "./styles/charts.css"; /* Dashboard charts: bars, lines, bands, heatmaps, calendar fences and chart tooltips */
 @import "./styles/syncpane.css"; /* The sync manager dashboard — direction legs, launchd job health, activity tails */
 @import "./styles/tasks.css"; /* The tasks board — groups, columns, cards, findings */
-@import "./styles/music.css"; /* Music downloader, mastering bands, the listening pile, the saved-links shelf and the tax strip */
 @import "./styles/proxy.css"; /* The proxy view — credential windows, quotas, token runs, burn charts */
 @import "./styles/hub.css"; /* The hub page — prose blocks, cards, timeline, tabs and the view switch */
 @import "./styles/dbfilter.css"; /* Database filtering — the filter row, query syntax, chips and saved views */

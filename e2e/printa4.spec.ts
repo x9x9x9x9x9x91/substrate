@@ -53,7 +53,7 @@ const KINDS: {
   { nav: "Portfolio", kind: "metrics", needs: [".dash-card"] },
   { nav: "Overview", kind: "charts", needs: [".dash-chart"] },
   { nav: "Umbra Home", kind: "hub", needs: [".dash-card", ".hub-timeline"] },
-  { nav: "Tax Readiness", kind: "tax", needs: [".dash-card"] },
+  { nav: "Tax Readiness", kind: "hub (cards fence + checklist)", needs: [".dash-card", ".hub-task"] },
   {
     nav: "Paper Hub",
     kind: "hub (embedded boards)",
@@ -171,7 +171,7 @@ async function measure(page: Page) {
       breaks,
       sectionLabelBreakAfter: labels,
       present: Object.fromEntries(
-        [".dash-card", ".dash-chart", ".hub-timeline", ".hub-calendar", ".hub-heatmap"].map(
+        [".dash-card", ".dash-chart", ".hub-timeline", ".hub-calendar", ".hub-heatmap", ".hub-task"].map(
           (sel) => [sel, [...surface.querySelectorAll(sel)].filter(visible).length]
         )
       ) as Record<string, number>,

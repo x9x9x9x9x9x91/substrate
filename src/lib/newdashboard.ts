@@ -68,12 +68,6 @@ export const NEW_DASHBOARD_KINDS: readonly DashboardKindOption[] = [
     body: "A curated newsfeed, newest day first. This note holds only config — the items live in a sheet an external curator writes (`date,topic,title,source,url,blurb,why,fb`).\n",
   },
   {
-    kind: "tax",
-    blurb: "tax-year totals and what evidence is still owed",
-    title: "Tax Readiness",
-    body: "Read-only over two sheets: the year's aggregates, and the rows still missing evidence. The app writes to neither — the books stay canonical. Carries the head's Print action.\n",
-  },
-  {
     kind: "music-work",
     blurb: "the work index, pivoted by year, client and job",
     title: "Music Work",

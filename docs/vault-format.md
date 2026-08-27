@@ -213,13 +213,11 @@ type: release
 | `dashboard` | dashboard renderer key on `type: dashboard` notes (§5.2) |
 | `sidebar` | `false` keeps a `type: dashboard` note out of the sidebar's Dashboards listing (§5.2); absent or any other value lists it |
 | `icon` | dashboard sidebar icon override (§5.2): a curated glyph id or an emoji |
-| `cards` | card list for the metrics dashboard and the tax board (§5.4) |
+| `cards` | card list for the metrics dashboard and the ` ```cards ` fence (§5.4) |
 | `claimed_usd` | yield dashboard: cumulative claimed total, set by the Claim button (§5.3) |
 | `log`, `db`, `weight`, `floor`, `ceiling` | food dashboard config: log-sheet, food-DB and weight-sheet names, net-kcal band (§5.2) |
 | `items`, `curated` | feed dashboard config: items-sheet name, and the curator's own last-run stamp, rendered verbatim (§5.2) |
 | `index`, `scanned` | music-work dashboard config: work-index sheet name, and the scanner's own last-run stamp, rendered verbatim (§5.2) |
-| `sheet`, `missing`, `stale_hours` | tax dashboard config: aggregates-sheet and missing-evidence-snapshot names (by title/stem, defaulting to `Tax 2026` and `Tax Missing`), and the age past which the snapshot stops being trusted — a positive number of hours, default 240. Its cards come from `cards:` like any other board (§5.2) |
-| `exported` | tax dashboard: the missing-evidence snapshot's own export stamp, written by whatever regenerates it — ISO 8601 with a timezone (§5.2) |
 | `areas`, `stale_days` | tasks dashboard area allowlist and stale-age threshold (§5.2) |
 | `view`, `sort` | tasks dashboard layout (`list`/`board`) and ordering (`urgency`/`priority`/`due`/`age`) (§5.2) |
 | `now`, `snoozed_until` | tasks board: pinned to the focus section / parked until a wake day, both board-scoped (§5.2) |
@@ -988,7 +986,7 @@ header.
 
 Sidebar icon: each dashboard row renders a curated per-kind glyph
 (`src/lib/dbicons.ts` DASHBOARD_ICONS — `food`, `metrics`, `hub`,
-`feed`, `music-work`, `tasks`, `tax`,
+`feed`, `music-work`, `tasks`,
 plus any machine-specific kinds this build carries); an `icon:` prop overrides
 it (a curated glyph id, anything else treated as an emoji), and kinds without a
 mark keep the generic chart glyph. The curated glyph ids (`src/lib/dbicons.ts`
@@ -1005,7 +1003,7 @@ These public kinds are dispatched: `metrics` → the metrics cards renderer (§5
 `hub` → the hub renderer (below);
 `food` → the food log tracker (below); `feed` → the curated newsfeed (below);
 `music-work` → the work-index board (below); `tasks` → the task attention
-board (below); `tax` → the tax-year readiness board (below);
+board (below);
 `charts` → the chart-fence dashboard (§5.5), whether or not the body actually
 holds a fence.
 **A missing `dashboard` prop looks at the body** — one or more ` ```chart `
@@ -1339,96 +1337,13 @@ re-write between reads costs nothing (`src/lib/musicwork.ts`,
 `src/components/MusicWorkDashboard.tsx`).
 
 
-`tax` is a read-only readiness board for one tax year: what is
-deductible so far, what evidence is still owed, and whether the year is fit to
-hand over. It reads two sheets and writes to neither — the books off in
-their own tool stay canonical, and this pane is a window onto a derived copy of
-it.
-
-```yaml
----
-type: dashboard
-dashboard: tax
-sheet: Tax 2026      # aggregates sheet by title (default "Tax 2026")
-missing: Tax Missing # missing-evidence snapshot (default "Tax Missing")
-stale_hours: 240     # positive number; default 240 (tax data moves slowly)
-cards:               # the board's totals — the ordinary card bindings (§5.4)
-  - label: Income YTD
-    bind: "{{Tax 2026.income_ytd}}"
-    format: eur
-    emph: true
----
-```
-
-Both sheet props name a sheet by title/stem, not a path. A named note that does not
-exist, or exists but is not `type: sheet`, is reported on the board rather than
-parsed.
-
-**The aggregates sheet** is an ordinary sheet (§5.1). Its csv fence carries the
-columns `category,sheet,rows,amount_eur,basis` — matched by header name,
-case-insensitive and order free. `category` is the row's label and the only
-required cell (a nameless row is skipped); `sheet` names the source sheet the
-figures came from; `rows` is the document count behind the total (a non-whole
-or negative value reads as 0); `amount_eur` is a plain signed decimal (anything
-else — blank, grouped text, exponent notation — renders as "—" rather than as a
-guessed number, because a wrong euro figure on a tax board is worse than none);
-`basis` is free text shown as the row's tooltip. A zero-row zero-amount
-category is kept: nothing booked yet in a category is information.
-
-**The cards** are the note's own `cards:` bindings (§5.4) — no summary name is
-special to this kind, so the board carries whatever totals the sheet defines
-and calls them whatever the note says. A binding that names a summary the sheet
-doesn't define, or one that evaluates to an error, renders as a card naming
-what it looked for; a half-configured year still shows everything it does have.
-A `stale_hours:` long enough to outlive the snapshot is the one thing a shipped
-sample needs — a fixed `exported:` stamp in a file that ships goes stale on its
-own.
-
-**The missing-evidence snapshot** is a sheet with an ISO 8601 `exported:`
-frontmatter stamp carrying a timezone, and the csv headers
-`sheet,name,date,missing` (order free, case-insensitive):
-
-````markdown
----
-type: sheet
-exported: 2026-08-03T06:00:00Z
----
-
-```csv
-sheet,name,date,missing
-Expenses,Studio rent — March,2026-03-01,Receipt no.
-Expenses,Interface repair,2026-05-14,Document Filed; Receipt
-```
-````
-
-`sheet` is the source sheet the row lives in and becomes the checklist's
-grouping key (blank groups under "Unfiled"); `name` is the row's name and must
-be non-empty; `date` is `YYYY-MM-DD` or empty; `missing` is the semicolon-joined
-list of evidence fields still outstanding and must name at least one. A row with
-no name or no missing fields is **skipped, never raised** — the same policy the
-food log takes with its hand-editable csv, for the same reason: the app doesn't
-write this sheet, so a malformed row is the exporter's to fix and must not blank
-the pane. An unparseable date degrades to empty (the row still shows, sorted
-last) rather than dropping the row, since that would hide a genuinely missing
-document.
-
-Checklist order is fully determined — sheet name A–Z (case-folded), then date
-ascending with undated rows last, then name, then the missing-field list — so a
-regenerated snapshot renders identically even when the exporter's row order
-changes.
-
-The header's readiness dot is green ("ready — nothing missing") when
-the checklist is empty and the snapshot is fresh, amber ("N documents missing")
-when rows are outstanding, and red when the snapshot itself can't be trusted:
-unreadable, not a sheet, or an `exported` stamp that is missing, invalid, in the
-future, or older than `stale_hours` (exactly at the boundary stays fresh). The
-aggregates sheet failing never reddens the dot — its cards go missing on their
-own.
-
-Who writes what: the aggregates sheet is refreshed by whatever repricing pass
-maintains the year's numbers, and the missing-evidence snapshot by an external
-exporter reading the books. **The app writes neither**
-(`src/lib/taxReadiness.ts`, `src/components/TaxDashboard.tsx`).
+A tax year is **not** a kind. The readiness board the app once built in is
+ordinary fences now: a `hub` note (below) whose ` ```cards ` fence binds to an
+aggregates sheet's summaries (§5.4), with the documents still owed written under
+it as a plain checklist. Nothing in the app reads `sheet:`, `missing:`,
+`stale_hours:` or `exported:` any more, and `dashboard: tax` renders the
+unknown-kind card like every other value this build does not know — the
+`cookbook/tax/` recipe is the shape to copy onto.
 
 ### 5.3 Yield dashboard — a vault kind, not an app kind
 

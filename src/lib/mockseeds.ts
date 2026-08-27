@@ -497,36 +497,22 @@ export const mockNotes: MockNote[] = [
     body: "A read-only attention view over task notes. Configure its area allowlist and stale threshold in this note's frontmatter.\n",
   },
   {
-    // tax dashboard seed: `dashboard: tax` — config props and the ordinary
-    // card bindings, over the two sheets below. Both are written outside the
-    // app (the aggregates by whatever keeps the books, the missing-evidence
-    // snapshot by an exporter reading them), so the pane never writes.
+    // the tax-readiness board, now an ordinary hub: a `cards` fence over the
+    // aggregates sheet below, and a checklist of what is still owed kept in
+    // step with the exported snapshot by hand. No kind of its own — the
+    // fences draw the whole board.
     path: "Dashboards/Tax Readiness.md",
     stem: "Tax Readiness",
     title: "Tax Readiness",
     folder: "Dashboards",
     props: {
       type: "dashboard",
-      dashboard: "tax",
-      sheet: "Tax 2026",
-      missing: "Tax Missing",
-      stale_hours: 240,
-      cards: [
-        { label: "Income YTD", bind: "{{Tax 2026.income_ytd}}", format: "eur", emph: true },
-        { label: "Profit YTD", bind: "{{Tax 2026.profit_ytd}}", format: "eur", emph: true },
-        { label: "Business expenses", bind: "{{Tax 2026.expenses_ytd}}", format: "eur" },
-        { label: "Equipment", bind: "{{Tax 2026.equipment_ytd}}", format: "eur" },
-        { label: "Home office", bind: "{{Tax 2026.home_office_ytd}}", format: "eur" },
-        { label: "Rental", bind: "{{Tax 2026.rental_ytd}}", format: "eur" },
-        { label: "Partnership", bind: "{{Tax 2026.partnership_ytd}}", format: "eur" },
-        { label: "Threshold headroom", bind: "{{Tax 2026.threshold_headroom}}", format: "eur" },
-        { label: "Documents", bind: "{{Tax 2026.documents}}", format: "number" },
-      ],
+      dashboard: "hub",
       created: "2026-08-03",
     },
     updated_ms: now - 9 * 86_400_000,
     excerpt: "Category totals and the documents still owed before the tax year closes.",
-    body: "How ready the tax year is to hand over. Totals come from the aggregates sheet, the checklist from an exported snapshot of the workbook — the workbook stays canonical.\n",
+    body: "How ready the year is to hand over. The totals come from [[Tax 2026]]; the\ndocuments still owed are the checklist below, kept in step with the exported\n[[Tax Missing]] snapshot. Both sheets stay canonical — this page only reads\nthem, and the head's Print action turns it into the page you hand to whoever\ndoes the filing.\n\n## The year so far\n\n```cards\n- label: Income YTD\n  bind: \"{{Tax 2026.income_ytd}}\"\n  format: eur\n  emph: true\n- label: Profit YTD\n  bind: \"{{Tax 2026.profit_ytd}}\"\n  format: eur\n  emph: true\n- label: Business expenses\n  bind: \"{{Tax 2026.expenses_ytd}}\"\n  format: eur\n- label: Equipment\n  bind: \"{{Tax 2026.equipment_ytd}}\"\n  format: eur\n- label: Home office\n  bind: \"{{Tax 2026.home_office_ytd}}\"\n  format: eur\n- label: Rental\n  bind: \"{{Tax 2026.rental_ytd}}\"\n  format: eur\n- label: Partnership\n  bind: \"{{Tax 2026.partnership_ytd}}\"\n  format: eur\n- label: Threshold headroom\n  bind: \"{{Tax 2026.threshold_headroom}}\"\n  format: eur\n- label: Documents\n  bind: \"{{Tax 2026.documents}}\"\n  format: number\n```\n\n## Still owed\n\n- [ ] Studio rent — March · Receipt no.\n- [ ] Interface repair · Document Filed; Receipt\n- [ ] Domain renewal · Receipt no.\n- [ ] Mastering — Fern Static · Invoice PDF\n- [ ] Boiler service · Receipt\n",
   },
   {
     path: "Tax 2026.md",
