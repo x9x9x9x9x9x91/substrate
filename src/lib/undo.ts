@@ -21,10 +21,20 @@ export type UndoEntry = {
   paths: string[];
   undo: () => Promise<void>;
   redo?: () => Promise<void>;
-  /** set once a path this entry touches changed on disk from elsewhere; a
-      stale entry is skipped by ⌘Z but stays visible (§3.3 skip-and-show) */
-  stale?: boolean;
+  /** why this entry can no longer be run, once it can't be; a stale entry is
+      skipped by ⌘Z but stays visible (§3.3 skip-and-show). The two causes are
+      the doc's (c) and (d′), and they are NOT interchangeable to a reader:
+      "external" is a path this entry touches changed on disk from elsewhere,
+      "failed" is this entry's own inverse having thrown. Telling a reader
+      their note changed on disk when a write simply errored sends them
+      hunting a sync conflict that never happened, so the reason is carried
+      rather than assumed. Absent = runnable. */
+  stale?: StaleReason;
 };
+
+/** (c) somebody else wrote a path this entry would rewrite; (d′) this entry's
+    own inverse threw, and retrying it would throw the same way. */
+export type StaleReason = "external" | "failed";
 
 export type UndoState = {
   entries: UndoEntry[];
@@ -77,10 +87,10 @@ export function peekRedo(s: UndoState): UndoEntry | null {
 export function invalidate(s: UndoState, paths: string[]): UndoState {
   const hit = new Set(paths);
   let changed = false;
-  const entries = s.entries.map((e) => {
+  const entries = s.entries.map((e): UndoEntry => {
     if (e.stale || !e.paths.some((p) => hit.has(p))) return e;
     changed = true;
-    return { ...e, stale: true };
+    return { ...e, stale: "external" };
   });
   return changed ? { ...s, entries } : s;
 }
@@ -93,7 +103,7 @@ export function markStale(s: UndoState, id: number): UndoState {
   const at = s.entries.findIndex((e) => e.id === id);
   if (at === -1 || s.entries[at].stale) return s;
   const entries = s.entries.slice();
-  entries[at] = { ...entries[at], stale: true };
+  entries[at] = { ...entries[at], stale: "failed" };
   return { ...s, entries };
 }
 
@@ -125,6 +135,33 @@ export function advance(s: UndoState, id: number, dir: -1 | 1): UndoState {
 export function peekStale(s: UndoState): UndoEntry | null {
   for (let i = s.cursor; i >= 0; i--) if (s.entries[i].stale) return s.entries[i];
   return null;
+}
+
+/** The stale entry ⌘Z walks PAST to reach the one it can still run, or null
+    when it walks past nothing.
+ *
+ *  `peekStale` answers the jammed case — nothing left to run, and a stale
+ *  entry as the reason. This answers the quieter one: an external edit
+ *  invalidated the newest action, so the keystroke lands on an OLDER action
+ *  than the one the user just took. Undoing something is not what "nothing
+ *  happened" looks like, so a skip that acts has to say so too (§3.3
+ *  skip-and-show) — otherwise ⌘Z reads as having undone the wrong thing.
+ *
+ *  Only the entry at the cursor is asked: anything below it is only reachable
+ *  because that one was skipped, so if the cursor is live nothing was. */
+export function skippedStale(s: UndoState): UndoEntry | null {
+  const top = s.cursor >= 0 ? s.entries[s.cursor] : undefined;
+  return top?.stale ? top : null;
+}
+
+/** Why an entry can't run, in the reader's words — the clause both undo
+    notices hang off, so neither can invent a cause the stack didn't record.
+    A failed inverse used to be reported as a disk conflict, which sent the
+    reader looking for a sync problem that never happened; the error itself
+    was already toasted at the moment it threw, so this only has to say that
+    the earlier attempt is why the entry is being passed over. */
+export function staleBecause(entry: UndoEntry): string {
+  return entry.stale === "failed" ? "undoing it failed earlier" : "it changed on disk";
 }
 
 /** Find an entry by id — the toast action and ⌘Z must run the same operation,

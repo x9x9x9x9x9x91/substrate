@@ -333,7 +333,11 @@ export function parseShowAppFiles(props: Record<string, unknown>): boolean {
     Enforcement lives at the call sites, not in Rust: the shipped CSP allows no
     remote origin, so every request is made by the engine — but the engine only
     ever makes one because a TS call asked it to. Gate the ask and nothing
-    leaves. `link-titles` gates the enrichment fetch behind link capture (the
+    leaves. `link-titles` is the exception, and the shape to copy: the engine
+    reads that switch itself before it spawns the enrichment fetch, so a capture
+    door that forgets to ask cannot reach the site anyway, and the ask on this
+    side is only ever a per-capture no. It gates the enrichment fetch behind
+    link capture (the
     note is still created, from the bare URL), `fx-rates` gates the frankfurter
     read (`useFx` consults it; conversions fall back to the last saved rates),
     and `share-relay` gates the "Send as link" upload. */

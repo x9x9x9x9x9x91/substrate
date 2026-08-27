@@ -58,8 +58,19 @@ export function useUndoStack(
   undoStateRef.current = undoState;
   const undoBusy = useRef(false);
 
+  /* `skipped` is the entry the keystroke walked past — the whole entry, not
+     its label, because the notice has to name the RIGHT cause: an entry goes
+     stale either because somebody else wrote its paths or because its own
+     inverse threw, and calling the second one a disk conflict sends the
+     reader hunting a sync problem that never happened.
+
+     It rides the SUCCESS toast rather than a second one, because the app has
+     a single toast slot and a notice shown before the write would be replaced
+     by "Undid …" the moment the write landed. Read the two together and the
+     surprise is explained in the same breath as the action: the newest edit
+     could not be taken back, so an older one was. */
   const runUndoEntry = useCallback(
-    async (entry: UndoEntry | null, dir: -1 | 1) => {
+    async (entry: UndoEntry | null, dir: -1 | 1, skipped?: UndoEntry) => {
       if (!entry || undoBusy.current) return;
       const run = dir === -1 ? entry.undo : entry.redo;
       if (!run) return;
@@ -67,7 +78,12 @@ export function useUndoStack(
       try {
         await run();
         undoDispatch({ t: "advance", id: entry.id, dir });
-        showToast(dir === -1 ? `Undid ${entry.label}` : `Redid ${entry.label}`);
+        const done = dir === -1 ? `Undid ${entry.label}` : `Redid ${entry.label}`;
+        showToast(
+          skipped
+            ? `Skipped ${skipped.label} — ${undoStack.staleBecause(skipped)}. ${done}`
+            : done
+        );
         // our own write — refresh directly so the echo window covers it
         refresh();
       } catch (e) {

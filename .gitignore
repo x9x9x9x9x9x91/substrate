@@ -13,6 +13,10 @@ dist-release/
 dist-ssr
 *.local
 /src-tauri/binaries/substrate-mcp-*
+# Staged copies of cookbook/ and examples/vault/ for the bundler to package.
+# Written fresh before every build, so a committed one would only ever be a
+# stale tree shipped inside a release.
+/src-tauri/gen/bundle-resources/
 
 # Editor directories and files
 .vscode/*

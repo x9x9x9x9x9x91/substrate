@@ -3642,8 +3642,11 @@ impl Engine {
         self.move_schema_homes(old_rel, Some(&new_rel)).ok();
         self.move_sidebar_folders(old_rel, Some(&new_rel)).ok();
         self.move_sidebar_keys_folder(old_rel, Some(&new_rel)).ok();
-        // every board card inside the folder keeps its slot
-        self.move_card_order(old_rel, &new_rel)?;
+        // every board card inside the folder keeps its slot — best-effort for
+        // the same reason as the four above: a card slot is cosmetic, and a
+        // slot that cannot be rewritten must not report a finished rename as
+        // a failure
+        self.move_card_order(old_rel, &new_rel).ok();
         Ok(new_rel)
     }
 
@@ -3709,8 +3712,10 @@ impl Engine {
         self.move_schema_homes(old_rel, Some(&new_rel)).ok();
         self.move_sidebar_folders(old_rel, Some(&new_rel)).ok();
         self.move_sidebar_keys_folder(old_rel, Some(&new_rel)).ok();
-        // every board card inside the folder keeps its slot
-        self.move_card_order(old_rel, &new_rel)?;
+        // every board card inside the folder keeps its slot — best-effort like
+        // the four above, so an unwritable card order cannot report a move that
+        // already happened on disk as a failure
+        self.move_card_order(old_rel, &new_rel).ok();
         Ok(new_rel)
     }
 

@@ -412,22 +412,23 @@ export default function DatabasePane({
   const pinMode = onColumnsChange !== undefined;
   // Re-issue the pref with one field changed — every write goes through here
   // so a layout switch can never drop the sort or the hidden set.
+  //
+  // The prior pref is SPREAD, not enumerated field by field. A hand-written
+  // list of the fields to carry is a checklist nobody updates: every field
+  // added to the pref since has had to be remembered here too, and the one
+  // forgotten is silently thrown away on the next unrelated patch — with no
+  // type error, because dropping an optional field type-checks perfectly.
+  // Spreading makes carrying-through the default and losing a field the thing
+  // that takes a deliberate line: no field of the pref this pane was handed
+  // can be dropped here, and a field added to the pref later is carried
+  // without anyone having to remember this call. That is the whole of the
+  // guarantee — what survives the WRITE is the persistence layer's business,
+  // and it names the fields it stores. `view` still follows the pane's live
+  // layout, so it is restated after the spread, and `patch` wins over both.
   const patchPref = (patch: Partial<ViewPref>) => {
     onPrefChange(canonicalViewPref({
+      ...normalizedPref,
       view: layout,
-      group_by: normalizedPref?.group_by,
-      table_group_by: normalizedPref?.table_group_by,
-      aggregations: normalizedPref?.aggregations,
-      sorts: normalizedPref?.sorts,
-      col_order: normalizedPref?.col_order,
-      card_order: normalizedPref?.card_order,
-      group_order: normalizedPref?.group_order,
-      collapsed_groups: normalizedPref?.collapsed_groups,
-      hidden: normalizedPref?.hidden,
-      hidden_per_layout: normalizedPref?.hidden_per_layout,
-      widths: normalizedPref?.widths,
-      wrap: normalizedPref?.wrap,
-      grid: normalizedPref?.grid,
       ...patch,
     }, columns));
   };
@@ -2399,6 +2400,27 @@ export default function DatabasePane({
     return writePropOn(paths, key, value, record).then(() => undefined);
   };
 
+  /* This table's own rows, filter and all — the membership test both row
+     drops share. Against `visible` and not the painted `rows`, because a
+     folded section contributes nothing to the paint while its notes stay
+     selected (the selection prune keeps them on purpose). */
+  const ownRow = (p: string) => visible.some((n) => n.path === p);
+
+  /* What a row drag actually has in hand, for whichever drop catches it: the
+     dragged row alone, or — when it is part of the selection — the whole
+     selection, minus anything the selection is carrying that this table
+     cannot see. null means the drag came from outside this table (a note
+     dragged in from the sidebar carries the same drag type, and taking it
+     would write into the frontmatter of a note this database never showed).
+
+     ONE rule for both drops on purpose: the row-onto-row drop filtered the
+     selection and the section-header drop did not, so the same selection
+     dropped two ways wrote to two different sets of notes. */
+  const heldForDrop = (path: string): string[] | null => {
+    if (!path || !ownRow(path)) return null;
+    return sel.has(path) ? [...sel].filter(ownRow) : [path];
+  };
+
   /* Rows dropped on a section header join that section — the drag gesture
      for what the bulk bar's "Move to group…" does by menu. A dragged row
      that is part of the selection carries the whole selection with it (the
@@ -2406,14 +2428,10 @@ export default function DatabasePane({
      alone, and leaves the selection where it was. */
   const onDropNotesInGroup = (path: string, value: string | null) => {
     setNoteDropAt(null);
-    if (!tableGroup || !path) return;
-    /* Only this table's own rows. A note dragged in from the sidebar carries
-       the same drag type, and taking it would write the grouped property
-       into the frontmatter of a note this database never showed — the
-       board's card drag guards the same edge the same way. */
-    if (!rows.some((n) => n.path === path)) return;
+    if (!tableGroup) return;
+    const paths = heldForDrop(path);
+    if (!paths) return;
     const grouped = sel.has(path);
-    const paths = grouped ? [...sel] : [path];
     /* Rows already in the section they landed on are not rewritten. Setting
        a value to itself is still N file writes: an mtime each, a sync diff
        each, an undo entry for a move that didn't happen, and a toast
@@ -2464,15 +2482,10 @@ export default function DatabasePane({
   const onDropRowOnRow = (path: string, target: string) => {
     setRowGroupDropAt(null);
     if (!path || !target || path === target) return;
-    // this table's own rows, filter and all — against `visible` and not the
-    // painted `rows`, because a folded section contributes nothing to the
-    // paint while its notes stay selected (the selection prune keeps them on
-    // purpose). Reading the painted set here dropped exactly the members a
-    // fold was hiding, and the bulk bar went on counting them.
-    const own = (p: string) => visible.some((n) => n.path === p);
-    if (!own(path) || !own(target)) return;
+    if (!ownRow(target)) return;
+    const held = heldForDrop(path);
+    if (!held) return;
     const fromSel = sel.has(path);
-    const held = fromSel ? [...sel].filter(own) : [path];
     if (held.includes(target)) return;
     setRowGroupDrop({ paths: [...held, target], fromSel, groupProp: tableGroup ?? null });
   };
@@ -2857,6 +2870,18 @@ export default function DatabasePane({
           setFocus(focusAt(0, r));
         }
         return;
+      }
+      // Space is the conventional toggle key on a focused checkbox, and it has
+      // to be claimed here or the pane scrolls under it. Only checkbox cells:
+      // everywhere else Space is a character the editor below still opens on.
+      if (e.key === " " && focus && focusedKind === "checkbox") {
+        const n = rows[focus.r];
+        const key = focusedKey;
+        if (n && key) {
+          e.preventDefault();
+          toggleCheckboxCell(n.path, key);
+          return;
+        }
       }
       if (e.key === "Enter" && focus) {
         e.preventDefault();

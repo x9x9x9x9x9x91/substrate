@@ -124,6 +124,51 @@ interface SaveFailure {
     new holder cannot forget the hook. */
 onHistoryLeave(() => heldSheetEdits.clear());
 
+/** Drop held text whose note is no longer in the vault under that path — a
+    delete or a rename, which is the same event from here: the path the text
+    was parked under stopped naming the note it came from.
+ *
+ *  Without this the map is only ever emptied by a save that lands, a reader
+ *  discarding, or the trip back from the past, so a deleted note's text sits
+ *  there for the app's lifetime — and a NEW note created at the same path
+ *  (retyping a name the vault just freed is ordinary) inherits it: the page
+ *  opens showing somebody else's rows. Held text is not lost silently either
+ *  way; a note that is gone had nothing left to retry against.
+ *
+ *  Exported for the test that pins it. Returns the paths it dropped. */
+export function evictHeldSheetEdits(livePaths: Iterable<string>): string[] {
+  const live = new Set(livePaths);
+  const dropped: string[] = [];
+  for (const path of heldSheetEdits.keys()) if (!live.has(path)) dropped.push(path);
+  for (const path of dropped) heldSheetEdits.delete(path);
+  return dropped;
+}
+
+/** Park a refused save's text under its note path — unless the refusal was the
+    vault saying that note is not there any more.
+ *
+ *  The eviction pass alone cannot cover that race: the note vanishes, the list
+ *  effect runs and finds NOTHING to drop (the write has not been refused yet),
+ *  and the rejection then parks the body under a path the vault no longer has
+ *  — which a note created at that path next would inherit, the exact
+ *  resurrection the eviction exists to stop. This is the other end of the same
+ *  race, so it closes here too.
+ *
+ *  The test is the failure KIND and not the pane's note list, on purpose: the
+ *  list is a prop, it can lag a note created moments ago, and refusing to hold
+ *  on a lagging list would lose a real edit — the one outcome worse than the
+ *  bug. `gone` is the engine's own answer about that exact path, so it can't
+ *  be wrong about a note that is merely new.
+ *
+ *  Refusing costs the reader nothing they still had: there is no note left to
+ *  reopen the text against, and a mounted page keeps it on screen through its
+ *  own buffer and says so. Returns whether it parked. */
+function holdSheetEdit(path: string, held: { body: string; base: string; kind: SaveFailure["kind"]; error: string }): boolean {
+  if (held.kind === "gone") return false;
+  heldSheetEdits.set(path, held);
+  return true;
+}
+
 /* The three refusals a sheet write can be told apart by, spelled the way
    NotePane spells them — the engine's own message prefixes. */
 const errMsg = (e: unknown) => String(e instanceof Error ? e.message : e);
@@ -211,17 +256,21 @@ function SheetPage({
         }
         if (pending.current === null) pending.current = body;
         // held by path as well, because a tab switch unmounts this page
-        // mid-write — with the base it was written against, never a fresher one
-        heldSheetEdits.set(meta.path, {
+        // mid-write — with the base it was written against, never a fresher
+        // one. Refused when the note left the vault under this write: there is
+        // no note left to reopen the text against, and parking it would hand
+        // it to whatever is created at that path next.
+        const parked = holdSheetEdit(meta.path, {
           body: pending.current,
           base: expected,
           kind: failed.kind,
           error: failed.error,
         });
         if (alive.current) setFailure(failed);
-        // gone: the page that would have shown the pill is unmounted, so the
-        // app toast is the only surface left to say the text is not lost
-        else onToastRef.current?.(`Couldn’t save ${meta.title} — your text is held`);
+        // the page that would have shown the pill is unmounted, so the app
+        // toast is the only surface left to say what became of the text
+        else if (parked) onToastRef.current?.(`Couldn’t save ${meta.title} — your text is held`);
+        else onToastRef.current?.(`Couldn’t save ${meta.title} — the note is gone`);
       });
   }, [meta.path, meta.title, onMutated]);
 
@@ -585,6 +634,14 @@ export default function WorkbookPane(props: WorkbookProps & {
   renderDashboard: (meta: NoteMeta) => ReactNode;
 }) {
   const pages = useMemo(() => parsePages(props.meta.props), [props.meta.props]);
+  /* The note list IS the delete/rename event as this pane sees one: a path
+     that left it stopped naming the note whose text is held under it. Run
+     here rather than inside the page, because the page unmounts with the tab
+     and the stale entry has to go whether or not it is on screen. An empty
+     list is a vault still loading, not a vault that lost every note. */
+  useEffect(() => {
+    if (props.notes.length > 0) evictHeldSheetEdits(props.notes.map((n) => n.path));
+  }, [props.notes]);
   const [active, setActive] = useState(0);
   const [adding, setAdding] = useState(false);
   const count = pages.length + 1;

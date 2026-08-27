@@ -7,7 +7,7 @@
 # one command, so the verdict step starts from observed numbers.
 #
 # Run from the worktree whose branch you are adjudicating (any cwd inside it):
-#   scripts/verify-gates.sh                    # all seven gates
+#   scripts/verify-gates.sh                    # the whole battery
 #   scripts/verify-gates.sh --only tsc,lint    # subset while iterating
 #   scripts/verify-gates.sh --ref <commit>     # assert HEAD == the claimed commit
 #
@@ -47,7 +47,11 @@ cd "$ROOT"
 . "$ROOT/scripts/lib/cargo-target.sh"
 substrate_use_shared_cargo_target
 
-ONLY="tsc,test,cargo,ios,e2e,lint,macsmoke"
+# The battery, in canonical order, and the single source of truth for what
+# --only will accept: the validation below tests membership of this list rather
+# than repeating it as a pattern, so a leg can be added or fenced in one place.
+GATES_ALL="tsc,test,cargo,ios,e2e,lint,macsmoke"
+ONLY="$GATES_ALL"
 REF=""
 ORIG_ARGS=("$@")
 while [[ $# -gt 0 ]]; do
@@ -56,7 +60,7 @@ while [[ $# -gt 0 ]]; do
             ONLY="$2"; shift 2 ;;
     --ref)  [[ $# -ge 2 ]] || { echo "verify-gates: --ref needs a value" >&2; exit 2; }
             REF="$2"; shift 2 ;;
-    *) echo "verify-gates: unknown arg '$1' (flags: --only tsc,test,cargo,ios,e2e,lint,macsmoke --ref <commit>)" >&2
+    *) echo "verify-gates: unknown arg '$1' (flags: --only $GATES_ALL --ref <commit>)" >&2
        exit 2 ;;
   esac
 done
@@ -70,8 +74,8 @@ done
 # loud exit 2.
 ONLY_NORM=""
 for g in ${ONLY//,/ }; do
-  case "$g" in tsc|test|cargo|ios|e2e|lint|macsmoke) ;; *)
-    echo "verify-gates: unknown gate '$g' (valid: tsc,test,cargo,ios,e2e,lint,macsmoke)" >&2; exit 2 ;;
+  case ",$GATES_ALL," in *",$g,"*) ;; *)
+    echo "verify-gates: unknown gate '$g' (valid: $GATES_ALL)" >&2; exit 2 ;;
   esac
   ONLY_NORM+="${ONLY_NORM:+,}$g"
 done
@@ -134,11 +138,12 @@ preflight_need() { # tool, why it is needed
 # Three legs reach it: cargo and macsmoke compile the mac tree directly, and
 # the test leg reaches it through share-mirror.sh --push, whose publish path
 # runs `cargo check` over the stripped tree.
-if [[ "$(uname -s)" == "Darwin" ]]; then
-  case ",$ONLY," in
-    *,test,*|*,cargo,*|*,macsmoke,*)
-      preflight_need cmake "whisper-rs-sys compiles whisper.cpp with it; the Command Line Tools do not ship one" ;;
-  esac
+NEEDS_MAC_COMPILE=0
+case ",$ONLY," in
+  *,test,*|*,cargo,*|*,macsmoke,*) NEEDS_MAC_COMPILE=1 ;;
+esac
+if [[ "$(uname -s)" == "Darwin" && $NEEDS_MAC_COMPILE -eq 1 ]]; then
+  preflight_need cmake "whisper-rs-sys compiles whisper.cpp with it; the Command Line Tools do not ship one"
 fi
 
 if [[ -n "$PREFLIGHT_MISSING" ]]; then
@@ -399,6 +404,7 @@ macsmoke_check() {
   esac
   cargo test --lib --manifest-path src-tauri/Cargo.toml
 }
+
 
 for g in ${ONLY//,/ }; do
   case "$g" in

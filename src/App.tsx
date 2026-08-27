@@ -4642,11 +4642,21 @@ export default function App() {
      identical operation. */
   const runUndo = useCallback(() => {
     const live = undoStack.peekUndo(undoStateRef.current);
-    if (live) return void runUndoEntry(live, -1);
+    if (live) {
+      // The newest action went stale, so ⌘Z reaches an older one. It still
+      // runs — that is the skip-and-show rule — but undoing a DIFFERENT action
+      // than the one just taken, with nothing said, reads as the keystroke
+      // misfiring. The skip rides the toast the run already shows (one slot,
+      // so a notice of its own would be overwritten), and the entry travels
+      // whole so the notice can name why that one was passed over.
+      const skipped = undoStack.skippedStale(undoStateRef.current);
+      return void runUndoEntry(live, -1, skipped ?? undefined);
+    }
     // nothing live left, but a stale entry explains why: say it rather than
-    // no-op in silence (docs/undo.md §3.3)
+    // no-op in silence (docs/undo.md §3.3), and off the recorded cause —
+    // a write that errored is not a note that changed on disk
     const stale = undoStack.peekStale(undoStateRef.current);
-    if (stale) showToast(`Can’t undo ${stale.label} — it changed on disk`);
+    if (stale) showToast(`Can’t undo ${stale.label} — ${undoStack.staleBecause(stale)}`);
   }, [runUndoEntry, showToast, undoStateRef]);
   const runRedo = useCallback(
     () => void runUndoEntry(undoStack.peekRedo(undoStateRef.current), 1),

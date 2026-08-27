@@ -98,7 +98,7 @@ e2e spec is not coverage of it.
 
 ## Gates
 
-The same seven checks that gate a merge — the union gate, in
+The same checks that gate a merge — the union gate, in
 `scripts/verify-gates.sh`'s canonical order (details and versions in
 [CONTRIBUTING.md](../CONTRIBUTING.md)):
 
@@ -115,8 +115,10 @@ npm run lint                 # lint:     errors-only
 `ios` and `macsmoke` have no one-line npm equivalent — `ios` cross-compile-checks
 the engine for `aarch64-apple-ios` and `macsmoke` compiles the mac tree with
 `--all-targets`, both of which need a Mac. `bash scripts/verify-gates.sh` runs
-whichever of the seven this host can, and `--only tsc,lint` narrows it while
-iterating.
+them all; a leg its host cannot run FAILS with the reason rather than skipping
+(a leg that skips itself reads as green), and `--only tsc,lint` narrows the run
+while iterating.
+
 
 `npm test` is where the drift checks above run, so an IPC or kind mismatch fails
 there rather than at runtime.

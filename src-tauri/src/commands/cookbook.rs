@@ -67,9 +67,9 @@ fn safe_rel(rel: &str) -> Result<(), String> {
 ///
 /// A debug build serves everything — it is the private tree, and the recipes
 /// are the point of working on them. Any other build serves only the public
-/// set, and does so at every door rather than by hoping the bundle was pruned:
-/// `bundle.resources` stages `cookbook/` wholesale, so a build that stripped
-/// the folder would still be one edited resource line away from shipping it.
+/// set, and does so at every door rather than by trusting what the bundle
+/// turned out to carry: which folders a build stages is one edited resource
+/// line away from changing, and these doors are not.
 ///
 /// The answer is a `cfg!`, but nothing below reads it directly: each door
 /// takes it as a plain `serve_private` argument and the commands pass this in,

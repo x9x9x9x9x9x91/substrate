@@ -1967,6 +1967,56 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+    /// A card slot that cannot be rewritten does not fail a folder that has
+    /// already moved on disk.
+    ///
+    /// The slot is cosmetic in exactly the way the folder note, the schema
+    /// homes and the two sidebar records are: the directory is at its new path
+    /// before any of them run, so an unwritable one must not come back as an
+    /// error the caller reads as "nothing happened" — the folder would then be
+    /// somewhere the caller does not believe it is. Both folder lanes, because
+    /// they carry the same list in the same order.
+    #[test]
+    fn a_card_slot_that_cannot_be_rewritten_does_not_fail_a_moved_folder() {
+        for lane in ["rename", "move"] {
+            let (mut e, dir) = temp_vault(&format!("cardorder-besteffort-{lane}"));
+            e.create_folder("Releases").unwrap();
+            e.create_folder("Label").unwrap();
+            e.create_full("A", "Releases", None, None, None).unwrap();
+            e.set_view_pref(
+                "release",
+                "board",
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some(vec!["Releases/A.md".to_string()]),
+                None,
+                None,
+            )
+            .unwrap();
+
+            refuse_config_writes(&dir);
+            let (landed, moved) = match lane {
+                "rename" => ("Archive".to_string(), e.rename_folder("Releases", "Archive")),
+                _ => ("Label/Releases".to_string(), e.move_folder("Releases", "Label")),
+            };
+            assert!(dir.join(&landed).is_dir(), "{lane}: the folder really did move");
+            assert_eq!(
+                moved.as_deref(),
+                Ok(landed.as_str()),
+                "{lane}: a refused card-order write reported a completed move as a failure"
+            );
+            let _ = fs::remove_dir_all(&dir);
+        }
+    }
+
     /// Column widths and the wrap list ride views.json like the
     /// remembered sort — zero widths drop, wrap entries trim, empties leave
     /// the file.

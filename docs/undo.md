@@ -700,7 +700,11 @@ export type UndoEntry = {
   paths: string[];
   undo: () => Promise<void>;
   redo?: () => Promise<void>;
-  stale?: boolean;
+  /** absent = runnable. The cause is carried, not assumed: (c) and (d′) are
+      different facts about the vault, and a notice that calls a failed write
+      a disk conflict sends the reader hunting a sync problem that never
+      happened. */
+  stale?: "external" | "failed";
 };
 
 /** Pure stack mechanics — no React, no IPC. Unit-testable in isolation. */
@@ -716,6 +720,10 @@ export function peekRedo(s: UndoState): UndoEntry | null;
 export function invalidate(s: UndoState, paths: string[]): UndoState;
 /** mark one entry stale by id — the failed-inverse path (§3.3d′) */
 export function markStale(s: UndoState, id: number): UndoState;
+/** the stale entry ⌘Z walks PAST to reach the one it can still run (§3.3c) */
+export function skippedStale(s: UndoState): UndoEntry | null;
+/** why an entry can't run, in the reader's words — both notices hang off it */
+export function staleBecause(entry: UndoEntry): string;
 /** drop entries whose scope is a pane that just unmounted (§2.3) */
 export function evictScope(s: UndoState, scope: UndoScope): UndoState;
 /** commit a successful undo/redo — moves the cursor. Never called on failure. */

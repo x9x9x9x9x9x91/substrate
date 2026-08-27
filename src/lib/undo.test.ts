@@ -84,6 +84,58 @@ test("4: peekUndo skips a stale entry and returns the next live one", () => {
   assert.equal(s.entries.length, 2, "the stale entry stays visible (skip-and-show)");
 });
 
+test("4b: the skip ⌘Z makes to reach a live entry is nameable", () => {
+  let s = push(emptyUndo, entry({ label: "live", paths: ["A.md"] }));
+  assert.equal(undo.skippedStale(s), null, "nothing stale, nothing skipped");
+
+  s = push(s, entry({ label: "doomed", paths: ["B.md"] }));
+  s = invalidate(s, ["B.md"]);
+  // ⌘Z here runs "live", an OLDER action than the one just taken — the notice
+  // names the one it walked past so that reads as a skip, not a misfire
+  assert.equal(peekUndo(s)?.label, "live");
+  assert.equal(undo.skippedStale(s)?.label, "doomed");
+
+  // two in a row: the newest skipped one is the one worth naming
+  s = push(s, entry({ label: "doomed2", paths: ["C.md"] }));
+  s = invalidate(s, ["C.md"]);
+  assert.equal(undo.skippedStale(s)?.label, "doomed2");
+
+  // acting again after the skip pushes a live entry on top — nothing to skip
+  s = push(s, entry({ label: "fresh", paths: ["D.md"] }));
+  assert.equal(undo.skippedStale(s), null);
+  assert.equal(peekUndo(s)?.label, "fresh");
+});
+
+test("4c: an empty stack skips nothing", () => {
+  assert.equal(undo.skippedStale(emptyUndo), null);
+});
+
+test("4d: the two ways an entry goes stale are told apart, and worded apart", () => {
+  /* Both causes park an entry the same way, and ⌘Z walks past both — but they
+     are different facts about the vault. An inverse that threw (the note was
+     gone, the write errored) is NOT a note that changed on disk, and saying so
+     sends the reader hunting a sync conflict that never happened. */
+  let external = push(emptyUndo, entry({ label: "outside", paths: ["A.md"] }));
+  external = invalidate(external, ["A.md"]);
+  assert.equal(external.entries[0].stale, "external");
+  assert.equal(undo.staleBecause(external.entries[0]), "it changed on disk");
+
+  let failed = push(emptyUndo, entry({ label: "broke", paths: ["A.md"] }));
+  failed = markStale(failed, failed.entries[0].id);
+  assert.equal(failed.entries[0].stale, "failed");
+  assert.equal(
+    undo.staleBecause(failed.entries[0]),
+    "undoing it failed earlier",
+    "a write that errored was reported as a note changing on disk"
+  );
+
+  // both are skipped all the same — the cause changes the sentence, not the walk
+  for (const s of [external, failed]) {
+    assert.equal(peekUndo(s), null, "a stale entry was still offered to ⌘Z");
+    assert.equal(undo.skippedStale(s)?.label, s.entries[0].label);
+  }
+});
+
 test("5: evictScope drops a pane's entries and keeps vault ones", () => {
   let s = push(emptyUndo, entry({ label: "v1", scope: "vault" }));
   s = push(s, entry({ label: "f1", scope: "pane:food" }));

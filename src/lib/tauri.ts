@@ -1,5 +1,6 @@
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen as tauriListen } from "@tauri-apps/api/event";
+import { netAllowed } from "./settings.ts";
 import type {
   AggKind,
   CalendarFeedConfig,
@@ -522,6 +523,18 @@ function meta(n: MockNote): NoteMeta {
    `key: value` shapes, so a line scan stands in for the parse. */
 type MockFmFault = "duplicate top-level keys" | "not a property map" | "not valid YAML";
 
+/** `"a"` / `'a'` → a, mirroring the engine's `unquote_key`: the duplicate
+    check counts a quoted key and its bare twin as ONE key, because YAML reads
+    them as one. An empty pair (`""`) keeps its quotes — unquoting it would
+    leave nothing, and the caller's empty-key skip would then stop counting it
+    at all, where as raw text two of them still collide. */
+function mockUnquoteKey(key: string): string {
+  const open = key[0];
+  return (open === '"' || open === "'") && key.length > 2 && key.endsWith(open)
+    ? key.slice(1, -1)
+    : key;
+}
+
 function mockFmDiagnosis(fm: string): MockFmFault | null {
   const seen = new Set<string>();
   for (const line of fm.split("\n")) {
@@ -531,7 +544,7 @@ function mockFmDiagnosis(fm: string): MockFmFault | null {
     if (t === "-" || t.startsWith("- ")) return "not a property map";
     const i = line.indexOf(":");
     if (i <= 0) return "not valid YAML";
-    const key = line.slice(0, i).trim();
+    const key = mockUnquoteKey(line.slice(0, i).trim());
     if (!key) continue;
     if (seen.has(key)) return "duplicate top-level keys";
     seen.add(key);
@@ -3653,11 +3666,14 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       mockNotes.push(n);
       mockEnforceSealScope(n);
       // `net-link-titles: false` skips the enrichment fetch — the
-      // note stays exactly as captured. Mirrors url_capture's `enrich` flag,
-      // so the mock can't pass a case the real engine would refuse to.
+      // note stays exactly as captured. Mirrors url_capture, which reads the
+      // switch itself and treats `enrich` as a per-capture no: the mock reads
+      // the same switch here so a door that forgets to pass the flag can't
+      // fetch in the browser lane while the real engine refuses.
       // The seal lands first either way: a captured link inside a sealed
       // scope must not sit in plaintext waiting for a fetch that never comes.
-      if (args?.enrich === false) return meta(n);
+      if (args?.enrich === false || !netAllowed(mockSettings.props, "link-titles"))
+        return meta(n);
       // simulate the polite background fetch: title + description arrive late
       window.setTimeout(() => {
         if (!mockNotes.includes(n) || n.title !== display) return;

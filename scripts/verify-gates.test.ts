@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -491,6 +491,12 @@ function makeSmokeRepo(unameSays: string): SmokeRepo {
   chmodSync(join(bin, "cargo"), 0o755);
   writeFileSync(join(bin, "cmake"), CMAKE_STUB);
   chmodSync(join(bin, "cmake"), 0o755);
+  // The smoke leg asks launchctl whether this user has a GUI session. Stubbed
+  // so the answer is a property of the fixture, not of the machine running the
+  // suite — which is a Linux gate rig as often as not, and has no launchctl at
+  // all. Overwritten by withNoGuiSession for the refusal case.
+  writeFileSync(join(bin, "launchctl"), "#!/usr/bin/env bash\nexit 0\n");
+  chmodSync(join(bin, "launchctl"), 0o755);
   return { dir, repo, bin, cargoLog };
 }
 
@@ -553,6 +559,180 @@ test("macsmoke collapses to the check when cargo shares the battery — the test
     assert.equal(calls.filter((c) => /^cargo test --lib/.test(c)).length, 1, calls.join("\n"));
     assert.equal(calls.filter((c) => /^cargo check --all-targets/.test(c)).length, 1, calls.join("\n"));
     assert.match(res.stdout, /test half = cargo leg on this host/);
+  } finally {
+    rmSync(r.dir, { recursive: true, force: true });
+  }
+});
+
+// ── The default battery ───────────────────────────────────────────────────
+// Every other test here passes --only, so none of them would notice a leg
+// falling out of the DEFAULT gate list — which is precisely the list that
+// gates main moving (a union/train run is a run without --only). This one
+// invokes the script bare against a repo where all eight legs' commands are
+// stubbed, and reads the summary table back.
+test("a bare run is the full battery: eight legs, in canonical order", () => {
+  const dir = mkdtempSync(join(tmpdir(), "substrate-full-battery-"));
+  try {
+    const repo = makeRepo(dir);
+    // The two host facts the mac-only legs ask about, plus the app the smoke
+    // leg boots — stubbed, so what is under test is the LIST, not the legs.
+    for (const [tool, body] of [
+      ["uname", "#!/usr/bin/env bash\necho Darwin\n"],
+      ["launchctl", "#!/usr/bin/env bash\nexit 0\n"],
+    ]) {
+      writeFileSync(join(repo.bin, tool), body);
+      chmodSync(join(repo.bin, tool), 0o755);
+    }
+    const smokeLog = join(dir, "smoke-real.log");
+    writeFileSync(
+      join(repo.dir, "scripts/smoke-real.sh"),
+      `#!/usr/bin/env bash\necho "smoke-real ran" >> "${smokeLog}"\n` +
+        'printf "\\n  driver verdict: pass in 1300ms over 9 step(s)\\n"\nexit 0\n',
+    );
+    chmodSync(join(repo.dir, "scripts/smoke-real.sh"), 0o755);
+
+    const res = spawnSync("bash", [join(repo.dir, "scripts/verify-gates.sh")], {
+      cwd: repo.dir,
+      env: {
+        ...process.env,
+        PATH: `${repo.bin}:${process.env.PATH}`,
+        FIXTURE_DIR: repo.fixtures,
+        GATE: "tsc",
+        GATE_RC: "0",
+        IOS_TARGET_INSTALLED: "1",
+        IOS_SDK_PRESENT: "1",
+        CARGO_VERSION: "1.99.0",
+        RUSTC_VERSION: "1.99.0",
+        SUBSTRATE_GATES_LOCK_HELD: "1",
+        SUBSTRATE_ALLOW_STALE_SCRIPTS: "1",
+      },
+      encoding: "utf8",
+    });
+    assert.equal(res.status, 0, res.stdout + res.stderr);
+    const legs = res.stdout
+      .split("\n")
+      .map((l) => /^ {2}(\S+) {2,}(PASS|FAIL) /.exec(l))
+      .filter((m): m is RegExpExecArray => m !== null)
+      .map((m) => m[1]);
+    assert.deepEqual(legs, ["tsc", "test", "cargo", "ios", "e2e", "lint", "macsmoke", "smoke"]);
+    // And the eighth really ran — a name in the table with no app booted would
+    // be the exact false green this leg exists to prevent.
+    assert.equal(readFileSync(smokeLog, "utf8").trim(), "smoke-real ran");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ── The smoke leg (required on the full battery since 2026-08-27) ─────────
+// Same two promises as macsmoke, for the same reason — it is the second
+// mac-only leg, and a leg that skips itself on the wrong host reads as green:
+// 1. on a non-Darwin host it FAILS with its own CLASS line and never reaches
+//    scripts/smoke-real.sh;
+// 2. on a Mac it runs exactly that script, and its verdict is the leg's.
+// The harness is makeSmokeRepo's, plus a smoke-real.sh stub that records its
+// invocation — what is under test here is the wiring, never the real app.
+function withSmokeRealStub(r: SmokeRepo, exit: number): string {
+  const log = join(r.dir, "smoke-real.log");
+  const script = join(r.repo, "scripts/smoke-real.sh");
+  writeFileSync(
+    script,
+    `#!/usr/bin/env bash\necho "smoke-real ran" >> "${log}"\n` +
+      (exit === 0
+        ? 'printf "\\n  driver verdict: pass in 1300ms over 9 step(s)\\n"\nprintf "\\nSMOKE PASS — real engine, real IPC, real vault at /tmp/vault-smoke-1\\n"\nexit 0\n'
+        : 'printf "\\n  FAIL save (12ms)\\n"\nprintf "\\nSMOKE FAIL: the in-app driver reported a failure (see above)\\n"\nexit 1\n'),
+  );
+  chmodSync(script, 0o755);
+  return log;
+}
+
+test("smoke on a non-Darwin host FAILS with the CLASS line — never skips, never runs", () => {
+  const r = makeSmokeRepo("Linux");
+  try {
+    const log = withSmokeRealStub(r, 0);
+    const res = runSmoke(r, "smoke");
+    assert.equal(res.status, 1, res.stdout + res.stderr);
+    assert.match(res.stdout, /smoke CLASS — this leg boots the real app/);
+    assert.match(res.stdout, /smoke\s+FAIL/);
+    assert.match(res.stdout, /needs a Darwin host with a display session/);
+    assert.ok(!existsSync(log), "the refusal still launched the app");
+  } finally {
+    rmSync(r.dir, { recursive: true, force: true });
+  }
+});
+
+test("smoke on a Mac runs smoke-real.sh and reports the driver's verdict", () => {
+  const r = makeSmokeRepo("Darwin");
+  try {
+    const log = withSmokeRealStub(r, 0);
+    const res = runSmoke(r, "smoke");
+    assert.equal(res.status, 0, res.stdout + res.stderr);
+    assert.equal(readFileSync(log, "utf8").trim(), "smoke-real ran");
+    assert.match(res.stdout, /smoke\s+PASS/);
+    assert.match(res.stdout, /real app \+ real vault; driver verdict: pass/);
+  } finally {
+    rmSync(r.dir, { recursive: true, force: true });
+  }
+});
+
+test("a Mac with no GUI session refuses the smoke leg by name, before booting anything", () => {
+  // Being a Mac is necessary and not sufficient: a non-console ssh login has no
+  // Aqua session, so the app could never open a window. Measured across the Mac
+  // gate fleet — some hosts answer yes, some no — so the leg has to say which
+  // it met instead of spending its boot timeout finding out.
+  const r = makeSmokeRepo("Darwin");
+  try {
+    writeFileSync(join(r.bin, "launchctl"), "#!/usr/bin/env bash\nexit 1\n");
+    chmodSync(join(r.bin, "launchctl"), 0o755);
+    const log = withSmokeRealStub(r, 0);
+    const res = runSmoke(r, "smoke");
+    assert.equal(res.status, 1, res.stdout + res.stderr);
+    assert.match(res.stdout, /smoke PREREQ missing — no GUI \(Aqua\) session/);
+    assert.match(res.stdout, /no GUI session on this host/);
+    assert.match(res.stdout, /log this machine's gate user in at the console/);
+    assert.ok(!existsSync(log), "the refusal still booted the app");
+  } finally {
+    rmSync(r.dir, { recursive: true, force: true });
+  }
+});
+
+test("a red smoke names the failing step and the SMOKE FAIL line", () => {
+  const r = makeSmokeRepo("Darwin");
+  try {
+    withSmokeRealStub(r, 1);
+    const res = runSmoke(r, "smoke");
+    assert.equal(res.status, 1, res.stdout + res.stderr);
+    assert.match(res.stdout, /↳ smoke failures:/);
+    assert.match(res.stdout, /FAIL save/);
+    assert.match(res.stdout, /SMOKE FAIL: the in-app driver reported a failure/);
+  } finally {
+    rmSync(r.dir, { recursive: true, force: true });
+  }
+});
+
+test("the default battery is eight legs and carries smoke; --only still does not", () => {
+  // The union/train shape is a run with NO --only, and it is the only shape
+  // that pays for the app boot. Every existing --only invocation is unchanged.
+  const r = makeSmokeRepo("Darwin");
+  try {
+    const log = withSmokeRealStub(r, 0);
+    const bare = spawnSync("bash", [join(r.repo, "scripts/verify-gates.sh"), "--only", "cargo,smoke"], {
+      cwd: r.repo,
+      env: {
+        ...process.env,
+        PATH: `${r.bin}:${process.env.PATH}`,
+        SUBSTRATE_GATES_LOCK_HELD: "1",
+        SUBSTRATE_ALLOW_STALE_SCRIPTS: "1",
+      },
+      encoding: "utf8",
+    });
+    assert.equal(bare.status, 0, bare.stdout + bare.stderr);
+    assert.equal(readFileSync(log, "utf8").trim(), "smoke-real ran");
+    rmSync(log);
+    // The seven-gate spellings a lane and the live merger session use keep
+    // their old meaning exactly: no eighth leg appears, nothing is booted.
+    const legacy = runSmoke(r, "tsc,test,cargo,ios,e2e,lint,macsmoke");
+    assert.ok(!/^ {2}smoke /m.test(legacy.stdout), `smoke joined a --only run:\n${legacy.stdout}`);
+    assert.ok(!existsSync(log), "a --only run without smoke still booted the app");
   } finally {
     rmSync(r.dir, { recursive: true, force: true });
   }

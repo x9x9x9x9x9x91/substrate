@@ -546,12 +546,21 @@ pub(crate) fn url_capture(
     // and the enrichment fetch must not send them in cleartext, so
     // both halves work from the same cleaned URL
     let url = crate::net::strip_userinfo(&url);
-    let meta = state.0.lock().unwrap().create_reference(&url)?;
-    // The capture itself is local and always happens — `enrich` only
-    // decides whether we then ask that site for its title. The caller reads
-    // `net-link-titles` from Settings.md; absent means yes, so any caller that
-    // doesn't know about the switch keeps the documented behavior.
-    if enrich.unwrap_or(true) {
+    let (meta, root) = {
+        let mut engine = state.0.lock().unwrap();
+        let meta = engine.create_reference(&url)?;
+        (meta, engine.root.clone())
+    };
+    // The capture itself is local and always happens; the fetch that follows
+    // is the only part that leaves this machine, so `net-link-titles` is read
+    // HERE rather than trusted from the argument. That gives the switch one
+    // authoritative place to be enforced: a door that forgets to pass `enrich`,
+    // or passes a `true` it read before the switch was flipped, still makes no
+    // outbound request while the switch is off. `enrich: Some(false)` declines
+    // the fetch for this one capture even when the switch is on — the argument
+    // can still say no, it just can no longer say yes on the switch's behalf.
+    // Read per call, so a Settings.md edit lands within the hot-reload window.
+    if enrich.unwrap_or(true) && crate::vault::net_switch_allowed(&root, "link-titles") {
         spawn_url_enrichment(app, url, meta.clone());
     }
     Ok(meta)
@@ -615,4 +624,41 @@ pub(crate) fn vault_rename(
 ) -> Result<RenameResult, String> {
     dirty.mark();
     state.0.lock().unwrap().rename_tracked(&path, &title)
+}
+
+#[cfg(test)]
+mod tests {
+    /// The link-title fetch is gated on the vault's own switch, not on the
+    /// argument alone.
+    ///
+    /// `url_capture` needs an app handle, so there is no seam to call it
+    /// through here — this pins the gate on the source instead, which is what
+    /// the risk is about: the argument is optional, so a door that omits it
+    /// used to fetch, and every new capture surface is another chance to omit
+    /// it. Reading the switch inside the command is what makes that
+    /// impossible; a future edit that drops the read fails this test.
+    #[test]
+    fn capturing_a_link_checks_the_link_titles_switch_and_not_only_the_argument() {
+        let source = include_str!("notes.rs");
+        let start = source
+            .find("fn url_capture(")
+            .expect("url_capture is gone — the gate this pins moved with it");
+        // to the closing brace in column 0, so the window cannot overrun into
+        // the next item and read ITS gate
+        let rest = &source[start..];
+        let end = rest.find("\n}\n").map(|i| start + i).unwrap_or(source.len());
+        let body = &source[start..end];
+
+        assert!(
+            body.contains("net_switch_allowed(&root, \"link-titles\")"),
+            "url_capture spawns the enrichment fetch without reading net-link-titles"
+        );
+        // …and the argument still only ever declines: an `enrich: Some(true)`
+        // read before the switch was flipped must not talk the engine into a
+        // request the vault has closed.
+        assert!(
+            body.contains("enrich.unwrap_or(true) && crate::vault::net_switch_allowed"),
+            "the switch is no longer the second half of the gate — an argument can override it"
+        );
+    }
 }

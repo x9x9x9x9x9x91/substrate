@@ -107,7 +107,10 @@ test("6: an unrelated external change leaves undo entries alive", () => {
   // goes stale, the older unrelated one survives
   const hit = splitEcho(["Links to B.md"], T + ECHO_WINDOW_MS + 1);
   s = undoStack.invalidate(s, hit.external);
-  assert.equal(s.entries[1].stale, true, "the rename can no longer be inverted safely");
+  // "external" and not merely truthy: an entry staled by somebody else's write
+  // is a different fact from one whose own inverse threw, and only this cause
+  // earns the "changed on disk" wording
+  assert.equal(s.entries[1].stale, "external", "the rename can no longer be inverted safely");
   assert.equal(s.entries[0].stale, undefined);
   assert.equal(undoStack.peekUndo(s)?.label, "status on A", "⌘Z reaches the entry below it");
 });
