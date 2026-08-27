@@ -1,0 +1,72 @@
+/* Settings → Import — the preview pane. It rides the settings section's own
+   geometry and the MCP grant-list rows; what is its own is the three counted
+   lists and the reading line, because a preview is a document to be read
+   before a gesture is made, not a form to be filled in.
+
+   The lists carry no markers. A bullet in front of "2 notes to create" reads
+   as a fourth thing on the line and buys nothing — the counts are already the
+   left edge. Structure here is spacing and one hairline, in the settings
+   pane's own voice. */
+
+.import-counts,
+.import-tree,
+.import-skips {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 3px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+
+/* The headline numbers. Everything else in the pane is a detail under them,
+   so they alone are set at the app's reading weight. */
+.import-counts {
+  color: var(--text-1);
+}
+
+.import-counts strong {
+  font-weight: 600;
+  /* tabular so a list of counts lines up down its left edge as it changes
+     between renders — a preview whose numbers jitter reads as unsettled */
+  font-variant-numeric: tabular-nums;
+}
+
+/* The tree and the skip reasons are the pane's fine print: same rhythm, one
+   grey step back, and separated from the counts by the hairline rather than by
+   a gap large enough to read as a new section. */
+.import-tree,
+.import-skips {
+  margin-top: 9px;
+  padding-top: 9px;
+  border-top: 1px solid var(--border-soft);
+  color: var(--text-3);
+}
+
+.import-tree code,
+.import-skips code {
+  font-family: var(--mono);
+  color: var(--text-2);
+}
+
+/* The long read. The count and the way out sit on one row: a Cancel below the
+   line reads as a step in a flow, and this is an escape from one. */
+.import-reading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 34px;
+  margin-top: 10px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.import-reading-line {
+  color: var(--text-2);
+  font-size: 11.5px;
+  /* the digits change every batch; tabular keeps the line from breathing */
+  font-variant-numeric: tabular-nums;
+}

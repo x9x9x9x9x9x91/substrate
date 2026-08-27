@@ -17,7 +17,7 @@ test("an async result insert under a resting cursor does not steal selection", a
   // never selects, and the failure reads as the steal this test guards against.
   // Parking the search until the cursor is resting makes the order a fact.
   await page.evaluate(() => window.__mockHoldCommand!("vault_search"));
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
   await page.keyboard.press("Meta+k");
 

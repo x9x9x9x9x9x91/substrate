@@ -9,7 +9,7 @@ import { expect, test } from "./fixtures";
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
   // the list's first paint doubles as the "app is live" barrier
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
 });
 
 test("hovering a control opens the app's own bubble, not the OS one (SUB-1161)", async ({

@@ -186,7 +186,7 @@
 }
 
 /* the seam between the pane's two list grammars — database blocks above,
-   loose notes below (All notes / folder views) */
+   loose notes below (Notes / folder views) */
 .list-seam {
   height: 1px;
   margin: 6px 10px;

@@ -11,7 +11,7 @@ test("tabbing through the month grid rings the day cell, not just its number", a
   page,
 }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await page.keyboard.press("Meta+4");
   await expect(page.locator(".cal-grid.month")).toBeVisible();
 
@@ -52,7 +52,7 @@ test("the week weekday header can never grow a horizontal scrollbar", async ({
   page,
 }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await page.keyboard.press("Meta+4");
   const week = page.getByRole("button", { name: "Week", exact: true });
   await week.focus();

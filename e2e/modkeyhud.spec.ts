@@ -16,7 +16,7 @@ const MAX_H = 330;
 test.beforeEach(async ({ page }) => {
   mkdirSync(SHOTS, { recursive: true });
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   // The HUD listens from an effect, and effects flush AFTER the commit that
   // painted the list — so a keydown sent the instant `.list-title` appears can
   // land before anything is listening, and the hold then arms nothing at all.
@@ -151,7 +151,7 @@ test("a board advertises only the history direction it can perform (SUB-726)", a
 
   // Leaving the board withdraws its remaining redo history.
   await page.keyboard.press("Meta+2");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await hold(page, ["Meta", "Shift"]);
   await expect(page.locator(".modkey-hud")).toBeVisible();
   await expect(redoRow).toHaveCount(0);
@@ -214,7 +214,7 @@ test("the ⌘1–9 view jumps stay out of the HUD (SUB-490)", async ({ page }) =
   // The ask: they are the shortcuts the user already knows, and nine numbered
   // rows would swamp the panel. They stay in the ⌘/ sheet.
   await expect(rows.filter({ hasText: "Go to Today" })).toHaveCount(0);
-  await expect(rows.filter({ hasText: "Go to Notes" })).toHaveCount(0);
+  await expect(rows.filter({ hasText: "Go to Scratch" })).toHaveCount(0);
   await release(page, ["Meta"]);
 });
 

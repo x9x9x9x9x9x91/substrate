@@ -8,11 +8,11 @@ import { expect, test, type Page } from "./fixtures";
 // the pill's click retries it — and the chip keeps showing the disk truth
 // until a write actually lands.
 
-// cold open lands on the Notes scratch list (Today is a destination) —
+// cold open lands on the Scratch list (Today is a destination) —
 // first mock note selected and loaded (same shape as smoke.spec's boot)
 async function boot(page: Page) {
   await page.goto("/");
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
 }
 

@@ -9,7 +9,7 @@ import { openFilter } from "./nav";
 
 async function search(page: Page, q: string) {
   await page.goto("/");
-  await expect(page.locator(".side-item", { hasText: /^Notes/ })).toBeVisible();
+  await expect(page.locator(".side-item", { hasText: /^Scratch/ })).toBeVisible();
   await page.keyboard.press("Meta+Shift+f");
   await expect(page.locator(".search-input")).toBeFocused();
   await page.locator(".search-input").fill(q);

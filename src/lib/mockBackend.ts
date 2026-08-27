@@ -2817,6 +2817,11 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       return [];
     case "widget_summary_write":
       return null;
+    /* The demo backend has no disk outside the vault, so an import scan finds
+       nothing to import and nothing it could not read. The pane's own tests
+       hand it a plan directly. */
+    case "import_scan":
+      return { entries: [], unreadableDirs: 0 };
 
     case "mcp_grants_list":
       return mockMcpGrants.map((grant) => ({ ...grant }));

@@ -214,8 +214,8 @@ export interface ViewCommand {
     ties — keep the everyday jumps on top. */
 export const FIXED_VIEW_COMMANDS: ViewCommand[] = [
   { id: "cmd:today", label: "Go to Today", dest: "Today", view: { kind: "today" }, shortcut: "view-today" },
-  { id: "cmd:notes", label: "Go to Notes", dest: "Notes", view: { kind: "notes" }, shortcut: "view-notes" },
-  { id: "cmd:all", label: "Go to All notes", dest: "All notes", view: { kind: "all" }, shortcut: "view-all" },
+  { id: "cmd:notes", label: "Go to Scratch", dest: "Scratch", view: { kind: "notes" }, shortcut: "view-notes" },
+  { id: "cmd:all", label: "Go to Notes", dest: "Notes", view: { kind: "all" }, shortcut: "view-all" },
   {
     id: "cmd:calendar",
     label: "Go to Calendar",

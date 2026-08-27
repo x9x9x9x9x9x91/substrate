@@ -37,7 +37,7 @@ test("right-click on the table header opens the property checklist; toggles pers
   await expect(menu).toHaveCount(0);
 
   // leave, return: still hidden (persisted on the db pref)
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await openRelease(page);
   await expect(page.locator(".db-table thead th")).toHaveCount(10);
   await expect(page.locator(".db-table thead th", { hasText: "artist" })).toHaveCount(0);
@@ -120,7 +120,7 @@ test("a header sort persists across pages and is captured by Save view", async (
   const firstTitle = await page.locator(".db-table tbody tr .db-title").first().textContent();
 
   // navigate away and back: the sort survives (it used to reset)
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await openRelease(page);
   await expect(nameHead.locator(".db-sort")).toHaveText("↓");
   await expect(page.locator(".db-table tbody tr .db-title").first()).toHaveText(firstTitle ?? "");
@@ -128,7 +128,7 @@ test("a header sort persists across pages and is captured by Save view", async (
   // a third click clears it, and the cleared state persists too
   await nameHead.click();
   await expect(nameHead.locator(".db-sort")).toHaveCount(0);
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await openRelease(page);
   await expect(nameHead.locator(".db-sort")).toHaveCount(0);
 });

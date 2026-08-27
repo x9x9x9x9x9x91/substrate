@@ -24,7 +24,7 @@ test("a genuine miss still creates the note", async ({ page }) => {
   await page.keyboard.type("See [[Fresh Sketch Idea]].");
   await page.locator(".cm-wikilink", { hasText: "Fresh Sketch Idea" }).click({ modifiers: ["Meta"] });
   // the unresolved-link contract is creation (vault-format §links); the new
-  // note lands at the vault root, visible from All notes
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  // note lands at the vault root, visible from Notes
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await expect(page.locator(".row-title", { hasText: "Fresh Sketch Idea" })).toBeVisible();
 });

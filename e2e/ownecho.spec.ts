@@ -9,10 +9,10 @@ function row(page: Page, title: string) {
   return page.locator(".list .row", { has: page.getByText(title, { exact: true }) });
 }
 
-// cold open lands on the Notes scratch list (Today is hidden)
+// cold open lands on the Scratch list (Today is hidden)
 async function boot(page: Page) {
   await page.goto("/");
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
 }
 

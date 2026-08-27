@@ -52,7 +52,7 @@ test("switch groups: the music work switcher is a named group", async ({ page })
 test("switch groups: the search sort switch is a named group", async ({ page }) => {
   await page.goto("/");
   // the shortcut listener attaches on mount — key too early and it's lost
-  await expect(page.locator(".side-item", { hasText: /^Notes/ })).toBeVisible();
+  await expect(page.locator(".side-item", { hasText: /^Scratch/ })).toBeVisible();
   await page.keyboard.press("Meta+Shift+f");
   await expect(page.locator(".search-input")).toBeFocused();
   // the sort switch only renders once results exist

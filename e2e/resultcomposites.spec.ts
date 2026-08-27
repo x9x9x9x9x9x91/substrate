@@ -27,7 +27,7 @@ test("Search exposes one input-owned listbox and opens the active match", async 
 
 test("command palette announces sections and tracks its active result across stages", async ({ page }) => {
   await page.goto("/");
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
   await page.keyboard.press("Meta+k");
 

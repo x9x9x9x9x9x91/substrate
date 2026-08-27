@@ -75,7 +75,7 @@ test("an empty totals cell writes a new summary; quick-picks prefill the input",
   // flush, leave the note, and come back to a fresh read (no page reload —
   // that would reset the mock backend and prove nothing)
   await page.waitForTimeout(1200);
-  await page.locator(".side-item", { hasText: "All notes" }).first().click();
+  await page.locator(".side-item", { hasText: /^Notes/ }).first().click();
   await openNote(page, "Fixed Costs");
   await expect(page.locator(".sheet-table")).toBeVisible();
   await expect(totalsCell(page, 4)).toContainText("paid_count");

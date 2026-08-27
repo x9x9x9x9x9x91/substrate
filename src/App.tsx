@@ -642,7 +642,7 @@ export default function App() {
     return filtered;
   }, [notes, view, tagFolders]);
 
-  // In folder and All notes views the database entries collapse into
+  // In folder and Notes views the database entries collapse into
   // per-database blocks above the loose rows; every other view lists its
   // scope as-is. Blocks are click-through only — the loose rows are the
   // selectable list. Membership follows the used-types set, so a
@@ -2760,7 +2760,7 @@ export default function App() {
       const path = dailyPath(date);
       // journal opens its own folder view, from anywhere. Select
       // directly rather than via openNote: that closes over the pre-switch
-      // view, and its not-in-view fallback would bounce back to All notes
+      // view, and its not-in-view fallback would bounce back to Notes
       if (view.kind !== "folder" || view.path !== JOURNAL_DIR) {
         setView({ kind: "folder", path: JOURNAL_DIR });
       }

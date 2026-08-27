@@ -12,11 +12,11 @@ type TipEntry = {
 
 const STATIC_VIEW_TIPS: Record<View["kind"], InfoTip> = {
   notes: {
-    title: "Notes",
+    title: "Scratch",
     body: "Your loose scratch notes. Select a row to open it, or press ⌘N to capture a new one.",
   },
   all: {
-    title: "All notes",
+    title: "Notes",
     body: "Every note in the vault, including entries that belong to databases and folders.",
   },
   folder: {

@@ -37,7 +37,7 @@ test.use({ timezoneId: "UTC", locale: "en-US" });
 async function boot(page: Page) {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto("/");
-  await expect(page.locator(".side-item", { hasText: /^Notes/ })).toBeVisible();
+  await expect(page.locator(".side-item", { hasText: /^Scratch/ })).toBeVisible();
 }
 
 async function openDash(page: Page, name: string) {
@@ -52,15 +52,15 @@ function shot(page: Page, name: string) {
 
 test("proof: note list and editor", async ({ page }) => {
   await boot(page);
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
   await shot(page, "notes-editor");
 });
 
 test("proof: all notes list pane", async ({ page }) => {
   await boot(page);
-  await page.locator(".side-item", { hasText: "All notes" }).click();
-  await expect(page.locator(".list-title")).toHaveText("All notes");
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await expect(page.locator(".list-title")).toHaveText("Notes");
   await shot(page, "all-notes");
 });
 

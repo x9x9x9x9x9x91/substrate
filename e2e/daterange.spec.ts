@@ -17,7 +17,7 @@ function isoDay(offsetDays = 0): string {
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
 });
 
 /** Open "Call with Gero" (tomorrow, all-day) and return its date chip. */

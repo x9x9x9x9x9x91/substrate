@@ -5,7 +5,7 @@ Local-first notes, databases, and dashboards for macOS. A cross of Obsidian
 Linear (speed, keyboard-first, command palette). The layer everything grows on.
 
 
-![All notes view — list, editor, backlinks](docs/img/readme-notes.png)
+![Notes view — list, editor, backlinks](docs/img/readme-notes.png)
 
 ## Model
 
@@ -21,7 +21,7 @@ Linear (speed, keyboard-first, command palette). The layer everything grows on.
   ⌘-clicking a link to a note that doesn't exist yet creates it.
 - Capture is zero-decision: ⌘N drops a new note into `Inbox/`, and ⌥Space
   captures from any app via a floating window (Substrate lives in the menu
-  bar). Untyped notes surface in the Notes view, recency-sorted; giving one a
+  bar). Untyped notes surface in the Scratch view, recency-sorted; giving one a
   `type` files it into its database. The hotkey and close-to-tray behavior
   live in the vault's `Settings.md`.
 - Voice capture (macOS) records from ⌥⇧Space and files an ordinary note next to
@@ -49,7 +49,7 @@ Linear (speed, keyboard-first, command palette). The layer everything grows on.
 | ⌥Space | Global capture from any app (floating window → Inbox) |
 | ⌥⇧Space | Start or stop a voice capture, hands-free (macOS) |
 | ⌘D | Open today's journal |
-| ⌘1–⌘4 | Today · Notes · All notes · Calendar |
+| ⌘1–⌘4 | Today · Scratch · Notes · Calendar |
 | ⌘5–⌘9 | Pinned views, in sidebar order |
 | ↑↓ / j k | Move list selection · ↩ opens |
 | ⌘\ | Hide or show the sidebar |

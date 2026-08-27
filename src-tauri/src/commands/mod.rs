@@ -17,6 +17,7 @@ pub(crate) mod deeplink;
 pub(crate) mod files;
 pub(crate) mod fx;
 pub(crate) mod history;
+pub(crate) mod importscan;
 pub(crate) mod kinds;
 pub(crate) mod mcp;
 // `mounts` is public: its module file, its `use` in lib.rs and its handler

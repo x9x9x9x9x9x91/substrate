@@ -29,7 +29,7 @@ test("list background: New note creates a scratch note in the open folder", asyn
 
 test("list rows keep their own menu — the background menu stands down", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await page.locator(".list .row", { hasText: "Welcome" }).click({ button: "right" });
   // the row menu (Open/Rename/…), not the background create menu
   await expect(ctxItem(page, "Rename…")).toBeVisible();
@@ -57,7 +57,7 @@ test("database background: Save view opens the naming field", async ({ page }) =
 
 test("calendar day cell: New entry composes on that date; chips keep their menu", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await page.keyboard.press("Meta+4");
   await expect(page.locator(".cal-grid.month")).toBeVisible();
 
@@ -81,9 +81,9 @@ test("calendar day cell: New entry composes on that date; chips keep their menu"
 
 test("carve-outs: editor and property chips never get the app fallback menu", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   // a typed entry with schema'd chips (same walk as the smoke chip test)
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await page.locator(".row-dbblock", { hasText: "Release" }).click();
   await page
     .locator(".db-table tbody tr", { hasText: "Slow Bloom EP" })
@@ -107,7 +107,7 @@ test("carve-outs: editor and property chips never get the app fallback menu", as
 
 test("week canvas: right-click composes at the clicked slot", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await page.keyboard.press("Meta+4");
   await page.locator(".cal .db-switch button", { hasText: "Week" }).click();
   await expect(page.locator(".cal-grid.week")).toBeVisible();
@@ -135,7 +135,7 @@ test("week canvas: right-click composes at the clicked slot", async ({ page }) =
 
 test("app chrome fallback: sidebar whitespace gets the app menu, not Reload", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   // the sidebar's bottom padding, measured — an absolute y has only the
   // padding's ~10px of slack before the next seed that lengthens the sidebar
   // puts a row (with its own menu) under the click

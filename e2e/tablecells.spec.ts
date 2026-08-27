@@ -6,7 +6,7 @@ import { expect, test } from "./fixtures";
 
 test("rendered table cells: bold renders, wikilink still follows (SUB-201)", async ({ page }) => {
   await page.goto("/");
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
 
   const table = page.locator(".cm-md-table");

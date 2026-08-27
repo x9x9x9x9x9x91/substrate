@@ -11,7 +11,7 @@ const HANG_RE = /text-indent:\s*-(\d+(?:\.\d+)?)px;\s*padding-inline-start:\s*(\
 
 async function bootWelcome(page: import("@playwright/test").Page) {
   await page.goto("/");
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
   await page.locator(".cm-content").click();
   await page.keyboard.press("ControlOrMeta+a");

@@ -7,7 +7,7 @@ import { expect, test, type Page } from "./fixtures";
 
 async function boot(page: Page) {
   await page.goto("/");
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
 }
 
@@ -42,7 +42,7 @@ test("an unconfigured vault keeps the broken-embed placeholder (SUB-444)", async
 test("a synced vault renders missing assets as not-on-this-device (SUB-444)", async ({ page }) => {
   await boot(page);
   await configureSync(page);
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await seedBody(page, "gone\n\n![[gone.pdf]]\n\n![[gone.png]]\n");
 
   const unsynced = page.locator(".cm-embed-unsynced");
@@ -60,7 +60,7 @@ test("a synced vault renders missing assets as not-on-this-device (SUB-444)", as
 test("a link-in-place path stays broken on a synced vault (SUB-444)", async ({ page }) => {
   await boot(page);
   await configureSync(page);
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await seedBody(page, "outside\n\n![[/Volumes/Studio/master.wav]]\n");
 
   // never lived in `.assets/`, so sync never covered it — genuinely gone

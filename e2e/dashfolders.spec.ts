@@ -95,7 +95,7 @@ test("dragging a dashboard onto the Pinned header does not pin it", async ({ pag
 
   // seed a pin from a plain ROOT note so the flat Pinned section (the drop
   // target) exists — a folder note's pin nests in the tree instead
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   const note = page.locator('.row[data-path="Welcome.md"]');
   await expect(note).toBeVisible();
   await note.click({ button: "right" });
@@ -621,7 +621,7 @@ test("a group header takes a key chip alongside its two drags (SUB-698 review)",
   // the header wears the chip from now on, and the key opens the group folder
   await expect(group.locator(".side-key-chip")).toHaveText("⌘5");
   await page.keyboard.press("Escape");
-  await page.locator(".side-item", { hasText: "All notes" }).first().click();
+  await page.locator(".side-item", { hasText: /^Notes/ }).first().click();
   await page.keyboard.press("Meta+5");
   await expect(page.locator(".list-title")).toHaveText("Releases");
 });

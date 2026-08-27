@@ -4,7 +4,7 @@ import { todayBase } from "./clock";
 // The rebuilt Today surface: a day-agenda decision surface — three
 // quiet lanes (Scheduled, Due & overdue, Picked for today), the one verb Pick
 // (writes the `today` date prop), and a leftovers row for stale picks. Entry
-// points are back (sidebar, palette, ⌘1) but cold open stays on Notes.
+// points are back (sidebar, palette, ⌘1) but cold open stays on Scratch.
 // Same deterministic mock backend as smoke.spec.ts.
 
 /** "Jul 18" this year, "Jul 18, 2026" otherwise — mirrors calendar.humanDay */
@@ -30,9 +30,9 @@ function chip(page: Page, key: string) {
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
-  // cold open lands on Notes — its first paint is the liveness
+  // cold open lands on Scratch — its first paint is the liveness
   // barrier; Today is a destination, reached here by its shortcut
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await expect(page.locator(".today-pane")).toHaveCount(0);
   await page.keyboard.press("Meta+1");
   await expect(page.locator(".today-pane")).toBeVisible();
@@ -313,13 +313,13 @@ test("entry points: sidebar row and palette command reach the surface", async ({
 
   // away, then back by mouse
   await page.keyboard.press("Meta+2");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await sideToday.click();
   await expect(page.locator(".today-pane")).toBeVisible();
 
   // away, then back by palette command
   await page.keyboard.press("Meta+3");
-  await expect(page.locator(".list-title")).toHaveText("All notes");
+  await expect(page.locator(".list-title")).toHaveText("Notes");
   await page.keyboard.press("Meta+k");
   await page.locator(".palette-input").fill("today");
   await page.locator(".palette-item", { hasText: "Go to Today" }).click();

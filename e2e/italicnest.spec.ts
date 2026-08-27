@@ -15,7 +15,7 @@ import { mod } from "./keys";
     the focus this helper just established. */
 async function blankNote(page: Page) {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await page.keyboard.press("Meta+n");
   await expect(page.locator(".note-title")).toHaveValue("Untitled");
   await page.locator(".cm-content").click();

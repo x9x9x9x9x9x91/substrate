@@ -20,7 +20,7 @@ import type { View } from "./types.ts";
 /**
  * The spelling two names are compared in: case-folded, trimmed, and with runs
  * of whitespace collapsed. A link is typed by hand into a note or pasted out
- * of a script, so `All Notes`, `all notes` and `all  notes` are one
+ * of a script, so `Vault Doctor`, `vault doctor` and `vault  doctor` are one
  * destination; anything finer would make the feature a spelling test.
  */
 export function normalizeViewName(raw: string): string {
@@ -29,10 +29,13 @@ export function normalizeViewName(raw: string): string {
 
 /**
  * Every fixed destination this build can be linked to, under both spellings
- * it answers to: the words the palette shows ("All notes") and the view kind
- * behind them ("all"). The kind is the stable one — a script writing links
+ * it answers to: the words the palette shows ("Scratch") and the view kind
+ * behind them ("notes"). The kind is the stable one — a script writing links
  * wants a name that survives a relabel — and the words are the one a person
- * types without looking anything up.
+ * types without looking anything up. Kinds register first, so on the one
+ * collision the relabel created ("Notes", the vault-wide list's label,
+ * normalizes to the kind token "notes") the kind wins and the vault-wide
+ * list answers to its kind, "all".
  *
  * Machine-gated destinations stay out, exactly as they do in the palette's
  * own row set: with the switch off the surface does not exist, and a link to

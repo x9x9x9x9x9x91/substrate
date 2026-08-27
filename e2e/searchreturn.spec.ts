@@ -2,13 +2,13 @@ import { expect, test, type Page } from "./fixtures";
 import { openDb } from "./nav";
 
 // A search hit opens in its home context — its database's side
-// split, else its folder view, else All notes — and one Esc from there
+// split, else its folder view, else Notes — and one Esc from there
 // returns to the search with query and picked row intact. The stash is
 // one-shot: navigation or the return itself spends it.
 
 async function openSearch(page: Page) {
   await page.goto("/");
-  await expect(page.locator(".side-item", { hasText: /^Notes/ })).toBeVisible();
+  await expect(page.locator(".side-item", { hasText: /^Scratch/ })).toBeVisible();
   await page.keyboard.press("Meta+Shift+f");
   await expect(page.locator(".search-input")).toBeFocused();
 }
@@ -89,13 +89,13 @@ test("a folder note hit lands in its folder view", async ({ page }) => {
   await expect(page.locator(".search-input")).toHaveValue("inbox");
 });
 
-test("a root note hit lands in All notes; navigating spends the return", async ({ page }) => {
+test("a root note hit lands in Notes; navigating spends the return", async ({ page }) => {
   await openSearch(page);
   await page.locator(".search-input").fill("inbox");
   const hit = page.locator(".search-note-row", { hasText: "Welcome" });
   await expect(hit).toBeVisible();
   await hit.click();
-  await expect(page.locator(".list-title")).toHaveText("All notes");
+  await expect(page.locator(".list-title")).toHaveText("Notes");
   // selecting another note spends the stash — plain Esc must not jump back
   await page.locator(".row", { hasText: "Capture anything" }).click();
   await page.keyboard.press("Escape");

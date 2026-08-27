@@ -9,7 +9,7 @@ const dir = process.env.SHOT_DIR || "/tmp/sub-1314-shots";
 
 async function openPerson(page: Page, handles: string) {
   await page.goto("/");
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("Welcome");
   await page.evaluate((value) => {
     window.__mockEditProp?.("Gero.md", "handles", value);

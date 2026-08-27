@@ -2,7 +2,7 @@ import { expect, test } from "./fixtures";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await page.locator('.list .row[data-path="Welcome.md"]').click();
 });
 

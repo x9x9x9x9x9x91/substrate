@@ -51,7 +51,7 @@ test("extract spins the selection off into a note and leaves a wikilink", async 
   // the selection is replaced by a link to the spun-off note…
   await expect(page.locator(".cm-content")).toContainText("[[Everything]]");
   // …created beside the source note (Welcome sits at the vault root, so the
-  // Notes list gains it)
+  // Scratch list gains it)
   const row = page.locator(".list .row", {
     has: page.locator(".row-title", { hasText: "Everything" }),
   });

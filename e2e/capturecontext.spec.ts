@@ -129,7 +129,7 @@ test("the Experimental tab carries the toggle, and only it offers the grant", as
   page,
 }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await openSettings(page, "experimental");
 
   // the tab's own name is its heading, so the tab opens on the caveat and
@@ -188,7 +188,7 @@ test.describe("shots", () => {
 
   test("shot: Experimental settings section", async ({ page }) => {
     await page.goto("/");
-    await expect(page.locator(".list-title")).toHaveText("Notes");
+    await expect(page.locator(".list-title")).toHaveText("Scratch");
     await openSettings(page, "experimental");
     const row = page.locator("[data-testid=experimental-experimental-context-capture]");
     await row.scrollIntoViewIfNeeded();

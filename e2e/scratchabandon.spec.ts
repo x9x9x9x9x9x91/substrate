@@ -4,16 +4,16 @@ import { expect, test, type Page } from "./fixtures";
 // only the created prop) abandons itself on leave — Esc, selection change —
 // instead of littering the vault. Content or a real title makes it stick.
 
-async function openNotes(page: Page) {
+async function openScratch(page: Page) {
   await page.goto("/");
-  const notes = page.locator(".side-item", { hasText: /^Notes/ });
+  const notes = page.locator(".side-item", { hasText: /^Scratch/ });
   await expect(notes).toBeVisible();
   await notes.click();
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
 }
 
 test("⌘N then Esc abandons the pristine Untitled, silently", async ({ page }) => {
-  await openNotes(page);
+  await openScratch(page);
   await page.keyboard.press("Meta+n");
   const untitled = page.locator(".row", { hasText: "Untitled" });
   await expect(untitled).toHaveCount(1);
@@ -26,7 +26,7 @@ test("⌘N then Esc abandons the pristine Untitled, silently", async ({ page }) 
 });
 
 test("leaving the fresh note abandons it only while it stayed pristine", async ({ page }) => {
-  await openNotes(page);
+  await openScratch(page);
   const capture = page.locator(".row", { hasText: "Capture anything" });
 
   // empty after leaving: selecting another note deletes it
@@ -46,7 +46,7 @@ test("leaving the fresh note abandons it only while it stayed pristine", async (
 });
 
 test("a renamed scratch note is a real note — leaving keeps it", async ({ page }) => {
-  await openNotes(page);
+  await openScratch(page);
   await page.keyboard.press("Meta+n");
   // "Untitled" is selected in the title input — typing replaces it
   await expect(page.locator(".note-title")).toBeFocused();

@@ -30,7 +30,7 @@ function paletteRow(page: Page, label: string) {
 
 test("with nothing done yet the palette offers no undo", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await openPalette(page);
   await expect(paletteRow(page, "Undo ")).toHaveCount(0);
   await expect(paletteRow(page, "Redo ")).toHaveCount(0);

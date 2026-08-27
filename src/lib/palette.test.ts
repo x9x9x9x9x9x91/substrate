@@ -37,7 +37,7 @@ function releaseCommands(): Row[] {
     row("cmd:new", "Commands", "New note “release”"),
     row("cmd:newfolder", "Commands", "New folder…"),
     row("cmd:tasks", "Commands", "Go to Tasks", "Tasks"),
-    row("cmd:notes", "Commands", "Go to Notes", "Notes"),
+    row("cmd:notes", "Commands", "Go to Scratch", "Scratch"),
     row("cmd:trash", "Commands", "Open Trash", "Trash"),
     row("cmd:db:release", "Commands", "Go to Release", "Release"),
   ];
@@ -69,7 +69,7 @@ test("rankCommands: an empty query keeps declaration order, hoists nothing", () 
 });
 
 test("rankCommands: score ties keep declaration order", () => {
-  // "Go to Tasks" and "Go to Notes" are both prefix matches of equal length
+  // "Go to Tasks" and "Go to Scratch" are both prefix matches of equal length
   const { ranked } = rankCommands("go to", releaseCommands());
   assert.equal(ranked[0].id, "cmd:tasks");
   assert.equal(ranked[1].id, "cmd:notes");

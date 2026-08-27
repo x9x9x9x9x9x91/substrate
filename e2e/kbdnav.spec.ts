@@ -8,14 +8,14 @@ function row(page: Page, title: string) {
   return page.locator(".list .row", { has: page.getByText(title, { exact: true }) });
 }
 
-async function bootNotes(page: Page) {
+async function bootScratch(page: Page) {
   await page.goto("/");
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
 }
 
 test("⌘⌫ trashes the selected note with an Undo toast (SUB-392)", async ({ page }) => {
-  await bootNotes(page);
+  await bootScratch(page);
   await row(page, "Capture anything").click();
   await expect(page.locator(".note-title")).toHaveValue("Capture anything");
   // focus sits on the clicked row — a real list surface, not a text edit
@@ -31,7 +31,7 @@ test("⌘⌫ trashes the selected note with an Undo toast (SUB-392)", async ({ p
 });
 
 test("⌘⌫ mid-typing deletes text, never the note (SUB-392)", async ({ page }) => {
-  await bootNotes(page);
+  await bootScratch(page);
   const rows = await page.locator(".list .row").count();
   const title = page.locator(".note-title");
   await title.click();
@@ -43,7 +43,7 @@ test("⌘⌫ mid-typing deletes text, never the note (SUB-392)", async ({ page }
 });
 
 test("focus ring follows arrow-key selection; Enter opens the note (SUB-392)", async ({ page }) => {
-  await bootNotes(page);
+  await bootScratch(page);
   const first = page.locator(".list .row").first();
   await first.click();
   await expect(first).toBeFocused();
@@ -61,27 +61,27 @@ test("focus ring follows arrow-key selection; Enter opens the note (SUB-392)", a
 });
 
 test("⌫ walks back: folder → database → ⌫ → folder → ⌫ → start (SUB-392)", async ({ page }) => {
-  await bootNotes(page);
-  // Notes → All notes → Contact db (via the manager) builds real history
-  await page.locator(".side-item", { hasText: "All notes" }).click();
-  await expect(page.locator(".list-title")).toHaveText("All notes");
+  await bootScratch(page);
+  // Scratch → Notes → Contact db (via the manager) builds real history
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await expect(page.locator(".list-title")).toHaveText("Notes");
   await openDb(page, "Contact");
 
   await page.keyboard.press("Backspace");
   // back over the manager stop to All databases
   await expect(page.locator(".list-title")).toHaveText("All databases");
   await page.keyboard.press("Backspace");
-  await expect(page.locator(".list-title")).toHaveText("All notes");
-  await page.keyboard.press("Backspace");
   await expect(page.locator(".list-title")).toHaveText("Notes");
+  await page.keyboard.press("Backspace");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   // history spent: another ⌫ is inert, the view stays
   await page.keyboard.press("Backspace");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
 });
 
 test("⌫ closes an open db side note first, then leaves the view (SUB-392)", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await openDb(page, "Contact");
   await page.locator(".db-table tbody tr", { hasText: "Gero" }).locator(".db-title").dblclick();
   const split = page.locator(".db-note");
@@ -99,7 +99,7 @@ test("⌫ closes an open db side note first, then leaves the view (SUB-392)", as
 
 test("⌘⌫ in a db view trashes the open side note (SUB-392)", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await openDb(page, "Contact");
   await page.locator(".db-table tbody tr", { hasText: "Gero" }).locator(".db-title").dblclick();
   await expect(page.locator(".db-note .note-title")).toHaveValue("Gero");
@@ -113,7 +113,7 @@ test("⌘⌫ in a db view trashes the open side note (SUB-392)", async ({ page }
 
 test("the cheat sheet lists the new bindings (SUB-392)", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await page.keyboard.press("Meta+/");
   await expect(page.locator(".shortcut-sheet")).toBeVisible();
   const labels = page.locator(".shortcut-row-label");

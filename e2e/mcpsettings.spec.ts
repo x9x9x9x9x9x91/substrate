@@ -7,7 +7,7 @@ import { openSettings } from "./settings";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await openSettings(page, "sharing");
   await expect(page.locator(".mcp-settings")).toBeVisible();
 });
@@ -78,7 +78,7 @@ test("setup discovery failure never hides grants or revoke controls", async ({ p
     window.__mockFail = new Set(["mcp_setup"]);
   });
   await page.reload();
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await openSettings(page, "sharing");
 
   const pane = page.locator(".mcp-settings");

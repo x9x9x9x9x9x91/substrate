@@ -15,8 +15,8 @@ const FENCE =
 
 async function openColumn(page: Page) {
   await page.goto("/");
-  // Notes opens Welcome, which the seed leaves free for a spec to rewrite
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  // Scratch opens Welcome, which the seed leaves free for a spec to rewrite
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
   await page.evaluate((body) => {
     window.__mockEditNote?.("Welcome.md", body);

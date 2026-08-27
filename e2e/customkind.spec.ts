@@ -535,7 +535,7 @@ test("Settings shows no Kinds section in a vault with no kinds", async ({ page }
   // of, which is why this failed under a loaded box's slow boot and nowhere
   // else. Wait for the first painted view, the way every other spec that
   // opens Settings straight off a `goto` already does.
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   // and the hook is only a no-op guard away from silently clearing nothing
   await page.waitForFunction(() => typeof window.__mockClearKinds === "function");
   await page.evaluate(() => window.__mockClearKinds?.());

@@ -9,7 +9,7 @@ import { expect, test } from "./fixtures";
 
 test("right-click on a rendered table cell leaves it rendered (SUB-657)", async ({ page }) => {
   await page.goto("/");
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
 
   const table = page.locator(".cm-md-table");
@@ -43,7 +43,7 @@ test("right-click on a table's external-link cell opens nothing (SUB-657)", asyn
     }) as typeof window.open;
   });
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await page.keyboard.press("Meta+n");
   await expect(page.locator(".note-title")).toBeFocused();
   await page.keyboard.type("Link table");
@@ -88,7 +88,7 @@ test("a table cell md-link keeps a parenthesized URL whole (SUB-912)", async ({ 
     }) as typeof window.open;
   });
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await page.keyboard.press("Meta+n");
   await expect(page.locator(".note-title")).toBeFocused();
   await page.keyboard.type("Paren link table");

@@ -9,8 +9,8 @@ import { expect, test } from "./fixtures";
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
   // first paint doubles as the "window key listeners attached" barrier (cold
-  // open lands on Notes — Today is a destination)
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  // open lands on Scratch — Today is a destination)
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
 });
 
 const CSV = [

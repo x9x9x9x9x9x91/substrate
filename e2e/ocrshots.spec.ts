@@ -9,7 +9,7 @@ const dir = process.env.SHOT_DIR || "/tmp/lane-reports/shots-1301";
 
 test("shot: the hit list and the opened picture", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".side-item", { hasText: /^Notes/ })).toBeVisible();
+  await expect(page.locator(".side-item", { hasText: /^Scratch/ })).toBeVisible();
   await page.keyboard.press("Meta+Shift+f");
   await page.locator(".search-input").fill("4711");
   const group = page.locator(".search-group", { hasText: "invoice-4711" });
@@ -33,7 +33,7 @@ test("shot: the hit list and the opened picture", async ({ page }) => {
 test("shot: a longer recognition in a narrow window", async ({ page }) => {
   await page.setViewportSize({ width: 900, height: 700 });
   await page.goto("/");
-  await expect(page.locator(".side-item", { hasText: /^Notes/ })).toBeVisible();
+  await expect(page.locator(".side-item", { hasText: /^Scratch/ })).toBeVisible();
   await page.keyboard.press("Meta+Shift+f");
   await page.locator(".search-input").fill("mixdown");
   const group = page.locator(".search-group", { hasText: "studio-whiteboard" });

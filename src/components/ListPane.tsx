@@ -62,9 +62,9 @@ export function viewLabel(view: View, tagFolders: TagFolder[] = []): string {
     case "today":
       return "Today";
     case "notes":
-      return "Notes";
+      return "Scratch";
     case "all":
-      return "All notes";
+      return "Notes";
     case "calendar":
       return "Calendar";
     case "vaultsync":
@@ -321,7 +321,7 @@ interface ListPaneProps {
   /** the open folder's icon, when one is set */
   folderIcon?: DbIcon;
   /** collapsed database blocks above the loose rows — only the
-      folder and All notes views pass any; click-through opens the database */
+      folder and Notes views pass any; click-through opens the database */
   blocks?: DbBlock[];
   /** per-type database icons for the blocks */
   icons?: Record<string, DbIcon>;
@@ -341,7 +341,7 @@ interface ListPaneProps {
   /** Phone copy avoids advertising keyboard-only chrome. */
   mobile?: boolean;
   /** The folder's loose (non-note) files, below the notes. Only
-      folder views pass any — "All notes" spans folders, so there is no one
+      folder views pass any — "Notes" spans folders, so there is no one
       folder whose files it could list. */
   files?: FolderFile[];
   /** how many loose files the folder really has; larger than `files.length`
@@ -473,7 +473,7 @@ function ListPane({
   //
   // Deliberately does NOT reset scrollTop. Switching folders re-selects, and
   // the reveal effect below scrolls the window onto the new selection; when a
-  // switch keeps the selection (folder -> All notes) the reveal has nothing to
+  // switch keeps the selection (folder -> Notes) the reveal has nothing to
   // do, so zeroing here would strand the selected row unpainted instead.
   useEffect(() => {
     setWin(null);

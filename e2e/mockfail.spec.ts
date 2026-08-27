@@ -10,11 +10,11 @@ function row(page: Page, title: string) {
   return page.locator(".list .row", { has: page.getByText(title, { exact: true }) });
 }
 
-// cold open lands on the Notes scratch list (Today is a destination) —
+// cold open lands on the Scratch list (Today is a destination) —
 // first mock note selected and loaded (same shape as smoke.spec's boot)
 async function boot(page: Page) {
   await page.goto("/");
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
 }
 
@@ -40,7 +40,7 @@ test("boot failure shows the boot-error bar, recovery clears it (SUB-156)", asyn
   await emitChanged(page);
   await expect(bar).toHaveCount(0);
   // the vault reads again — the notes view lists and opens the first note
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
   await expect(row(page, "Welcome")).toBeVisible();
 });

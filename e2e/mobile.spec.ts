@@ -14,7 +14,7 @@ test("phone shell is a drawer plus a single-pane navigation stack (SUB-332)", as
   // Cold open stops at the list: no auto-selected note stealing the first
   // screen, and the desktop rail lives off-canvas until explicitly opened.
   await expect(page.locator(".mobile-menu")).toBeVisible();
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await expect(page.locator(".list")).toBeVisible();
   await expect(page.locator(".note")).toHaveCount(0);
   await expect(page.locator(".sidebar")).toBeHidden();
@@ -27,11 +27,11 @@ test("phone shell is a drawer plus a single-pane navigation stack (SUB-332)", as
   // or hardware-key shortcuts. Counts remain visible; only shortcut badges go.
   await expect(page.locator(".sidebar .side-shortcut").first()).toBeHidden();
   const notesTarget = await page
-    .locator(".sidebar .side-item", { hasText: /^Notes/ })
+    .locator(".sidebar .side-item", { hasText: /^Scratch/ })
     .evaluate((el) => el.getBoundingClientRect().height);
   expect(notesTarget).toBeGreaterThanOrEqual(44);
 
-  await page.locator(".sidebar .side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".sidebar .side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".sidebar")).toBeHidden();
 
   // A row pushes a full-width note. The visible back control and the native-
@@ -70,7 +70,7 @@ test("phone shell is a drawer plus a single-pane navigation stack (SUB-332)", as
     clientX: 104,
     clientY: 306,
   });
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await expect(page.locator(".note")).toHaveCount(0);
 
   // Database side notes use the same stack instead of recreating the desktop

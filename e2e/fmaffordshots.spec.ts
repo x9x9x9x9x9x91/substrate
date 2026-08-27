@@ -8,7 +8,7 @@ const dir = "/tmp/sub1256";
 
 test("shot: the + property chip's key suggestions", async ({ page }) => {
   await page.goto("/");
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await page.locator(".row-dbblock", { hasText: "Release" }).click();
   await page
     .locator(".db-table tbody tr", { hasText: "Slow Bloom EP" })

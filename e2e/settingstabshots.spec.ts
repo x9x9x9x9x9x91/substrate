@@ -36,7 +36,7 @@ async function shootRightEdge(page: Page, name: string) {
 
 test("the settings sheet, per tab", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await page.locator(".side-tools").getByRole("button", { name: "Settings" }).click();
   await expect(page.locator(".settings-sheet")).toBeVisible();
   await page.waitForTimeout(400);

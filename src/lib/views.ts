@@ -15,7 +15,7 @@ function isUnfiled(folder: string): boolean {
     untyped AND unfiled — no `type:` prop, and living at the vault root or in
     `Inbox/`. Typed notes live in their databases; untyped notes filed into a
     folder (Journal dailies, Life/, …) belong to that folder's view. Giving a
-    note a type or a folder is the promotion path out of Notes.
+    note a type or a folder is the promotion path out of Scratch.
 
     The typed exceptions below are written as early returns rather than as
     conditions on the `if (type)` guard, so a private one can be lifted out
@@ -29,7 +29,7 @@ export function isScratchNote(n: NoteMeta): boolean {
   // same way typing into the capture window does, so the capture stream stays
   // complete and a voice note doesn't vanish into a database the moment it is
   // recorded. It is still a real `voice` row with its own database view;
-  // moving it out of Inbox promotes it out of Notes like anything else.
+  // moving it out of Inbox promotes it out of Scratch like anything else.
   if (isVoiceNote(n)) return isUnfiled(n.folder);
   if (type) return false;
   return isUnfiled(n.folder);
@@ -41,7 +41,7 @@ export function isVoiceNote(n: NoteMeta): boolean {
   return foldedPropStr(n.props, "type")?.trim().toLowerCase() === VOICE_TYPE;
 }
 
-/** The Notes view's row set: every scratch note, newest edit first — the
+/** The Scratch view's row set: every scratch note, newest edit first — the
     Apple Notes model, so the daily surface needs no filing decisions. */
 export function scratchNotes(notes: NoteMeta[]): NoteMeta[] {
   return notes.filter(isScratchNote).sort((a, b) => b.updated_ms - a.updated_ms);
@@ -63,7 +63,7 @@ export function isPristineScratch(
   return Object.keys(props).every((k) => k === "created");
 }
 
-/** One collapsed database's summary in a folder / All notes list. */
+/** One collapsed database's summary in a folder / Notes list. */
 export interface DbBlock {
   type: string;
   count: number;

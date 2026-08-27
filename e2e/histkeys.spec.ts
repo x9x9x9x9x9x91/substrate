@@ -6,7 +6,7 @@ import { applyFakeToday, todayBase } from "./clock";
 
 async function openHistory(page: Page) {
   await page.goto("/");
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
   await page.getByRole("button", { name: "History" }).click();
   await expect(page.locator(".hist")).toBeVisible();
@@ -154,7 +154,7 @@ test("phone history keeps its stacked list and diff geometry", async ({ browser 
   await applyFakeToday(page);
   await page.goto("/");
   await page.locator(".mobile-menu").click();
-  await page.locator(".sidebar .side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".sidebar .side-item", { hasText: /^Scratch/ }).click();
   await page.locator('.list .row[data-path="Welcome.md"]').click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
   await page.getByRole("button", { name: "History" }).click();

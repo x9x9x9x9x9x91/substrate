@@ -46,7 +46,7 @@ test("drag a header handle to resize; the width persists across pages; double-cl
   expect(after.width).toBeGreaterThan(before.width + 40);
 
   // persists across a page switch (mock vault_views_set round-trip)
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await openRelease(page);
   const back = (await page.locator(".db-table thead th", { hasText: "artist" }).boundingBox())!;
   expect(Math.abs(back.width - after.width)).toBeLessThan(3);
@@ -76,7 +76,7 @@ test("wrap toggle in the column caret menu; wrapped cells persist across pages",
   await expect(await firstCellTxt(page, "artist")).toHaveCSS("white-space", "normal");
 
   // persists across a page switch, and the menu now offers Clip text
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await openRelease(page);
   await expect(await firstCellTxt(page, "artist")).toHaveCSS("white-space", "normal");
   await page

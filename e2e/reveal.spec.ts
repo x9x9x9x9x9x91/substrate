@@ -48,7 +48,7 @@ test("switching a windowed db to board keeps the focused card painted (SUB-1132)
 test("refining a search keeps the selected hit painted (SUB-1132)", async ({ page }) => {
   await seedMatching(page, { folder: "Inbox", count: 200, token: "zephyr", where: "title" });
   await page.goto("/");
-  await expect(page.locator(".side-item", { hasText: /^Notes/ })).toBeVisible();
+  await expect(page.locator(".side-item", { hasText: /^Scratch/ })).toBeVisible();
   await page.keyboard.press("Meta+Shift+f");
   const input = page.locator(".search-input");
   await expect(input).toBeFocused();

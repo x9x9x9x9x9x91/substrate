@@ -260,11 +260,11 @@ test("undo still takes back a cell edit and a board drag under a slow disk", asy
    BEFORE the write starts, so a chip used to close showing its OLD value and
    snap to the new one a beat later, when vault_set_prop resolved. */
 
-// cold open lands on the Notes scratch list; Welcome is a plain note whose
+// cold open lands on the Scratch list; Welcome is a plain note whose
 // `created` chip edits as plain text (same boot as properr.spec)
 async function bootNote(page: Page) {
   await page.goto("/");
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
 }
 

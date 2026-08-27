@@ -59,7 +59,7 @@ test("a pinned note joins the same column", async ({ page }) => {
 
   // pin a ROOT note so the flat Pinned section renders (a folder note's pin
   // nests in the tree instead)
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   const note = page.locator('.row[data-path="Welcome.md"]');
   await expect(note).toBeVisible();
   await note.click({ button: "right" });

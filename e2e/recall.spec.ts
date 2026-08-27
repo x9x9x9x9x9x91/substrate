@@ -34,7 +34,7 @@ async function enableRecall(page: Page) {
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
 });
 
 test("off: the past control is still there, and says where to turn it on", async ({ page }) => {

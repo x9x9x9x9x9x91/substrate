@@ -12,12 +12,12 @@ const ctxItem = (page: Page, label: string | RegExp) =>
 
 /** Right-click a note row in the vault-root list. */
 async function rowMenu(page: Page, title: string) {
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await page.locator(".list .row", { hasText: title }).first().click({ button: "right" });
 }
 
 /** The same row menu, from a database row — a typed note never shows up in the
-    Notes list, and the table is where you meet one. */
+    Scratch list, and the table is where you meet one. */
 async function dbRowMenu(page: Page, db: string, title: string) {
   await openDb(page, db);
   await page.locator(".db-cell", { hasText: title }).first().click({ button: "right" });

@@ -14,8 +14,8 @@ function row(page: Page, title: string) {
 
 async function bootAll(page: Page) {
   await page.goto("/");
-  await page.locator(".side-item", { hasText: "All notes" }).click();
-  await expect(page.locator(".list-title")).toHaveText("All notes");
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await expect(page.locator(".list-title")).toHaveText("Notes");
 }
 
 test("app files are concealed from lists and palette by default (SUB-831, SUB-878)", async ({ page }) => {
@@ -26,10 +26,10 @@ test("app files are concealed from lists and palette by default (SUB-831, SUB-87
   await expect(row(page, "CLAUDE")).toHaveCount(0);
   await expect(row(page, "Settings")).toHaveCount(0);
 
-  // the scratch Notes view conceals them too (all three are typeless root
+  // the Scratch view conceals them too (all three are typeless root
   // notes, which is exactly what that view lists)
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await expect(row(page, "Welcome")).toBeVisible();
   await expect(row(page, "AGENTS")).toHaveCount(0);
   await expect(row(page, "Settings")).toHaveCount(0);

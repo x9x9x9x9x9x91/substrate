@@ -55,7 +55,7 @@ test("a settings read landing mid-drag leaves the previewed window ground alone"
   page,
 }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await page.evaluate(() => window.__mockSetEchoOnWrites?.(true));
   await page.evaluate(() => window.__mockTraceCommands?.());
   await page.keyboard.press("Meta+,");

@@ -92,7 +92,7 @@ for (const tone of TONES) {
     await shoot(page, tone, "cal-feed-primary", ".cal-feed-form-actions button.primary");
 
     await boot(page, tone);
-    await page.locator(".side-item", { hasText: /^Notes/ }).click();
+    await page.locator(".side-item", { hasText: /^Scratch/ }).click();
     await expect(page.locator(".note-title")).toHaveValue("Welcome");
     await page.locator(".cm-content").click();
     // the editor's find binding is CodeMirror's Mod-f, which is ⌘ on macOS and

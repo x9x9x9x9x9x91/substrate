@@ -10,7 +10,7 @@ import { SETTINGS_TABS } from "../src/lib/settingsTabs";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
 });
 
 test("the gear opens settings and the quick-actions list round-trips", async ({ page }) => {
@@ -91,7 +91,7 @@ test("the terminal-font row warns when the family doesn't resolve (SUB-873)", as
       (f: string) => f === "Menlo";
   });
   await page.reload();
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
 
   await openSettings(page, "terminal");
 

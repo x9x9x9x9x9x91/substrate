@@ -37,8 +37,8 @@ test("assign a key from the row menu: the row wears it and the key navigates", a
   await expect(calendar.locator(".side-key-chip")).toHaveText("⌘5");
 
   // the binding works: park somewhere else, then press it
-  await sideRow(page, "All notes").click();
-  await expect(page.locator(".side-item.active", { hasText: "All notes" })).toBeVisible();
+  await sideRow(page, "Notes").click();
+  await expect(page.locator(".side-item.active", { hasText: "Notes" })).toBeVisible();
   await page.keyboard.press("Meta+5");
   await expect(page.locator(".side-item.active", { hasText: "Calendar" })).toBeVisible();
 });
@@ -55,9 +55,9 @@ test("Remove key clears the binding and the key stops navigating", async ({ page
   await ctxItem(page, "Remove key").click();
   await expect(calendar.locator(".side-key-chip")).toHaveCount(0);
 
-  await sideRow(page, "All notes").click();
+  await sideRow(page, "Notes").click();
   await page.keyboard.press("Meta+5");
-  await expect(page.locator(".side-item.active", { hasText: "All notes" })).toBeVisible();
+  await expect(page.locator(".side-item.active", { hasText: "Notes" })).toBeVisible();
 });
 
 test("an unbound row's menu offers no Remove key", async ({ page }) => {
@@ -92,7 +92,7 @@ test("a folder row's menu carries the key lane alongside its own actions", async
   await ctxItem(page, "⌘5").click();
   await expect(projects.locator(".side-key-chip")).toHaveText("⌘5");
 
-  await sideRow(page, "All notes").click();
+  await sideRow(page, "Notes").click();
   await page.keyboard.press("Meta+5");
   await expect(page.locator(".side-folder.active", { hasText: "Projects" })).toBeVisible();
 });
@@ -104,7 +104,7 @@ test("re-assigning from the menu moves the key off the previous row", async ({ p
   await expect(calendar.locator(".side-key-chip")).toHaveText("⌘5");
 
   // ⌘5 is bound elsewhere, so it is no longer offered on another row
-  const notes = sideRow(page, "Notes");
+  const notes = sideRow(page, "Scratch");
   await openPicker(page, notes);
   await expect(page.locator(".ctx-item", { hasText: "⌘5" })).toHaveCount(0);
   await ctxItem(page, "⌘6").click();

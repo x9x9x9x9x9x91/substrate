@@ -18,7 +18,7 @@ function isoDay(offsetDays = 0): string {
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await page.keyboard.press("Meta+4");
   await expect(page.locator(".cal")).toBeVisible();
   await page.locator(".cal .db-switch button", { hasText: "Week" }).click();

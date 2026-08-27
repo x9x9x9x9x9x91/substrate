@@ -21,10 +21,10 @@ async function accept(page: Page, label: string) {
   await page.keyboard.press("Enter");
 }
 
-/** Notes → Welcome, then a fresh last line to type on. */
+/** Scratch → Welcome, then a fresh last line to type on. */
 async function boot(page: Page) {
   await page.goto("/");
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
   await page.locator(".cm-content").click();
   const lines = page.locator(".cm-line");

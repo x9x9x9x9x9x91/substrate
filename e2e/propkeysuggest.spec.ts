@@ -8,7 +8,7 @@ import { expect, test } from "./fixtures";
 
 test("the chip offers the note's database keys, then the app's own", async ({ page }) => {
   await page.goto("/");
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await page.locator(".row-dbblock", { hasText: "Release" }).click();
   await page
     .locator(".db-table tbody tr", { hasText: "Slow Bloom EP" })
@@ -43,7 +43,7 @@ test("the chip offers the note's database keys, then the app's own", async ({ pa
 
 test("arrows pick a suggestion, and Enter still commits what was typed", async ({ page }) => {
   await page.goto("/");
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await page.locator(".row-dbblock", { hasText: "Release" }).click();
   await page
     .locator(".db-table tbody tr", { hasText: "Slow Bloom EP" })

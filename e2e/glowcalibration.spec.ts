@@ -46,7 +46,7 @@ const STILL = `*, *::before, *::after {
 
 async function frame(page: Page, pane: string, prepare: () => Promise<void>, file: string) {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await page.addStyleTag({ content: STILL });
   await prepare();
   await page.locator(".side-item", { hasText: pane }).click();

@@ -43,7 +43,7 @@ test("a long list paints a slice, not every row (SUB-461)", async ({ page }) => 
 
 test("a short list renders whole — no spacers below WIN_MIN (SUB-461)", async ({ page }) => {
   await page.goto("/");
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await expect(page.locator(".list-win-spacer")).toHaveCount(0);
 });
 
@@ -183,7 +183,7 @@ test("switching to a same-length folder paints rows, not blank spacer (SUB-461)"
 });
 
 test("a view switch that keeps the selection keeps it painted (SUB-461)", async ({ page }) => {
-  // folder -> All notes carries the same note in scope, so the reveal effect
+  // folder -> Notes carries the same note in scope, so the reveal effect
   // sees no new selection and does nothing. Anything that resets the scroller
   // on view change therefore strands the selected row outside the window with
   // nothing left to scroll it back.
@@ -196,8 +196,8 @@ test("a view switch that keeps the selection keeps it painted (SUB-461)", async 
   const row = page.locator(`.list .row[data-path="Inbox/${target}.md"]`);
   await expect(row).toBeVisible();
 
-  await page.locator(".side-item", { hasText: "All notes" }).click();
-  await expect(page.locator(".list-title")).toHaveText("All notes");
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await expect(page.locator(".list-title")).toHaveText("Notes");
   await expect(page.locator(`.list .row[data-path="Inbox/${target}.md"]`)).toHaveClass(/selected/);
   await expect(page.locator(`.list .row[data-path="Inbox/${target}.md"]`)).toBeInViewport();
 });

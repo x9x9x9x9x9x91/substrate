@@ -6,7 +6,7 @@ import { expect, test, type Page } from "./fixtures";
 async function openSearch(page: Page) {
   await page.goto("/");
   // the shortcut listener attaches on mount — key too early and it's lost
-  await expect(page.locator(".side-item", { hasText: /^Notes/ })).toBeVisible();
+  await expect(page.locator(".side-item", { hasText: /^Scratch/ })).toBeVisible();
   await page.keyboard.press("Meta+Shift+f");
   await expect(page.locator(".search-input")).toBeFocused();
 }

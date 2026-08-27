@@ -1,15 +1,15 @@
 import { expect, test, type Page } from "./fixtures";
 
-async function openAllNotes(page: Page) {
+async function openNotes(page: Page) {
   await page.goto("/");
-  await page.locator(".side-item", { hasText: "All notes" }).click();
-  await expect(page.locator(".list-title")).toHaveText("All notes");
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await expect(page.locator(".list-title")).toHaveText("Notes");
 }
 
 test("primary list and Today rows expose separate keyboard controls (SUB-355)", async ({
   page,
 }) => {
-  await openAllNotes(page);
+  await openNotes(page);
 
   const dbBlock = page.locator(".list").getByRole("button", { name: "Catalog", exact: true });
   expect(
@@ -20,10 +20,10 @@ test("primary list and Today rows expose separate keyboard controls (SUB-355)", 
   await dbBlock.press("Space");
   await expect(page.locator(".list-title")).toHaveText("Catalog");
 
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   const noteRow = page.locator(".list").getByRole("button", { name: "Welcome", exact: true });
   await noteRow.focus();
-  // All notes is now a native button, so the preceding click leaves
+  // Notes is now a native button, so the preceding click leaves
   // Chromium in pointer modality. Round-trip with the keyboard before checking
   // :focus-visible — the ring is deliberately absent for pointer focus.
   await page.keyboard.press("Tab");

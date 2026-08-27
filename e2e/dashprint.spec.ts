@@ -148,7 +148,7 @@ test("⌘P lands on a Print row where the surface prints, and nowhere else", asy
   // never sees it. On a printable surface the palette answers with the row
   // the muscle memory was reaching for.
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await page.keyboard.press("Meta+p");
   await expect(page.locator(".palette-input")).toBeVisible();
   await expect(page.locator(".palette-item", { hasText: "Print…" })).toHaveCount(0);
@@ -167,7 +167,7 @@ test("⌘P lands on a Print row where the surface prints, and nowhere else", asy
   await expectPrinted(page);
 
   // and the row leaves with the surface that offered it
-  await page.locator(".side-item", { hasText: /^Notes/ }).first().click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).first().click();
   await page.keyboard.press("Meta+p");
   await expect(page.locator(".palette-input")).toBeVisible();
   await expect(page.locator(".palette-item", { hasText: "Print…" })).toHaveCount(0);

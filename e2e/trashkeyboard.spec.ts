@@ -20,7 +20,7 @@ async function openView(page: Page, query: string, label: string) {
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
 });
 

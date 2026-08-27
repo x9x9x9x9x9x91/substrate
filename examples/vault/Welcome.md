@@ -24,6 +24,10 @@ What's inside:
   [[Food Log]]), [[News]] (a curated feed reading [[News Items]]), [[Tasks]] (a
   working board over the `task` notes in `Tasks/` — late work first, with
   checkoff, inline edits and quick-add).
+- **Plain notes** — not everything here is a database or a board. `Projects/`
+  holds ordinary notes about a [[Balcony Garden]], a [[Bike Overhaul]] and a
+  [[Flat Move]]; [[Errands]] and [[Reading Log]] sit at the root and show up in
+  Scratch. No type, no schema — notes that link to each other and nothing else.
 - **Links** — wikilinks like [[Holdings]] connect notes; backlinks render at the
   bottom of each note. Follow a link to a missing note and it's created.
 

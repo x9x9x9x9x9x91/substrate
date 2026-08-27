@@ -5,11 +5,11 @@ import { expect, test, type Page } from "./fixtures";
 // logs via console.info). Runs against the deterministic mock backend (fresh
 // page = fresh vault).
 
-// cold open lands on the Today surface — one sidebar click to Notes, first
+// cold open lands on the Today surface — one sidebar click to Scratch, first
 // mock note selected and loaded (same boot shape as mockfail.spec)
 async function boot(page: Page) {
   await page.goto("/");
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
 }
 

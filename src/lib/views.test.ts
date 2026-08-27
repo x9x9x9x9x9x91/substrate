@@ -235,7 +235,7 @@ test("isScratchNote: filing into a folder promotes out of Notes (SUB-390)", () =
   assert.ok(!isScratchNote(inFolder("Projects", { type: "release" })), "typed stays out either way");
 });
 
-test("isScratchNote: unfiled voice captures stay in the Notes stream (SUB-827)", () => {
+test("isScratchNote: unfiled voice captures stay in the Scratch stream (SUB-827)", () => {
   const voice = (folder: string, props: Record<string, unknown> = { type: "voice" }) => ({
     ...note("Voice 2026-08-04 14.32", props),
     folder,

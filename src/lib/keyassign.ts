@@ -208,8 +208,8 @@ export function targetLabel(
   }
   const FIXED: Record<string, string> = {
     today: "Today",
-    notes: "Notes",
-    all: "All notes",
+    notes: "Scratch",
+    all: "Notes",
     search: "Search",
     trash: "Trash",
     assets: "Assets",

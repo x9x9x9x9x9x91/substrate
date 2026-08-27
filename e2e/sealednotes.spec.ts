@@ -2,7 +2,7 @@ import { expect, test } from "./fixtures";
 
 async function boot(page: import("@playwright/test").Page) {
   await page.goto("/");
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
 }
 
@@ -117,7 +117,7 @@ test("without a device key the password carries the unlock, and a failed history
     window.__mockSealPending = true;
   });
   await page.goto("/");
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
 
   await page.getByRole("button", { name: "Note actions" }).click();
@@ -177,7 +177,7 @@ test("a seal marker planted from outside this device seals nothing until it is c
   await expect(page.locator('.row[data-path^="Field notes/"] .row-sealed')).toHaveCount(0);
 
   // give the vault a key of its own, the ordinary way
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await page.getByRole("button", { name: "Note actions" }).click();
   await page.locator(".dots-item", { hasText: "Seal note…" }).click();
   const setup = page.getByRole("dialog", { name: /^Seal “/ });

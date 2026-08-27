@@ -51,3 +51,4 @@
 @import "./styles/termhud.css"; /* The terminal HUD */
 @import "./styles/settings.css"; /* Settings sheets, choices, textareas, MCP errors and onboarding hints */
 @import "./styles/workbench.css"; /* Workbench tabs, tag folders, the transport and receipt peeks */
+@import "./styles/import.css"; /* Settings → Import: the preview counts, tree and reading line */

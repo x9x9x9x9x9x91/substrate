@@ -101,8 +101,8 @@ test("audio keeps playing while you navigate anywhere else", async ({ page }) =>
   await expect(bar.getByRole("button", { name: `Pause ${BOUNCE}` })).toBeVisible();
 
   // leave the folder entirely — the rows unmount, the bar and the sound stay
-  await page.locator(".side-item", { hasText: "All notes" }).click();
-  await expect(page.locator(".list-title")).toHaveText("All notes");
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await expect(page.locator(".list-title")).toHaveText("Notes");
   await expect(page.locator(".row-file")).toHaveCount(0);
   await expect(bar).toBeVisible();
   await expect(bar.locator(".mp-name")).toHaveText(BOUNCE);

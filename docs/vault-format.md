@@ -570,6 +570,54 @@ A finished run also leaves one record note in `Imported/Logs`, carrying
 files by reason, and a link to every note written. That note carries no stamp
 of its own: a run's record is not something a later run should skip.
 
+**Notes imported from Bear** (`import-source: bear`) are filed by tag, because
+Bear has no folders. The first tag on a note is its folder path under
+`Imported/Bear`, nested tags included — `#field/reeds` lands the note in
+`Imported/Bear/field/reeds` — and every further tag goes into the note's own
+`tags` prop (§3b). The tag text is taken out of the body: a tag in Bear is
+filing written inline, so leaving it would read as a vault tag on top of the
+folder it already became. The title is the note's leading `# ` heading, which
+is dropped from the body rather than written twice, and falls back to the
+filename Bear exported under.
+
+Both shapes of a Bear export are read: a plain `Name.md`, and a
+`Name.textbundle/` directory, whose `assets/` become vault assets (`![[name]]`,
+§9) and whose `info.json` supplies `created` — and `bear-modified` for the date
+Bear last touched the note, since this format has no `updated` of its own. A
+plain markdown export carries no dates at all, so those notes are dated the day
+they land. A `.bear2bk` backup and a `.textpack` are zip files the import
+cannot open; each is reported as a skipped file saying to unzip it and pick the
+folder inside, as is anything else in the folder that is not a note, a bundle
+or a file one of them uses.
+
+**Apple Notes exports.** The `apple-notes` source reads a folder of exported
+notes, not the Notes database: `.html`/`.htm` files are converted, `.txt` files
+come across as their paragraphs, and `.md` files pass through untouched. A
+subfolder in the export becomes a folder of the same name under
+`Imported/Apple Notes`, so the way the notes were organized is the way they
+land. `import-id` is `<export-folder-name>/<relative-path>`, exactly as for any
+other file-backed source.
+
+The HTML conversion is deliberately partial, and the preview shows one
+converted note before the run so it can be judged rather than assumed.
+Paragraph divs and `<br>`, bold, italic, strikethrough, inline code, headings,
+nested ordered and unordered lists, checklists, links, blockquotes, horizontal
+rules and `<pre>` blocks all have a markdown form and get one. Fonts, colours,
+sizes and table layout do not; a table comes across as its cells, one row per
+line. A tag the converter does not know keeps its text and loses its
+formatting — nothing is dropped without appearing somewhere.
+
+An `<img>` whose `src` resolves to a file the export actually shipped becomes
+an attachment, copied into the vault's assets and re-pointed at as
+`![[name]]`; one that resolves to nothing keeps the reference it had, which
+reads as the link it already was. A reference that climbs above the picked
+folder resolves to nothing — an import reads the folder it was given and no
+other. A `.md` or `.txt` note is passed through as written, so its own image
+links are kept exactly as they are and the files behind them are not copied
+in; only the HTML conversion resolves images. Files skipped are counted by reason: larger than the 2 MiB note cap, a
+note that couldn't be read, a note whose body converted to nothing, and any
+file that is neither a note nor embedded by one. Apple's export carries no
+reliable creation date, so an imported note is dated the day it landed.
 
 ## 3. Links and embeds
 
@@ -2825,7 +2873,7 @@ mix down the pad before Friday, it's fighting the vocal in the second drop
   and a `![[…]]` that resolves only on the machine that recorded it. This is
   the designed shape, so `vault_doctor` reports such an embed as a **warn**,
   not an error (§15).
-- Voice notes are a real database and stay in the Notes stream while unfiled.
+- Voice notes are a real database and stay in the Scratch stream while unfiled.
   `voice` is a plain schema type that appears the way every type does — from
   notes carrying it; nothing seeds it, and its home folder (§6) is yours to set
   like any other database's. The double membership is deliberate: the capture

@@ -39,12 +39,12 @@ async function groupTableBy(page: Page, col: string) {
   await page.locator(".selmenu-item", { hasText: col }).click();
 }
 
-/** away to All notes and back — the round-trip through the persisted pref.
-    All notes renders the list surface, not a table, so the departure is
+/** away to Notes and back — the round-trip through the persisted pref.
+    Notes renders the list surface, not a table, so the departure is
     confirmed on the list title before reopening. */
 async function reopenContacts(page: Page) {
-  await page.locator(".side-item", { hasText: "All notes" }).click();
-  await expect(page.locator(".list-title")).toHaveText("All notes");
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await expect(page.locator(".list-title")).toHaveText("Notes");
   await openContacts(page);
 }
 

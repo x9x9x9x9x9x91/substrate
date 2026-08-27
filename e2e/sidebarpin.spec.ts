@@ -84,7 +84,7 @@ test("pin a folder note: row nests under the folder, opens the note, unpins", as
 
 test("a root note pins into the flat Pinned section", async ({ page }) => {
   await expect(page.locator(".side-section-toggle", { hasText: pinnedSection })).toHaveCount(0);
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await page.locator(".row", { hasText: ROOT_NOTE }).first().click({ button: "right" });
   await page.locator(".ctx-item", { hasText: "Pin to sidebar" }).click();
 
@@ -127,7 +127,7 @@ test("trashing a pinned note drops its row", async ({ page }) => {
 
 test("dragging a note onto the Pinned section adds a pin", async ({ page }) => {
   // seed one ROOT pin so the flat section (the drop target) exists
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await page.locator(".row", { hasText: ROOT_NOTE }).first().click({ button: "right" });
   await page.locator(".ctx-item", { hasText: "Pin to sidebar" }).click();
   await expect(page.locator(".side-item", { hasText: ROOT_NOTE })).toBeVisible();

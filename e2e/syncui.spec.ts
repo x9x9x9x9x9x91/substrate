@@ -339,7 +339,7 @@ test("a merge parked before a restart still reads as needing attention", async (
   await page.evaluate(() => window.__mockParkConflicts?.());
   // leaving and returning remounts the pane — a fresh status read with no
   // last result, the same thing a relaunch produces
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await page
     .locator(".sidebar")
     .getByRole("button", { name: "Vault sync", exact: true })

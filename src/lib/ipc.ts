@@ -808,6 +808,23 @@ export const filePick = (dir: boolean, extensions?: string[]) =>
 /** Read a text file the user picked outside the vault (CSV import) — the
     engine caps the size and reads, never writes. */
 export const fileReadText = (path: string) => invoke<string>("file_read_text", { path });
+/** One entry of an import scan: path relative to the picked root,
+    `/`-separated, and its size on disk. */
+export interface ImportScanEntry {
+  path: string;
+  size: number;
+}
+/** One scan: the files, and how many subfolders the engine could not open.
+    The count rides with the entries rather than being an error — a graph
+    beside one unreadable folder still imports, and the preview says so. */
+export interface ImportScanResult {
+  entries: ImportScanEntry[];
+  unreadableDirs: number;
+}
+/** List the files under a folder the user picked, for the import pipeline —
+    names and sizes only. The engine refuses symlinks and anything outside the
+    picked root, and errors rather than truncating past its file cap. */
+export const importScan = (root: string) => invoke<ImportScanResult>("import_scan", { root });
 export const vaultViewsSet = (
   db: string,
   view: DbLayout,

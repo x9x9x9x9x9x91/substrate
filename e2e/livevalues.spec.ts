@@ -5,10 +5,10 @@ import { expect, test, type Page } from "./fixtures";
 // through the real editor — sheet load, evaluation, the chip, the re-render on
 // a sheet edit, and the raw span coming back under the cursor.
 
-// cold open lands on Today — one sidebar click to Notes selects the first note
+// cold open lands on Today — one sidebar click to Scratch selects the first note
 async function boot(page: Page) {
   await page.goto("/");
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
 }
 

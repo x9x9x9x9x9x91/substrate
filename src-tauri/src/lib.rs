@@ -358,6 +358,7 @@ use commands::fx::*;
 use commands::history::*;
 use commands::recall::*;
 use commands::kinds::*;
+use commands::importscan::*;
 use commands::mcp::*;
 use commands::mounts::*;
 use commands::notes::*;
@@ -1815,6 +1816,7 @@ pub fn run() {
             fx_usd_eur,
             fx_rates,
             share_upload,
+            import_scan,
             curator_refresh,
             curator_runs,
             curator_cancel,

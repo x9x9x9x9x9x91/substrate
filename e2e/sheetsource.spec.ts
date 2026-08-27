@@ -15,7 +15,7 @@ function row(page: Page, title: string) {
 
 async function boot(page: Page) {
   await page.goto("/");
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
 }
 
@@ -33,7 +33,7 @@ async function openHoldingsSource(page: Page) {
 }
 
 async function navigateAwayAndBack(page: Page) {
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await row(page, "Welcome").click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
   await openHoldingsSource(page);

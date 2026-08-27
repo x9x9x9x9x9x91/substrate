@@ -18,8 +18,8 @@ function isoDay(offsetDays = 0): string {
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
   // the list's first paint doubles as the "app is live" barrier (cold open
-  // lands on Notes — Today is a destination)
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  // lands on Scratch — Today is a destination)
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
 });
 
 test("calendar pill: the timed entry shows its time, the all-day one none", async ({ page }) => {

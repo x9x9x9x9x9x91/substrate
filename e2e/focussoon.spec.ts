@@ -13,17 +13,17 @@ import { pinnedInstant } from "./clock";
 // scratchabandon.spec.ts and rowcontrols.spec.ts; the third test here covers
 // the list-focused arm directly.
 
-async function openNotes(page: Page) {
+async function openScratch(page: Page) {
   await page.goto("/");
-  const notes = page.locator(".side-item", { hasText: /^Notes/ });
+  const notes = page.locator(".side-item", { hasText: /^Scratch/ });
   await expect(notes).toBeVisible();
   await notes.click();
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await expect(page.locator(".list .row").first()).toBeVisible();
 }
 
 test("⌘N then an immediate keystroke lands the char in the title", async ({ page }) => {
-  await openNotes(page);
+  await openScratch(page);
   // no settle: press and type inside the focus-handoff window
   await page.keyboard.press("Meta+n");
   await page.keyboard.type("X");
@@ -34,7 +34,7 @@ test("⌘N then an immediate keystroke lands the char in the title", async ({ pa
 });
 
 test("a fast-typed string after ⌘N lands whole, and titles the note", async ({ page }) => {
-  await openNotes(page);
+  await openScratch(page);
   await page.keyboard.press("Meta+n");
   await page.keyboard.type("Riff idea", { delay: 4 });
   const title = page.locator(".note-title");
@@ -60,7 +60,7 @@ test("with the list focused, a non-printable key after ⌘N is not yanked into t
   // already installed and flowing — installing again with no time would
   // silently re-seed it at the wall clock — so only a live run installs.
   if (!pinnedInstant()) await page.clock.install();
-  await openNotes(page);
+  await openScratch(page);
   // arrow-key selection active: the list, not the void, owns the keyboard
   await page.locator(".sidebar-title").click();
   await page.keyboard.press("ArrowDown");

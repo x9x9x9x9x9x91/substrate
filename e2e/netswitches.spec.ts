@@ -28,7 +28,7 @@ async function turnOff(page: Page, key: string) {
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   // a settings toggle writes Settings.md; the watcher echo is what makes the
   // app re-read the flag. The mock mirrors that cadence on request, same as
   // the switches.

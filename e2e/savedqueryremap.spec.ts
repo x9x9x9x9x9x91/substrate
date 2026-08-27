@@ -31,7 +31,7 @@ test("removing an unpopulated property cleans its saved query without a strip di
 
   // The backend cleanup is re-read into the live saved-view state: reopening
   // the pin immediately has no stale mood filter and shows the full database.
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await pin.click();
   await expect(page.locator(".db-filter-input")).toHaveCount(0);
   await expect(page.locator(".db-table tbody tr")).toHaveCount(5);

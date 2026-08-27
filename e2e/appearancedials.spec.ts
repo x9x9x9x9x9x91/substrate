@@ -61,7 +61,7 @@ async function openDashboard(page: Page, name: string) {
 
 async function openSettings(page: Page) {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await page.evaluate(() => window.__mockSetEchoOnWrites?.(true));
   await page.keyboard.press("Meta+,");
   await expect(page.locator(".settings-sheet")).toBeVisible();
@@ -74,7 +74,7 @@ function row(page: Page, label: string) {
 
 test("the shipped default sets no appearance state at all", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
 
   // no attribute means the bloom rules never match — the default is free
   await expect(page.locator("html")).not.toHaveAttribute("data-glow", /.*/);

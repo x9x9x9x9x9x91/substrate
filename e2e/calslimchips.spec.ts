@@ -17,7 +17,7 @@ function isoDay(offsetDays = 0): string {
 
 async function openCalendar(page: Page) {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await page.keyboard.press("Meta+4");
   await expect(page.locator(".cal-grid.month")).toBeVisible();
 }

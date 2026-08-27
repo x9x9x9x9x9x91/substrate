@@ -76,7 +76,7 @@ test("unsorted board: the insertion line shows the slot and the card stays in it
   expect(await colTitles(page, index)).toEqual([moved, ...titles.filter((t) => t !== moved)]);
 
   // the hand order rides the ViewPref, so it survives leaving the database
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await openBoard(page);
   expect(await colTitles(page, index)).toEqual([moved, ...titles.filter((t) => t !== moved)]);
 });

@@ -75,7 +75,7 @@ test("filing a voice note never eats typed text (SUB-827)", async ({ page }) => 
 test("the speech model downloads from settings, once (SUB-827)", async ({ page }) => {
   await page.setViewportSize({ width: 1200, height: 800 });
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await page.locator(".side-tools").getByRole("button", { name: "Settings" }).click();
   await expect(page.locator(".settings-sheet")).toBeVisible();
 

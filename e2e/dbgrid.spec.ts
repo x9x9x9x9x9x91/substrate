@@ -46,7 +46,7 @@ test("the global setting turns grids off everywhere, but a database override win
   // the flag — the mock mirrors that cadence on request, the same opt-in
   // own-write echo the editor's own-echo test drives
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await page.evaluate(() => window.__mockSetEchoOnWrites?.(true));
 
   await page.keyboard.press("Meta+,");

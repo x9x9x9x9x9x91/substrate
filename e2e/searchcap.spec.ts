@@ -23,7 +23,7 @@ async function seedCapFixture(page: Page) {
 
 async function openSearch(page: Page) {
   await page.goto("/");
-  await expect(page.locator(".side-item", { hasText: /^Notes/ })).toBeVisible();
+  await expect(page.locator(".side-item", { hasText: /^Scratch/ })).toBeVisible();
   await page.keyboard.press("Meta+Shift+f");
   await expect(page.locator(".search-input")).toBeFocused();
 }
@@ -62,7 +62,7 @@ test("the stats line owns up to a truncated page (SUB-566)", async ({ page }) =>
 test("the palette finds filtered matches ranked past its cap (SUB-566)", async ({ page }) => {
   await seedCapFixture(page);
   await page.goto("/");
-  await expect(page.locator(".side-item", { hasText: /^Notes/ })).toBeVisible();
+  await expect(page.locator(".side-item", { hasText: /^Scratch/ })).toBeVisible();
   await page.keyboard.press("Meta+k");
   const input = page.locator(".palette-input");
   await expect(input).toBeFocused();
@@ -76,7 +76,7 @@ test("the palette finds filtered matches ranked past its cap (SUB-566)", async (
 
 test("a quoted-only query displays its results (SUB-567)", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".side-item", { hasText: /^Notes/ })).toBeVisible();
+  await expect(page.locator(".side-item", { hasText: /^Scratch/ })).toBeVisible();
   await page.keyboard.press("Meta+k");
   const input = page.locator(".palette-input");
   await expect(input).toBeFocused();

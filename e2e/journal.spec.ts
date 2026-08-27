@@ -29,18 +29,18 @@ function isoDay(offsetDays = 0): string {
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
-  // cold open lands on the Notes scratch list — first paint doubles
+  // cold open lands on the Scratch list — first paint doubles
   // as the "window key listeners attached" barrier
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
 });
 
 test("⌘D and the sidebar Journal item open today's journal", async ({ page }) => {
   await page.keyboard.press("Meta+d");
-  // ⌘D lands in the Journal folder view, not All notes
+  // ⌘D lands in the Journal folder view, not Notes
   await expect(page.locator(".list-title")).toHaveText("Journal");
   await expect(page.locator(".note-title-daily")).toHaveText(humanToday());
 
-  // back on Notes, the sidebar's Journal row lands in the same place
+  // back on Scratch, the sidebar's Journal row lands in the same place
   await page.keyboard.press("Meta+2");
   // (not the Journal folder the tree gained when the note was created)
   await page.locator(".side-item:not(.side-folder)", { hasText: /^Journal/ }).click();

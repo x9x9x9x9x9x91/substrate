@@ -6,7 +6,7 @@ import { expect, test } from "./fixtures";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
 });
 
 test("the keyboard button routes to the canonical shortcut sheet", async ({ page }) => {
@@ -26,7 +26,7 @@ test("info view follows the pointer and remembers its open state", async ({ page
   await toggle.click();
   const panel = page.locator(".info-view-panel");
   await expect(panel).toBeVisible();
-  await expect(panel.locator(".info-view-title")).toHaveText("Notes");
+  await expect(panel.locator(".info-view-title")).toHaveText("Scratch");
 
   await page.locator(".cm-content").hover();
   await expect(panel.locator(".info-view-title")).toHaveText("Note editor");
@@ -44,7 +44,7 @@ test("info view follows the pointer and remembers its open state", async ({ page
 
   expect(await page.evaluate(() => localStorage.getItem("substrate.infoView"))).toBe("1");
   await page.reload();
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await expect(panel).toBeVisible();
 
   await page.getByRole("button", { name: "Hide info view" }).click();

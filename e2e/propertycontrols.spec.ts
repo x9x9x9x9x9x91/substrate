@@ -10,7 +10,7 @@ function propertyRow(page: Page, key: string) {
 
 async function openRelease(page: Page) {
   await page.goto("/");
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await page.locator(".row-dbblock", { hasText: "Release" }).click();
   await page
     .locator(".db-table tbody tr", { hasText: "Slow Bloom EP" })

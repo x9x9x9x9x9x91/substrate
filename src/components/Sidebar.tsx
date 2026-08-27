@@ -91,7 +91,7 @@ interface SidebarProps {
   onMobileClose: () => void;
   /** collapse the sidebar to the slim rail (desktop only) */
   onToggleHidden: () => void;
-  /** untyped notes count — the Notes view's badge */
+  /** untyped notes count — the Scratch view's badge */
   scratchCount: number;
   /** every drive the vault has cataloged, online first — the Drives
       section's rows. A drive in a drawer still gets one: the whole point of
@@ -1187,8 +1187,8 @@ function Sidebar({
           only re-renders when the header hairline actually flips */}
       <div className={`sidebar-scroll${fade.className}`} {...fade.props}>
         {item("today", "Today", <SunIcon />, () => setView({ kind: "today" }), undefined, "⌘1")}
-        {item("notes", "Notes", <NotesIcon />, () => setView({ kind: "notes" }), scratchCount, "⌘2")}
-        {item("all", "All notes", <NoteIcon />, () => setView({ kind: "all" }), undefined, "⌘3")}
+        {item("notes", "Scratch", <NotesIcon />, () => setView({ kind: "notes" }), scratchCount, "⌘2")}
+        {item("all", "Notes", <NoteIcon />, () => setView({ kind: "all" }), undefined, "⌘3")}
         {item("calendar", "Calendar", <CalendarIcon />, () => setView({ kind: "calendar" }), undefined, "⌘4")}
         {item("search", "Search", <SearchIcon />, onOpenSearch, undefined, "⌘⇧F")}
         <button

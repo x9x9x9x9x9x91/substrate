@@ -7,8 +7,8 @@ import { expect, test } from "./fixtures";
 test("query 'release' surfaces Go to Release without scrolling (SUB-171)", async ({ page }) => {
   await page.goto("/");
   // first paint doubles as the "window key listeners attached" barrier (cold
-  // open lands on Notes — Today is a destination)
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  // open lands on Scratch — Today is a destination)
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await page.keyboard.press("Meta+k");
   await page.locator(".palette-input").fill("release");
 
@@ -46,7 +46,7 @@ test("query 'release' surfaces Go to Release without scrolling (SUB-171)", async
 
 test("query 'create database' surfaces New database… (SUB-805)", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await page.keyboard.press("Meta+k");
   await page.locator(".palette-input").fill("create database");
 
@@ -62,7 +62,7 @@ test("query 'create database' surfaces New database… (SUB-805)", async ({ page
 
 test("query 'create a note' still offers New note (SUB-805)", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await page.keyboard.press("Meta+k");
   await page.locator(".palette-input").fill("create a note");
 
@@ -73,7 +73,7 @@ test("query 'create a note' still offers New note (SUB-805)", async ({ page }) =
   ).toBeVisible();
 });
 
-// A dashboard note that already surfaced as a Notes row must not list again
+// A dashboard note that already surfaced as a Scratch row must not list again
 // as its "Dashboard: X" command — both rows open the same rendered surface,
 // so the pair reads as a duplicate.
 
@@ -84,7 +84,7 @@ test("query 'create a note' still offers New note (SUB-805)", async ({ page }) =
 
 test("palette and search inputs disable autocorrect (SUB-397)", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await page.keyboard.press("Meta+k");
   const palette = page.locator(".palette-input");
   await expect(palette).toHaveAttribute("spellcheck", "false");
@@ -106,7 +106,7 @@ test("palette and search inputs disable autocorrect (SUB-397)", async ({ page })
 
 test("a garbage plain-text query still shows the No results banner (SUB-673)", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await page.keyboard.press("Meta+k");
   await page.locator(".palette-input").fill("zzzqqqxyz");
 
@@ -131,7 +131,7 @@ test("a garbage plain-text query still shows the No results banner (SUB-673)", a
 
 test("palette rows mark the matched substring like the search pane (SUB-1205)", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await page.keyboard.press("Meta+k");
   await page.locator(".palette-input").fill("vessel");
 
@@ -165,7 +165,7 @@ test("palette rows mark the matched substring like the search pane (SUB-1205)", 
 
 test("a rejected palette property write reports on the toast (SUB-1149)", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await page.evaluate(() => {
     window.__mockFail = new Set(["vault_set_prop"]);
   });
@@ -205,7 +205,7 @@ test("a rejected palette property write reports on the toast (SUB-1149)", async 
 
 test("a refused palette rename reports on the toast (SUB-1214)", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
 
   await page.keyboard.press("Meta+k");
   await page.locator(".palette-input").fill("Vessel Songs");
@@ -239,7 +239,7 @@ test("a refused palette rename reports on the toast (SUB-1214)", async ({ page }
 
 test("a prop-only fact surfaces its note in the palette", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await page.keyboard.press("Meta+k");
   // Annelies Verbeek carries role: radio plugger in props alone — her body
   // says "Plugs the roster's singles", never the phrase itself
@@ -258,7 +258,7 @@ test("a prop-only fact surfaces its note in the palette", async ({ page }) => {
 
 test("arrow-walking to the last row lands it clear of the bottom fade (SUB-1218)", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await page.keyboard.press("Meta+k");
   await page.locator(".palette-input").fill("release");
   // wait past the debounced Content batch — counting before it arrives
@@ -315,7 +315,7 @@ test("arrow-walking to the last row lands it clear of the bottom fade (SUB-1218)
 
 test("cold-open palette sections are unique (SUB-1218)", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   // open a note so the Pick/Actions command rows exist
   await page.locator(".list .row", { has: page.getByText("Welcome", { exact: true }) }).click();
   await page.keyboard.press("Meta+k");
@@ -328,7 +328,7 @@ test("cold-open palette sections are unique (SUB-1218)", async ({ page }) => {
 
 test("a property-only hit says it matched in properties (SUB-1222)", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await page.keyboard.press("Meta+k");
   // "1k petals" is the artist prop on Vessel Songs — its body never says it
   await page.locator(".palette-input").fill("petals");
@@ -348,7 +348,7 @@ test("the browse palette offers Search, and a query hands it to See all results"
   page,
 }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await page.keyboard.press("Meta+k");
 
   // browse mode: the destination row is the only route to the search pane
@@ -371,7 +371,7 @@ test("the browse palette offers Search, and a query hands it to See all results"
 
 test("the Search row opens the pane without clearing the last search", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
 
   // leave a real search behind first
   await page.keyboard.press("Meta+Shift+f");

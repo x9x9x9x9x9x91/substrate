@@ -27,7 +27,7 @@ test("list row excerpt follows the edited body (SUB-290)", async ({ page }) => {
   // budget, which is the actual coverage.
   test.setTimeout(60_000);
   await page.goto("/");
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
 
   // replace the whole body so the first line is fully controlled, then let
@@ -52,7 +52,7 @@ test("list row excerpt follows the edited body (SUB-290)", async ({ page }) => {
 // inherited that blind spot.
 test("palette finds a hyphenated statement number like the engine (SUB-1221)", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await page.keyboard.press("Meta+k");
   // the Ledger's seeded Bandcamp 2025 Q4 row carries stmt BC-2025Q4-00352 in
   // its "statement no" prop — exactly the copied-from-an-email shape

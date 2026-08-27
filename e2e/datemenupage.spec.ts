@@ -26,7 +26,7 @@ function nextMonthClamped(iso: string): string {
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
 });
 
 test("DateMenu: PageDown pages the cursor with the month, and Enter commits a visible day", async ({

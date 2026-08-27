@@ -83,8 +83,8 @@ test("drag a chip onto a sidebar row: the row wears it and the key navigates", a
   await expect(calendar.locator(".side-key-chip")).toHaveText("⌘5");
 
   // the binding works: park somewhere else, then press it
-  await sideRow(page, "All notes").click();
-  await expect(page.locator(".side-item.active", { hasText: "All notes" })).toBeVisible();
+  await sideRow(page, "Notes").click();
+  await expect(page.locator(".side-item.active", { hasText: "Notes" })).toBeVisible();
   await page.keyboard.press("Meta+5");
   await expect(page.locator(".side-item.active", { hasText: "Calendar" })).toBeVisible();
 });
@@ -96,15 +96,15 @@ test("dragging an assigned chip to another row moves the binding", async ({ page
   await expect(calendar.locator(".side-key-chip")).toHaveText("⌘5");
 
   // now drag the row's own chip onto a different destination
-  const notes = sideRow(page, "Notes").first();
+  const notes = sideRow(page, "Scratch").first();
   await dragChip(page, calendar.locator(".side-key-chip"), notes);
   await expect(calendar.locator(".side-key-chip")).toHaveCount(0);
   await expect(notes.locator(".side-key-chip")).toHaveText("⌘5");
 
   await page.keyboard.press("Escape");
-  await sideRow(page, "All notes").click();
+  await sideRow(page, "Notes").click();
   await page.keyboard.press("Meta+5");
-  await expect(page.locator(".side-item.active", { hasText: /^Notes/ })).toBeVisible();
+  await expect(page.locator(".side-item.active", { hasText: /^Scratch/ })).toBeVisible();
 });
 
 test("dropping a chip back on the HUD unassigns it", async ({ page }) => {
@@ -120,9 +120,9 @@ test("dropping a chip back on the HUD unassigns it", async ({ page }) => {
 
   // and the key no longer navigates
   await page.keyboard.press("Escape");
-  await sideRow(page, "All notes").click();
+  await sideRow(page, "Notes").click();
   await page.keyboard.press("Meta+5");
-  await expect(page.locator(".side-item.active", { hasText: "All notes" })).toBeVisible();
+  await expect(page.locator(".side-item.active", { hasText: "Notes" })).toBeVisible();
 });
 
 test("a second key on the same target replaces the first (one key per row)", async ({ page }) => {
@@ -153,7 +153,7 @@ test("a root folder row takes a key alongside its reorder drag", async ({ page }
   await expect(projects.locator(".side-key-chip")).toHaveText("⌘5");
 
   await page.keyboard.press("Escape");
-  await sideRow(page, "All notes").click();
+  await sideRow(page, "Notes").click();
   await page.keyboard.press("Meta+5");
   await expect(page.locator(".side-folder.active", { hasText: "Projects" })).toBeVisible();
 });
@@ -166,7 +166,7 @@ test("a nested folder row takes a key (no reorder lane below root)", async ({ pa
   await expect(active.locator(".side-key-chip")).toHaveText("⌘5");
 
   await page.keyboard.press("Escape");
-  await sideRow(page, "All notes").click();
+  await sideRow(page, "Notes").click();
   await page.keyboard.press("Meta+5");
   await expect(page.locator(".side-folder.active", { hasText: "Active" })).toBeVisible();
 });
@@ -178,7 +178,7 @@ test("a dashboard row takes a key alongside its reorder drag", async ({ page }) 
   await expect(portfolio.locator(".side-key-chip")).toHaveText("⌘5");
 
   await page.keyboard.press("Escape");
-  await sideRow(page, "All notes").click();
+  await sideRow(page, "Notes").click();
   await page.keyboard.press("Meta+5");
   await expect(page.locator(".side-item.active", { hasText: "Portfolio" })).toBeVisible();
 });
@@ -208,7 +208,7 @@ test("a key on a database row follows the rename and dies with the delete", asyn
 
   await expect(taskRow.locator(".side-key-chip")).toHaveText("⌘5");
   // and it still navigates — to the renamed database
-  await page.locator(".side-item", { hasText: "All notes" }).first().click();
+  await page.locator(".side-item", { hasText: /^Notes/ }).first().click();
   await page.keyboard.press("Meta+5");
   await expect(taskRow).toHaveClass(/active/);
 
@@ -266,7 +266,7 @@ test("the HUD lists pin-shadowing keys apart, still draggable", async ({ page })
   await expect(calendar.locator(".side-key-chip")).toHaveText("⌘5");
   await page.keyboard.press("Escape");
 
-  await sideRow(page, "All notes").click();
+  await sideRow(page, "Notes").click();
   await page.keyboard.press("Meta+5");
   await expect(page.locator(".side-item.active", { hasText: "Calendar" })).toBeVisible();
 });

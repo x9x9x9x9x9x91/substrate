@@ -11,7 +11,7 @@ function row(page: import("@playwright/test").Page, title: string) {
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
 });
 
 test("⌘/ in the editor opens the sheet without touching the body", async ({ page }) => {

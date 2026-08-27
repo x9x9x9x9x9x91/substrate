@@ -28,7 +28,7 @@ async function trashViaPalette(page: Page, query: string, title: string) {
 // proof a path's snapshots are gone: the History panel's purge-by-path
 // refuses when it finds none (and would proceed if any survived)
 async function expectHistoryGone(page: Page, path: string) {
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await row(page, "Welcome").click();
   await page.locator(".note-tool[aria-label=History]").click();
   await page.locator(".hist-danger-link", { hasText: "Purge a deleted note…" }).click();
@@ -44,9 +44,9 @@ function chip(page: Page, key: string) {
 
 async function boot(page: Page) {
   await page.goto("/");
-  // cold open lands on the Notes scratch list (Today is a destination) —
+  // cold open lands on the Scratch list (Today is a destination) —
   // these flows build on the scratch list and its first-note selection
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   // notes view (untyped, recency-first), first mock note selected and loaded
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
 }
@@ -76,9 +76,9 @@ test("open note, edit, body round-trips", async ({ page }) => {
 });
 
 test("chip edit via picker, chip add via key:value", async ({ page }) => {
-  // typed notes live in their databases: All notes collapses them into the
+  // typed notes live in their databases: Notes collapses them into the
   // database block — click through, then open the entry
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await page.locator(".row-dbblock", { hasText: "Release" }).click();
   await expect(page.locator(".db-table")).toBeVisible();
   await page
@@ -162,7 +162,7 @@ test("table aggregation footer: pick, compute, persist (SUB-74)", async ({ page 
   await expect(page.locator('.db-agg-cell[data-col="artist"] .db-agg-value')).toHaveText("5");
 
   // persists across view switches (mock vault_views_set round-trip)
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await openDb(page, "Release");
   await expect(page.locator(".db-agg-title")).toHaveText("5 rows");
   await expect(page.locator('.db-agg-cell[data-col="tracks"] .db-agg-value')).toHaveText("42");
@@ -215,7 +215,7 @@ test("board: No status column only while a card lacks the prop; empty columns ge
 
   // (b) a release born without a status, created through the app itself:
   // plain scratch note → Database chip → release (commits the type prop only)
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
   await page.keyboard.press("Meta+n");
   const newTitle = page.locator(".note-title");
@@ -230,7 +230,7 @@ test("board: No status column only while a card lacks the prop; empty columns ge
   await chip(page, "Database").click();
   const typeMenu = page.locator(".selmenu");
   await expect(typeMenu).toBeVisible();
-  // picking a type pulls the note out of the untyped Notes list — the open
+  // picking a type pulls the note out of the untyped Scratch list — the open
   // note switches, so verify at the board, not on the chip
   await typeMenu.locator(".selmenu-item", { hasText: "release" }).click();
 
@@ -285,7 +285,7 @@ test("trash → restore", async ({ page }) => {
   await expect(entry).toBeVisible();
   await entry.locator(".trash-restore").click();
 
-  // restore lands in All notes with the note open and its body intact
+  // restore lands in Notes with the note open and its body intact
   await expect(page.locator(".note-title")).toHaveValue("Rondo MX180");
   await expect(page.locator(".cm-content")).toContainText("Rotary mixer");
 });
@@ -324,7 +324,7 @@ test("sidebar reorder: Move up/down via the context menu (SUB-58)", async ({ pag
 });
 
 test("sheet: cell edit recomputes formula column", async ({ page }) => {
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   // sheets are surfaces, not a database: they list as loose rows
   await page.locator('.list .row[data-path="Holdings.md"]').click();
   await expect(page.locator(".note-title")).toHaveValue("Holdings");
@@ -372,7 +372,7 @@ test("saved view: filter, pin, open, remove (SUB-18)", async ({ page }) => {
 
   // leave and reopen through the pin: query and rows come back — the title
   // stays the database's, the pin's name rides the active tab
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await pin.click();
   await expect(page.locator(".list-title")).toHaveText("Release");
   await expect(page.locator(".db-tab.active")).toHaveText("Live releases⌘5");
@@ -430,7 +430,7 @@ test("database filter: multi-value OR + saved view round-trip (SUB-78)", async (
   await expect(pin).toHaveCount(1);
 
   // leave and reopen through the pin: same query, same union of rows
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await pin.click();
   await expect(page.locator(".list-title")).toHaveText("Release");
   await expect(page.locator(".db-tab.active")).toHaveText("Live or in review⌘5");
@@ -444,7 +444,7 @@ test("multi-select prop: picker toggles values, per-value pills + filter (SUB-79
 }) => {
   // Slow Bloom EP seeds format: Vinyl — a scalar, legal for one value; open
   // it through its database block
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await page.locator(".row-dbblock", { hasText: "Release" }).click();
   await page
     .locator(".db-table tbody tr", { hasText: "Slow Bloom EP" })
@@ -501,7 +501,7 @@ test("⌘5 opens the first pinned view (SUB-67)", async ({ page }) => {
   await expect(page.locator(".side-view", { hasText: "Live releases" })).toHaveCount(1);
 
   // leave, then ⌘5 jumps straight back to the pin — same as clicking it
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await page.keyboard.press("Meta+5");
   await expect(page.locator(".list-title")).toHaveText("Release");
   await expect(page.locator(".db-tab.active")).toHaveText("Live releases⌘5");
@@ -510,8 +510,8 @@ test("⌘5 opens the first pinned view (SUB-67)", async ({ page }) => {
 });
 
 test("notes: untyped scratch list, ⌘2 jump, ⌘N instant note (SUB-70)", async ({ page }) => {
-  // boot leaves us on Notes: untyped AND unfiled only, recency-first
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  // boot leaves us on Scratch: untyped AND unfiled only, recency-first
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await expect(page.locator(".list .row")).toHaveCount(3);
   await expect(row(page, "Welcome")).toBeVisible();
   await expect(row(page, "Umbra")).toHaveCount(0); // untyped but filed (Projects/) — its folder owns it
@@ -519,19 +519,19 @@ test("notes: untyped scratch list, ⌘2 jump, ⌘N instant note (SUB-70)", async
   await expect(page.locator(".side-item:not(.side-folder)", { hasText: "Inbox" })).toHaveCount(0);
   await expect(page.locator(".side-item:not(.side-folder)", { hasText: "Recent" })).toHaveCount(0);
 
-  // ⌘3 → All notes collapses typed notes into their database blocks;
-  // the block clicks through to the database, ⌘2 jumps back to Notes
+  // ⌘3 → Notes collapses typed notes into their database blocks;
+  // the block clicks through to the database, ⌘2 jumps back to Scratch
   await page.keyboard.press("Meta+3");
-  await expect(page.locator(".list-title")).toHaveText("All notes");
+  await expect(page.locator(".list-title")).toHaveText("Notes");
   await expect(row(page, "Slow Bloom EP")).toHaveCount(0);
   const releaseBlock = page.locator(".row-dbblock", { hasText: "Release" });
   await expect(releaseBlock).toContainText("5 entries");
   await releaseBlock.click();
   await expect(page.locator(".db-table")).toBeVisible();
   await page.keyboard.press("Meta+2");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
 
-  // ⌘N in Notes: instant untyped note on top, cursor in the title, no dialog
+  // ⌘N in Scratch: instant untyped note on top, cursor in the title, no dialog
   await page.keyboard.press("Meta+n");
   const title = page.locator(".note-title");
   await expect(title).toHaveValue("Untitled");
@@ -761,15 +761,15 @@ test("move collision surfaces a toast instead of failing silently (SUB-58)", asy
   // into the Inbox, which holds no note of that name yet — create-time dedupe
   // is per-folder, so it lands at Inbox/Welcome.md exactly, and the
   // root note of the same name collides with it on a move. ⌘N is capture
-  // everywhere except the Notes view, so go to All notes first.
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  // everywhere except the Scratch view, so go to Notes first.
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await page.keyboard.press("Meta+n");
   await page.locator(".palette-input").fill("Welcome");
   await page.keyboard.press("Enter");
   await expect(page.locator(".overlay")).toHaveCount(0);
 
   // drag the root Welcome onto the Inbox folder — the name is taken there
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   const source = page.locator(".list .row[data-path='Welcome.md']");
   await expect(source).toBeVisible();
   await source.dragTo(page.locator(".side-folder", { hasText: "Inbox" }));
@@ -782,8 +782,8 @@ test("move collision surfaces a toast instead of failing silently (SUB-58)", asy
 test("create dedupes filenames per folder like the engine (SUB-65)", async ({ page }) => {
   // "Capture anything" already sits in the Inbox — capturing the same title
   // again must dedupe to a numbered sibling, never duplicate the path. ⌘N is
-  // capture everywhere except the Notes view, so go to All notes first.
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  // capture everywhere except the Scratch view, so go to Notes first.
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await page.keyboard.press("Meta+n");
   await page.locator(".palette-input").fill("Capture anything");
   await page.keyboard.press("Enter");
@@ -791,7 +791,7 @@ test("create dedupes filenames per folder like the engine (SUB-65)", async ({ pa
 
   // the original is untouched and the sibling is numbered, its title following
   // the deduped filename — the engine's Idea.md, Idea 2.md… rule
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await expect(
     page.locator(".list .row[data-path='Inbox/Capture anything.md']")
   ).toBeVisible();
@@ -844,7 +844,7 @@ test("trash: delete forever can also purge history (SUB-52)", async ({ page }) =
 
 test("trash: empty trash can purge all history in one go (SUB-52)", async ({ page }) => {
   // seed snapshots for one of the two doomed notes — a gear entry opens via
-  // the palette; All notes lists it collapsed into its db block
+  // the palette; Notes lists it collapsed into its db block
   await page.keyboard.press("Meta+k");
   const input = page.locator(".palette-input");
   await input.fill("rondo");
@@ -1201,7 +1201,7 @@ test("database management: create → entry → rename → delete keep-notes (SU
   await del.locator(".selmenu-btn", { hasText: "Remove database, keep 1 note" }).click();
   await page.locator(".side-item", { hasText: "All databases" }).click();
   await expect(page.locator(".dbmgr-row", { hasText: "library" })).toHaveCount(0);
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await row(page, "Dune").click();
   await expect(page.locator(".note-title")).toHaveValue("Dune");
   // membership gone — the note reads as a plain note again
@@ -1266,8 +1266,8 @@ test("delete database: trash choice moves notes to Trash (SUB-43)", async ({ pag
 });
 
 test("capture opens the freshly captured note, not the old list top (SUB-72)", async ({ page }) => {
-  // capture from All notes (⌘N is capture everywhere except Notes view)
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  // capture from Notes (⌘N is capture everywhere except Scratch view)
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await page.keyboard.press("Meta+n");
   await page.locator(".palette-input").fill("Fresh capture target");
   await page.keyboard.press("Enter");
@@ -1279,7 +1279,7 @@ test("capture opens the freshly captured note, not the old list top (SUB-72)", a
 });
 
 test("filing a capture into a database keeps it open (SUB-208)", async ({ page }) => {
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await page.keyboard.press("Meta+n");
   await page.locator(".palette-input").fill("Filed capture stays open");
   await page.keyboard.press("Enter");
@@ -1302,7 +1302,7 @@ test("filing a capture into a database keeps it open (SUB-208)", async ({ page }
 });
 
 test("typing a note into a NEW database announces the birth (SUB-470)", async ({ page }) => {
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await page.keyboard.press("Meta+n");
   await page.locator(".palette-input").fill("First expense");
   await page.keyboard.press("Enter");
@@ -1335,7 +1335,7 @@ test("typing a note into a NEW database announces the birth (SUB-470)", async ({
   await expect(treeRow).toBeVisible();
 
   // filing into an EXISTING database stays quiet
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await page.keyboard.press("Meta+n");
   await page.locator(".palette-input").fill("Second expense");
   await page.keyboard.press("Enter");
@@ -1461,7 +1461,7 @@ test("plain notes carry a default Database chip; home-folder ⌘N births typed e
   page,
 }) => {
   // a plain note states its kind quietly — Database · note, nothing on disk
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await row(page, "Welcome").click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
   const plain = chip(page, "Database");
@@ -1835,7 +1835,7 @@ test("saved view: per-view display columns curate table + list, recalled by the 
   await page.keyboard.press("Escape");
 
   // Persistent on a plain database — leave and return, still hidden
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await openDb(page, "Release");
   await expect(page.locator(".db-table thead th")).toHaveCount(11);
   await expect(page.locator(".db-table thead th", { hasText: "cat#" })).toHaveCount(0);
@@ -1853,7 +1853,7 @@ test("saved view: per-view display columns curate table + list, recalled by the 
   await expect(pin).toHaveCount(1);
 
   // recall through the pin: exactly the curated set, in every layout
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await pin.click();
   await expect(page.locator(".list-title")).toHaveText("Release");
   await expect(page.locator(".db-tab.active")).toHaveText("Curated⌘5");

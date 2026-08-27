@@ -18,7 +18,7 @@ async function openWeek(page: import("@playwright/test").Page) {
 
 test("going back from an opened entry returns to the week you left", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await openWeek(page);
   const title = await page.locator(".list-title").first().innerText();
 
@@ -37,7 +37,7 @@ test("going back from an opened entry returns to the week you left", async ({ pa
 
 test("a paged-to week survives the round trip", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await openWeek(page);
   await page.locator(".cal-wk-col").first().focus();
   await page.keyboard.press("Meta+ArrowRight");
@@ -54,7 +54,7 @@ test("a paged-to week survives the round trip", async ({ page }) => {
 
 test("month stays month — the layout is remembered, not forced", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await page.keyboard.press("Meta+4");
   await expect(page.locator(".cal-grid.month")).toBeVisible();
   await page.keyboard.press("Meta+2");

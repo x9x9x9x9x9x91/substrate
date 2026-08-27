@@ -6,11 +6,11 @@ import { expect, test, type Page } from "./fixtures";
 // widgets and heals them in place; healthy widgets compare equal and keep
 // their DOM (a playing audio embed must not restart on an unrelated save).
 
-// cold open lands on the Notes scratch list (Today is a destination) —
+// cold open lands on the Scratch list (Today is a destination) —
 // first mock note selected and loaded (same boot shape as filechip.spec)
 async function boot(page: Page) {
   await page.goto("/");
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
 }
 

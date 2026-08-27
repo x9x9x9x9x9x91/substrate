@@ -4,7 +4,7 @@ test("sparse note body aligns with the content column and its empty surface focu
   page,
 }) => {
   await page.goto("/");
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await page.keyboard.press("Meta+n");
 
   const title = page.getByRole("textbox", { name: "Note title", exact: true });
@@ -52,7 +52,7 @@ test("sparse note body aligns with the content column and its empty surface focu
 /** a fresh note with three headings and enough body to scroll */
 async function writeOutlineNote(page: Page, title: string) {
   await page.goto("/");
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await page.keyboard.press("Meta+n");
 
   const titleBox = page.getByRole("textbox", { name: "Note title", exact: true });

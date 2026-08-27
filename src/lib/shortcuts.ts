@@ -225,7 +225,7 @@ function define(s: Omit<Shortcut, "keys">): Shortcut {
 
 /** ⌘5…⌘9 target pinned views in sidebar order: the 0-based pin
     index a number key addresses, or null outside the pin range. ⌘1–4 stay
-    with the fixed views (Today/Notes/All/Calendar). */
+    with the fixed views (Today/Scratch/Notes/Calendar). */
 export function pinIndexForKey(key: string): number | null {
   const n = Number(key);
   return Number.isInteger(n) && n >= 5 && n <= 9 ? n - 5 : null;
@@ -485,7 +485,7 @@ export const SHORTCUTS: Shortcut[] = [
     // Placement is the whole arbitration story — registry ORDER is precedence,
     // the when-gate decides whether this entry claims the event at all. It sits
     // ahead of view-today…view-pins because `mod: true` on those means ⌘ OR ⌃:
-    // ⌃1…⌃4 would otherwise land on Today/Notes/All/Calendar and ⌃5…⌃9 on the
+    // ⌃1…⌃4 would otherwise land on Today/Scratch/Notes/Calendar and ⌃5…⌃9 on the
     // pins. Unassigned keys fall through here untouched, so ⌘1…⌘4 and the pin
     // mapping keep working exactly as before.
     //
@@ -527,14 +527,14 @@ export const SHORTCUTS: Shortcut[] = [
   }),
   define({
     id: "view-notes",
-    description: "Go to Notes",
+    description: "Go to Scratch",
     group: "Views",
     scopes: ["app"],
     combos: [{ key: "2", mod: true }],
   }),
   define({
     id: "view-all",
-    description: "Go to All notes",
+    description: "Go to Notes",
     group: "Views",
     scopes: ["app"],
     combos: [{ key: "3", mod: true }],

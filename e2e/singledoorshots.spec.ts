@@ -11,7 +11,7 @@ const dir = process.env.SHOT_DIR || "/tmp/single-door";
 
 test("shot: row context menu", async ({ page }) => {
   await page.goto("/");
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await page.locator(".list .row", { hasText: "Welcome" }).first().click({ button: "right" });
   await expect(page.locator(".ctx-item", { hasText: "Seal note…" })).toBeVisible();
   await page.waitForTimeout(600);
@@ -29,7 +29,7 @@ test("shot: row context menu on a database row", async ({ page }) => {
 
 test("shot: row context menu while the note is unlocked", async ({ page }) => {
   await page.goto("/");
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await page.locator(".list .row", { hasText: "Welcome" }).first().click({ button: "right" });
   await page.locator(".ctx-item", { hasText: "Seal note…" }).click();
   const setup = page.getByRole("dialog", { name: "Seal “Welcome”" });
@@ -89,7 +89,7 @@ test("shot: palette commands with link-folder export", async ({ page }) => {
 
 test("shot: the open pane after a row-menu unlock", async ({ page }) => {
   await page.goto("/");
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await page.locator(".list .row", { hasText: "Welcome" }).first().click({ button: "right" });
   await page.locator(".ctx-item", { hasText: "Seal note…" }).click();
   const setup = page.getByRole("dialog", { name: "Seal “Welcome”" });

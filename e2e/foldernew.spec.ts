@@ -14,7 +14,7 @@ function chip(page: import("@playwright/test").Page, key: string) {
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
 });
 
 test("plain folder: + births a scratch note in that folder", async ({ page }) => {
@@ -62,7 +62,7 @@ test("Journal folder: + opens today's daily, no Untitled litter (SUB-593)", asyn
 
 test("non-folder views carry no header plus", async ({ page }) => {
   await expect(page.locator(".list-new")).toHaveCount(0);
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await expect(page.locator(".list-new")).toHaveCount(0);
   // a database header has its own "+ New" chrome — no second plus
   await openDb(page, "Release");

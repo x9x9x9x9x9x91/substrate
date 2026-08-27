@@ -15,7 +15,7 @@ function row(page: Page, title: string) {
 // cold open lands on the Today surface — same boot shape as mockfail
 async function boot(page: Page) {
   await page.goto("/");
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
 }
 

@@ -7,13 +7,13 @@ import { openDb } from "./nav";
 
 test("the header has no chevron in the view you start from", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await expect(page.locator(".list-back")).toHaveCount(0);
 });
 
 test("the chevron returns from a database the way ⌫ does", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
 
   await openDb(page, "Contact");
   const back = page.locator(".list-head .list-back");
@@ -24,7 +24,7 @@ test("the chevron returns from a database the way ⌫ does", async ({ page }) =>
   await expect(page.locator(".list-title")).toHaveText("All databases");
 
   await back.click();
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await expect(page.locator(".list-back")).toHaveCount(0);
 });
 

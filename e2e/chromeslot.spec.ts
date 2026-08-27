@@ -18,7 +18,7 @@ async function slot(page: import("@playwright/test").Page, name: string) {
 
 test("the keyboard button holds one coordinate across every desktop surface", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   const base = await slot(page, "01-note");
 
   await page.keyboard.press("Meta+1");
@@ -53,7 +53,7 @@ test("the keyboard button holds one coordinate across every desktop surface", as
   // reserve the slot like the rest.
   // Reload first: search left the caret in its own input, where ⌘K is inert.
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await page.keyboard.press("Meta+k");
   await page.locator(".palette-input").fill("vault doctor");
   await page.locator(".palette-item", { hasText: "Vault doctor" }).first().click();
@@ -65,7 +65,7 @@ test("the keyboard button holds one coordinate across every desktop surface", as
   // and the panel itself, folded out over a note
   await page.keyboard.press("Escape");
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await page.locator(".keyhints-chip").click();
   await expect(page.locator(".keyhints-panel")).toBeVisible();
   // let the fold-out animation settle so the shot isn't a half-faded frame

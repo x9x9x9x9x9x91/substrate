@@ -53,7 +53,7 @@ test("drag a header to reorder; the order survives a page switch and a layout sw
   expect(await colOrder(page)).toEqual(expected);
 
   // persists across a page switch (mock vault_views_set round-trip)
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await openRelease(page);
   expect(await colOrder(page)).toEqual(expected);
 
@@ -108,7 +108,7 @@ test("after a reorder the resize handle and the right-click checklist still work
   const after = (await th.boundingBox())!;
   expect(after.width).toBeGreaterThan(start.width + 40);
 
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await openRelease(page);
   const back = (await page.locator(".db-table thead th", { hasText: moved }).boundingBox())!;
   expect(Math.abs(back.width - after.width)).toBeLessThan(3);

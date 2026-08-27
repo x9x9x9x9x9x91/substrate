@@ -18,9 +18,9 @@ function sideFolder(page: Page, name: string) {
 
 async function boot(page: Page) {
   await page.goto("/");
-  // cold open lands on the Notes scratch list (Today is a destination)
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  // cold open lands on the Scratch list (Today is a destination)
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await row(page, "Welcome").click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
 }
@@ -29,10 +29,10 @@ test.beforeEach(async ({ page }) => {
   await boot(page);
 });
 
-test("palette move of the open note follows it out of the Notes scope (SUB-768)", async ({
+test("palette move of the open note follows it out of the Scratch scope (SUB-768)", async ({
   page,
 }) => {
-  // Projects is a real folder: filing there promotes the note out of Notes
+  // Projects is a real folder: filing there promotes the note out of Scratch
   await page.locator('.note-tool[title="Note actions"]').click();
   await page.locator(".dots-item", { hasText: "Move to folder…" }).click();
   await expect(page.locator(".palette")).toBeVisible();
@@ -68,8 +68,8 @@ test("⌘Z after moving the open note follows it back (SUB-1061)", async ({ page
   await page.keyboard.press("Meta+z");
 
   await expect(page.locator(".toast")).toContainText("Undid Move");
-  // the view came back to Notes with the note…
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  // the view came back to Scratch with the note…
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   // …and the editor still holds it, not a snapped-to neighbour
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
   await expect(row(page, "Welcome")).toBeVisible();
@@ -84,6 +84,6 @@ test("moving a note that isn't open leaves the view alone (SUB-768)", async ({ p
   // "Welcome" stays open; a different scratch row is the one that moves
   await row(page, "Capture anything").dragTo(sideFolder(page, "Projects"));
 
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
 });

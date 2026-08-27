@@ -4,11 +4,11 @@ import { openDb } from "./nav";
 // Pane headers carry a quiet kind word ("Folder" / "Database" /
 // "Dashboard") next to the count — a folder of 2 notes and a database of
 // 1424 entries otherwise wear identical headers. Self-describing views
-// (Notes, All notes, Today…) stay unlabeled.
+// (Scratch, Notes, Today…) stay unlabeled.
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
 });
 
 test("folder view header says Folder", async ({ page }) => {

@@ -6,7 +6,7 @@ const OUT = "/tmp/sub1272-shots";
 
 async function boot(page: Page) {
   await page.goto("/");
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
   await page.locator(".cm-content").click();
   const lines = page.locator(".cm-line");
@@ -54,7 +54,7 @@ async function seedBody(page: Page, path: string, body: string) {
 
 test("shot: value after an external adopt", async ({ page }) => {
   await page.goto("/");
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
   await seedBody(page, "Cash.md", CASH);
 

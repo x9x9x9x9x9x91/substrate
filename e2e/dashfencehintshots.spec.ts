@@ -31,7 +31,7 @@ async function seed(page: Page, body: string) {
 
 test("shot: a dashboard fence in a plain note", async ({ page }) => {
   await page.goto("/");
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
   await seed(page, BODY);
 

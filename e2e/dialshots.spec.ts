@@ -10,7 +10,7 @@ const dir = process.env.SHOT_DIR || "/tmp/sub-shots-955";
 
 async function boot(page: Page) {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await page.evaluate(() => window.__mockSetEchoOnWrites?.(true));
 }
 

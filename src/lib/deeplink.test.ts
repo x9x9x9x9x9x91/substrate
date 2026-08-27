@@ -11,17 +11,26 @@ test("a view link resolves by the kind behind the destination", () => {
 });
 
 test("a view link resolves by the words the palette shows", () => {
-  assert.deepEqual(resolveViewName("All notes"), { kind: "all" });
+  assert.deepEqual(resolveViewName("Scratch"), { kind: "notes" });
   assert.deepEqual(resolveViewName("Vault doctor"), { kind: "doctor" });
   assert.deepEqual(resolveViewName("What's new"), { kind: "changelog" });
   assert.deepEqual(resolveViewName("Drives"), { kind: "shelf" });
 });
 
+test("the one word/kind collision resolves to the kind", () => {
+  // "Notes" (the vault-wide list's label) normalizes to the same token as
+  // the kind spelling "notes" (the Scratch view), and the kind wins: kinds
+  // are the contract scripts rely on, so a relabel must never move them.
+  // The vault-wide list stays linkable by its kind, "all".
+  assert.deepEqual(resolveViewName("Notes"), { kind: "notes" });
+  assert.deepEqual(resolveViewName("all"), { kind: "all" });
+});
+
 test("names are matched case-folded, trimmed and whitespace-collapsed", () => {
   // a link is typed into a note or built by a script — one destination, not a
   // spelling test
-  for (const spelling of ["ALL NOTES", "all notes", "  All  Notes  ", "aLl\tnotes"]) {
-    assert.deepEqual(resolveViewName(spelling), { kind: "all" }, spelling);
+  for (const spelling of ["VAULT DOCTOR", "vault doctor", "  Vault  Doctor  ", "vAuLt\tdoctor"]) {
+    assert.deepEqual(resolveViewName(spelling), { kind: "doctor" }, spelling);
   }
   assert.equal(normalizeViewName("  Vault   Doctor "), "vault doctor");
 });

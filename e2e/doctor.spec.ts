@@ -7,7 +7,7 @@ import { expect, test } from "./fixtures";
 test("palette opens the vault doctor report (SUB-432)", async ({ page }) => {
   await page.goto("/");
   // first paint doubles as the "window key listeners attached" barrier
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await page.keyboard.press("Meta+k");
   await page.locator(".palette-input").fill("vault doctor");
   await page.locator(".palette-item", { hasText: "Vault doctor" }).first().click();

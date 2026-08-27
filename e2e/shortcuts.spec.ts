@@ -19,8 +19,8 @@ function humanDay(offsetDays = 0): string {
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
   // first paint doubles as the "window key listeners attached" barrier (cold
-  // open lands on Notes — Today is a destination)
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  // open lands on Scratch — Today is a destination)
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
 });
 
 test("⌃N/⌃P in search move the list selection and fire nothing else (SUB-110)", async ({ page }) => {
@@ -41,7 +41,7 @@ test("⌃N/⌃P in search move the list selection and fire nothing else (SUB-110
 });
 
 test("Esc from search restores the previously open note (SUB-111)", async ({ page }) => {
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await page.locator(".list .row", { hasText: "Capture anything" }).click();
   await expect(page.locator(".note-title")).toHaveValue("Capture anything");
 
@@ -52,7 +52,7 @@ test("Esc from search restores the previously open note (SUB-111)", async ({ pag
   await page.keyboard.press("Escape");
 
   await expect(page.locator(".search-pane")).toHaveCount(0);
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await expect(page.locator(".note-title")).toHaveValue("Capture anything");
 });
 
@@ -105,11 +105,11 @@ test("cheat sheet: one row per label, both combos on the this-sheet row (SUB-139
 
 test("digit views: ⌘1 today, ⌘2 notes, ⌘3 all, ⌘4 calendar", async ({ page }) => {
   await page.keyboard.press("Meta+2");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   // the scratch list rides along — untyped + unfiled only
   await expect(page.locator(".list .row")).toHaveCount(3);
   await page.keyboard.press("Meta+3");
-  await expect(page.locator(".list-title")).toHaveText("All notes");
+  await expect(page.locator(".list-title")).toHaveText("Notes");
   await page.keyboard.press("Meta+4");
   await expect(page.locator(".cal")).toBeVisible();
   // ⌘1 is back with the rebuilt Today surface
@@ -133,7 +133,7 @@ test("app zoom: ⌘= steps up, ⌘− down, ⌘0 resets; the level survives relo
 
   // persisted per window: a reload comes back at the stepped level
   await page.reload();
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   expect(await zoom()).toBe("1.25");
 
   await page.keyboard.press("Meta+-");

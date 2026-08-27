@@ -8,7 +8,7 @@ import { expect, test } from "./fixtures";
 
 test("cursor into a rendered table reveals source, cursor out re-renders", async ({ page }) => {
   await page.goto("/");
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
 
   const table = page.locator(".cm-md-table");
@@ -37,7 +37,7 @@ test("cursor into a rendered table reveals source, cursor out re-renders", async
 test("a rendered view embed survives cursor moves that touch no block", async ({ page }) => {
   await page.goto("/");
   // Projects/Umbra.md is the ```view fence fixture — reach it through ⌘K
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await page.keyboard.press("Meta+k");
   await page.locator(".palette-input").fill("Umbra");
   await page
@@ -94,7 +94,7 @@ test("a callout scrolled out and back stays decorated", async ({ page }) => {
 // raw source forever.
 test("a table beyond the initial parse window still renders", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await page.keyboard.press("Meta+n");
   await expect(page.locator(".note-title")).toBeFocused();
   await page.keyboard.type("Deep table");

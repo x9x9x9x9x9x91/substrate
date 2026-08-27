@@ -33,7 +33,7 @@ async function syncCalls(page: Page): Promise<string[]> {
 }
 
 async function openWelcome(page: Page) {
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
 }
 

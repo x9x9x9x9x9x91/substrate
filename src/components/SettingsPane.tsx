@@ -71,6 +71,7 @@ import McpSettings from "./McpSettings";
 import CalendarSettings from "./CalendarSettings";
 import { visibleSettingsTabs, type SettingsTabId } from "../lib/settingsTabs";
 import { errText } from "../lib/errtext";
+import ImportSettings from "./ImportSettings";
 
 const Onboarding = lazy(() => import("./Onboarding"));
 
@@ -1616,6 +1617,7 @@ export default function SettingsPane({
           )}
           {tab === "vault" && (
             <>
+              <ImportSettings onToast={onToast} />
               {/* only when this vault has rules: the enable switch is a
                   consequential one, and it should not be the first thing
                   someone opening this tab trips over */}

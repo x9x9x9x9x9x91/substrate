@@ -7,7 +7,7 @@ import { expect, test } from "./fixtures";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
 });
 
 test("the cookbook button sits in the lower-left cluster and opens the pane", async ({ page }) => {
@@ -55,7 +55,7 @@ test("installing writes the recipe's files and opens the dashboard", async ({ pa
 
   // the click-through lands on the installed dashboard in a view that holds it
   await recipe.getByRole("button", { name: "Open the dashboard" }).click();
-  await expect(page.locator(".list-title")).toHaveText("All notes");
+  await expect(page.locator(".list-title")).toHaveText("Notes");
   await expect(page.locator(".list .row.selected")).toContainText("Portfolio Recipe");
 });
 

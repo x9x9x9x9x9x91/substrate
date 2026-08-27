@@ -30,7 +30,7 @@ function humanFull(iso: string): string {
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
   // the list's first paint doubles as the "app is live" barrier
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await page.keyboard.press("Meta+4");
   await expect(page.locator(".cal")).toBeVisible();
   // today's cell overflows the 3-chip month cap — expand it to reach every chip

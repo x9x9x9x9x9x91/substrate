@@ -7,7 +7,7 @@ import { expect, test } from "./fixtures";
 // them, so this is the contract for every kind that is ever removed.
 test("a note with a retired dashboard kind renders the unknown-kind card", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
 
   await page.evaluate(() => {
     window.__mockCloneNote?.("Dashboards/Calories.md", "Dashboards/Retired Kind.md");
@@ -28,7 +28,7 @@ test("a note kept on the retired tile-board kind renders the unknown-kind card",
   page,
 }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
 
   await page.evaluate(() => {
     window.__mockCloneNote?.("Dashboards/Calories.md", "Dashboards/Old Board.md");

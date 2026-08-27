@@ -10,9 +10,9 @@ import { expect, test } from "./fixtures";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
-  // cold open lands on Notes — first paint is the "window key
+  // cold open lands on Scratch — first paint is the "window key
   // listeners attached" barrier
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await page.keyboard.press("Meta+d");
   await expect(page.locator(".list-title")).toHaveText("Journal");
 });

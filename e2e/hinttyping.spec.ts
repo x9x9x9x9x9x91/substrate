@@ -35,8 +35,8 @@ async function boot(page: Page, opts: { panelOpen?: boolean } = {}) {
   }
   await page.goto("/");
   // first paint doubles as the "window key listeners attached" barrier (cold
-  // open lands on Notes — Today is a destination)
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  // open lands on Scratch — Today is a destination)
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   // both surfaces listen from effects, which flush after the commit that
   // painted the list — a key sent on that paint can land before anything is
   // listening (modkeyhud.spec.ts pays the same toll)

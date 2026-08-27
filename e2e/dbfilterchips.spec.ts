@@ -15,7 +15,7 @@ const QUERY = "-format:tape released >= 2026-06-01 status:live";
 
 async function boot(page: Page) {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
 }
 
 async function shoot(page: Page, file: string) {

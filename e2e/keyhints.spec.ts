@@ -7,8 +7,8 @@ import { expect, test } from "./fixtures";
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
   // first paint doubles as the "window key listeners attached" barrier (cold
-  // open lands on Notes — Today is a destination)
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  // open lands on Scratch — Today is a destination)
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
 });
 
 test("the button folds out the panel with the list view's live rows", async ({ page }) => {
@@ -98,7 +98,7 @@ test("Escape and outside click close; the open state persists across reload", as
   await expect(panel).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem("substrate.keyHints"))).toBe("1");
   await page.reload();
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await expect(panel).toBeVisible();
 
   // Escape closes and persists the closed state too
@@ -106,7 +106,7 @@ test("Escape and outside click close; the open state persists across reload", as
   await expect(panel).toHaveCount(0);
   expect(await page.evaluate(() => localStorage.getItem("substrate.keyHints"))).toBe("0");
   await page.reload();
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
   await expect(panel).toHaveCount(0);
 });
 

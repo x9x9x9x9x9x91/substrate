@@ -13,7 +13,7 @@ test("the opacity dial is absent outside the macOS desktop build, and the ground
   page,
 }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
 
   await openSettingsByKey(page, "appearance");
 
@@ -55,7 +55,7 @@ test("forced on, the class opens the ground to the desktop and leaves panels opa
   page,
 }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
 
   /* Two serializations to read, because color-mix() does not collapse to
      rgba(): a mixed value computes to `color(srgb r g b / a)` while the plain

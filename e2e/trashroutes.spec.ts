@@ -11,8 +11,8 @@ function row(page: Page, title: string) {
 
 async function boot(page: Page) {
   await page.goto("/");
-  // cold open lands on the Notes scratch list (Today is a destination)
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  // cold open lands on the Scratch list (Today is a destination)
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
 }
 

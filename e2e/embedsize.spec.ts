@@ -6,10 +6,10 @@ import { expect, test, type Page } from "./fixtures";
 // is ever distorted. Runs against the deterministic mock backend.
 
 // same boot/seed shape as filechip.spec: cold open lands on Today, one click
-// to Notes; the seed waits the own-write echo window out before emitting
+// to Scratch; the seed waits the own-write echo window out before emitting
 async function boot(page: Page) {
   await page.goto("/");
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
 }
 

@@ -270,6 +270,17 @@ Capacities, Affine).*
   ranges survive (`start → end`). Rollups then compute over the imported
   data. The exit ramp is paved; select colors and Notion-side
   relations/rollups don't transfer yet.
+- **Imports you can read before they land** — Settings → Vault → Import takes a
+  Logseq graph, a Bear export (plain markdown or textbundle, filed by tag) or a
+  folder of exported Apple Notes, and shows the counts, the folder tree, one
+  converted sample and every skipped file with its reason **before a single
+  note is written**. Every imported note carries `import-source`/`import-id`, so
+  a second run skips what already landed instead of doubling it, and each run
+  leaves its own record note under `Imported/Logs`. Careful claim: importing
+  from these apps is not itself rare — Obsidian's Importer covers the same
+  sources. What no one else offers is the *preview contract*: a dry read whose
+  skips and conversions are shown as a document to judge, and provenance stamps
+  in plain frontmatter that make the run repeatable rather than a one-shot.
 - **Terminal HUD** (⌘⇧T) with PTY trust checks — a notes app that can host
   your shell.
 - **Scoped MCP door** — cloud-backed desktop AI clients can operate the vault

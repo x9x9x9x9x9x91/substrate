@@ -59,7 +59,7 @@ test("a homed db's saved views stay out of the sidebar; the tab strip owns them 
 
   // leave to another view and come back through the sidebar row — the pin
   // survives as a tab, the sidebar stays pin-free
-  await page.locator(".side-item", { hasText: "All notes" }).click();
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await page.locator(".side-folder", { hasText: "ZHome" }).click();
   await expect(page.locator(".db-tab", { hasText: "Active ones" })).toHaveCount(1);
   await expect(page.locator(".side-view")).toHaveCount(0);

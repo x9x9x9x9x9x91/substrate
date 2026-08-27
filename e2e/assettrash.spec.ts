@@ -13,7 +13,7 @@ async function openView(page: Page, query: string, label: string) {
 
 test("orphaned asset deletes to the trash and restores (SUB-479)", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
 
   await openView(page, "orphaned", "Clean up orphaned assets");
   await expect(page.locator(".list-title")).toHaveText("Orphaned assets");

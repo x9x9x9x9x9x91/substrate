@@ -25,7 +25,7 @@ const enableSwitch = (page: Page) => page.getByTestId("reflexes-enable");
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
 });
 
 test("no rules file: the section is not there at all", async ({ page }) => {

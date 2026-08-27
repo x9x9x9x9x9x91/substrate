@@ -13,7 +13,7 @@ import { expect, test, type Page } from "./fixtures";
 // should announce itself.
 
 async function openHistory(page: Page) {
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
   await page.getByRole("button", { name: "History" }).click();
   await expect(page.locator(".hist")).toBeVisible();
@@ -21,7 +21,7 @@ async function openHistory(page: Page) {
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
 });
 
 test("the cookbook never announces a load, even on a slow read", async ({ page }) => {

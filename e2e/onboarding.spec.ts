@@ -20,7 +20,7 @@ async function bootFirstRun(page: Page) {
 
 test("a machine with a vault never sees onboarding", async ({ page }) => {
   await page.goto("/");
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
   await expect(page.getByTestId("onboarding")).toHaveCount(0);
 });
@@ -85,7 +85,7 @@ test("switching vaults never shows the agent step", async ({ page }) => {
   // switch mode reuses the ready screen; the agent question is a first-run
   // thing — a switcher has settings already
   await page.goto("/");
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
   await page.keyboard.press("Meta+Comma");
   await settingsTab(page, "vault");
@@ -239,7 +239,7 @@ test("a build without the demo vault says so instead of opening nothing", async 
 
 test("switch vault reopens the picker from Settings", async ({ page }) => {
   await page.goto("/");
-  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
 
   await page.keyboard.press("Meta+Comma");
