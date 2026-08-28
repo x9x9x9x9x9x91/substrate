@@ -5858,6 +5858,7 @@ dependencies = [
  "tauri-plugin-updater",
  "tempfile",
  "tokenizers",
+ "unicase",
  "unicode-normalization",
  "ureq",
  "url",

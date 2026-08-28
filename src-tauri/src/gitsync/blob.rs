@@ -10,8 +10,8 @@
 use super::{
     apply_backfill, changed_between, clear_history_rewritten, clear_pending_merge, clear_ref,
     current_branch, current_branch_state, ensure_clean, exclusive_commit_count, history_rewritten,
-    owned_repo, pull_local_phase, report, report_changed, working_tree_is_dirty, SyncReport,
-    REMOTE, STAGING_REF,
+    owned_repo, pull_local_phase, report, report_changed, working_tree_is_dirty, RepoKind,
+    SyncReport, REMOTE, STAGING_REF,
 };
 use argon2::{Algorithm, Argon2, Params, Version};
 use chacha20poly1305::aead::{Aead, Payload};
@@ -41,7 +41,9 @@ const OBJECT_HEADER_LEN: usize = OID_LEN + 1 + 8;
 const MAX_OBJECT_BYTES: usize = 64 * 1024 * 1024;
 const MAX_OBJECT_ENVELOPE_BYTES: usize =
     4 + NONCE_LEN + OBJECT_HEADER_LEN + MAX_OBJECT_BYTES + TAG_LEN;
-const MAX_REF_ENVELOPE_BYTES: usize = 4 * 1024;
+/// The cap on any small document this stack reads from somewhere it does not
+/// control. `space.rs` reads a space's manifest against the same number.
+pub(crate) const MAX_REF_ENVELOPE_BYTES: usize = 4 * 1024;
 const MAX_LIST_OBJECTS: usize = 100_000;
 /// Already-present objects one push re-downloads and authenticates. Eight
 /// small GETs is a rounding error beside the uploads a real push makes, and
@@ -1722,7 +1724,23 @@ pub(crate) fn pull<G>(
     transport: &impl BlobTransport,
     mut gate: impl FnMut() -> G,
 ) -> Result<SyncReport, String> {
-    pull_with_snapshot(root, key, transport, || Ok(()), gate)
+    pull_inner(root, key, transport, || Ok(()), gate, AdoptConsent::Withheld, RepoKind::Vault)
+}
+
+/// The same pull into a SPACE rather than a vault.
+///
+/// The only difference is the one thing a space's own history must not be
+/// allowed to decide: whether the app backfills its own files into the
+/// repository it just pulled. A space owes none of them, and the answer comes
+/// from this call rather than from anything in the tree — see
+/// [`super::backfill_missing_app_files_with`].
+pub(crate) fn pull_space<G>(
+    root: &Path,
+    key: &MasterKey,
+    transport: &impl BlobTransport,
+    gate: impl FnMut() -> G,
+) -> Result<SyncReport, String> {
+    pull_inner(root, key, transport, || Ok(()), gate, AdoptConsent::Withheld, RepoKind::Space)
 }
 
 /// The shape the app's auto-sync lane needs, mirroring
@@ -1766,7 +1784,7 @@ pub(crate) fn pull_with_snapshot<G>(
     snapshot: impl FnOnce() -> Result<(), String>,
     mut gate: impl FnMut() -> G,
 ) -> Result<SyncReport, String> {
-    pull_inner(root, key, transport, snapshot, gate, AdoptConsent::Withheld)
+    pull_inner(root, key, transport, snapshot, gate, AdoptConsent::Withheld, RepoKind::Vault)
 }
 
 /// The same pull, run by someone who was shown what adopting the replaced
@@ -1782,7 +1800,7 @@ pub(crate) fn pull_adopting_replaced<G>(
     transport: &impl BlobTransport,
     mut gate: impl FnMut() -> G,
 ) -> Result<SyncReport, String> {
-    pull_inner(root, key, transport, || Ok(()), gate, AdoptConsent::Given)
+    pull_inner(root, key, transport, || Ok(()), gate, AdoptConsent::Given, RepoKind::Vault)
 }
 
 /// Whether this pull may reset the device onto a store some other device
@@ -1804,6 +1822,7 @@ fn pull_inner<G>(
     snapshot: impl FnOnce() -> Result<(), String>,
     mut gate: impl FnMut() -> G,
     consent: AdoptConsent,
+    kind: RepoKind,
 ) -> Result<SyncReport, String> {
     let repo = owned_repo(root)?;
     // The rewrite refusal is about MERGING: a vault whose history was rewritten
@@ -1874,7 +1893,7 @@ fn pull_inner<G>(
         // answer about, so an older refusal's marker goes here too.
         super::clear_store_replaced(&repo)?;
         store_purge_epoch(&repo, &store_key, document.purge_epoch);
-        return idle_pull(&repo, local_oid.unwrap_or(remote_oid), gate);
+        return idle_pull(&repo, local_oid.unwrap_or(remote_oid), kind, gate);
     }
 
     // Read before the fetch and before the tracking ref moves: the position
@@ -1924,7 +1943,7 @@ fn pull_inner<G>(
             )
             .map_err(|error| format!("hosted sync tracking update failed: {error}"))?;
             store_purge_epoch(&repo, &store_key, document.purge_epoch);
-            return adopt_replaced_history(&repo, &branch, remote_oid, &held);
+            return adopt_replaced_history(&repo, &branch, remote_oid, &held, kind);
         }
         // Reaching here means both arms just answered "the store is ordinary
         // again" off real evidence, so the clear is established, not a strip.
@@ -1944,7 +1963,7 @@ fn pull_inner<G>(
     repo.reference(&tracking_ref, remote_oid, true, "hosted sync pull updated tracking ref")
         .map_err(|error| format!("hosted sync tracking update failed: {error}"))?;
     store_purge_epoch(&repo, &store_key, document.purge_epoch);
-    pull_local_phase(&repo, &branch, remote_oid)
+    pull_local_phase(&repo, &branch, remote_oid, kind)
 }
 
 /// What this device would lose by adopting a store that was replaced from
@@ -2083,6 +2102,7 @@ fn adopt_replaced_history(
     fetched_branch: &str,
     remote_oid: Oid,
     held: &HeldLocally,
+    kind: RepoKind,
 ) -> Result<SyncReport, String> {
     let (branch, local_oid) = current_branch_state(repo)?;
     if branch != fetched_branch {
@@ -2109,7 +2129,7 @@ fn adopt_replaced_history(
     // that no longer exists, which is the dead end this door was opened to end.
     clear_history_rewritten(repo)?;
     let mut adopted =
-        apply_backfill(repo, report_changed(0, pulled, Vec::new(), remote_oid, changed));
+        apply_backfill(repo, report_changed(0, pulled, Vec::new(), remote_oid, changed), kind);
     adopted.notice = Some(if held.anything() {
         format!(
             "This vault moved onto a history another device rewrote (a purge or trim). {} \
@@ -2344,6 +2364,7 @@ fn store_was_replaced(repo: &Repository, seen: Option<Oid>, remote_oid: Oid) -> 
 fn idle_pull<G>(
     repo: &Repository,
     head: Oid,
+    kind: RepoKind,
     gate: impl FnOnce() -> G,
 ) -> Result<SyncReport, String> {
     let _guard = gate();
@@ -2351,7 +2372,7 @@ fn idle_pull<G>(
     if working_tree_is_dirty(repo)? {
         return Ok(unchanged);
     }
-    Ok(apply_backfill(repo, unchanged))
+    Ok(apply_backfill(repo, unchanged, kind))
 }
 
 /// Both purge-marker refusals in [`pull`] say the same thing, so a caller

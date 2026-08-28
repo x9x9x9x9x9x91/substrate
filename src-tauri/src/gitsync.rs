@@ -9,6 +9,12 @@
 // same on both transports.
 pub(crate) mod blob;
 
+// The lifecycle of a shared space's own repository — created out of a vault
+// folder, joined from an invite, left. Syncing one is the blob transport
+// above, unchanged; this module only owns the three moments where a space
+// repository starts, arrives, or is detached.
+pub(crate) mod space;
+
 use crate::history::{exclude_is_ours, DiffLine, EXCLUDE_CONTENT, FOREIGN_MSG, SENTINEL};
 use git2::build::CheckoutBuilder;
 use git2::{
@@ -1711,7 +1717,7 @@ pub fn sync_pull_integrate_gated<G>(
 ) -> Result<SyncReport, String> {
     let repo = owned_repo(root)?;
     let _guard = gate();
-    pull_local_phase(&repo, &fetched.branch, fetched.remote_oid)
+    pull_local_phase(&repo, &fetched.branch, fetched.remote_oid, RepoKind::Vault)
 }
 
 /// The local work a pull still owes when the fetch brought nothing: the
@@ -1745,7 +1751,21 @@ fn sync_pull_idle_gated<G>(
     if working_tree_is_dirty(&repo)? {
         return Ok(report);
     }
-    Ok(apply_backfill(&repo, report))
+    Ok(apply_backfill(&repo, report, RepoKind::Vault))
+}
+
+/// Which of this app's two kinds of repository a pull is landing in.
+///
+/// It is the CALLER's answer, decided from what this device is syncing,
+/// deliberately: the one thing that must not decide it is anything that
+/// arrived with the pulled history. See [`backfill_missing_app_files_with`].
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RepoKind {
+    /// The user's own vault, which owes the app's own files.
+    Vault,
+    /// A shared space — a folder's notes, `.assets/` and the manifest, and
+    /// nothing else.
+    Space,
 }
 
 /// Everything a pull does to the local repository and working tree, from the
@@ -1756,13 +1776,14 @@ fn pull_local_phase(
     repo: &Repository,
     fetched_branch: &str,
     remote_oid: Oid,
+    kind: RepoKind,
 ) -> Result<SyncReport, String> {
     let report = pull_local_phase_inner(repo, fetched_branch, remote_oid)?;
     // Only on a landing: a parked conflicted merge has checked nothing out, so
     // there is no settled tree to reason about yet — the backfill runs on the
     // pull that finally lands.
     if report.conflicted.is_empty() {
-        return Ok(apply_backfill(repo, report));
+        return Ok(apply_backfill(repo, report, kind));
     }
     Ok(report)
 }
@@ -1770,8 +1791,8 @@ fn pull_local_phase(
 /// Put the app's own files back and fold what that wrote into `report`.
 /// Shared by the pull that integrated something and the idle one, which owes
 /// the backfill and nothing else.
-fn apply_backfill(repo: &Repository, mut report: SyncReport) -> SyncReport {
-    let backfilled = backfill_missing_app_files(repo);
+fn apply_backfill(repo: &Repository, mut report: SyncReport, kind: RepoKind) -> SyncReport {
+    let backfilled = backfill_missing_app_files(repo, kind);
     // These are working-tree writes exactly like a checkout's, so they
     // belong in `changed`: `announce_pull` emits `vault:pulled`
     // only when that list is non-empty and hands it out as the payload, so
@@ -2777,8 +2798,8 @@ const CARRIED_CACHE_MAX: usize = 256;
 /// Returns the paths it actually wrote and committed, for the caller to fold
 /// into `SyncReport::changed` — an empty list on every arm that wrote nothing,
 /// including the ones that undid their own writes.
-fn backfill_missing_app_files(repo: &Repository) -> Vec<&'static str> {
-    backfill_missing_app_files_with(repo, HISTORY_WALK_LIMIT, commit_backfill)
+fn backfill_missing_app_files(repo: &Repository, kind: RepoKind) -> Vec<&'static str> {
+    backfill_missing_app_files_with(repo, kind, HISTORY_WALK_LIMIT, commit_backfill)
 }
 
 /// The body of [`backfill_missing_app_files`]. `walk_limit` and `commit` are
@@ -2787,9 +2808,28 @@ fn backfill_missing_app_files(repo: &Repository) -> Vec<&'static str> {
 /// no other way to reach them from a test.
 fn backfill_missing_app_files_with(
     repo: &Repository,
+    kind: RepoKind,
     walk_limit: usize,
     commit: fn(&Repository, &[&str]) -> Result<(), String>,
 ) -> Vec<&'static str> {
+    // A space is not a vault. Its repository carries a shared folder's notes,
+    // `.assets/` and the manifest that names it, and nothing else — the
+    // allowlist in `space.rs` is what enforces that on both ends. Backfilling
+    // here would write `AGENTS.md`, `Settings.md` and the seed notes into the
+    // space on the joining device and commit them, so every member would pull
+    // a copy of one device's vault furniture — and the next join would then
+    // REFUSE the space for carrying `.claude/`.
+    //
+    // The answer comes from the CALLER, which knows what this device asked to
+    // sync. It used to be read off `.space.json` in the working tree, and that
+    // file arrives with the pulled history: the untrusted side decided whether
+    // the gate fired, so a publisher who deleted the manifest at the tip had
+    // every other member's next pull backfill vault furniture into the shared
+    // folder and commit it — none of it dot-prefixed, so the allowlist would
+    // not have caught it either.
+    if kind == RepoKind::Space {
+        return Vec::new();
+    }
     let Some(workdir) = repo.workdir() else { return Vec::new() };
     // An unborn HEAD means no join has happened yet — nothing to reason about,
     // and a write here is the pre-pull hazard the deferral exists to avoid.
@@ -7533,7 +7573,12 @@ mod tests {
         let repo = Repository::open(&pair.a).unwrap();
         ensure_clean_for_pull(&repo).expect("the vault was dirty before the backfill ran");
 
-        let wrote = backfill_missing_app_files_with(&repo, HISTORY_WALK_LIMIT, stage_then_fail);
+        let wrote = backfill_missing_app_files_with(
+            &repo,
+            RepoKind::Vault,
+            HISTORY_WALK_LIMIT,
+            stage_then_fail,
+        );
 
         assert!(wrote.is_empty(), "a failed commit must report no writes: {wrote:?}");
         for rel in crate::vault::app_file_paths() {
@@ -7564,13 +7609,49 @@ mod tests {
             "an exhausted walk must answer the recoverable way"
         );
 
-        let wrote = backfill_missing_app_files_with(&repo, 0, commit_backfill);
+        let wrote = backfill_missing_app_files_with(&repo, RepoKind::Vault, 0, commit_backfill);
 
         assert!(wrote.is_empty(), "a walk that gave up still wrote files: {wrote:?}");
         for rel in crate::vault::app_file_paths() {
             assert!(!pair.a.join(rel).exists(), "{rel} was written past the walk limit");
         }
         ensure_clean_for_pull(&repo).expect("the give-up arm left the tree dirty");
+    }
+
+    /// The backfill's space gate reads the CALLER's answer, not the pulled
+    /// tree. The manifest is missing here exactly as it would be for a
+    /// publisher who deleted `.space.json` at the tip — the old gate sniffed
+    /// for that file, so deleting it made every member's next pull furnish the
+    /// shared folder with one device's vault and commit it.
+    #[test]
+    fn a_space_is_not_backfilled_even_with_no_manifest_in_the_tree() {
+        let pair = paired_vaults(&[("Note.md", "base\n")]);
+        let repo = Repository::open(&pair.a).unwrap();
+        assert!(
+            !pair.a.join(space::MANIFEST).exists(),
+            "the tree has to be manifest-less for this to say anything"
+        );
+
+        let wrote = backfill_missing_app_files_with(
+            &repo,
+            RepoKind::Space,
+            HISTORY_WALK_LIMIT,
+            commit_backfill,
+        );
+
+        assert!(wrote.is_empty(), "vault furniture was written into a space: {wrote:?}");
+        for rel in crate::vault::app_file_paths() {
+            assert!(!pair.a.join(rel).exists(), "{rel} was seeded into a space");
+        }
+        // …and the same repository as a vault still owes them, or the gate
+        // above proves nothing about which answer it read.
+        let as_a_vault = backfill_missing_app_files_with(
+            &repo,
+            RepoKind::Vault,
+            HISTORY_WALK_LIMIT,
+            commit_backfill,
+        );
+        assert!(!as_a_vault.is_empty(), "the vault arm wrote nothing either");
     }
 
     /// review r2, finding 2. A vault a NEWER build has written is not one
@@ -7586,7 +7667,12 @@ mod tests {
         pair.history_a.snapshot("snapshot").unwrap();
         let repo = Repository::open(&pair.a).unwrap();
 
-        let wrote = backfill_missing_app_files_with(&repo, HISTORY_WALK_LIMIT, commit_backfill);
+        let wrote = backfill_missing_app_files_with(
+            &repo,
+            RepoKind::Vault,
+            HISTORY_WALK_LIMIT,
+            commit_backfill,
+        );
 
         assert!(wrote.is_empty(), "wrote into a newer app's vault: {wrote:?}");
         for rel in crate::vault::app_file_paths() {
