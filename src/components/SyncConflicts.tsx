@@ -9,6 +9,40 @@ import {
 import { DashAlert } from "./DashNotice";
 import { errText } from "../lib/errtext";
 
+/** The repository a resolution session is running in: what it is called, what
+    the sentence under the heading says, and the four operations that read and
+    record the choices.
+ *
+ *  The surface is the same either way — three buttons a file, one finish, and
+ *  a merge that is applied all at once — so the repository is a parameter
+ *  rather than a second component. What genuinely differs is the sentence: in
+ *  a vault the two sides are the user's own two devices, and in a shared
+ *  repository the other side is a person who is not here. Every caller passes
+ *  its own, so this file never has to know which kinds there are. */
+export interface ConflictRepoOps {
+  /** What this surface calls the repository it is resolving. */
+  label: string;
+  /** The sentence under the heading: what happened, and who the other side is. */
+  intro: (files: number) => string;
+  read: () => Promise<ConflictState>;
+  set: (path: string, choice: ConflictChoice) => Promise<ConflictState>;
+  clear: (path: string) => Promise<ConflictState>;
+  finish: () => Promise<SyncReport>;
+}
+
+/** The vault's own conflicts — the default, and what this surface was before
+    it had a repository at all. */
+export const VAULT_CONFLICTS: ConflictRepoOps = {
+  label: "this vault",
+  intro: (files) =>
+    `Both devices changed the same ${files === 1 ? "file" : "files"}. Nothing is lost — ` +
+    `whichever side you set aside stays in this vault's version history.`,
+  read: vaultSyncConflicts,
+  set: vaultSyncResolveSet,
+  clear: vaultSyncResolveClear,
+  finish: vaultSyncResolveFinish,
+};
+
 const CHOICES: { id: ConflictChoice; label: string }[] = [
   { id: "mine", label: "Keep mine" },
   { id: "theirs", label: "Take theirs" },
@@ -93,7 +127,15 @@ function Diff({ file }: { file: ConflictFile }) {
   );
 }
 
-export default function SyncConflicts({ onResolved }: { onResolved: (report: SyncReport) => void }) {
+export default function SyncConflicts({
+  onResolved,
+  repo = VAULT_CONFLICTS,
+}: {
+  onResolved: (report: SyncReport) => void;
+  /** Which repository's conflicts these are. Defaults to the vault's, so the
+      vault's pane renders it exactly as it did before there was a choice. */
+  repo?: ConflictRepoOps;
+}) {
   const [state, setState] = useState<ConflictState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -101,14 +143,17 @@ export default function SyncConflicts({ onResolved }: { onResolved: (report: Syn
   // `keepError` is for the re-read that follows a failed action: the backend's
   // message (why the action was refused) is what the user needs, and a
   // successful re-read must not wipe it off the screen before it is painted.
-  const refresh = useCallback(async (keepError = false) => {
-    try {
-      setState(await vaultSyncConflicts());
-      if (!keepError) setError(null);
-    } catch (err) {
-      setError(errText(err));
-    }
-  }, []);
+  const refresh = useCallback(
+    async (keepError = false) => {
+      try {
+        setState(await repo.read());
+        if (!keepError) setError(null);
+      } catch (err) {
+        setError(errText(err));
+      }
+    },
+    [repo],
+  );
 
   useEffect(() => {
     void refresh();
@@ -122,8 +167,8 @@ export default function SyncConflicts({ onResolved }: { onResolved: (report: Syn
       // Toggling the active choice clears it, so a wrong click is one click back.
       setState(
         file.resolution === choice
-          ? await vaultSyncResolveClear(file.path)
-          : await vaultSyncResolveSet(file.path, choice),
+          ? await repo.clear(file.path)
+          : await repo.set(file.path, choice),
       );
     } catch (err) {
       setError(errText(err));
@@ -138,7 +183,7 @@ export default function SyncConflicts({ onResolved }: { onResolved: (report: Syn
     setBusy(true);
     setError(null);
     try {
-      const report = await vaultSyncResolveFinish();
+      const report = await repo.finish();
       setState(null);
       onResolved(report);
     } catch (err) {
@@ -153,7 +198,7 @@ export default function SyncConflicts({ onResolved }: { onResolved: (report: Syn
   // a dead pane the user can't tell apart from "no conflicts".
   if (!state?.active) {
     return error ? (
-      <section className="vault-sync-card sync-conflict">
+      <section className="vault-sync-card sync-conflict" data-conflict-repo={repo.label}>
         <DashAlert live>{error}</DashAlert>
       </section>
     ) : null;
@@ -162,14 +207,15 @@ export default function SyncConflicts({ onResolved }: { onResolved: (report: Syn
   const done = total > 0 && state.files.every((file) => file.resolution);
 
   return (
-    <section className="vault-sync-card sync-conflict" aria-labelledby="sync-conflict-title">
+    <section
+      className="vault-sync-card sync-conflict"
+      aria-labelledby="sync-conflict-title"
+      data-conflict-repo={repo.label}
+    >
       <div className="vault-sync-card-head">
         <div>
           <h2 id="sync-conflict-title">Resolve conflicts</h2>
-          <p>
-            Both devices changed the same {total === 1 ? "file" : "files"}. Nothing is lost —
-            whichever side you set aside stays in this vault&apos;s version history.
-          </p>
+          <p>{repo.intro(total)}</p>
         </div>
         <span className="sync-conflict-progress" role="status">
           {state.resolved} of {total} resolved

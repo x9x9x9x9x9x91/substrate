@@ -415,6 +415,66 @@ fn link_refusal(relative: &str) -> String {
     format!("{relative} is a symbolic link; a space carries files, not links out of itself")
 }
 
+/// Git's filemode for a symbolic link, and for a commit entry — a submodule,
+/// which is a repository of its own by another spelling.
+const MODE_LINK: i32 = 0o120000;
+const MODE_GITLINK: i32 = 0o160000;
+
+/// The §5.3 allowlist asked of a COMMIT TREE, before anything in it reaches
+/// the working tree.
+///
+/// [`refused_paths`] answers about a directory on disk, and by the time there
+/// is one a pull has already written it. An ongoing pull into a mounted space
+/// has to ask the same question about content that has not landed yet, so it
+/// asks the tree it is about to check out. Same allowlist, same words, one
+/// step earlier — which is what "refuse, not park" means on this leg: the
+/// pull returns the refusal and the space keeps the files it already had.
+///
+/// What is checked is the tip the pull would write, not every commit it
+/// carries. [`join`] checks the whole reachable history because a join adopts
+/// a repository whole and any blob still reachable in it is one restore away
+/// from disk. An ongoing pull cannot afford that reading: a member who once
+/// committed a refused path and removed it again would brick the space for
+/// every other member permanently, with no gesture anywhere that could clear
+/// it. The tip is what would be written, so the tip is what is refused over.
+pub(crate) fn refused_in_commit(
+    repo: &git2::Repository,
+    oid: git2::Oid,
+) -> Result<Vec<String>, String> {
+    let unreadable = |error: git2::Error| format!("could not read what arrived: {error}");
+    let tree = repo.find_commit(oid).map_err(unreadable)?.tree().map_err(unreadable)?;
+    let mut refused = Vec::new();
+    tree.walk(git2::TreeWalkMode::PreOrder, |dir, entry| {
+        match entry.name() {
+            // Not a walk this can skip past: a name git cannot hand over as
+            // text is a name nothing here can check, and an unchecked entry
+            // is the one thing this walk exists to prevent.
+            None => refused.push(format!(
+                "{dir}… carries a name that is not text; a space carries names an app can read"
+            )),
+            Some(name) => {
+                let relative = format!("{dir}{name}");
+                match entry.filemode() {
+                    MODE_LINK => refused.push(link_refusal(&relative)),
+                    MODE_GITLINK => {
+                        refused.push(format!("{relative} is a git repository of its own"))
+                    }
+                    _ => {
+                        if let Some(why) = refusal(&relative) {
+                            refused.push(why);
+                        }
+                    }
+                }
+            }
+        }
+        git2::TreeWalkResult::Ok
+    })
+    .map_err(unreadable)?;
+    refused.sort();
+    refused.dedup();
+    Ok(refused)
+}
+
 /// How much `git log` output a space's history may produce before the join
 /// gives up on checking it. Anything near this is not a folder somebody
 /// shared; refusing is the only answer that does not adopt an unread history.
@@ -508,7 +568,7 @@ fn refused_in_history(root: &Path) -> Result<Vec<String>, String> {
 }
 
 /// The refusal a caller shows when a tree carries paths a space may not hold.
-fn refused_error(what: &str, refused: &[String]) -> String {
+pub(crate) fn refused_error(what: &str, refused: &[String]) -> String {
     let mut message = format!("{what} because of what it contains:");
     for why in refused.iter().take(5) {
         message.push_str("\n  • ");
@@ -1640,6 +1700,98 @@ mod tests {
         assert!(!again.exists());
     }
 
+    /// §5.3 on every pull, not only at join. The join checked the history
+    /// once; a member can publish a refused path any time afterwards, and the
+    /// devices on the other side pull it on a schedule nobody is watching.
+    ///
+    /// What the pull owes is stated in what this asserts: the refusal names
+    /// the path in plain words, the space keeps the files it already had, the
+    /// refused entry is not on disk in any form, and asking again gives the
+    /// same answer — the tracking ref did not move, so a pull that refused
+    /// once cannot merge the same tip next time by having "already seen" it.
+    #[test]
+    #[cfg(unix)]
+    fn a_pull_carrying_a_refused_path_is_refused_and_writes_nothing() {
+        let scratch = TempDir::new().unwrap();
+        let server = serve(&scratch.path().join("server-storage"));
+        let (id, token) = mint_space(&server);
+        let transport = HttpBlobStore::for_space(&server.base_url(), &id, &token).unwrap();
+        let secret = SpaceSecret::generate();
+        let (vault_root, history) = a_vault(scratch.path());
+
+        let space_root = scratch.path().join("spaces").join("Trip");
+        let plan = SpacePlan {
+            id: &id,
+            name: "Trip",
+            folder: "Trip",
+            member: "",
+            root: space_root.as_path(),
+        };
+        let made =
+            create_from_folder(&vault_root, &history, &plan, &secret, &transport, || ()).unwrap();
+
+        let joiner = HttpBlobStore::for_space(&server.base_url(), &id, &token).unwrap();
+        let joined_root = scratch.path().join("elsewhere").join("Trip");
+        join(&vault_root, &joined_root, &id, &secret, &joiner, || ()).unwrap();
+        assert!(joined_root.join("Plan.md").is_file(), "the join did not land");
+
+        // The far side publishes what a space may not carry.
+        std::os::unix::fs::symlink("../../Vault", space_root.join("Escape.md")).unwrap();
+        write_note(&space_root, "Later.md", "and a fine note too\n");
+        git(&space_root, &["add", "-A"]);
+        git(&space_root, &["commit", "-m", "a link and a note"]);
+        blob::push(&space_root, &made.key, &transport, || ()).unwrap();
+
+        let pulling = HttpBlobStore::for_space(&server.base_url(), &id, &token).unwrap();
+        let error = blob::pull_space(&joined_root, &made.key, &pulling, || ()).unwrap_err();
+        assert!(error.contains("Escape.md"), "{error}");
+        assert!(error.contains("symbolic link"), "{error}");
+        assert!(error.contains("did not take what arrived"), "{error}");
+
+        // Nothing arrived: not the link, and not the note that travelled with
+        // it. A refused path refuses the whole gesture — it does not park.
+        assert!(
+            fs::symlink_metadata(joined_root.join("Escape.md")).is_err(),
+            "the refused link was written into the space"
+        );
+        assert!(!joined_root.join("Later.md").exists(), "half the refused pull landed");
+        assert_eq!(
+            contents(&joined_root).get("Plan.md").map(String::as_str),
+            Some("SPACE-PLAINTEXT-MARKER: meet at six\n"),
+            "the refusal disturbed what was already here"
+        );
+
+        // And it is the same answer next time, from a device that has now
+        // seen this tip once.
+        let again = HttpBlobStore::for_space(&server.base_url(), &id, &token).unwrap();
+        let error = blob::pull_space(&joined_root, &made.key, &again, || ()).unwrap_err();
+        assert!(error.contains("Escape.md"), "{error}");
+    }
+
+    /// The tree walk itself, on the names rather than the modes: the same
+    /// allowlist [`refusal`] states, asked of a commit nothing has checked out.
+    #[test]
+    fn a_commit_tree_is_checked_by_the_same_allowlist_a_folder_is() {
+        let scratch = TempDir::new().unwrap();
+        let source = scratch.path().join("repo");
+        let history = vault(&source);
+        write_note(&source, "Plan.md", "fine\n");
+        history.snapshot("clean").unwrap();
+        let repo = git2::Repository::open(&source).unwrap();
+        let head = repo.head().unwrap().peel_to_commit().unwrap().id();
+        assert!(refused_in_commit(&repo, head).unwrap().is_empty());
+
+        write_note(&source, ".vault/config.json", "{}\n");
+        git(&source, &["add", "-A", "-f"]);
+        git(&source, &["commit", "-m", "vault config"]);
+        let head = repo.head().unwrap().peel_to_commit().unwrap().id();
+        let refused = refused_in_commit(&repo, head).unwrap();
+        assert!(
+            refused.iter().any(|why| why.contains(".vault") && why.contains("configuration")),
+            "{refused:?}"
+        );
+    }
+
     /// The first rail: a folder holding vault configuration cannot become a
     /// space, and the refusal costs nothing — no namespace was claimed and the
     /// folder is still in the vault where it was.
@@ -1759,7 +1911,11 @@ mod tests {
         let root = scratch.path().join("joined");
         let error =
             join(&scratch.path().join("vault"), &root, &id, &secret, &joiner, || ()).unwrap_err();
-        assert!(error.contains("not joined"), "{error}");
+        // Refused by the pull rather than by the walk of what it wrote: the
+        // every-pull check reads the incoming tree, so a refused tip is
+        // refused before a single file of it reaches the disk. The join's own
+        // walk still stands behind it for what only the HISTORY carries.
+        assert!(error.contains("did not take what arrived"), "{error}");
         assert!(error.contains(".vault"), "{error}");
         assert!(!root.exists(), "the refused space was left on disk");
     }

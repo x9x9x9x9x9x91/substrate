@@ -18,7 +18,8 @@ pub(crate) mod space;
 use crate::history::{exclude_is_ours, DiffLine, EXCLUDE_CONTENT, FOREIGN_MSG, SENTINEL};
 use git2::build::CheckoutBuilder;
 use git2::{
-    Cred, FetchOptions, IndexAddOption, IndexEntry, Oid, PushOptions, RemoteCallbacks, Repository,
+    Cred, FetchOptions, Index, IndexAddOption, IndexEntry, Oid, PushOptions, RemoteCallbacks,
+    Repository,
     RepositoryInitOptions, Signature, StatusOptions,
 };
 use serde::{Deserialize, Serialize};
@@ -2095,15 +2096,128 @@ pub fn sync_pending_conflicts(root: &Path) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Which repository a resolution session is running in, and — for a space —
+/// what it is called.
+///
+/// The CALLER's answer, for [`RepoKind`]'s reason: the resolution surface's
+/// wording is about who the other side is, and a space's own history is the
+/// last thing that should get to say. It exists because the sentences differ
+/// in a way no amount of neutral phrasing hides. In the vault the two sides
+/// are one person and two of their own devices, and the honest instruction is
+/// "go and tidy it up". In a space the other side is somebody else, who is
+/// not in the room, who will pull whatever this device decides, and who may
+/// be typing right now.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ConflictRepo<'a> {
+    Vault,
+    Space { name: &'a str },
+}
+
+impl ConflictRepo<'_> {
+    /// What a refusal calls the repository it is about.
+    fn subject(self) -> String {
+        match self {
+            ConflictRepo::Vault => "vault sync".to_string(),
+            ConflictRepo::Space { name } => format!("the space “{name}”"),
+        }
+    }
+
+    fn nothing_to_resolve(self) -> String {
+        match self {
+            ConflictRepo::Vault => "vault sync has no conflicted pull to resolve".to_string(),
+            ConflictRepo::Space { name } => {
+                format!("the space “{name}” has no conflicted pull to resolve")
+            }
+        }
+    }
+}
+
+/// Paths in an error, named rather than counted: a bare count leaves the user
+/// hunting through the list for which ones it meant.
+fn name_paths(paths: &[String]) -> String {
+    const SHOWN: usize = 5;
+    let mut named =
+        paths.iter().take(SHOWN).map(|path| format!("“{path}”")).collect::<Vec<_>>().join(", ");
+    if paths.len() > SHOWN {
+        named.push_str(&format!(" and {} more", paths.len() - SHOWN));
+    }
+    named
+}
+
+/// The refusal at the end of a resolution session where every file was
+/// decided and the merge still will not close — §5.2's cross-path rename.
+///
+/// Two sentences differ between a vault and a space, and both of them matter.
+/// The vault's version is one person and their own two devices: they made
+/// both sides, so "put them where you want them" is an instruction they can
+/// simply follow. A space's is not — the other rename was somebody else's, it
+/// is already published, and whatever this device does next is what that
+/// person pulls. Telling them to just tidy it up would be telling them to
+/// overwrite a decision they never saw, so the space's version says who the
+/// other side is and that the fix has to be agreed rather than applied.
+///
+/// Both name the paths. §5.2 ships v1 with the refusal standing, which is
+/// only honest if the user can find what it is refusing over.
+fn still_tangled_error(repo: ConflictRepo, paths: &[String]) -> String {
+    let opening = format!("{} still sees conflicts after applying every choice", repo.subject());
+    if paths.is_empty() {
+        return opening;
+    }
+    let named = name_paths(paths);
+    match repo {
+        ConflictRepo::Vault => format!(
+            "{opening}: {named}. A file renamed on one device and renamed or deleted on the \
+             other cannot be settled by taking a side, so nothing was applied and nothing was \
+             lost. Put those paths where you want them by hand, then sync again."
+        ),
+        ConflictRepo::Space { .. } => format!(
+            "{opening}: {named}. These moved or were deleted on both sides — this device's and \
+             another member's — and there is no side to take when the same file went two ways at \
+             once. Nothing was applied here and nothing was lost. Whoever made the other change \
+             will pull whatever this device does next, so agree where these belong before \
+             putting them there, and sync again."
+        ),
+    }
+}
+
+/// How many commits this device holds that the last successful sync did not
+/// take away — the "unsent" number a status row shows.
+///
+/// Read from git alone: the local branch minus what the tracking ref says the
+/// store last had. No network, so a status row can be drawn the moment a
+/// surface opens rather than after a round trip, and `0` on a repository that
+/// has never synced is honestly zero rather than a guess.
+pub(crate) fn sync_unsent(root: &Path) -> Result<u32, String> {
+    let repo = owned_repo(root)?;
+    let (branch, local) = current_branch_state(&repo)?;
+    let Some(local) = local else { return Ok(0) };
+    let remote = repo
+        .find_reference(&format!("refs/remotes/{REMOTE}/{branch}"))
+        .ok()
+        .and_then(|reference| reference.target());
+    exclusive_commit_count(&repo, local, remote)
+}
+
 /// Record one path's choice. Nothing is written to the working tree yet —
 /// `sync_resolve_finish` applies every choice at once, so a half-finished
 /// session leaves the vault exactly as the user last saw it.
 pub fn sync_resolve_set(root: &Path, path: &str, choice: &str) -> Result<ConflictState, String> {
+    sync_resolve_set_in(root, ConflictRepo::Vault, path, choice)
+}
+
+/// [`sync_resolve_set`] in a named repository, so a space's refusals say
+/// which space rather than "vault sync".
+pub(crate) fn sync_resolve_set_in(
+    root: &Path,
+    which: ConflictRepo,
+    path: &str,
+    choice: &str,
+) -> Result<ConflictState, String> {
     let repo = owned_repo(root)?;
     let resolution = Resolution::parse(choice)?;
     let state = sync_conflicts(root)?;
     if !state.active {
-        return Err("vault sync has no conflicted pull to resolve".into());
+        return Err(which.nothing_to_resolve());
     }
     if !state.files.iter().any(|file| file.path == path) {
         return Err(format!("“{path}” is not part of the conflicted pull"));
@@ -2172,26 +2286,34 @@ pub fn sync_resolve_finish_gated<G>(
     root: &Path,
     gate: impl FnOnce() -> G,
 ) -> Result<SyncReport, String> {
+    sync_resolve_finish_gated_in(root, ConflictRepo::Vault, gate)
+}
+
+/// [`sync_resolve_finish_gated`] in a named repository. Everything about the
+/// merge is the same; what changes is who the refusals say the other side is.
+pub(crate) fn sync_resolve_finish_gated_in<G>(
+    root: &Path,
+    which: ConflictRepo,
+    gate: impl FnOnce() -> G,
+) -> Result<SyncReport, String> {
     let repo = owned_repo(root)?;
     let _guard = gate();
     ensure_clean(&repo)?;
     let state = sync_conflicts(root)?;
     if !state.active {
-        return Err("vault sync has no conflicted pull to resolve".into());
+        return Err(which.nothing_to_resolve());
     }
-    let undecided: Vec<&str> =
-        state.files.iter().filter(|f| f.resolution.is_none()).map(|f| f.path.as_str()).collect();
+    let undecided: Vec<String> = state
+        .files
+        .iter()
+        .filter(|f| f.resolution.is_none())
+        .map(|f| f.path.clone())
+        .collect();
     if !undecided.is_empty() {
-        // Name them: a bare count leaves the user hunting through the list.
-        const SHOWN: usize = 5;
-        let mut named =
-            undecided.iter().take(SHOWN).map(|p| format!("“{p}”")).collect::<Vec<_>>().join(", ");
-        if undecided.len() > SHOWN {
-            named.push_str(&format!(" and {} more", undecided.len() - SHOWN));
-        }
         return Err(format!(
-            "{} conflicted file(s) still need a choice before the merge can finish: {named}",
-            undecided.len()
+            "{} conflicted file(s) still need a choice before the merge can finish: {}",
+            undecided.len(),
+            name_paths(&undecided)
         ));
     }
     let local_oid = Oid::from_str(&state.head).map_err(|e| e.to_string())?;
@@ -2248,7 +2370,9 @@ pub fn sync_resolve_finish_gated<G>(
         }
     }
     if merged.has_conflicts() {
-        return Err("vault sync still sees conflicts after applying every choice".into());
+        // `conflict_paths` reads all three stages, which is what names a
+        // rename: only one of them survives a rename/delete.
+        return Err(still_tangled_error(which, &conflict_paths(&mut merged).unwrap_or_default()));
     }
 
     let tree_oid =
@@ -5567,6 +5691,63 @@ mod tests {
         assert_eq!(fs::read_to_string(pair.b.join(&first)).unwrap(), "remote one\n");
         assert_eq!(fs::read_to_string(pair.b.join(&second)).unwrap(), "remote two\n");
         assert_clean(&pair.b);
+    }
+
+    /// §5.2's cross-path rename refusal, in both voices.
+    ///
+    /// The merge that reaches it is the one no set of choices can settle — a
+    /// rename whose sides sit at different paths, where staging every recorded
+    /// choice still leaves a stage behind. What is asserted here is the
+    /// sentence, because the sentence is the whole surface: the user cannot
+    /// act on "still sees conflicts" without being told what it is refusing
+    /// over, and in a space they cannot act on it at all without being told
+    /// that the other rename was somebody else's and is already published.
+    #[test]
+    fn the_cross_path_rename_refusal_names_the_paths_and_knows_who_the_other_side_is() {
+        let tangled = vec!["Trip/Mine.md".to_string(), "Trip/Theirs.md".to_string()];
+
+        let vault = still_tangled_error(ConflictRepo::Vault, &tangled);
+        assert!(vault.starts_with("vault sync still sees conflicts"), "{vault}");
+        assert!(vault.contains("“Trip/Mine.md”, “Trip/Theirs.md”"), "{vault}");
+        assert!(vault.contains("renamed on one device"), "{vault}");
+        assert!(vault.contains("nothing was applied and nothing was lost"), "{vault}");
+
+        let space = still_tangled_error(ConflictRepo::Space { name: "Trip" }, &tangled);
+        assert!(space.starts_with("the space “Trip” still sees conflicts"), "{space}");
+        assert!(space.contains("“Trip/Mine.md”, “Trip/Theirs.md”"), "{space}");
+        // The two-person half: no "your other device", and the reason the fix
+        // cannot just be applied is that somebody else will pull it.
+        assert!(!space.contains("renamed on one device"), "{space}");
+        assert!(space.contains("another member"), "{space}");
+        assert!(space.contains("will pull whatever this device does next"), "{space}");
+        assert!(space.contains("agree where these belong"), "{space}");
+        assert!(space.contains("Nothing was applied here and nothing was lost"), "{space}");
+
+        // Six paths: named up to five, then counted, so a wide rename does not
+        // put a wall of quotes in a dialog.
+        let many: Vec<String> = (1..=6).map(|n| format!("N{n}.md")).collect();
+        let wide = still_tangled_error(ConflictRepo::Vault, &many);
+        assert!(wide.contains("“N5.md” and 1 more"), "{wide}");
+        assert!(!wide.contains("N6.md"), "{wide}");
+    }
+
+    /// A space says which space it is when there is nothing parked, too —
+    /// "vault sync" in a space dialog is a sentence about the wrong repo.
+    #[test]
+    fn a_space_with_nothing_parked_is_told_so_in_its_own_name() {
+        let pair = paired_vaults(&[("Note.md", "shared\n")]);
+        let error = sync_resolve_set_in(
+            &pair.b,
+            ConflictRepo::Space { name: "Trip" },
+            "Note.md",
+            "mine",
+        )
+        .unwrap_err();
+        assert_eq!(error, "the space “Trip” has no conflicted pull to resolve");
+        assert_eq!(
+            sync_resolve_set(&pair.b, "Note.md", "mine").unwrap_err(),
+            "vault sync has no conflicted pull to resolve"
+        );
     }
 
     #[test]

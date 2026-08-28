@@ -2025,6 +2025,27 @@ fn pull_inner<G>(
         }
         let seen = last_seen_position(&repo, &tracking_ref);
         fetch_reachable_graph(&repo, key, transport, remote_oid)?;
+        // §5.3, on EVERY pull rather than only at join. A space's content
+        // rules are a statement about what this device will write, and a
+        // member on the far side can push a refused name or a symbolic link
+        // at any time after the join that checked the history once. The check
+        // sits here — after the graph is local, so the tree can be read, and
+        // before the tracking ref moves or either landing arm runs, so
+        // nothing has been written when it refuses.
+        //
+        // Refuse, not park: the pull returns the reason and the space keeps
+        // the files it already had. The refusal is repeatable because the
+        // tracking ref has not moved, so the next pull asks again and the
+        // space heals the moment the far side stops publishing it.
+        if kind == RepoKind::Space {
+            let refused = super::space::refused_in_commit(&repo, remote_oid)?;
+            if !refused.is_empty() {
+                return Err(super::space::refused_error(
+                    "this space did not take what arrived",
+                    &refused,
+                ));
+            }
+        }
         // Answerable only now: both commits have to be present locally before
         // the graph question means anything. The standing marker is evidence
         // in its own right for exactly one device — the one whose own rewrite
