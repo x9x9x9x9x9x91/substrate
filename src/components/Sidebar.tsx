@@ -1062,7 +1062,7 @@ function Sidebar({
               {keyChip(`db:${homeDb}`)}
             </button>
           </div>
-          {open && kids.map((c) => renderNode(c, depth + 1))}
+          {open && childRows(node.path, kids, depth + 1)}
           {dashKids(open, depth + 1)}
           {open && nodePins.map((n) => pinRow(n, `pins:${node.path}`, depth + 1))}
           {open && folderEdit?.kind === "create" && folderEdit.parent === node.path
@@ -1138,7 +1138,7 @@ function Sidebar({
             </button>
           )}
         </div>
-        {open && kids.map((c) => renderNode(c, depth + 1))}
+        {open && childRows(node.path, kids, depth + 1)}
         {dashKids(open, depth + 1)}
         {open && nodePins.map((n) => pinRow(n, `pins:${node.path}`, depth + 1))}
         {open && folderEdit?.kind === "create" && folderEdit.parent === node.path
@@ -1146,6 +1146,31 @@ function Sidebar({
           : null}
       </div>
     );
+  };
+
+  /* ----- shared spaces ----- */
+
+  // A space renders as a folder row, at the depth and in the position its
+  // registry entry names, because that is what "mounted in place" means: the
+  // people you share with are not a separate section of your sidebar.
+  //
+  // Two states, and the unbound one is not an error. Bound: the row opens the
+  // working tree where it lives (a space's tree is a visible folder by
+  // decision, and the app does not browse one yet). Unbound — including a
+  // binding the containment check refused — the row is still here, still
+  // named, and the click offers to check it out on this device. The row never
+  // disappears for either reason: a space that vanished off the sidebar
+  // because you opened the vault on the laptop would read as a space you lost.
+
+  // One sibling group: the folders, and the spaces mounted into that group,
+  // in one order. `_parent` is underscored because it is the fenced half's
+  // argument — the group's own path, which only the space lookup needs.
+  const childRows = (_parent: string, nodes: FolderNode[], depth: number): React.ReactNode[] => {
+    const rows: React.ReactNode[] = [];
+    for (const node of nodes) {
+      rows.push(renderNode(node, depth));
+    }
+    return rows;
   };
 
   return (
@@ -1399,7 +1424,7 @@ function Sidebar({
         </div>
         {foldersOpen && (
           <>
-            {tree.map((n) => renderNode(n, 0))}
+            {childRows("", tree, 0)}
             {/* tag folders close the same section — same row shape,
                 same depth, told apart by the glyph. They sit after the real
                 folders because the tree carries a persisted drag order and

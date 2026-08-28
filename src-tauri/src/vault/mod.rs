@@ -3973,6 +3973,15 @@ mod mounts;
 use mounts::read_mounts;
 pub use mounts::{Mount, MountRow, MountScanStats, VolumeMark, MOUNTS_REL_PATH};
 
+// Shared spaces: the registry of folders this vault mounts from a repository
+// of their own, and this machine's bindings for them. The lifecycle half —
+// making a space, joining one, leaving one — is `crate::gitsync::space`.
+mod spaces;
+pub use spaces::{
+    bound_root, checkout_for, read_spaces, space_rows, write_spaces, SpaceEntry, SpaceMount,
+    SpaceRow, SPACES_REL_PATH,
+};
+
 // The Drive Shelf: mounts the app makes for external volumes, plus the
 // reading of a catalog with the disk unplugged. A layer ON TOP of `mounts` —
 // a drive is a mount carrying a `VolumeMark`, not a second mechanism.

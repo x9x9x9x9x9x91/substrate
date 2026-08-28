@@ -2945,9 +2945,12 @@ understand.
 ```
 
 - Keys are `schema`, `views`, `folders`, `notifications`, `calendars`,
-  `kinds`, `tagfolders`, `mounts`, `reflexes`, `statementmappings`,
-  `statementrules` (§5c, §6, §7, the notification sub-section, §8, §5.8, §8b,
-  §8c, §8d, §8e). Current version for all eleven: **1**.
+  `kinds`, `tagfolders`, `mounts`,
+  `reflexes`, `statementmappings`,
+  `statementrules` (§5c, §6, §7, the notification sub-section, §8,
+  §5.8, §8b, §8c, §8d, §8e). Current version for every one of them: **1**. A
+  key with no entry reads as 1, so the example above is one vault's stamps
+  rather than the full roster.
 - `kinds` versions the **bundle format** of §5.8, not any one file: it says
   which shape of `kind.json` and which bundle layout the vault's
   `.vault/kinds/` folders are written in. **RESERVED** — the key is defined

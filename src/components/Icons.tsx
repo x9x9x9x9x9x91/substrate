@@ -137,6 +137,10 @@ export const ChartIcon = () => (
 );
 
 
+/* a shared space: a folder with a second hand on it. The folder shape is the
+   mount glyph's, deliberately — a space IS a folder in the sidebar — and the
+   two dots are the other people it is shared with. */
+
 export const SyncIcon = () => (
   <svg {...base}>
     <path d="M13.5 5.5A5.5 5.5 0 0 0 4 3.8L2.5 5.5" />

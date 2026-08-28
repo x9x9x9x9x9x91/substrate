@@ -1525,6 +1525,7 @@ mockMountIndex["mount-finance"] = {
   ].sort((a, b) => a.rel.localeCompare(b.rel)),
 };
 
+
 /* The Drive Shelf's mock: three external disks, one of each state the shelf
    exists to render honestly. "Backup Silver" is plugged in right now;
    "Sessions 2019" has been in a drawer for over a year and its catalog says

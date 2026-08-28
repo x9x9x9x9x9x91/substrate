@@ -155,7 +155,7 @@ fn read_capped(path: &Path, cap: usize) -> Result<Vec<u8>, std::io::Error> {
 /// A space name fit to put in a sidebar: no control characters, no newlines
 /// pretending to be one line, and a length a person chose rather than a
 /// publisher. Cleaned on the way IN, so nothing downstream has to remember to.
-fn clean_name(name: &str) -> String {
+pub(crate) fn clean_name(name: &str) -> String {
     name.chars()
         .filter(|character| !character.is_control())
         .take(MAX_NAME_CHARS)
@@ -831,6 +831,23 @@ fn vault_relative(folder: &str) -> Result<String, String> {
         return Err("the whole vault cannot become a space; share a folder in it".into());
     }
     Ok(parts.join("/"))
+}
+
+/// The one gate every FILE-SUPPLIED space root passes before it is used.
+///
+/// A space's local path is machine-local config, and machine-local config is a
+/// file: `config.json` in the app-config dir, hand-editable, restorable from a
+/// backup written by another machine, and — for a path that arrived with a
+/// space rather than from a folder picker — not necessarily anything this
+/// device chose. So the two rules `create_from_folder` and `join` apply to a
+/// root they are handed apply again every time one is read back: it may not
+/// climb with `..`, and it may not land inside the vault.
+///
+/// Returns the resolved path on success, so a caller that passes this holds
+/// the real path rather than the one the file spelled.
+pub(crate) fn usable_root(vault_root: &Path, space_root: &Path) -> Result<PathBuf, String> {
+    outside_the_vault(vault_root, space_root)?;
+    resolved(space_root)
 }
 
 /// A space's working tree lives outside the vault. Inside it, the vault's own

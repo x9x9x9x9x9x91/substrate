@@ -40,6 +40,17 @@ pub struct AppConfig {
     /// the last-known index, with a "Locate folder…" affordance.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub mounts: std::collections::BTreeMap<String, PathBuf>,
+    /// Where each shared space's working tree lives ON THIS MACHINE: space id
+    /// → path, stored contracted (`~/…`) so a synced home directory that moved
+    /// still resolves. The space's identity, name and sidebar position are
+    /// portable and ride vault sync in `.vault/spaces.json`; the path binding
+    /// is per-machine and must not, for the reason `mounts` gives plus one of
+    /// its own — a space is a REPOSITORY, and a path that followed the vault
+    /// would tell every member's machine to check one out.
+    /// A space with no entry here is unbound: its row still renders, named and
+    /// inert, with a "Check out…" affordance.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub spaces: std::collections::BTreeMap<String, PathBuf>,
     /// Which vaults may run reflexes ON THIS DEVICE: canonical vault path →
     /// the enable decision. One switch for the whole feature, per
     /// vault, per device. It lives here rather than in the vault for the same
@@ -139,6 +150,26 @@ pub fn write_mount_binding(cfg_dir: &Path, id: &str, path: Option<&Path>) -> Res
         }
         None => {
             cfg.mounts.remove(id);
+        }
+    })
+}
+
+/// Bind a space to its working tree on THIS machine, or clear the binding
+/// with `None`. The path is stored contracted, and clearing removes the key
+/// rather than storing an empty path so that "never checked out here" and
+/// "checked out and then released" read identically to every reader.
+///
+/// This writes down where a path IS, not that it is usable: the check that a
+/// binding does not climb or land inside the vault belongs at read time, in
+/// [`crate::vault::space_rows`], because the file can also be edited by hand
+/// between the write and the read.
+pub fn write_space_binding(cfg_dir: &Path, id: &str, path: Option<&Path>) -> Result<(), String> {
+    update_config(cfg_dir, |cfg| match path {
+        Some(p) => {
+            cfg.spaces.insert(id.to_string(), PathBuf::from(crate::vault::contract_tilde(p)));
+        }
+        None => {
+            cfg.spaces.remove(id);
         }
     })
 }
@@ -353,6 +384,51 @@ mod tests {
         let v = dir.join("V");
         fs::create_dir_all(v.join(".vault")).unwrap();
         v
+    }
+
+    /// A space binding is this machine's alone, and it shares the file with
+    /// every other machine-local decision — so it has to survive them and
+    /// they have to survive it.
+    #[test]
+    fn a_space_binding_is_machine_local_and_keeps_its_neighbours() {
+        let t = TempDir::new().unwrap();
+        let cfg = t.path().join("cfg");
+        write_vault_choice(&cfg, Path::new("/tmp/v")).unwrap();
+        write_mount_binding(&cfg, "m1", Some(Path::new("/tmp/pool"))).unwrap();
+        let id = "a".repeat(32);
+        write_space_binding(&cfg, &id, Some(Path::new("/tmp/spaces/ar"))).unwrap();
+
+        assert_eq!(read_config(&cfg).vault.as_deref(), Some(Path::new("/tmp/v")));
+        assert_eq!(
+            read_config(&cfg).mounts.get("m1").cloned().as_deref(),
+            Some(Path::new("/tmp/pool"))
+        );
+        assert_eq!(
+            read_config(&cfg).spaces.get(&id).cloned().as_deref(),
+            Some(Path::new("/tmp/spaces/ar"))
+        );
+
+        // releasing a space leaves no trace of it: "never here" and "not here
+        // any more" are the same state to every reader
+        write_space_binding(&cfg, &id, None).unwrap();
+        assert_eq!(read_config(&cfg).spaces.get(&id).cloned(), None);
+        assert!(!read_config(&cfg).spaces.contains_key(&id));
+        assert_eq!(read_config(&cfg).vault.as_deref(), Some(Path::new("/tmp/v")));
+    }
+
+    /// Stored contracted, so a home directory that moves — a new username, a
+    /// restored backup — does not orphan every space on the machine.
+    #[test]
+    fn a_space_binding_under_home_is_stored_contracted() {
+        let t = TempDir::new().unwrap();
+        let cfg = t.path().join("cfg");
+        let home = std::env::var("HOME").unwrap();
+        let id = "b".repeat(32);
+        write_space_binding(&cfg, &id, Some(&Path::new(&home).join("Vault Spaces/A&R"))).unwrap();
+        assert_eq!(
+            read_config(&cfg).spaces.get(&id).cloned().as_deref(),
+            Some(Path::new("~/Vault Spaces/A&R"))
+        );
     }
 
     /// The two concerns in `config.json` are written by different

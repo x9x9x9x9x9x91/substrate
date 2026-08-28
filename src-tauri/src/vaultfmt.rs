@@ -72,6 +72,7 @@ pub enum VaultFile {
     Calendars,
     TagFolders,
     Mounts,
+    Spaces,
     Reflexes,
     StatementMappings,
     StatementRules,
@@ -88,6 +89,7 @@ impl VaultFile {
         VaultFile::Calendars,
         VaultFile::TagFolders,
         VaultFile::Mounts,
+        VaultFile::Spaces,
         VaultFile::Reflexes,
         VaultFile::StatementMappings,
         VaultFile::StatementRules,
@@ -103,6 +105,7 @@ impl VaultFile {
             VaultFile::Calendars => "calendars",
             VaultFile::TagFolders => "tagfolders",
             VaultFile::Mounts => "mounts",
+            VaultFile::Spaces => "spaces",
             VaultFile::Reflexes => "reflexes",
             VaultFile::StatementMappings => "statementmappings",
             VaultFile::StatementRules => "statementrules",
@@ -118,6 +121,7 @@ impl VaultFile {
             VaultFile::Calendars => crate::calendarfeed::CONFIG_REL_PATH,
             VaultFile::TagFolders => crate::vault::TagFolder::REL_PATH,
             VaultFile::Mounts => crate::vault::MOUNTS_REL_PATH,
+            VaultFile::Spaces => crate::vault::SPACES_REL_PATH,
             VaultFile::Reflexes => crate::reflexes::CONFIG_REL_PATH,
             VaultFile::StatementMappings => STATEMENT_MAPPINGS_REL_PATH,
             VaultFile::StatementRules => STATEMENT_RULES_REL_PATH,
@@ -134,6 +138,7 @@ impl VaultFile {
             VaultFile::Calendars => 1,
             VaultFile::TagFolders => 1,
             VaultFile::Mounts => 1,
+            VaultFile::Spaces => 1,
             VaultFile::Reflexes => 1,
             VaultFile::StatementMappings => 1,
             VaultFile::StatementRules => 1,
@@ -154,6 +159,9 @@ impl VaultFile {
             // it owns under `.vault/mounts/` — those are derived caches,
             // rewritten wholesale, never migrated independently
             VaultFile::Mounts => "mounted folders",
+            // the registry only — a space's own files are a repository of
+            // their own and carry no `.vault/` to be versioned by this
+            VaultFile::Spaces => "shared spaces",
             VaultFile::Reflexes => "reflexes",
             VaultFile::StatementMappings => "saved bank column mappings",
             VaultFile::StatementRules => "transaction category rules",
@@ -175,6 +183,12 @@ impl VaultFile {
             VaultFile::Calendars => false,
             VaultFile::TagFolders => true,
             VaultFile::Mounts => true,
+            // a registry that won't parse reads as no spaces, and the rows go
+            // quiet rather than the vault refusing to open: the files a space
+            // holds are in a repository of their own and are untouched either
+            // way, so the cost of the soft read is a missing row, not a
+            // missing folder
+            VaultFile::Spaces => true,
             // an unparseable rules file is reported and runs nothing — the
             // alternative, reading as "no rules", would silently disarm every
             // reflex the vault asks for
@@ -204,6 +218,7 @@ impl VaultFile {
             VaultFile::Calendars => &[],
             VaultFile::TagFolders => &[],
             VaultFile::Mounts => &[],
+            VaultFile::Spaces => &[],
             VaultFile::Reflexes => &[],
             VaultFile::StatementMappings => &[],
             VaultFile::StatementRules => &[],

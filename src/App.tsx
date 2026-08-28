@@ -505,6 +505,7 @@ export default function App() {
     presweepSnapshot,
   });
 
+
   // types with at least one note (dashboard excluded) — the single source of
   // truth for which types are databases: the sidebar unions
   // schema-registered types on top, the views partition takes this set
