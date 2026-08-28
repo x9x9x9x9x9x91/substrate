@@ -37,10 +37,9 @@
 //! reason: an allowed *name* says nothing about what the entry is, and a link
 //! is a path out of the space the filesystem will follow on a caller's behalf.
 
-// Nothing calls this yet outside its tests: the gestures that reach it — share
-// this folder, open this invite, leave — are the next slice's interface work.
-// The attribute goes when they land, and until then the tests are what keep
-// this module honest.
+// Create and join have gestures now; leaving does not, and neither do the
+// pieces only leaving uses. The attribute goes when that gesture lands, and
+// until then the tests are what keep those parts honest.
 #![cfg_attr(not(test), allow(dead_code))]
 
 use std::fs;
@@ -51,6 +50,7 @@ use unicase::UniCase;
 use walkdir::WalkDir;
 
 use super::blob::{self, BlobTransport, Enrollment, MasterKey, SpaceIntent, SpaceSecret};
+use zeroize::Zeroizing;
 use super::SyncReport;
 use crate::history::{History, SENTINEL};
 use crate::vault::SCOPE_MARKER;
@@ -1026,6 +1026,108 @@ fn copy_across(source: &Path, target: &Path) -> Result<(), String> {
     }
 }
 
+/// What a device holds for a space it belongs to — and the only place it holds
+/// it.
+///
+/// None of these three is in the vault, in `.vault/spaces.json`, in the space's
+/// own repository, or in any log. They are in the OS credential store, in
+/// derived slots ([`super::CREDENTIAL_SLOT_MARKER`]) beside the vault's own,
+/// because that is the one store on the machine built to hold them:
+///
+/// * the **master key**, which decrypts everything in the space;
+/// * the **bearer token**, which the server checks before it serves the
+///   namespace at all;
+/// * the **invite secret**, kept because the invite link is how a space is
+///   handed to anyone — including this member's own second device, which by
+///   decision (`docs/collab.md` D2) joins by opening the link again. A member
+///   who cannot re-show the link cannot invite anyone, and the secret is
+///   strictly less than the master key already sitting next to it.
+pub(crate) struct Membership {
+    pub(crate) token: Zeroizing<String>,
+    pub(crate) key: MasterKey,
+    pub(crate) secret: SpaceSecret,
+}
+
+/// One space secret's slot. Marker-first for the reason
+/// [`super::hosted_key_service`] gives: service keys are absolute vault paths
+/// and never begin with the marker, so no vault can collide with one of these
+/// however it is named.
+fn slot(kind: &str, id: &str) -> String {
+    format!("{}space-{kind}:{id}", super::CREDENTIAL_SLOT_MARKER)
+}
+
+/// Write a membership down. Called once, immediately after a create or a join
+/// returns, because until it lands the device holds a space it cannot open
+/// again after a restart.
+///
+/// The key goes LAST. A partial write that stopped before the key leaves a
+/// space this device cannot read and says so; one that stopped after it would
+/// leave a space that opens locally and cannot sync, which reads to a member
+/// like corruption rather than like a failed setup.
+pub(crate) fn remember(
+    credentials_path: &Path,
+    id: &str,
+    token: &str,
+    key: &MasterKey,
+    secret: &SpaceSecret,
+) -> Result<(), String> {
+    use super::CredentialStore as _;
+    let store = super::credential_store(credentials_path);
+    store.store_token(&slot("token", id), token)?;
+    store.store_token(&slot("secret", id), &secret.to_hex())?;
+    store.store_token(&slot("key", id), &key.to_hex())
+}
+
+/// Read a membership back. Every failure here means "this device is not a
+/// member of that space any more", never a network problem — the same
+/// distinction [`super::hosted_transport`] draws for the vault's own.
+pub(crate) fn recall(credentials_path: &Path, id: &str) -> Result<Membership, String> {
+    use super::CredentialStore as _;
+    let store = super::credential_store(credentials_path);
+    let missing = || "this device does not hold this space's key any more".to_string();
+    let read = |kind: &str| -> Result<Zeroizing<String>, String> {
+        Ok(Zeroizing::new(store.load_token(&slot(kind, id))?.ok_or_else(missing)?))
+    };
+    let token = read("token")?;
+    let secret = SpaceSecret::from_hex(&read("secret")?)?;
+    let key = MasterKey::from_hex(&read("key")?)?;
+    Ok(Membership { token, key, secret })
+}
+
+/// Forget a membership. Best effort, and deliberately: it runs while a create
+/// that could not be written down is already being reported, and a slot that
+/// will not delete is not worth a second error over the first.
+pub(crate) fn forget(credentials_path: &Path, id: &str) {
+    use super::CredentialStore as _;
+    let store = super::credential_store(credentials_path);
+    for kind in ["key", "secret", "token"] {
+        let _ = store.delete_token(&slot(kind, id));
+    }
+}
+
+/// The server this vault syncs through, and the credential that mints spaces
+/// on it.
+///
+/// Spaces are minted by the operator and by nobody else (`docs/collab.md` D3),
+/// and on this server the operator's credential is the one this vault already
+/// syncs with — so having hosted sync set up IS the qualification, and not
+/// having it is the refusal. A vault on a plain Git remote, or on none, can
+/// still JOIN a space someone else made; it cannot make one.
+pub(crate) fn operator(
+    vault_root: &Path,
+    credentials_path: &Path,
+) -> Result<(String, Zeroizing<String>), String> {
+    let repo = super::owned_repo(vault_root)?;
+    let base = super::hosted_remote_base(&repo).ok_or_else(|| {
+        "spaces live on your server: set this vault up with hosted sync first, and share a \
+         folder from the device that syncs it"
+            .to_string()
+    })?;
+    let store = super::credential_store(credentials_path);
+    let token = super::load_token(&store, &super::service_key(vault_root), credentials_path)?;
+    Ok((base, Zeroizing::new(token.trim().to_string())))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1034,6 +1136,42 @@ mod tests {
     use std::collections::BTreeMap;
     use substrate_hosted_sync_server::{storage_contains, Config, Server};
     use tempfile::TempDir;
+
+    /// The whole of what a device holds for a space goes to the credential
+    /// store and nowhere else — and comes back out again.
+    ///
+    /// Under test the store is the 0600 file rather than the Keychain, which is
+    /// what lets this assert on the bytes: the three secrets are IN that file,
+    /// and the slots they sit in are derived ones, so no vault path can ever
+    /// name the same slot.
+    #[test]
+    fn a_membership_lives_in_the_credential_store() {
+        let scratch = TempDir::new().unwrap();
+        let credentials = scratch.path().join("credentials.json");
+        let id = "3b7a".repeat(8);
+        let token = "9f".repeat(32);
+        let key = MasterKey::generate();
+        let secret = SpaceSecret::generate();
+
+        remember(&credentials, &id, &token, &key, &secret).unwrap();
+        let held = recall(&credentials, &id).unwrap();
+        assert_eq!(held.token.as_str(), token);
+        assert_eq!(held.key.to_hex().as_str(), key.to_hex().as_str());
+        assert_eq!(held.secret.to_hex().as_str(), secret.to_hex().as_str());
+
+        let stored = fs::read_to_string(&credentials).unwrap();
+        assert!(stored.contains(secret.to_hex().as_str()), "the secret is in the credential store");
+        assert!(stored.contains(&token));
+        for kind in ["key", "secret", "token"] {
+            assert!(
+                stored.contains(&format!("#space-{kind}:{id}")),
+                "space slots are derived slots, which no vault path can collide with"
+            );
+        }
+
+        forget(&credentials, &id);
+        assert!(recall(&credentials, &id).is_err(), "a forgotten space cannot be opened");
+    }
 
     thread_local! {
         /// Set for the length of one test body — see `across_filesystems`.

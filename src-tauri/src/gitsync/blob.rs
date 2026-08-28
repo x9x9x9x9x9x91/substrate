@@ -106,6 +106,14 @@ const SPACE_ID_LEN: usize = 32;
 /// A space's invite secret is 256 bits from the OS pool, and the wrap below
 /// depends on it being exactly that.
 const SPACE_SECRET_LEN: usize = 32;
+/// A space's bearer token as the server mints it: 256 bits, lowercase hex. The
+/// client pins the length because an invite link spells the token out, and a
+/// fragment field with no fixed shape is one a damaged paste can pass.
+const SPACE_TOKEN_LEN: usize = 32;
+/// The whole of a mint answer is two hex strings in a JSON object. The ceiling
+/// is here so a server that promises that and streams forever cannot grow this
+/// client's heap.
+const MAX_MINT_BYTES: usize = 1024;
 const SPACE_WRAP_MAGIC: &[u8; 4] = b"SSK1";
 const SPACE_WRAP_INFO: &[u8] = b"substrate/space/key-wrap/v1";
 /// The front of the AAD an SSK1 envelope is sealed under; the space's own id
@@ -243,6 +251,12 @@ impl SpaceSecret {
 pub(crate) fn is_space_id(id: &str) -> bool {
     id.len() == SPACE_ID_LEN
         && id.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+/// Whether a string is a space's bearer token in the form the server mints it.
+pub(crate) fn is_space_token(token: &str) -> bool {
+    token.len() == SPACE_TOKEN_LEN * 2
+        && token.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 /// The server's opaque version token and encrypted ref document.
@@ -689,6 +703,54 @@ impl HttpBlobStore {
             ),
             _ => status_error(label, code),
         }
+    }
+
+    /// Mint a namespace on this server: `POST /v1/spaces`, answered with the
+    /// id and the bearer token that opens it.
+    ///
+    /// Both come back exactly once — the server keeps only the token's hash,
+    /// and an operator who loses it rotates rather than re-reads — so the
+    /// caller owes writing the token somewhere it will be found again before
+    /// this returns. It leaves here inside `Zeroizing` for the reason
+    /// [`SpaceSecret::to_hex`]'s does: the copy on this heap is the one that
+    /// must not outlive the call.
+    ///
+    /// Minting is the operator's, which is why this hangs off the store built
+    /// for the SERVER and refuses on one built for a space. A space's token is
+    /// refused on the management routes by the server too; refusing here means
+    /// the message names the mistake instead of quoting a status.
+    pub(crate) fn mint_space(&self) -> Result<(String, Zeroizing<String>), String> {
+        if !self.namespace.is_empty() {
+            return Err(
+                "a space's own address cannot mint spaces — mint on the server itself".into()
+            );
+        }
+        let url = self.route("/spaces");
+        let sent = self.call_retrying(|| {
+            self.agent.post(&url).set("Authorization", &self.authorization()).send_bytes(b"")
+        });
+        let (status, response) = http_status(sent, "space mint")?;
+        let Some(response) = response else {
+            return Err(match status {
+                404 => missing_route_error(&self.base),
+                507 => "this server holds as many spaces as it will hold — delete one on the \
+                        server, then share this folder again"
+                    .to_string(),
+                _ => status_error("space mint", status),
+            });
+        };
+        let body = read_response_bounded(response, MAX_MINT_BYTES, "the minted space")?;
+        let minted: serde_json::Value = serde_json::from_slice(&body)
+            .map_err(|_| "this server did not answer with a space".to_string())?;
+        let id = minted["id"].as_str().unwrap_or_default().to_string();
+        let token = Zeroizing::new(minted["token"].as_str().unwrap_or_default().to_string());
+        // Checked here so a server that answers with something else is caught
+        // at the mint, where the only thing lost is the request — rather than
+        // at the first push, with the folder already moved out of the vault.
+        if !is_space_id(&id) || !is_space_token(&token) {
+            return Err("this server minted a space this build does not understand".into());
+        }
+        Ok((id, token))
     }
 
     /// [`Self::refusal`] for the routes where a 404 means the URL rather than
@@ -5858,17 +5920,32 @@ mod tests {
             .contains("passphrase is wrong — mistyped"));
     }
 
-    /// Mint a namespace the way the app will: the operator token, `POST
-    /// /v1/spaces`, and the id and token the server hands back once.
+    /// Mint a namespace the way the app does — through the client the app
+    /// uses, so every test below that stands up a space exercises it.
     fn mint_space(server: &Server) -> (String, String) {
-        let response = ureq::post(&format!("{}/v1/spaces", server.base_url()))
-            .set("Authorization", &format!("Bearer {TEST_TOKEN}"))
-            .send_bytes(b"")
-            .unwrap();
-        assert_eq!(response.status(), 201);
-        let minted: serde_json::Value =
-            serde_json::from_str(&response.into_string().unwrap()).unwrap();
-        (minted["id"].as_str().unwrap().to_string(), minted["token"].as_str().unwrap().to_string())
+        let operator = HttpBlobStore::new(&server.base_url(), TEST_TOKEN).unwrap();
+        let (id, token) = operator.mint_space().unwrap();
+        (id, token.as_str().to_string())
+    }
+
+    #[test]
+    fn a_mint_answers_with_a_fresh_namespace_and_refuses_from_inside_one() {
+        let scratch = TempDir::new().unwrap();
+        let server = serve(&scratch.path().join("server-storage"));
+        let (first, token) = mint_space(&server);
+        let (second, _) = mint_space(&server);
+        assert!(is_space_id(&first) && is_space_id(&second));
+        assert_ne!(first, second, "each mint claims its own namespace");
+        assert!(is_space_token(&token));
+
+        // The management routes are the operator's. A store aimed at a space
+        // says so here rather than sending a space's token at them.
+        let inside = HttpBlobStore::for_space(&server.base_url(), &first, &token).unwrap();
+        assert!(inside.mint_space().unwrap_err().contains("cannot mint spaces"));
+
+        // And a token that opens nothing is a refusal, not a namespace.
+        let stranger = HttpBlobStore::new(&server.base_url(), "not-the-operator-token").unwrap();
+        assert!(stranger.mint_space().unwrap_err().contains("rejected"));
     }
 
     /// The whole of slice 2 end to end: a minted space, a key enrolled into

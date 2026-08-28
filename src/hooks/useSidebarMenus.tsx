@@ -829,7 +829,10 @@ export function useSidebarMenus(deps: SidebarMenusDeps) {
           },
         ],
       }),
-    []
+    /* The dep list is bracketed OUTSIDE the markers on purpose: a strip that
+       took the brackets with it would leave `useCallback(fn)` behind. */
+    [
+    ]
   );
 
 
