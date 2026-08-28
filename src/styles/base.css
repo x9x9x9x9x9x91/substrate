@@ -51,7 +51,7 @@ button:focus-visible,
 
 ::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.12);
-  border-radius: 5px;
+  border-radius: var(--r-1);
   border: 3px solid transparent;
   background-clip: content-box;
 }

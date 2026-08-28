@@ -62,7 +62,7 @@
   right: 40%;
   top: 2px;
   height: 2px;
-  border-radius: 1px;
+  border-radius: var(--r-1);
   background: transparent;
 }
 
@@ -123,7 +123,7 @@
 
 .termhud-host .xterm-viewport::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.12);
-  border-radius: 4px;
+  border-radius: var(--r-1);
 }
 
 /* while a HUD drag is live: keep the resize cursor everywhere, stop selecting

@@ -2,7 +2,7 @@
 .selmenu-kind {
   flex: 1 1 auto;
   border: none;
-  border-radius: 5px;
+  border-radius: var(--r-1);
   background: transparent;
   color: var(--text-3);
   font-size: 12px;
@@ -90,7 +90,7 @@
   color: var(--text-1);
   background: var(--bg-input);
   border: 1px solid var(--border);
-  border-radius: var(--r);
+  border-radius: var(--r-2);
 }
 
 .selmenu-notify-days:focus {
@@ -118,7 +118,7 @@
 }
 
 .type-icon-auto {
-  border-radius: 4px;
+  border-radius: var(--r-1);
   background: var(--active);
   border: 1px solid var(--border-soft);
   color: var(--text-2);
@@ -136,7 +136,7 @@
   height: 26px;
   margin-left: -5px;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--r-2);
   background: transparent;
   color: var(--text-2);
 }
@@ -153,8 +153,8 @@
   width: 248px;
   background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  border-radius: var(--r-3);
+  box-shadow: var(--shadow-float);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -177,7 +177,7 @@
 .iconpick-emoji-input {
   width: 100%;
   border: 1px solid var(--border-strong);
-  border-radius: 6px;
+  border-radius: var(--r-2);
   background: var(--bg-panel);
   color: var(--text-1);
   font-size: 13px;
@@ -202,7 +202,7 @@
   justify-content: center;
   aspect-ratio: 1;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--r-2);
   background: transparent;
   color: var(--text-2);
 }
@@ -258,7 +258,7 @@
 
 .iconpick-remove {
   border: none;
-  border-radius: 5px;
+  border-radius: var(--r-2);
   background: transparent;
   color: var(--text-3);
   font-size: 12px;
@@ -302,7 +302,7 @@
   font-size: 14px;
   line-height: 1;
   padding: 2px 8px;
-  border-radius: 5px;
+  border-radius: var(--r-2);
 }
 
 .datemenu-nav:hover {
@@ -331,7 +331,7 @@
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   padding: 4px 0;
-  border-radius: 5px;
+  border-radius: var(--r-2);
   /* Arrowing through the grid glides the cursor and the span
      shading across the days instead of teleporting cell to cell */
   transition:

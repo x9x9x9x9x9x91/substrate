@@ -23,7 +23,7 @@
   width: 24px;
   height: 24px;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--r-2);
   background: transparent;
   color: var(--text-3);
   transition:
@@ -61,9 +61,9 @@
   max-height: calc(100vh - 70px);
   overflow-y: auto;
   border: 1px solid var(--border-strong);
-  border-radius: 10px;
+  border-radius: var(--r-3);
   background: var(--bg-elevated);
-  box-shadow: 0 14px 48px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-float);
 }
 
 .cal-feeds-head {
@@ -103,7 +103,7 @@
 .cal-feeds-close {
   width: 24px;
   height: 24px;
-  border-radius: 5px;
+  border-radius: var(--r-2);
   font-size: 18px;
   line-height: 20px;
 }
@@ -139,7 +139,7 @@
   gap: 9px;
   min-width: 0;
   padding: 8px 7px;
-  border-radius: 7px;
+  border-radius: var(--r-2);
 }
 
 .cal-feed-row:hover {
@@ -156,7 +156,7 @@
   height: 18px;
   padding: 2px;
   border: 1px solid var(--border-strong);
-  border-radius: 9px;
+  border-radius: var(--r-pill);
   background: var(--active);
   cursor: pointer;
 }
@@ -202,7 +202,7 @@
 .cal-feed-remove {
   flex: none;
   padding: 3px 6px;
-  border-radius: 5px;
+  border-radius: var(--r-2);
   font-size: 11px;
 }
 
@@ -227,7 +227,7 @@
   height: 29px;
   padding: 0 8px;
   border: 1px solid var(--border-strong);
-  border-radius: 6px;
+  border-radius: var(--r-2);
   outline: 0;
   background: var(--bg-input);
   color: var(--text-1);
@@ -272,7 +272,7 @@
   height: 27px;
   padding: 0 8px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--r-2);
   background: transparent;
   color: var(--text-2);
   font-family: inherit;
@@ -524,10 +524,10 @@
      same hue the month bar and the type icon wear; overdue overrides it
      with --danger below (one mark, one meaning) */
   border-left: 2px solid var(--entry-tint, var(--border-soft));
-  border-radius: 6px;
+  border-radius: var(--r-2);
   background: var(--bg-elevated);
   overflow: hidden;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+  box-shadow: var(--shadow-rest);
 }
 
 .cal-entry.cal-wk-block:hover {
@@ -579,7 +579,7 @@
   max-width: 60%;
   height: 2px;
   transform: translateX(-50%);
-  border-radius: 1px;
+  border-radius: var(--r-1);
   background: var(--entry-tint, var(--border-strong));
   opacity: 0;
   transition: opacity 90ms ease-out;
@@ -614,9 +614,9 @@
 
 .cal-wk-draft .cal-draft {
   border: 1px solid var(--accent);
-  border-radius: 6px;
+  border-radius: var(--r-2);
   background: var(--bg-elevated);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-rest);
 }
 
 /* the now-line: today's current minute across the column */
@@ -661,7 +661,7 @@
   font-variant-numeric: tabular-nums;
   background: var(--bg);
   padding: 0 3px;
-  border-radius: 3px;
+  border-radius: var(--r-1);
 }
 
 .cal-day {
@@ -735,7 +735,7 @@
 .cal-day.drop {
   background: var(--hover);
   box-shadow: inset 0 0 0 1px var(--accent);
-  border-radius: 2px;
+  border-radius: var(--r-1);
 }
 
 /* an expanded day ("+N more") scrolls its full list inside the cell */
@@ -786,7 +786,7 @@
   padding: 2px 5px;
   border: 0;
   background: transparent;
-  border-radius: 4px;
+  border-radius: var(--r-1);
   font-family: inherit;
   font-size: 11px;
   color: var(--text-1);
@@ -838,7 +838,7 @@
 .cal-grid.month .cal-entry {
   padding: 1px 4px 1px 3px;
   margin: 0;
-  border-radius: 4px;
+  border-radius: var(--r-1);
   background: transparent;
 }
 
@@ -856,7 +856,7 @@
   flex: none;
   width: 3px;
   height: 12px;
-  border-radius: 2px;
+  border-radius: var(--r-1);
   background: var(--entry-tint, var(--opt-gray));
 }
 
@@ -977,7 +977,7 @@
   /* the same identity edge the canvas blocks wear — the week
      surface reads as one color system across strip and canvas */
   border-left: 2px solid var(--entry-tint, var(--border-soft));
-  border-radius: 8px;
+  border-radius: var(--r-2);
   background: var(--bg-elevated);
 }
 
@@ -1030,7 +1030,7 @@
   font-family: inherit;
   font-size: 10.5px;
   color: var(--text-3);
-  border-radius: 4px;
+  border-radius: var(--r-1);
   text-align: left;
   cursor: pointer;
 }
@@ -1047,7 +1047,7 @@
   gap: 4px;
   min-width: 0;
   padding: 2px 3px;
-  border-radius: 4px;
+  border-radius: var(--r-1);
   background: var(--bg-elevated);
   box-shadow: inset 0 0 0 1px var(--border-strong);
 }
@@ -1056,7 +1056,7 @@
   flex: none;
   padding: 1px 5px;
   border: none;
-  border-radius: 3px;
+  border-radius: var(--r-1);
   background: var(--active);
   color: var(--text-2);
   font-family: var(--font);
@@ -1087,8 +1087,8 @@
   width: 260px;
   background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  border-radius: var(--r-3);
+  box-shadow: var(--shadow-float);
 }
 
 .cal-peek-head {
@@ -1128,7 +1128,7 @@
   height: 28px;
   padding: 0 8px;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--r-2);
   background: transparent;
   font-family: var(--font);
   font-size: 13px;
@@ -1197,7 +1197,7 @@ button.cal-peek-row:hover {
   color: var(--text-3);
   white-space: nowrap;
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: var(--r-1);
 }
 
 .cal-peek-endday:hover {
@@ -1218,7 +1218,7 @@ button.cal-peek-row:hover {
 .cal-peek-open,
 .cal-peek-del {
   border: none;
-  border-radius: 5px;
+  border-radius: var(--r-2);
   background: transparent;
   font-family: var(--font);
   font-size: 12px;
@@ -1306,7 +1306,7 @@ button.cal-peek-row:hover {
   right: 40%;
   top: 2px;
   height: 2px;
-  border-radius: 1px;
+  border-radius: var(--r-1);
   background: transparent;
 }
 
@@ -1391,7 +1391,7 @@ body.cal-agenda-resizing-ew * {
   display: flex;
   gap: 12px;
   padding: 2px 6px;
-  border-radius: 5px;
+  border-radius: var(--r-2);
 }
 
 /* groups (Overdue / Today / …) read as separate blocks, not one long list */
@@ -1441,7 +1441,7 @@ button.cal-ag-day {
   padding: 2px 4px;
   border: 0;
   background: transparent;
-  border-radius: 4px;
+  border-radius: var(--r-1);
   font-family: inherit;
   font-size: 12px;
   color: var(--text-1);
@@ -1495,7 +1495,7 @@ button.cal-ag-day {
   align-self: center;
   width: 6px;
   height: 6px;
-  border-radius: 3px;
+  border-radius: 50%;
   background: var(--danger);
 }
 
@@ -1520,9 +1520,9 @@ button.cal-ag-day {
   height: fit-content;
   background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
-  border-radius: 12px;
+  border-radius: var(--r-3);
   box-shadow:
-    0 16px 70px rgba(0, 0, 0, 0.55),
+    var(--shadow-float),
     inset 0 1px 0 rgba(255, 255, 255, 0.05);
   padding: 14px;
   display: flex;
@@ -1544,7 +1544,7 @@ button.cal-ag-day {
 
 .dbform-input {
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--r-2);
   background: transparent;
   color: var(--text-1);
   font-size: 13px;

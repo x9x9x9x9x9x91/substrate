@@ -52,7 +52,7 @@
   grid-column: 5;
   justify-self: end;
   padding: 0 6px;
-  border-radius: 4px;
+  border-radius: var(--r-1);
   background: color-mix(in srgb, var(--sec) 17%, transparent);
   color: color-mix(in srgb, var(--sec) 80%, #fff);
   font: 500 11px/16px var(--mono);
@@ -68,7 +68,7 @@
 .tasks-row {
   width: 100%;
   padding: 7px 8px;
-  border-radius: var(--r);
+  border-radius: var(--r-2);
   color: var(--text-2);
   text-align: left;
   font: var(--dash-data);
@@ -84,7 +84,7 @@
   padding: 12px 10px 10px;
   border: 1px solid var(--border-soft);
   border-left: 2px solid var(--accent);
-  border-radius: var(--r);
+  border-radius: var(--r-2);
   background: var(--bg-elevated);
 }
 
@@ -228,7 +228,7 @@
   align-items: center;
   padding: 1px 6px;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--r-1);
   background: transparent;
   white-space: nowrap;
   font: 500 11.5px/15px var(--font);
@@ -302,7 +302,7 @@
 .tasks-act {
   padding: 2px 5px;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--r-2);
   background: transparent;
   color: var(--text-3);
   font-size: 11.5px;
@@ -318,7 +318,7 @@
    (design-principles §3) rather than the grey it wore as decoration */
 .tasks-finding {
   padding: 1px 6px;
-  border-radius: 4px;
+  border-radius: var(--r-1);
   background: color-mix(in srgb, var(--opt-yellow) 14%, transparent);
   color: color-mix(in srgb, var(--opt-yellow) 78%, #fff);
   white-space: nowrap;
@@ -400,7 +400,7 @@
   flex-direction: column;
   width: 240px;
   border: 1px solid var(--border-soft);
-  border-radius: 10px;
+  border-radius: var(--r-3);
   background: rgba(255, 255, 255, 0.018);
 }
 
@@ -451,7 +451,7 @@
   flex: 1;
   min-height: 72px;
   border: 1px dashed var(--border-soft);
-  border-radius: 8px;
+  border-radius: var(--r-3);
 }
 
 .tasks-col.drop .tasks-col-empty {
@@ -464,14 +464,14 @@
   gap: 4px;
   padding: 8px 10px 7px;
   border: 1px solid var(--border-soft);
-  border-radius: 8px;
+  border-radius: var(--r-3);
   background: var(--bg-elevated);
   cursor: grab;
 }
 
 .tasks-card:hover {
   border-color: var(--border-strong);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow-rest);
 }
 
 .tasks-card.dragging {

@@ -39,7 +39,7 @@
   height: 34px;
   padding: 3px;
   border: 1px solid var(--border-strong);
-  border-radius: 8px;
+  border-radius: var(--r-3);
   background: var(--bg-elevated);
   opacity: 0;
   pointer-events: none;
@@ -62,7 +62,7 @@
   min-width: 28px;
   padding: 0 7px;
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--r-2);
   background: transparent;
   color: var(--text-2);
   font-family: var(--font);
@@ -125,7 +125,7 @@
   width: 154px;
   padding: 4px;
   border: 1px solid var(--border-strong);
-  border-radius: 8px;
+  border-radius: var(--r-3);
   background: var(--bg-elevated);
 }
 
@@ -136,7 +136,7 @@
   height: 28px;
   padding: 0 7px;
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--r-2);
   background: transparent;
   color: var(--text-2);
   font-family: var(--font);
@@ -205,7 +205,7 @@
   height: 25px;
   padding-right: 6px;
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--r-2);
   background: transparent;
   color: var(--text-3);
   font-family: var(--font);

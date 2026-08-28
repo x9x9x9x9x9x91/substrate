@@ -18,7 +18,7 @@
   height: 24px;
   flex: none;
   border: 1px solid var(--border-soft);
-  border-radius: 6px;
+  border-radius: var(--r-2);
   background: transparent;
   color: var(--text-3);
   font-family: var(--font);
@@ -42,7 +42,7 @@
   padding: 10px 12px 11px;
   background: var(--bg-panel);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--r-3);
   animation: info-view-in 110ms ease-out;
 }
 
@@ -81,7 +81,7 @@
   z-index: 45;
   width: 220px;
   background: var(--bg-elevated);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--shadow-float);
 }
 
 /* The lower-left "about the app" cluster. The controls share the
@@ -102,7 +102,7 @@
   height: 24px;
   flex: none;
   border: 1px solid var(--border-soft);
-  border-radius: 6px;
+  border-radius: var(--r-2);
   background: transparent;
   color: var(--text-3);
 }

@@ -265,7 +265,6 @@ test("arrow-walking to the last row lands it clear of the bottom fade (SUB-1218)
   // walks a shorter list and never reaches the true last row
   await expect(page.locator(".palette-item-snippet").first()).toBeVisible();
 
-  const rows = page.locator(".palette-results .palette-item");
   // The Content batch lands over several paints, so no count taken up front is
   // safe: read it a moment too early and the walk is sized to a list that then
   // outgrew it, stopping short with real rows still below. Counting is the
@@ -274,29 +273,70 @@ test("arrow-walking to the last row lands it clear of the bottom fade (SUB-1218)
   // mid-walk costs a few more presses instead of a wrong landing. The
   // assertions below are about the END of the list; they only mean anything
   // once the walk has provably reached it.
+  //
+  // "The current last row is selected" alone is not that landing, though:
+  // it can be true while the list is still growing. A batch that arrives
+  // between the walk's exit and a separate geometry read appends rows BELOW
+  // the selection, so the bottom gate is legitimately open when it is read —
+  // and `useIndexReveal(listRef, sel, [sel])` does not re-reveal for rows
+  // appended under a selection that never moved. Four e2e workers on a Mac is
+  // enough load to hit that window routinely; eight on Linux is not, which is
+  // why the rig used to decide the verdict. So the walk waits for the LANDED
+  // state instead: three consecutive rounds in which the row count is
+  // unchanged (the 100ms search debounce and its batches have drained), there
+  // is exactly one selection, and it is the last row. Each round still
+  // presses ArrowDown, so a list that grew since the previous round moves the
+  // selection down with it — and moving `sel` is what re-reveals the row.
+  // The geometry is read in the SAME evaluate as the settle check, so no
+  // batch can slip between the two.
+  const STABLE_ROUNDS = 3;
+  let stable = 0;
+  let prevCount = -1;
+  // an array, not a `let`: TypeScript keeps the initial narrowing of a
+  // variable only ever assigned inside a callback, and `landed!` would then
+  // read as `never` at the assertions below
+  const landed: { fadeOpen: boolean; rowBottom: number; fadeBandTop: number }[] = [];
   await expect
     .poll(
       async () => {
         await page.keyboard.press("ArrowDown");
-        return rows.last().evaluate((el) => el.classList.contains("selected"));
+        const snap = await page.evaluate(() => {
+          const r = document.querySelector(".palette-results");
+          if (!r) return null;
+          const items = Array.from(r.querySelectorAll(".palette-item"));
+          const last = items[items.length - 1];
+          const sels = r.querySelectorAll(".palette-item.selected");
+          if (!last || sels.length !== 1) return null;
+          const rb = r.getBoundingClientRect();
+          const sb = (sels[0] as HTMLElement).getBoundingClientRect();
+          return {
+            count: items.length,
+            lastSelected: last.classList.contains("selected"),
+            fadeOpen: r.className.includes("edge-more-y"),
+            rowBottom: sb.bottom,
+            fadeBandTop: rb.bottom - 20,
+          };
+        });
+        if (!snap) {
+          stable = 0;
+          prevCount = -1;
+          return false;
+        }
+        const held = snap.count === prevCount && snap.lastSelected;
+        stable = held ? stable + 1 : 0;
+        prevCount = snap.count;
+        if (stable < STABLE_ROUNDS) return false;
+        landed.push(snap);
+        return true;
       },
-      { timeout: 20000 }
+      // a fixed short interval, not the default backoff: every round costs one
+      // ArrowDown, and a list of any length would otherwise spend the budget
+      // waiting a second between presses
+      { timeout: 20000, intervals: [150] }
     )
     .toBe(true);
 
-  const selected = page.locator(".palette-item.selected");
-  await expect(selected).toHaveCount(1);
-  const geom = await page.evaluate(() => {
-    const r = document.querySelector(".palette-results")!;
-    const sel = document.querySelector(".palette-item.selected")!;
-    const rb = r.getBoundingClientRect();
-    const sb = sel.getBoundingClientRect();
-    return {
-      fadeOpen: r.className.includes("edge-more-y"),
-      rowBottom: sb.bottom,
-      fadeBandTop: rb.bottom - 20,
-    };
-  });
+  const geom = landed[landed.length - 1];
   // nothing is left below but the scroller's own clearance padding, and
   // padding is not content — the gate closes rather than promising a row
   // that isn't there

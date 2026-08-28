@@ -65,8 +65,8 @@
   width: 240px;
   background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  border-radius: var(--r-3);
+  box-shadow: var(--shadow-float);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -112,7 +112,7 @@
   align-items: center;
   gap: 8px;
   padding: 6px 8px;
-  border-radius: 6px;
+  border-radius: var(--r-2);
   font-size: 13px;
   color: var(--text-2);
 }
@@ -206,8 +206,8 @@
   margin-top: 4px;
   background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  border-radius: var(--r-3);
+  box-shadow: var(--shadow-float);
   overflow: hidden;
 }
 
@@ -232,7 +232,7 @@
   align-items: center;
   gap: 8px;
   padding: 4px 8px;
-  border-radius: 6px;
+  border-radius: var(--r-2);
   font-size: 13px;
   color: var(--text-2);
 }
@@ -248,7 +248,7 @@
   width: 20px;
   height: 20px;
   border: none;
-  border-radius: 5px;
+  border-radius: var(--r-2);
   background: transparent;
   padding: 0;
 }
@@ -294,7 +294,7 @@
 
 .selmenu-btn {
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--r-2);
   background: transparent;
   color: var(--text-2);
   font-size: 12px;

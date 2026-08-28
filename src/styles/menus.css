@@ -4,9 +4,9 @@
   padding: 4px;
   background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
-  border-radius: 9px;
+  border-radius: var(--r-3);
   box-shadow:
-    0 10px 38px rgba(0, 0, 0, 0.5),
+    var(--shadow-float),
     inset 0 1px 0 rgba(255, 255, 255, 0.05);
   outline: none;
   animation: ctx-in 90ms ease-out;
@@ -81,9 +81,9 @@
   padding: 4px 8px;
   background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
-  border-radius: 7px;
+  border-radius: var(--r-2);
   box-shadow:
-    0 6px 20px rgba(0, 0, 0, 0.45),
+    var(--shadow-float),
     inset 0 1px 0 rgba(255, 255, 255, 0.05);
   color: var(--text-1);
   font-size: 12px;
@@ -120,7 +120,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  border-radius: 5px;
+  border-radius: var(--r-2);
   font-size: 13px;
   font-weight: 500;
   color: var(--text-2);
@@ -196,7 +196,7 @@
   margin: 8px 8px 8px 0;
   background: var(--bg-panel);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--r-3);
   overflow: hidden;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }

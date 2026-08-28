@@ -127,7 +127,42 @@
   );
   --text-4: #565656;
   --bg-input: #0d0d0e;
-  --r: 2px;
+  /* The radius ladder — four steps, assigned by ROLE, not by whichever
+     literal a surface happened to be typed with. The app's roundness is
+     unchanged: these are the values the majority of each family already
+     wore, and the stragglers moved to join them (owner's call 2026-08-28 —
+     corners stop disagreeing, nothing gets rounder or sharper).
+       --r-1  chips, badges, inline text marks, checkboxes and ticks, thin
+              bars and tracks, and anything nested directly inside an --r-2
+              control (a segmented control's buttons, a row's inline editor).
+       --r-2  the default: buttons, inputs, rows, list and menu items,
+              segmented containers, notices, code blocks.
+       --r-3  panels, cards, menus, popovers, HUDs, modals, kanban columns,
+              embedded media blocks.
+       --r-pill  capsules: status/filter chips and toggle-switch tracks —
+              anything whose radius was already half its own height.
+     Two shapes stay OFF the ladder on purpose. True circles keep a bare
+     `50%`, because a circle is a shape and not a corner size. And a MARK —
+     a small square that carries data rather than being a surface: the
+     heatmap cells, the chart legend swatch, a sync-strip run tick — keeps
+     its own hairline round, since the ladder's smallest step would be half
+     that mark's width and turn the square into a dot. Both exceptions are
+     commented where they sit. */
+  --r-1: 4px;
+  --r-2: 6px;
+  --r-3: 8px;
+  --r-pill: 999px;
+  /* Two elevations, and only two. Resting is a card that has lifted a
+     millimetre under the pointer; floating is anything that left the page —
+     a menu, a popover, a HUD, a modal. The fourteen hand-typed recipes
+     these replaced differed by a pixel or two of blur and a few points of
+     alpha, which is drift, not intent. A shadow that carries a DIRECTION is
+     a different device and keeps its own value: the terminal HUD's edge
+     glow and the mobile sidebar's side shadow say which edge they hang off,
+     which a downward drop shadow cannot. Focus rings and inset hairlines
+     are not elevation and are untouched. */
+  --shadow-rest: 0 1px 4px rgba(0, 0, 0, 0.35);
+  --shadow-float: 0 8px 32px rgba(0, 0, 0, 0.45);
   /* The one app-chrome slot: the keyboard button sits fixed at this
      viewport coordinate on every desktop view, aligned with the note-tools
      row (.main's 8px margin + 1px border, then note-tools' 10px padding) and

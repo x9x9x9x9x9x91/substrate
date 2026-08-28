@@ -3,8 +3,8 @@ import { expect, test } from "./fixtures";
 // The everywhere palette is a third window with its own bundle, and the two
 // things it must never get wrong are both observable in a browser: the frame
 // has to stay transparent (an opaque layer above the card puts a black
-// rectangle behind the 12px radius), and Enter has to navigate rather than
-// capture whenever there is anywhere to navigate to.
+// rectangle behind the card's rounded corner), and Enter has to navigate
+// rather than capture whenever there is anywhere to navigate to.
 //
 // Every test runs at the window's REAL size. The window is 620px wide, which
 // is under the phone breakpoint — a rule written for phones fires inside this
@@ -35,7 +35,7 @@ test("the palette frame is transparent, and keeps its foot at the real window wi
     return { bg: s.backgroundColor, radius: s.borderTopLeftRadius };
   });
   expect(card.bg).not.toBe("rgba(0, 0, 0, 0)");
-  expect(card.radius).toBe("12px");
+  expect(card.radius).toBe("8px");
 
   // the phone breakpoint must not strip the ↑↓ / ↩ / esc hints in here
   await expect(page.locator(".palette-foot")).toBeVisible();

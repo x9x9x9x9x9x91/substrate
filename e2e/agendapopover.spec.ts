@@ -19,7 +19,7 @@ test("the agenda window frame is transparent — only the card paints (SUB-746)"
   await expect(page.locator(".palette")).toBeVisible();
 
   // every layer between the window and the card has to be clear, or the
-  // transparent window shows an opaque rectangle behind the 12px radius
+  // transparent window shows an opaque rectangle behind the card's rounded corner
   for (const sel of ["html", "body", "#root"]) {
     const bg = await page.locator(sel).evaluate((el) => getComputedStyle(el).backgroundColor);
     expect(bg, `${sel} must not paint a background`).toBe("rgba(0, 0, 0, 0)");
@@ -31,7 +31,7 @@ test("the agenda window frame is transparent — only the card paints (SUB-746)"
     return { bg: s.backgroundColor, radius: s.borderTopLeftRadius, shadow: s.boxShadow };
   });
   expect(card.bg).not.toBe("rgba(0, 0, 0, 0)");
-  expect(card.radius).toBe("12px");
+  expect(card.radius).toBe("8px");
   expect(card.shadow).not.toBe("none");
 });
 

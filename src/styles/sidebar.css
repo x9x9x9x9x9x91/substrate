@@ -69,7 +69,7 @@
   width: 24px;
   height: 24px;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--r-2);
   background: transparent;
   color: var(--text-2);
 }
@@ -85,7 +85,7 @@
   gap: 9px;
   height: 28px;
   padding: 0 8px;
-  border-radius: 6px;
+  border-radius: var(--r-2);
   color: var(--text-2);
   font-size: 13px;
   font-weight: 500;
@@ -137,7 +137,7 @@ button.side-item {
   letter-spacing: 0.06em;
   color: var(--text-3);
   border: 1px solid var(--border-soft);
-  border-radius: 3px;
+  border-radius: var(--r-1);
   padding: 0.5px 3.5px;
   flex: none;
   margin-left: auto;
@@ -314,7 +314,7 @@ button.side-item {
   width: 18px;
   height: 18px;
   border: none;
-  border-radius: 5px;
+  border-radius: var(--r-2);
   background: transparent;
   color: var(--text-3);
 }
@@ -340,7 +340,7 @@ button.side-item {
   border: none;
   background: transparent;
   color: var(--text-3);
-  border-radius: 4px;
+  border-radius: var(--r-1);
 }
 
 .side-chevron svg {
@@ -406,7 +406,7 @@ button.side-item {
   padding: 0 5px;
   background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
-  border-radius: 4px;
+  border-radius: var(--r-1);
   color: var(--text-1);
   font-size: 13px;
   font-weight: 500;
@@ -430,11 +430,11 @@ button.side-item {
   padding: 3px 7px;
   background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
-  border-radius: 5px;
+  border-radius: var(--r-2);
   font-size: 11px;
   color: var(--danger);
   white-space: nowrap;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-float);
 }
 
 /* What committing the typed name would do — muted text riding beside the

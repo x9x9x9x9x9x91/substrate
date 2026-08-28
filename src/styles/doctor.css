@@ -151,7 +151,7 @@
   font-size: 12px;
   font-family: var(--font);
   padding: 2px 8px;
-  border-radius: 10px;
+  border-radius: var(--r-3);
   transition:
     background-color 120ms ease-out,
     color 120ms ease-out;

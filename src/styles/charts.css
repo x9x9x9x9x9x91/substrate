@@ -326,6 +326,8 @@
   width: 8px;
   height: 8px;
   flex: none;
+  /* a mark, not a surface: 4px would be half this 8px square and read as a
+     dot. Off the radius ladder on purpose (tokens.css) */
   border-radius: 1px;
   background: var(--band, var(--text-1));
 }
@@ -465,7 +467,7 @@
   top: 0;
   bottom: 0;
   min-width: 1px;
-  border-radius: var(--r);
+  border-radius: var(--r-1);
 }
 
 .chart-line-slot:hover {
@@ -485,8 +487,8 @@
   pointer-events: none;
   background: var(--bg-elevated);
   border: 1px solid var(--border-strong);
-  border-radius: 6px;
-  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.5);
+  border-radius: var(--r-2);
+  box-shadow: var(--shadow-float);
   padding: 6px 9px;
   min-width: 74px;
   white-space: nowrap;
@@ -622,7 +624,7 @@
   height: 28px;
   padding: 0 12px;
   border: 1px solid var(--accent);
-  border-radius: 6px;
+  border-radius: var(--r-2);
   background: var(--accent);
   color: var(--on-accent);
   font-size: 12.5px;
@@ -682,7 +684,7 @@
   height: 22px;
   padding: 0 9px;
   border: 1px solid var(--border-soft);
-  border-radius: 11px;
+  border-radius: var(--r-pill);
   background: none;
   font: var(--dash-label);
   font-variant-numeric: tabular-nums;
@@ -764,7 +766,9 @@
 .heatmap-day,
 .heatmap-pad {
   aspect-ratio: 1;
-  border-radius: var(--r);
+  /* data cells, off the radius ladder on purpose: the grid sizes them to
+     roughly a dozen pixels, where --r-1 would round the square away */
+  border-radius: 2px;
 }
 
 .heatmap-day {
@@ -825,7 +829,8 @@
 .heatmap-key {
   width: 9px;
   height: 9px;
-  border-radius: var(--r);
+  /* the legend wears the same cell shape as the grid it explains */
+  border-radius: 2px;
   background: var(--hm-0);
 }
 
@@ -881,7 +886,7 @@
 .progress-track {
   height: 6px;
   margin-top: 8px;
-  border-radius: 3px;
+  border-radius: var(--r-1);
   background: var(--track);
   overflow: hidden;
 }
@@ -893,7 +898,7 @@
   display: block;
   height: 100%;
   width: var(--progress-fill, 0%);
-  border-radius: 3px;
+  border-radius: var(--r-1);
   background: rgba(255, 255, 255, 0.35);
   transition: width 0.4s ease;
 }
@@ -1002,7 +1007,7 @@
 .dash-form-row input {
   height: 30px;
   border: 1px solid var(--hair);
-  border-radius: var(--r);
+  border-radius: var(--r-2);
   background: var(--bg-input);
   color: var(--text-1);
   font: 400 12px var(--mono);
@@ -1030,7 +1035,7 @@
   height: 30px;
   padding: 0 16px;
   border: none;
-  border-radius: var(--r);
+  border-radius: var(--r-2);
   background: var(--accent);
   /* the filled button's ink follows the accent's lightness: white on a
      lit accent is 2.0:1, unreadable. A light fill takes a dark ink — and
@@ -1063,7 +1068,7 @@
   height: 30px;
   padding: 0 14px;
   border: 1px solid var(--hair);
-  border-radius: var(--r);
+  border-radius: var(--r-2);
   background: transparent;
   color: var(--text-2);
   font: var(--dash-sentence);
