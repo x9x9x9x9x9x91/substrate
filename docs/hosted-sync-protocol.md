@@ -258,12 +258,128 @@ deadline answers `408`.
 The server serves one connection per thread and caps concurrent connections at
 64. One person's devices need a handful, so the cap is invisible in normal use
 and is what stops a stranger with a socket generator from turning
-thread-per-connection into the host's memory. Beside the global cap, each space
-may hold at most 8 of those connections and all spaces together at most 48, so
-the slots a space can never occupy are the vault's reserve: a stalled space
-cannot make the operator's own vault unreachable.
+thread-per-connection into the host's memory. How that cap is divided between
+the vault and the spaces beside it is below.
 
-Four refusals share the two "cannot right now" statuses, and they do not have
+### Space routes
+
+A space is a second namespace on the same server: its own storage directory,
+its own bearer token, its own ceilings. Its data routes are the vault's routes
+above, unchanged in method, body, precondition and status, moved under the
+prefix `/v1/s/<space-id>/`. A space id is 32 lowercase hex characters (128 bits
+from the operating system pool); nothing in it needs normalizing, which is the
+whole of the path-traversal defence for `<root>/spaces/<space-id>`. A path
+under `/v1/s/` whose id is not that shape is not a space route at all.
+
+Beside them are three routes the operator owns. Those are the whole management
+surface: there is no route to list spaces, to read a token back, or to change a
+space's ceilings.
+
+| Operation | Request | Credential | Success | Failure |
+| --- | --- | --- | --- | --- |
+| mint a space | `POST /v1/spaces` | operator | `201` + `{"id":"<32 hex>","token":"<64 hex>"}` | `507` the mint did not happen (no `X-Substrate-Refusal` — it is an operator answer on an operator route); the expected cause is the 64-space ceiling, which an operator fixes by deleting a space rather than by retrying — but this route collapses *every* failure into `507`, including an unreadable random source and any error creating or persisting the namespace on disk, so an operator seeing it should rule out the disk before assuming the count. `405` other method |
+| rotate a space's token | `POST /v1/spaces/<id>/token` | operator | `200` + `{"token":"<64 hex>"}` | `404` no such space, `500` the new token could not be generated or its hash could not be persisted, `405` other method |
+| delete a space | `DELETE /v1/spaces/<id>` | operator | `204`, storage gone | `404` nothing is owed for this id, `503` + `X-Substrate-Refusal: delete-in-progress`, `500` retry me, `405` other method |
+| LIST objects | `GET /v1/s/<id>/objects`, optionally `?since=<cursor>` | that space's | as above | as above |
+| GET object | `GET /v1/s/<id>/objects/<name>` | that space's | as above | as above |
+| PUT object | `PUT /v1/s/<id>/objects/<name>` + envelope | that space's | as above | as above, plus `507` `space-full` and `503` `server-full` |
+| GET ref | `GET /v1/s/<id>/ref` | that space's | as above | as above |
+| CAS ref | `PUT /v1/s/<id>/ref` + precondition | that space's | as above | as above, plus `413` over this space's recorded `max_ref_bytes` |
+| GET key | `GET /v1/s/<id>/key` | that space's | as above | as above |
+| CAS key | `PUT /v1/s/<id>/key` + precondition | that space's | as above | as above, plus `413` over this space's recorded `max_ref_bytes` |
+
+A minted token and a rotated token are each answered exactly once. The server
+keeps only their SHA-256, so an operator who loses a token rotates rather than
+re-reads one, and a stolen `meta.json` is not a stolen space. Rotation retires
+the old token the moment the new hash is on disk — every device and every
+outstanding invite carrying it is locked out at once — and changes nothing
+about the key: the ciphertext in the namespace stays encrypted under the master
+key it always was, and a member who already pulled a copy can still read it.
+
+**Which credential opens what.** The two credentials open disjoint sets of
+paths, but they are not equal in power. The **operator token** opens the
+vault's own routes (`/v1/…`) and the three management routes; it is refused on
+every `/v1/s/…` data route, so it cannot directly read, write or list a space's
+objects, ref or key. A **space token** opens exactly one namespace — its own
+`/v1/s/<its id>/…` — and nothing else; it is refused on the management routes
+and on every other space's data routes. So a leaked space token is one space.
+
+A leaked operator token is worse than that, and the honest statement of how
+much worse is: **the operator token is a capability superset of every space
+token, one request away.** The rotate route is an operator route, and it hands
+the caller the new plaintext token; that token then opens the space's data
+routes. So an operator — or whoever holds their token — can read any space's
+*ciphertext* in two requests, and can delete any space outright. What stays out
+of reach is a space's **plaintext**: that needs the master key, which lives
+only in the members' `SSK1` envelope and never on the server. The one thing the
+operator cannot do is take that path quietly — rotation retires the old token,
+so every member's sync breaks at the moment the operator mints itself a
+credential.
+
+The credential is checked against the path's namespace after the request head
+and before the body, exactly as above. **A `/v1/s/<id>/…` path whose space does
+not exist is answered `401`, not `404`** — telling a stranger which space ids
+are real is telling them what to aim at. A client therefore cannot distinguish
+"the invite's space was deleted", "the id was mistyped" and "the token is
+wrong", and must name all three rather than send a member to check the one
+thing that may well be right. A path under `/v1/s/` whose id is malformed is
+not recognised as a space route: it is checked against the operator token and
+answered `404` when that token opens it, `401` when it does not.
+
+**What a space is metered on.** Each space carries its ceilings and its
+counters in its own `meta.json`, beside the token hash and a creation
+timestamp. The ceilings are written at creation, so changing the server's
+defaults later never moves an existing space's ceiling underneath its members:
+
+| Field | Default at creation | What it bounds |
+| --- | --- | --- |
+| `max_bytes` | 1 GiB | Stored object bytes in this space |
+| `max_objects` | 200,000 | Objects in this space |
+| `max_object_bytes` | the §2 object cap | One object envelope |
+| `max_ref_bytes` | 4 KiB | The ref document, and the key document |
+| `bytes`, `objects` | 0 | What the space currently holds |
+
+The file's first key is `"version": 1`; the rows above are the fields that
+carry meaning, not the file's full key list.
+
+Above them sits one total across all spaces — 16 GiB — so N spaces do not sum
+past what the operator agreed to, and one ceiling on namespaces: 64. That total
+is checked and charged under each space's *own* lock, not one shared one, so
+two spaces uploading at the same instant can each pass the check and overshoot
+by one object apiece. This is deliberate: the ceiling is an operator's disk
+budget, not an accounting boundary, and a bounded overshoot is cheaper than
+serialising every space's uploads behind a single lock. The vault's own
+namespace is metered by none of it and has no `meta.json`: it is the operator's
+own disk use.
+
+A refusal is decided in a fixed order, so the check made against the declared
+`Content-Length` before the body is admitted and the check made under the
+space's lock with the write inside it can never disagree: **over
+`max_object_bytes` → `413`; over this space's `max_bytes` or at its
+`max_objects` → `507` `space-full`; over the server's total → `503`
+`server-full`.** A space's own ceiling answers before the server total, because
+it is the one its members can act on. Only an upload that actually stored bytes
+charges the counters — a repeat `PUT` answered `200 already present` charges
+nothing. The vault's own routes carry neither fullness refusal: the storage
+budget belongs to spaces, and the vault is the operator's own.
+
+The ref and the key are not metered as fullness. They are one small document
+each, replaced in place rather than accumulated, so an oversized one is `413`
+like an oversized object and a space at its byte ceiling can still publish its
+ref; a space that could not write its ref would be a space whose sync had
+failed rather than one that was full.
+
+**The connection pool a space may hold.** Of the server's 64 concurrent
+connections, one space may hold at most 8 and all spaces together at most 48.
+The 16 slots no space can ever occupy are the vault's reserve: whoever holds a
+space token is whoever a shared folder was handed to, and with a single pool
+they could fill it — 64 slow uploads and the operator's own vault gets `503`
+from their own server. A space's request is charged to its namespace from the
+moment the namespace is known (after the credential is checked, before the body
+is read) and given back when the whole request is answered. Over either share
+the answer is `503` + `space-busy`.
+
+Five refusals share the two "cannot right now" statuses, and they do not have
 the same remedy. `X-Substrate-Refusal` is what tells them apart:
 
 | Status | `X-Substrate-Refusal` | Means | Client's move |
@@ -272,18 +388,7 @@ the same remedy. `X-Substrate-Refusal` is what tells them apart:
 | `503` | `space-busy` | This space is at its share of the connection pool. Answered after the token is checked, before the body is read. | Transient: back off and retry; the space's own other requests are what is holding it. |
 | `503` | `server-full` | The operator's total budget across all spaces (16 GiB) is spent. This space may be nearly empty. | **Not transient in the client's hands.** Nobody in the space can free the bytes; only the operator can. Retrying will not clear it — surface it as the operator's problem, never as "delete some notes". |
 | `507` | `space-full` | This space is over one of its own ceilings — its byte budget or its object count. Reads keep working and nothing about the sync is broken. | Not transient either, but it is the members' to fix: free room in this space. |
-
-Both fullness refusals are answered on a space's object `PUT`, from the declared
-`Content-Length` before a byte of the body is admitted and again under the
-space's lock before the write, so the two checks can never disagree. An object
-larger than the space's per-object ceiling is `413`, as in §2. The vault's own
-routes carry neither refusal: the storage budget belongs to spaces, and the
-vault is the operator's own.
-
-One more `507` is not a sync refusal at all: `POST /v1/spaces` answers it when
-the server already holds its maximum of 64 namespaces. It carries no
-`X-Substrate-Refusal` header, because it is an operator answer on an operator
-route — delete a space rather than retry.
+| `503` | `delete-in-progress` | The operator is deleting this space and the delete is still running. Answered on the delete route itself, to a second `DELETE` for a space already going away. | Transient, but it resolves by disappearing: the next answer for this id is `404`, not `204`. |
 
 Clients must not follow redirects — `HttpBlobStore` sets a redirect limit of
 zero, because following one would hand the bearer token to whatever host the
@@ -388,6 +493,54 @@ enrolling a new device needs the server address, the service token, and the
 passphrase — nothing is hand-carried between devices. The server holds only
 the envelope: without the passphrase it is 32 random-looking bytes behind
 Argon2id, and the passphrase never leaves a client.
+
+### Space key wrap `SSK1`
+
+Bytes are magic `SSK1` (4); HKDF salt (16); nonce (24); the 32-byte encrypted
+master key plus its 16-byte tag. The envelope is exactly 92 bytes, and a reader
+must require that length before it derives anything.
+
+The wrapping key is HKDF-SHA-256 over the space's 32-byte invite secret, with
+that envelope's 16-byte salt as the HKDF salt and info
+`substrate/space/key-wrap/v1`. The associated data is
+`substrate/space/master-key-wrap/v1:` followed by the space's id as its UTF-8 bytes (the ids this app mints are
+   32 hex characters, but the wrap itself checks no shape).
+
+**What the AAD binds to.** The id is in the AAD rather than in the derivation,
+so an envelope opens only in the namespace it was minted for. An `SSK1`
+document lifted from one space's `/key` route and served under another's fails
+on the tag, structurally — not merely because two spaces never happen to share
+a secret, which is a property of the generator rather than of the format.
+
+**HKDF here, Argon2id for the vault (§1).** Argon2id exists to make a
+*guessable* input expensive to guess. A passphrase is guessable and a space's
+invite secret is not: it is 256 bits from the operating system pool, so there
+is no dictionary in front of it and the 64 MiB Argon2id would cost buys
+nothing — while being paid on a phone every time an invite is opened. The
+random salt stays even though the input is already unique, because the
+derivation is the same HKDF every other key in this protocol goes through and
+salting it costs 16 bytes; two spaces that ever shared a secret would otherwise
+share a wrapping key exactly. The magic differs from the vault's for the same
+reason the AAD carries the id: a passphrase-wrapped key is not a space key, and
+the two shapes must never be read as each other.
+
+An implementation must reject, before deriving anything: any length other than
+92 bytes — truncated *or* extended — and any leading 4 bytes other than `SSK1`.
+It must then reject a failed tag, and a plaintext of any length other than 32.
+An `SBK1` envelope presented as `SSK1` fails on the header, and an `SSK1`
+envelope presented as `SBK1` fails likewise; neither is ever run through the
+other's derivation. A failed unwrap says what it can honestly mean — an invite
+for another space, or one issued before the space was re-keyed — and must not
+mention a passphrase, which a member was never given.
+
+The envelope is stored as the space's key document at `GET`/`PUT
+/v1/s/<id>/key`, under the ref's document semantics: opaque bytes, versioned,
+compare-and-swap. Creating a space refuses if a key document is already there
+(including by losing the create-if-absent CAS), and also refuses if the
+namespace holds a ref but no key, because minting a fresh key would succeed at
+every step while making the history already uploaded unreadable. Opening an
+invite refuses if there is no key document: minting one would make an empty
+space nobody else can see rather than join the one the invite named.
 
 ## 4. Client algorithms
 
@@ -666,7 +819,9 @@ space's `meta.json`. A space's routes are the vault's routes under
 `/v1/s/<space-id>/…`, and the two credentials do not overlap: a space token
 opens its own namespace and no management route, the operator token opens the
 management routes and no space's data. So a leaked space token is one space and
-a leaked operator token is the whole server.
+a leaked operator token is the whole server. §2.1's *Space routes* is the full
+account — the routes, the credential rules, the ceilings and the refusal order;
+this paragraph is the shape only, and the numbers live there, once.
 
 What is still absent is accounts and rate limits. Quotas here are storage
 ceilings — per space, and one total across all spaces — not per-caller budgets;

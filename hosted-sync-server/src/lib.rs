@@ -1973,11 +1973,15 @@ fn read_request<'fleet>(
     // 401, because we close with their body still unsent; an honest client
     // never reaches that path.
     //
-    // Which credential opens the request is the path's to decide, and the two
-    // do not overlap: a space token is refused everywhere but its own
-    // namespace, and the operator token is refused on every `/v1/s/…` data
-    // route. So a leaked operator token is a management compromise and a leaked
-    // space token is one space. A `/v1/s/<id>/…` path whose space does not
+    // Which credential opens the request is the path's to decide. On the DATA
+    // routes the two do not overlap: a space token is refused everywhere but
+    // its own namespace, and the operator token is refused on every `/v1/s/…`
+    // data route. But the separation is one request deep, not absolute: the
+    // operator token can rotate any space's token and be handed the fresh
+    // plaintext, so it is a capability superset of every space token — what it
+    // cannot do is take that path quietly, since rotating breaks every
+    // member's sync. A leaked space token is one space; a leaked operator
+    // token is eventually everything. A `/v1/s/<id>/…` path whose space does not
     // exist is answered 401 like a wrong token rather than 404, because telling
     // a stranger which space ids are real is telling them what to aim at.
     let path = target.split_once('?').map(|(path, _)| path).unwrap_or(target.as_str());
