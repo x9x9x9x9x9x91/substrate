@@ -275,7 +275,7 @@ HTML page, a calendar invite — can hand Substrate one of these:
 ```sh
 open "substrate://note/Inbox/Some%20note.md"   # bring the app up on that note
 open "substrate://view/today"                  # …on a destination
-open "substrate://view/All%20notes"            # names with spaces, encoded
+open "substrate://view/All%20databases"        # names with spaces, encoded
 open "substrate://capture"                     # the ⌥Space capture box
 open "substrate://capture?text=call%20the%20studio"   # …prefilled
 ```

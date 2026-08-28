@@ -3,6 +3,60 @@
 <!-- Generated from src/lib/changelog.ts by scripts/gen-changelog.ts.
      Edit that file, then run `node scripts/gen-changelog.ts`. -->
 
+## 0.29.0 — 2026-08-28 — Other apps' notes move in, and the table pulls its weight
+
+### Highlights
+
+- Bring your notes home: the import door opens for everyone — point Settings → Vault →
+  Import at a Logseq graph, a Bear backup, or an Apple Notes export, preview what the
+  run will write — counts, the folder tree, the caveats, and a converted sample — before
+  anything is, and land it all as plain files in your vault. An interrupted run says
+  what it left out instead of going quiet, and the user guide walks the whole path.
+- The table pulls its weight: readable filter chips, a sort popover that won't stack
+  duplicates, ⌘F filters rows in place, and rows group — with undo. Row selection got a
+  real anchor — ⌘-click seeds it, shift-click extends — bulk actions run from the
+  palette, and columns keep the width you gave them instead of jittering.
+
+### New
+
+- Deep links: `substrate://view/<name>` opens a named destination — Today, Calendar,
+  Search and their siblings — from outside the app; a script or a doc can link straight
+  into the vault.
+
+### Improved
+
+- One design language, tightened: a single corner-radius ladder and shadow pair, a
+  six-size type ramp with an eyebrow label style, redrawn icon marks at three sizes,
+  neutral text greys that survive print, and selection now separates where you are
+  (grey) from what you chose (accent). Empty states get their own drawn marks instead of
+  one shared placeholder, board cards show a line of the note's body, reduced motion
+  means it everywhere, and busy/status marks carry names a screen reader can speak.
+- The subpage switcher follows nesting, the sidebar can hide a dashboard, Scratch and
+  Notes wear clearer names, a dashboard fence in a plain note hints where it draws — and
+  stays quiet inside blockquotes — and the user guide grew a glossary for its overloaded
+  words.
+- The tax board left the app — its two halves were already plain features, so a hub note
+  with a cards fence over the aggregates sheet and a hand-written checklist carry the
+  job now. The readiness verdict went with the board, and a note still saying
+  `dashboard: tax` shows the unknown-kind card.
+
+### Fixed
+
+- Sync got plainer and safer: finishing a conflict keeps the folder's untracked files, a
+  nested git repository inside the vault is stepped around and named, the
+  too-many-objects refusal names the note that tripped it, epoch and symlinked-folder
+  refusals speak plainly, and a config file that can't be opened says why.
+- A sheet no longer drops text held mid-edit, its + row placeholder writes nothing until
+  a cell is filled, vim keys walk out of checkbox and rollup cells, a failed undo names
+  its real reason instead of blaming a disk conflict, and a workbook survives a page it
+  can't render — and says so out loud when a save is refused.
+- Print stops emitting a blank first sheet, the workbook's full-page table says when its
+  columns run past the edge, the palette's arrow keys walk the list they show, capture
+  keeps a link's own title, and a moved folder keeps its card slot.
+- Calendar events resize by their edges, edits land from the calendar itself, and the
+  peek settles where you opened it; the kind hub asks once — not once per fence — when
+  several fences share a drifted kind.
+
 ## 0.28.0 — 2026-08-24 — The palette leaves the house, and a board moves into the vault
 
 ### Highlights

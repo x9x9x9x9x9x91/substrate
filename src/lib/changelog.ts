@@ -110,6 +110,55 @@ export function splitLead(text: string): { lead: string; rest: string } | null {
 
 export const CHANGELOG: ChangelogRelease[] = [
   {
+    version: "0.29.0",
+    date: "2026-08-28",
+    title: "Other apps' notes move in, and the table pulls its weight",
+    items: [
+      {
+        text: "Bring your notes home: the import door opens for everyone — point Settings → Vault → Import at a Logseq graph, a Bear backup, or an Apple Notes export, preview what the run will write — counts, the folder tree, the caveats, and a converted sample — before anything is, and land it all as plain files in your vault. An interrupted run says what it left out instead of going quiet, and the user guide walks the whole path.",
+        kind: "new",
+        headline: true,
+      },
+      {
+        text: "The table pulls its weight: readable filter chips, a sort popover that won't stack duplicates, ⌘F filters rows in place, and rows group — with undo. Row selection got a real anchor — ⌘-click seeds it, shift-click extends — bulk actions run from the palette, and columns keep the width you gave them instead of jittering.",
+        kind: "improved",
+        headline: true,
+      },
+      {
+        text: "Deep links: `substrate://view/<name>` opens a named destination — Today, Calendar, Search and their siblings — from outside the app; a script or a doc can link straight into the vault.",
+        kind: "new",
+      },
+      {
+        text: "One design language, tightened: a single corner-radius ladder and shadow pair, a six-size type ramp with an eyebrow label style, redrawn icon marks at three sizes, neutral text greys that survive print, and selection now separates where you are (grey) from what you chose (accent). Empty states get their own drawn marks instead of one shared placeholder, board cards show a line of the note's body, reduced motion means it everywhere, and busy/status marks carry names a screen reader can speak.",
+        kind: "improved",
+      },
+      {
+        text: "The subpage switcher follows nesting, the sidebar can hide a dashboard, Scratch and Notes wear clearer names, a dashboard fence in a plain note hints where it draws — and stays quiet inside blockquotes — and the user guide grew a glossary for its overloaded words.",
+        kind: "improved",
+      },
+      {
+        text: "The tax board left the app — its two halves were already plain features, so a hub note with a cards fence over the aggregates sheet and a hand-written checklist carry the job now. The readiness verdict went with the board, and a note still saying `dashboard: tax` shows the unknown-kind card.",
+        kind: "improved",
+      },
+      {
+        text: "Sync got plainer and safer: finishing a conflict keeps the folder's untracked files, a nested git repository inside the vault is stepped around and named, the too-many-objects refusal names the note that tripped it, epoch and symlinked-folder refusals speak plainly, and a config file that can't be opened says why.",
+        kind: "fixed",
+      },
+      {
+        text: "A sheet no longer drops text held mid-edit, its + row placeholder writes nothing until a cell is filled, vim keys walk out of checkbox and rollup cells, a failed undo names its real reason instead of blaming a disk conflict, and a workbook survives a page it can't render — and says so out loud when a save is refused.",
+        kind: "fixed",
+      },
+      {
+        text: "Print stops emitting a blank first sheet, the workbook's full-page table says when its columns run past the edge, the palette's arrow keys walk the list they show, capture keeps a link's own title, and a moved folder keeps its card slot.",
+        kind: "fixed",
+      },
+      {
+        text: "Calendar events resize by their edges, edits land from the calendar itself, and the peek settles where you opened it; the kind hub asks once — not once per fence — when several fences share a drifted kind.",
+        kind: "fixed",
+      },
+    ],
+  },
+  {
     version: "0.28.0",
     date: "2026-08-24",
     title: "The palette leaves the house, and a board moves into the vault",
