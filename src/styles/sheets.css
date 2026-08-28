@@ -74,8 +74,8 @@ td .sheet-cell.sheet-computed {
   padding: 2px 8px;
   border-radius: var(--r-2);
   transition:
-    background-color 120ms ease-out,
-    color 120ms ease-out;
+    background-color var(--t) ease-out,
+    color var(--t) ease-out;
 }
 
 .sheet-addcol-btn:hover {
@@ -133,8 +133,8 @@ th.sheet-computed:hover {
   font-family: var(--font);
   padding: 7px 10px;
   transition:
-    background-color 120ms ease-out,
-    color 120ms ease-out;
+    background-color var(--t) ease-out,
+    color var(--t) ease-out;
 }
 
 .sheet-addrow button:hover {
@@ -245,7 +245,7 @@ th.sheet-computed:hover {
   color: var(--text-4);
   font-size: 12px;
   opacity: 0;
-  transition: opacity 120ms ease-out;
+  transition: opacity var(--t-fast) ease-out;
 }
 
 .sheet-totals:hover .sheet-total-add,
@@ -296,8 +296,8 @@ th.sheet-computed:hover {
   padding: 2px 6px;
   border-radius: var(--r-2);
   transition:
-    background-color 120ms ease-out,
-    color 120ms ease-out;
+    background-color var(--t) ease-out,
+    color var(--t) ease-out;
 }
 
 .sheet-fx-pick:hover {
@@ -392,8 +392,8 @@ th.sheet-computed:hover {
   min-width: 0;
   cursor: pointer;
   transition:
-    background-color 120ms ease-out,
-    color 120ms ease-out;
+    background-color var(--t) ease-out,
+    color var(--t) ease-out;
 }
 
 .sheet-sum-rollup:hover {
@@ -423,8 +423,8 @@ th.sheet-computed:hover {
   border-radius: var(--r-2);
   cursor: pointer;
   transition:
-    background-color 120ms ease-out,
-    color 120ms ease-out;
+    background-color var(--t) ease-out,
+    color var(--t) ease-out;
 }
 
 .sheet-sum-add:hover {
@@ -444,8 +444,8 @@ th.sheet-computed:hover {
   border-radius: var(--r-2);
   cursor: pointer;
   transition:
-    background-color 120ms ease-out,
-    color 120ms ease-out;
+    background-color var(--t) ease-out,
+    color var(--t) ease-out;
 }
 
 .sheet-sum-more:hover {

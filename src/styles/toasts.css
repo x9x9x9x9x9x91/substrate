@@ -6,12 +6,12 @@
   display: flex;
   justify-content: center;
   z-index: 100;
-  animation: overlay-in 110ms ease-out;
+  animation: overlay-in var(--t-fast) ease-out;
 }
 
 .overlay.closing {
   opacity: 0;
-  transition: opacity 90ms ease-out;
+  transition: opacity var(--t-fast) ease-out;
 }
 
 /* transient result feedback (e.g. folder rescan) — quiet, auto-dismissed.
@@ -30,7 +30,7 @@
   font-size: 13px;
   padding: 9px 16px;
   z-index: 120;
-  animation: toast-in 140ms ease-out;
+  animation: toast-in var(--t) ease-out;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -48,8 +48,8 @@
   font-weight: 500;
   cursor: pointer;
   transition:
-    background-color 120ms ease-out,
-    border-color 120ms ease-out;
+    background-color var(--t) ease-out,
+    border-color var(--t) ease-out;
 }
 
 .toast button:hover {
@@ -65,7 +65,7 @@
   border: none;
   color: var(--text-3);
   font-size: 12px;
-  transition: color 120ms ease-out;
+  transition: color var(--t) ease-out;
 }
 
 .toast button.toast-dismiss:hover {
@@ -89,7 +89,7 @@
   font-size: 12px;
   padding: 7px 10px 7px 14px;
   z-index: 120;
-  animation: toast-in 140ms ease-out;
+  animation: toast-in var(--t) ease-out;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -99,7 +99,7 @@
    palette overlay — the pane holds it mounted for one 90ms fade. */
 .bulkbar.closing {
   opacity: 0;
-  transition: opacity 90ms ease-out;
+  transition: opacity var(--t-fast) ease-out;
   pointer-events: none;
 }
 
@@ -130,8 +130,8 @@
   font-weight: 500;
   cursor: pointer;
   transition:
-    background-color 120ms ease-out,
-    border-color 120ms ease-out;
+    background-color var(--t) ease-out,
+    border-color var(--t) ease-out;
 }
 
 .bulkbar button:hover {
@@ -201,15 +201,15 @@
     var(--shadow-float),
     inset 0 1px 0 rgba(255, 255, 255, 0.05);
   overflow: hidden;
-  animation: palette-in 110ms ease-out;
+  animation: palette-in var(--t-fast) ease-out;
 }
 
 .overlay.closing .palette {
   opacity: 0;
   transform: scale(0.985) translateY(-4px);
   transition:
-    opacity 90ms ease-out,
-    transform 90ms ease-out;
+    opacity var(--t-fast) ease-out,
+    transform var(--t-fast) ease-out;
 }
 
 @keyframes overlay-in {

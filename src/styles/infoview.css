@@ -43,7 +43,7 @@
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-radius: var(--r-3);
-  animation: info-view-in 110ms ease-out;
+  animation: info-view-in var(--t-fast) ease-out;
 }
 
 @keyframes info-view-in {

@@ -46,8 +46,8 @@
   transform: translate(-50%, calc(-100% - 8px)) scale(0.98);
   transform-origin: center bottom;
   transition:
-    opacity 100ms ease-out,
-    transform 100ms ease-out;
+    opacity var(--t-fast) ease-out,
+    transform var(--t-fast) ease-out;
   white-space: nowrap;
 }
 
@@ -70,8 +70,8 @@
   line-height: 1;
   cursor: pointer;
   transition:
-    background-color 100ms ease-out,
-    color 100ms ease-out;
+    background-color var(--t) ease-out,
+    color var(--t) ease-out;
 }
 
 .editor-toolbar-button:hover,
@@ -217,8 +217,8 @@
   text-overflow: ellipsis;
   cursor: pointer;
   transition:
-    background-color 100ms ease-out,
-    color 100ms ease-out;
+    background-color var(--t) ease-out,
+    color var(--t) ease-out;
 }
 
 .editor-outline-item:hover {

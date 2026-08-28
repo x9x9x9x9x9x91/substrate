@@ -95,7 +95,7 @@
      cycling a ramp that names nothing. */
   background: var(--bar, var(--accent));
   min-height: 3px;
-  transition: background 120ms ease-out;
+  transition: background var(--t) ease-out;
 }
 
 .dash-bar-col:hover .dash-bar {
@@ -233,7 +233,7 @@
   margin: -2.5px 0 0 -2.5px;
   border-radius: 50%;
   background: var(--accent);
-  transition: background 120ms ease-out;
+  transition: background var(--t) ease-out;
 }
 
 .chart-dot:hover {
@@ -691,9 +691,9 @@
   color: var(--text-3);
   cursor: pointer;
   transition:
-    color 120ms ease-out,
-    background 120ms ease-out,
-    border-color 120ms ease-out;
+    color var(--t) ease-out,
+    background var(--t) ease-out,
+    border-color var(--t) ease-out;
 }
 
 .heatmap-year:hover {
@@ -773,7 +773,7 @@
 
 .heatmap-day {
   background: var(--hm-0);
-  transition: background 120ms ease-out;
+  transition: background var(--t) ease-out;
 }
 
 .heatmap-day[data-level="1"] {
@@ -900,7 +900,7 @@
   width: var(--progress-fill, 0%);
   border-radius: var(--r-1);
   background: rgba(255, 255, 255, 0.35);
-  transition: width 0.4s ease;
+  transition: width var(--t) ease-out;
 }
 
 .progress-read {
@@ -1018,8 +1018,8 @@
   min-width: 0;
   color-scheme: dark;
   transition:
-    border-color 120ms ease-out,
-    box-shadow 120ms ease-out;
+    border-color var(--t) ease-out,
+    box-shadow var(--t) ease-out;
 }
 
 .dash-form-row input:focus {
@@ -1045,7 +1045,7 @@
   color: var(--on-accent);
   font: var(--dash-sentence);
   font-weight: 550;
-  transition: filter 120ms ease-out;
+  transition: filter var(--t) ease-out;
 }
 
 .dash-add:hover {
@@ -1075,9 +1075,9 @@
   font-weight: 500;
   cursor: pointer;
   transition:
-    background-color 120ms ease-out,
-    color 120ms ease-out,
-    border-color 120ms ease-out;
+    background-color var(--t) ease-out,
+    color var(--t) ease-out,
+    border-color var(--t) ease-out;
 }
 
 .dash-claim:hover:not(:disabled) {
@@ -1153,7 +1153,7 @@
   font: var(--dash-data);
   color: var(--text-3);
   cursor: pointer;
-  transition: color 120ms ease-out;
+  transition: color var(--t) ease-out;
 }
 
 .dash-table-toggle:hover {

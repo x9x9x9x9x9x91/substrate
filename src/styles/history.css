@@ -14,7 +14,7 @@
     var(--shadow-float),
     inset 0 1px 0 rgba(255, 255, 255, 0.05);
   overflow: hidden;
-  animation: palette-in 110ms ease-out;
+  animation: palette-in var(--t-fast) ease-out;
 }
 
 .hist-head {
@@ -412,8 +412,8 @@
   font-family: var(--font);
   padding: 2px 8px;
   transition:
-    background-color 120ms ease-out,
-    color 120ms ease-out;
+    background-color var(--t) ease-out,
+    color var(--t) ease-out;
 }
 
 .sheet-tool:hover {

@@ -21,9 +21,9 @@
   white-space: nowrap;
   cursor: pointer;
   transition:
-    background-color 120ms ease-out,
-    color 120ms ease-out,
-    border-color 120ms ease-out;
+    background-color var(--t) ease-out,
+    color var(--t) ease-out,
+    border-color var(--t) ease-out;
 }
 
 .sync-btn:hover:not(:disabled) {
@@ -47,6 +47,9 @@
   border: 1.5px solid rgba(255, 255, 255, 0.22);
   border-top-color: var(--text-1);
   border-radius: 50%;
+  /* a rotation period, not a speed: off the two-speed scale (tokens.css),
+     since a spinner at 120ms per turn is a blur. Reduced motion swaps the
+     rotation for a static busy mark further down. */
   animation: sync-spin 0.8s linear infinite;
 }
 
@@ -59,6 +62,18 @@
 @keyframes sync-spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+/* Reduced motion: this mark REPLACES a button's label while the work runs, so
+   it is the only thing saying anything is happening — stilling the rotation
+   and walking away would leave a bright arc frozen at whatever angle it was
+   caught at, which reads as hung rather than busy. The gap closes instead:
+   the ring goes whole and bright, a mark with no angle to be stuck at, still
+   plainly standing in for the label it replaced. */
+@media (prefers-reduced-motion: reduce) {
+  .sync-spinner {
+    border-color: var(--text-1);
   }
 }
 /* The tasks dashboard, third layout: one grid across every section head and
@@ -91,8 +106,8 @@
   color: var(--text-1);
   font: var(--dash-sentence);
   transition:
-    border-color 120ms ease-out,
-    box-shadow 120ms ease-out;
+    border-color var(--t) ease-out,
+    box-shadow var(--t) ease-out;
 }
 
 .tasks-compose-input::placeholder {

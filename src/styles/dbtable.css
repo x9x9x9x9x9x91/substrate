@@ -83,7 +83,7 @@
 
 .db-table th:hover {
   color: var(--text-1);
-  transition: color 120ms ease-out;
+  transition: color var(--t) ease-out;
 }
 
 /* Rows sliding under the sticky header need the header to read as a
@@ -91,7 +91,7 @@
    the .db-scrolled-x freeze line, and at scroll 0 nothing changes. */
 .db-scrolled-y .db-table th {
   border-bottom-color: var(--border-strong);
-  transition: border-bottom-color 120ms ease-out;
+  transition: border-bottom-color var(--t) ease-out;
 }
 
 .db-sort {
@@ -153,7 +153,7 @@
    on leave — an easing exit trails the pointer across a long table */
 .db-table tbody tr:hover td {
   background: var(--hover);
-  transition: background-color 120ms ease-out;
+  transition: background-color var(--t) ease-out;
 }
 
 /* A multi-selected row carries the accent tint — it outranks the
@@ -164,7 +164,7 @@
   background: var(--accent-soft);
   /* The tint arrives over 140ms so a shift-range select reads as one
      sweep; declared on the selected rules only, so deselect snaps clear */
-  transition: background-color 140ms ease-out;
+  transition: background-color var(--t) ease-out;
 }
 
 .db-table tbody tr.is-selected td:first-child,
@@ -172,7 +172,7 @@
   background: linear-gradient(var(--accent-soft), var(--accent-soft)), var(--bg-panel);
   /* the frozen cell carries its tint as a layer over the opaque base, so it
      is background-image that has to ease here for the row to tint as one */
-  transition: background-image 140ms ease-out;
+  transition: background-image var(--t) ease-out;
 }
 
 .db-table tr.db-open td {
@@ -196,7 +196,7 @@
 
 .db-table tbody tr:hover td:first-child {
   background: linear-gradient(var(--hover), var(--hover)), var(--bg-panel);
-  transition: background-image 120ms ease-out;
+  transition: background-image var(--t) ease-out;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -274,6 +274,8 @@
   pointer-events: none;
   border-radius: inherit;
   background: var(--accent-soft);
+  /* a decay, not a speed: the flash has to be readable AFTER the eye
+     arrives, so it sits off the two-speed scale (tokens.css) */
   animation: cell-flash 700ms ease-out forwards;
 }
 
@@ -371,7 +373,7 @@
 }
 
 .db-group-chevron svg {
-  transition: transform 120ms ease-out;
+  transition: transform var(--t) ease-out;
 }
 
 .db-group-chevron.open svg {
@@ -589,7 +591,7 @@
 }
 
 .db-tree-chevron svg {
-  transition: transform 120ms ease-out;
+  transition: transform var(--t) ease-out;
 }
 
 .db-tree-chevron.open svg {
@@ -674,8 +676,8 @@
   color: var(--text-3);
   cursor: pointer;
   transition:
-    background 120ms ease-out,
-    color 120ms ease-out;
+    background var(--t) ease-out,
+    color var(--t) ease-out;
 }
 
 .prop-play:hover {
@@ -701,8 +703,8 @@
   border: 1px solid var(--border-strong);
   border-radius: var(--r-1);
   transition:
-    border-color 120ms ease-out,
-    background-color 120ms ease-out;
+    border-color var(--t) ease-out,
+    background-color var(--t) ease-out;
 }
 
 .db-cell:hover .prop-check,
@@ -717,7 +719,7 @@
   background: var(--accent)
     url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><path d="M2.5 6.2 5 8.7l4.5-5.4" fill="none" stroke="%23090909" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>')
     center / 10px no-repeat;
-  animation: check-pop 140ms ease-out;
+  animation: check-pop var(--t) ease-out;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -774,8 +776,8 @@
   border-color: var(--accent);
   background: var(--accent-soft);
   transition:
-    border-color 120ms ease-out,
-    background-color 120ms ease-out;
+    border-color var(--t) ease-out,
+    background-color var(--t) ease-out;
 }
 
 @media (prefers-reduced-motion: reduce) {

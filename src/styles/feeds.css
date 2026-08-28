@@ -24,7 +24,7 @@
   letter-spacing: 0.04em;
   color: var(--text-4);
   cursor: pointer;
-  transition: color 120ms ease-out;
+  transition: color var(--t) ease-out;
 }
 
 .feed-chip:hover {
@@ -258,8 +258,8 @@
     visibility: hidden;
     pointer-events: none;
     transition:
-      transform 140ms ease-out,
-      visibility 0s linear 140ms,
+      transform var(--t) ease-out,
+      visibility 0s linear var(--t),
       pointer-events 0s linear;
     transition-behavior: allow-discrete;
   }
@@ -274,8 +274,8 @@
        navigation silently stayed on the current view. Closing still disables
        pointer events immediately via the zero-delay base transition above. */
     transition:
-      transform 140ms ease-out,
-      pointer-events 0s linear 140ms;
+      transform var(--t) ease-out,
+      pointer-events 0s linear var(--t);
     transition-behavior: allow-discrete;
   }
 

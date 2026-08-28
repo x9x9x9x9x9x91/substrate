@@ -225,11 +225,11 @@
 }
 
 .tagfolder-chips-reject-a {
-  animation: tagfolder-nudge 160ms ease-out;
+  animation: tagfolder-nudge var(--t) ease-out;
 }
 
 .tagfolder-chips-reject-b {
-  animation: tagfolder-nudge-b 160ms ease-out;
+  animation: tagfolder-nudge-b var(--t) ease-out;
 }
 
 @keyframes tagfolder-nudge {
@@ -338,8 +338,8 @@
   color: var(--text-3);
   cursor: pointer;
   transition:
-    background 120ms ease-out,
-    color 120ms ease-out;
+    background var(--t) ease-out,
+    color var(--t) ease-out;
 }
 
 .mp-step,

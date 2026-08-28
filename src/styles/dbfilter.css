@@ -36,7 +36,7 @@
 /* visible "pin this filter" affordance — the ⋯-menu path stays */
 .db-filter-save {
   flex: none;
-  transition: opacity 120ms ease-out;
+  transition: opacity var(--t-fast) ease-out;
   padding: 2px 8px;
   border: 1px solid var(--border-soft);
   border-radius: var(--r-2);
@@ -55,7 +55,7 @@
 
 .db-filter-clear {
   flex: none;
-  transition: opacity 120ms ease-out;
+  transition: opacity var(--t-fast) ease-out;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -121,7 +121,7 @@
   border: 1px solid var(--border-strong);
   border-radius: var(--r-3);
   box-shadow: var(--shadow-float);
-  animation: menu-pop 100ms ease-out;
+  animation: menu-pop var(--t-fast) ease-out;
   transform-origin: top right;
 }
 
@@ -269,7 +269,7 @@
   background: transparent;
   color: var(--text-3);
   opacity: 0;
-  transition: opacity 120ms ease-out;
+  transition: opacity var(--t-fast) ease-out;
 }
 
 .db-chip:hover .db-chip-x,

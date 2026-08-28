@@ -3,8 +3,8 @@
   opacity: 0;
   transform: scale(0.985) translateY(-4px);
   transition:
-    opacity 90ms ease-out,
-    transform 90ms ease-out;
+    opacity var(--t-fast) ease-out,
+    transform var(--t-fast) ease-out;
 }
 
 .shortcut-sheet-title {
@@ -97,15 +97,15 @@
   border: 1px solid var(--border);
   border-radius: var(--r-3);
   box-shadow: var(--shadow-float);
-  animation: palette-in 110ms ease-out;
+  animation: palette-in var(--t-fast) ease-out;
 }
 
 .keyhints-panel.closing {
   opacity: 0;
   transform: scale(0.985) translateY(-4px);
   transition:
-    opacity 90ms ease-out,
-    transform 90ms ease-out;
+    opacity var(--t-fast) ease-out,
+    transform var(--t-fast) ease-out;
 }
 
 /* long combo runs (the pane hjkl sets) wrap instead of clipping at 240px.
@@ -165,8 +165,8 @@
   color: var(--text-3);
   font-size: 11.5px;
   transition:
-    color 120ms ease-out,
-    border-color 120ms ease-out;
+    color var(--t) ease-out,
+    border-color var(--t) ease-out;
 }
 
 .sheet-assign-btn:hover {
@@ -194,15 +194,15 @@
   border: 1px solid var(--border-strong);
   border-radius: var(--r-3);
   box-shadow: var(--shadow-float);
-  animation: palette-in 110ms ease-out;
+  animation: palette-in var(--t-fast) ease-out;
 }
 
 .key-hud.closing {
   opacity: 0;
   transform: scale(0.985) translateY(4px);
   transition:
-    opacity 90ms ease-out,
-    transform 90ms ease-out;
+    opacity var(--t-fast) ease-out,
+    transform var(--t-fast) ease-out;
 }
 
 /* a chip dragged back over the panel: the same affordance a sidebar row
@@ -287,8 +287,8 @@
 .key-chip {
   cursor: grab;
   transition:
-    color 120ms ease-out,
-    border-color 120ms ease-out;
+    color var(--t) ease-out,
+    border-color var(--t) ease-out;
 }
 
 .key-chip:hover {
@@ -319,7 +319,7 @@
    assignable chips are what the eye lands on */
 .sidebar.key-assign-active .side-shortcut:not(.side-key-chip) {
   opacity: 0.35;
-  transition: opacity 120ms ease-out;
+  transition: opacity var(--t-fast) ease-out;
 }
 
 /* Hold-modifier HUD — the same shell as the click panel above,
@@ -343,7 +343,7 @@
   border-radius: var(--r-3);
   box-shadow: var(--shadow-float);
   pointer-events: none;
-  animation: modkey-hud-in 90ms ease-out both;
+  animation: modkey-hud-in var(--t-fast) ease-out both;
 }
 
 @keyframes modkey-hud-in {

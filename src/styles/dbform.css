@@ -67,7 +67,7 @@
   letter-spacing: 0.04em;
   color: var(--text-4);
   cursor: pointer;
-  transition: color 120ms ease-out;
+  transition: color var(--t) ease-out;
 }
 
 .share-door-mode:hover {
@@ -534,7 +534,7 @@ body.col-resizing * {
   color: var(--text-2);
   /* Keyed on the value in DbTableLayout, so this runs on every
      recompute -- the figure fades in rather than swapping under the eye */
-  animation: agg-in 200ms ease-out;
+  animation: agg-in var(--t) ease-out;
 }
 
 @keyframes agg-in {
@@ -570,7 +570,7 @@ body.col-resizing * {
 .db-agg-ghost {
   color: var(--text-3);
   opacity: 0;
-  transition: opacity 120ms ease-out;
+  transition: opacity var(--t-fast) ease-out;
 }
 
 .db-agg-cell:hover .db-agg-ghost,

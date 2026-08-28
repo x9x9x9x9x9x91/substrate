@@ -338,10 +338,10 @@
 .today-add-act,
 .today-wrap-act {
   transition:
-    background-color 120ms ease-out,
-    color 120ms ease-out,
-    border-color 120ms ease-out,
-    opacity 100ms ease-out;
+    background-color var(--t) ease-out,
+    color var(--t) ease-out,
+    border-color var(--t) ease-out,
+    opacity var(--t) ease-out;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -424,7 +424,7 @@
   /* The underline draws itself under the tab you just picked
      instead of blinking into place. Per-tab, not a shared sliding element */
   transform-origin: left center;
-  animation: tab-underline 140ms ease-out;
+  animation: tab-underline var(--t) ease-out;
 }
 
 @keyframes tab-underline {

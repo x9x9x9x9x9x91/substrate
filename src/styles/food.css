@@ -425,7 +425,7 @@
 .food-db-caret {
   display: inline-block;
   font: var(--dash-label);
-  transition: transform 120ms ease-out;
+  transition: transform var(--t) ease-out;
 }
 
 .food-db-caret.open {
@@ -613,9 +613,9 @@
   color: var(--text-3);
   cursor: pointer;
   transition:
-    color 120ms ease-out,
-    background 120ms ease-out,
-    border-color 120ms ease-out;
+    color var(--t) ease-out,
+    background var(--t) ease-out,
+    border-color var(--t) ease-out;
 }
 
 .feed-vote:hover {

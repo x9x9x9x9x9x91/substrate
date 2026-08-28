@@ -121,8 +121,8 @@
   border: 1.5px solid color-mix(in srgb, var(--check) 78%, transparent);
   border-radius: 50%;
   transition:
-    background-color 120ms ease-out,
-    border-color 120ms ease-out;
+    background-color var(--t) ease-out,
+    border-color var(--t) ease-out;
 }
 
 .tasks-check:hover i {
@@ -186,13 +186,15 @@
 
 .tasks-row.done {
   opacity: 0.55;
-  transition: opacity 200ms ease-out;
+  transition: opacity var(--t) ease-out;
 }
 
 /* a just-created row is scrolled to and briefly lit: urgency ranking can put
    a new undated task far down the board, and "where did it go?" is the one
    question a quick-add must never leave open */
 .tasks-row.added {
+  /* a decay, not a speed: the just-added wash has to outlast the glance
+     that finds the row, so it sits off the two-speed scale (tokens.css) */
   animation: tasks-added 1.6s ease-out;
 }
 
@@ -374,7 +376,7 @@
   width: 12px;
   height: 12px;
   color: var(--text-4);
-  transition: transform 120ms ease-out;
+  transition: transform var(--t) ease-out;
 }
 
 .tasks-chev.open {
@@ -411,8 +413,8 @@
   border-color: var(--accent);
   background: var(--accent-soft);
   transition:
-    border-color 120ms ease-out,
-    background-color 120ms ease-out;
+    border-color var(--t) ease-out,
+    background-color var(--t) ease-out;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -480,7 +482,7 @@
 
 .tasks-card.done {
   opacity: 0.55;
-  transition: opacity 200ms ease-out;
+  transition: opacity var(--t) ease-out;
 }
 
 .tasks-card.done .tasks-title {
@@ -489,6 +491,8 @@
 }
 
 .tasks-card.added {
+  /* a decay, not a speed: the just-added wash has to outlast the glance
+     that finds the row, so it sits off the two-speed scale (tokens.css) */
   animation: tasks-added 1.6s ease-out;
 }
 

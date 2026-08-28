@@ -305,6 +305,8 @@
 
 /* line flash after a jump from search */
 .cm-flash-line {
+  /* a decay, not a speed — the jumped-to line has to stay lit long enough
+     to be found, so it sits off the two-speed scale (tokens.css) */
   animation: search-flash 1100ms ease-out both;
 }
 

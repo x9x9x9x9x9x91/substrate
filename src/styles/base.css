@@ -98,25 +98,33 @@ button:focus-visible,
   background: var(--active);
 }
 
+/* The reduced-motion contract, and it is a BLANKET on purpose. This used to
+   be an enumeration of eighteen selectors setting `transition: none` — which
+   meant it covered the eighteen hover washes somebody remembered to list, and
+   nothing else: not one animation anywhere in the app (it never named the
+   `animation` property at all), and no rule written after it. Two infinite
+   animations on the sync surface ran at full speed for every reader who had
+   asked the system for less. An opt-in list is the wrong shape for a promise
+   that has to hold for code nobody has written yet, so the default inverts:
+   everything is still, and a surface that needs to say something without
+   moving says it explicitly in its own sheet.
+
+   Near-zero durations rather than `none`, because `none` is the version that
+   breaks things quietly: a `forwards`/`both` animation would never reach its
+   end state (the cell flash would stay lit instead of fading out), and any
+   later `transitionend` listener would wait for an event that never fires.
+   At 0.01ms the end state lands on the next frame and the events still fire —
+   there is simply nothing to see in between. `!important` because this sheet
+   is the second import in the cascade and every rule it has to beat is
+   written after it. */
 @media (prefers-reduced-motion: reduce) {
-  .side-item,
-  .row,
-  .chip,
-  .chip-x,
-  .chip-add,
-  .backlink,
-  .sidebar-new,
-  .list-new,
-  .dash-source,
-  .dash-rate-btn,
-  .dash-add,
-  .db-switch button,
-  .db-tab,
-  .db-tab-add,
-  .db-filter-toggle,
-  .db-card,
-  .db-gcard,
-  .db-note-x {
-    transition: none;
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
   }
 }

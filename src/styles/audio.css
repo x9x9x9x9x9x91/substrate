@@ -48,7 +48,7 @@
   background: var(--bg-elevated);
   color: var(--text-2);
   cursor: pointer;
-  transition: background 120ms ease-out, color 120ms ease-out;
+  transition: background var(--t) ease-out, color var(--t) ease-out;
 }
 
 .cm-audio-btn:hover {

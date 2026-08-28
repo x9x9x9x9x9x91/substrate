@@ -27,8 +27,8 @@
   background: transparent;
   color: var(--text-3);
   transition:
-    background-color 120ms ease-out,
-    color 120ms ease-out;
+    background-color var(--t) ease-out,
+    color var(--t) ease-out;
 }
 
 .cal-pager button:hover {
@@ -167,7 +167,7 @@
   height: 12px;
   margin-left: 10px;
   border-radius: 50%;
-  transition: margin 120ms ease-out;
+  transition: margin var(--t) ease-out;
 }
 
 .cal-feed-toggle[aria-checked="false"] {
@@ -582,7 +582,7 @@
   border-radius: var(--r-1);
   background: var(--entry-tint, var(--border-strong));
   opacity: 0;
-  transition: opacity 90ms ease-out;
+  transition: opacity var(--t-fast) ease-out;
 }
 
 .cal-wk-grip.top::after {
@@ -675,7 +675,7 @@
   border-bottom: 1px solid var(--border-soft);
   overflow: hidden;
   cursor: default;
-  transition: background-color 120ms ease-out;
+  transition: background-color var(--t) ease-out;
 }
 
 .cal-grid.month .cal-day:nth-child(7n + 1) {
@@ -792,7 +792,7 @@
   color: var(--text-1);
   text-align: left;
   cursor: grab;
-  transition: background-color 120ms ease-out;
+  transition: background-color var(--t) ease-out;
 }
 
 .cal-entry:hover {

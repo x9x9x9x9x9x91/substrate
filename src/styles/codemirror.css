@@ -387,8 +387,8 @@
   background: var(--surface-faint);
   cursor: pointer;
   transition:
-    border-color 120ms ease-out,
-    background-color 120ms ease-out;
+    border-color var(--t) ease-out,
+    background-color var(--t) ease-out;
 }
 
 .cm-task-toggle:hover {
@@ -400,7 +400,7 @@
   background: var(--accent)
     url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><path d="M2.5 6.2 5 8.7l4.5-5.4" fill="none" stroke="%23090909" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>')
     center / 10px no-repeat;
-  animation: check-pop 140ms ease-out;
+  animation: check-pop var(--t) ease-out;
 }
 
 @keyframes check-pop {
@@ -457,7 +457,7 @@
   line-height: 1;
   cursor: pointer;
   opacity: 0;
-  transition: opacity 120ms ease;
+  transition: opacity var(--t-fast) ease-out;
 }
 
 .cm-md-table-add-column {

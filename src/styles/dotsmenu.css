@@ -21,7 +21,7 @@
   font-size: 12px;
   padding: 7px 14px;
   z-index: 120;
-  animation: toast-in 140ms ease-out;
+  animation: toast-in var(--t) ease-out;
   pointer-events: none;
   white-space: nowrap;
 }

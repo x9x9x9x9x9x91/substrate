@@ -209,7 +209,7 @@
   cursor: pointer;
   display: flex;
   align-items: center;
-  transition: background 120ms ease-out;
+  transition: background var(--t) ease-out;
 }
 
 .settings-switch .settings-knob {
@@ -217,7 +217,7 @@
   height: 13px;
   border-radius: 50%;
   background: var(--text-3);
-  transition: transform 120ms ease-out, background 120ms ease-out;
+  transition: transform var(--t) ease-out, background var(--t) ease-out;
 }
 
 .settings-switch.on {
@@ -249,7 +249,7 @@
   font-size: 12px;
   padding: 4px 12px;
   cursor: pointer;
-  transition: background 120ms ease-out, color 120ms ease-out;
+  transition: background var(--t) ease-out, color var(--t) ease-out;
 }
 
 .settings-seg-btn:hover {
@@ -297,7 +297,7 @@
   border-radius: 50%;
   border: 1px solid var(--border-strong);
   background: var(--text-2);
-  transition: background 120ms ease-out;
+  transition: background var(--t) ease-out;
 }
 
 .settings-range:hover::-webkit-slider-thumb {
@@ -339,8 +339,8 @@
   font-size: 12px;
   padding: 4px 9px;
   cursor: pointer;
-  transition: background 120ms ease-out, color 120ms ease-out,
-    border-color 120ms ease-out;
+  transition: background var(--t) ease-out, color var(--t) ease-out,
+    border-color var(--t) ease-out;
 }
 
 .settings-chip:hover {

@@ -275,8 +275,8 @@ body.agenda-window .palette-hint {
   color: var(--text-2);
   cursor: pointer;
   transition:
-    background-color 120ms ease-out,
-    color 120ms ease-out;
+    background-color var(--t) ease-out,
+    color var(--t) ease-out;
 }
 
 /* Keyboard selection and hover are the same visible state — the two
@@ -372,5 +372,5 @@ body.agenda-window .palette:focus-visible {
     var(--shadow-float),
     inset 0 1px 0 rgba(255, 255, 255, 0.05);
   overflow: hidden;
-  animation: palette-in 110ms ease-out;
+  animation: palette-in var(--t-fast) ease-out;
 }

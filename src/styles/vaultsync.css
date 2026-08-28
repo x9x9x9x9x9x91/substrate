@@ -334,8 +334,8 @@
   color: var(--text-1);
   font-size: 13px;
   transition:
-    border-color 120ms ease-out,
-    box-shadow 120ms ease-out;
+    border-color var(--t) ease-out,
+    box-shadow var(--t) ease-out;
 }
 
 .vault-sync-form input:focus {
@@ -362,8 +362,8 @@
   line-height: 1.5;
   resize: vertical;
   transition:
-    border-color 120ms ease-out,
-    box-shadow 120ms ease-out;
+    border-color var(--t) ease-out,
+    box-shadow var(--t) ease-out;
 }
 
 .vault-sync-form textarea:focus {

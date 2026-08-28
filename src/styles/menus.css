@@ -9,7 +9,7 @@
     var(--shadow-float),
     inset 0 1px 0 rgba(255, 255, 255, 0.05);
   outline: none;
-  animation: ctx-in 90ms ease-out;
+  animation: ctx-in var(--t-fast) ease-out;
 }
 
 @keyframes ctx-in {
@@ -49,7 +49,7 @@
 .colmenu,
 .dots-menu {
   transform-origin: top left;
-  animation: menu-pop 100ms ease-out;
+  animation: menu-pop var(--t-fast) ease-out;
 }
 
 .selmenu.flip-up:not(.selmenu-cell),
@@ -91,7 +91,7 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   pointer-events: none;
-  animation: tip-in 90ms ease-out;
+  animation: tip-in var(--t-fast) ease-out;
 }
 
 /* grows out of the trigger, like the menus */

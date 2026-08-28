@@ -163,6 +163,27 @@
      are not elevation and are untouched. */
   --shadow-rest: 0 1px 4px rgba(0, 0, 0, 0.35);
   --shadow-float: 0 8px 32px rgba(0, 0, 0, 0.45);
+  /* Two motion speeds, and only two. Every duration in the app is one of
+     them, assigned by ROLE rather than by whichever number a site was typed
+     with (owner's call 2026-08-28 — the tree had drifted to nine values
+     between 90ms and 400ms saying nothing different from each other).
+       --t-fast  the ephemeral tier: pure opacity work — a dismissal fade, a
+                 tooltip or menu arriving, a control that reveals itself on
+                 hover. Things you should not be able to catch happening.
+       --t       everything else, and the default when a site is unsure:
+                 colour and border feedback, chevron and knob transforms,
+                 slides, expands, bar and ring fills, entrance animations.
+     Both carry `ease-out`, which stays written at the site — the token is a
+     duration, so it composes inside a `transition` list and an `animation`
+     shorthand without either one having to guess the curve.
+     What is deliberately NOT on this scale: a duration that is a RHYTHM or a
+     DECAY rather than a speed — the sync spinner's rotation period, the live
+     tick's breath, the flash that fades a jumped-to line back down over a
+     second. Those keep their own numbers, because folding a 1.2s breath into
+     120ms makes a strobe, not a faster version of the same idea. Each is
+     commented where it sits. */
+  --t-fast: 90ms;
+  --t: 120ms;
   /* The one app-chrome slot: the keyboard button sits fixed at this
      viewport coordinate on every desktop view, aligned with the note-tools
      row (.main's 8px margin + 1px border, then note-tools' 10px padding) and

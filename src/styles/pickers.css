@@ -335,8 +335,8 @@
   /* Arrowing through the grid glides the cursor and the span
      shading across the days instead of teleporting cell to cell */
   transition:
-    background-color 90ms ease-out,
-    color 90ms ease-out;
+    background-color var(--t-fast) ease-out,
+    color var(--t-fast) ease-out;
 }
 
 @media (prefers-reduced-motion: reduce) {

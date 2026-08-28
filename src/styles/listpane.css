@@ -55,8 +55,8 @@
   background: transparent;
   color: var(--text-2);
   transition:
-    background-color 120ms ease-out,
-    color 120ms ease-out;
+    background-color var(--t) ease-out,
+    color var(--t) ease-out;
 }
 
 .list-back:hover {
@@ -79,8 +79,8 @@
   background: transparent;
   color: var(--text-2);
   transition:
-    background-color 120ms ease-out,
-    color 120ms ease-out;
+    background-color var(--t) ease-out,
+    color var(--t) ease-out;
 }
 
 .list-new:hover {
@@ -238,8 +238,8 @@ button.empty-hint-fix:hover {
   font-weight: 500;
   cursor: pointer;
   transition:
-    background-color 120ms ease-out,
-    border-color 120ms ease-out;
+    background-color var(--t) ease-out,
+    border-color var(--t) ease-out;
 }
 
 .empty-action:hover {
@@ -309,8 +309,8 @@ button.empty-hint-fix:hover {
   font-weight: 500;
   cursor: pointer;
   transition:
-    background-color 120ms ease-out,
-    border-color 120ms ease-out;
+    background-color var(--t) ease-out,
+    border-color var(--t) ease-out;
 }
 
 .note-banner button:hover {
@@ -348,8 +348,8 @@ button.empty-hint-fix:hover {
   font-size: 12px;
   cursor: pointer;
   transition:
-    background-color 120ms ease-out,
-    border-color 120ms ease-out;
+    background-color var(--t) ease-out,
+    border-color var(--t) ease-out;
 }
 
 .fm-banner button:hover {
@@ -459,7 +459,7 @@ button.empty-hint-fix:hover {
   cursor: pointer;
   font-size: 12px;
   color: var(--text-2);
-  animation: chip-in 120ms ease-out;
+  animation: chip-in var(--t) ease-out;
 }
 
 @keyframes chip-in {

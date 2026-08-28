@@ -153,8 +153,8 @@
   padding: 2px 8px;
   border-radius: var(--r-3);
   transition:
-    background-color 120ms ease-out,
-    color 120ms ease-out;
+    background-color var(--t) ease-out,
+    color var(--t) ease-out;
 }
 
 .search-completion:hover {
