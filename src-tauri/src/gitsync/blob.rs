@@ -97,6 +97,27 @@ const REF_KEY_INFO: &[u8] = b"substrate/hosted-sync/ref-key/v1";
 const REF_AAD: &[u8] = b"substrate/hosted-sync/ref/v1";
 const WRAP_AAD: &[u8] = b"substrate/hosted-sync/master-key-wrap/v1";
 
+/// A space id as the server mints and routes it: 32 lowercase hex characters,
+/// no separator and no dot, so there is nothing in it to normalize away and
+/// nothing that can leave the namespace it names.
+const SPACE_ID_LEN: usize = 32;
+/// A space's invite secret is 256 bits from the OS pool, and the wrap below
+/// depends on it being exactly that.
+const SPACE_SECRET_LEN: usize = 32;
+const SPACE_WRAP_MAGIC: &[u8; 4] = b"SSK1";
+const SPACE_WRAP_INFO: &[u8] = b"substrate/space/key-wrap/v1";
+/// The front of the AAD an SSK1 envelope is sealed under; the space's own id
+/// follows it, so the envelope is bound to the namespace it was minted in.
+/// Without the id, an envelope lifted from one space's `/key` route into
+/// another's would fail to open only because two spaces never happen to share
+/// a secret — a property of the generator rather than of the format.
+const SPACE_WRAP_AAD_PREFIX: &[u8] = b"substrate/space/master-key-wrap/v1:";
+
+/// The AAD binding one SSK1 envelope to one space.
+fn space_wrap_aad(space_id: &str) -> Vec<u8> {
+    [SPACE_WRAP_AAD_PREFIX, space_id.as_bytes()].concat()
+}
+
 /// A client-held vault master key. Debug output never exposes key material and
 /// dropping the value wipes its backing bytes.
 #[derive(Clone, Zeroize, ZeroizeOnDrop)]
@@ -152,6 +173,74 @@ impl MasterKey {
         }
         Ok(Self(bytes))
     }
+}
+
+/// The secret an invite carries: what unwraps a space's master key, and the
+/// whole of what stands between a copy of a space's store and its contents.
+///
+/// It is generated, never typed. That is what lets the wrap skip Argon2 —
+/// see [`wrap_space_key`] — and it is why this type refuses to be built from
+/// anything but its own serialization: a short or human-chosen value here
+/// would be a passphrase going through a derivation built for a random one.
+/// How an invite link spells the secret is the link builder's business; this
+/// is the form the credential store holds.
+#[derive(Clone, Zeroize, ZeroizeOnDrop)]
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) struct SpaceSecret([u8; SPACE_SECRET_LEN]);
+
+impl std::fmt::Debug for SpaceSecret {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("SpaceSecret([REDACTED])")
+    }
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+impl SpaceSecret {
+    pub(crate) fn generate() -> Self {
+        let mut bytes = [0u8; SPACE_SECRET_LEN];
+        OsRng.fill_bytes(&mut bytes);
+        Self(bytes)
+    }
+
+    #[cfg(test)]
+    fn from_bytes(bytes: [u8; SPACE_SECRET_LEN]) -> Self {
+        Self(bytes)
+    }
+
+    /// Serialize for the credential store. The string wipes itself on drop.
+    pub(crate) fn to_hex(&self) -> Zeroizing<String> {
+        use std::fmt::Write as _;
+        let mut hex = String::with_capacity(SPACE_SECRET_LEN * 2);
+        for byte in self.0 {
+            let _ = write!(hex, "{byte:02x}");
+        }
+        Zeroizing::new(hex)
+    }
+
+    /// The inverse of [`Self::to_hex`]. The error names the invite rather than
+    /// echoing anything about the value that failed to parse.
+    pub(crate) fn from_hex(hex: &str) -> Result<Self, String> {
+        let hex = hex.trim();
+        let invalid =
+            || "this space secret is not a space secret — check the invite link".to_string();
+        if hex.len() != SPACE_SECRET_LEN * 2
+            || !hex.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            return Err(invalid());
+        }
+        let mut bytes = [0u8; SPACE_SECRET_LEN];
+        for (index, chunk) in hex.as_bytes().chunks_exact(2).enumerate() {
+            let pair = std::str::from_utf8(chunk).map_err(|_| invalid())?;
+            bytes[index] = u8::from_str_radix(pair, 16).map_err(|_| invalid())?;
+        }
+        Ok(Self(bytes))
+    }
+}
+
+/// Whether a string is a space id in the form the server mints and routes.
+pub(crate) fn is_space_id(id: &str) -> bool {
+    id.len() == SPACE_ID_LEN
+        && id.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 /// The server's opaque version token and encrypted ref document.
@@ -410,6 +499,12 @@ impl BlobTransport for FileBlobStore {
 pub(crate) struct HttpBlobStore {
     agent: ureq::Agent,
     base: String,
+    /// What sits between `/v1` and the route, so one server can hold more than
+    /// the single vault namespace it started with: empty for the vault's own
+    /// routes, `/s/<space-id>` for a space's. The vault's requests are built
+    /// from the same format string with nothing in this field, which is what
+    /// keeps them byte-identical to the ones this client always sent.
+    namespace: String,
     token: String,
     retry: RetryPolicy,
 }
@@ -445,6 +540,7 @@ impl std::fmt::Debug for HttpBlobStore {
         formatter
             .debug_struct("HttpBlobStore")
             .field("base", &self.base)
+            .field("namespace", &self.namespace)
             .field("token", &"[REDACTED]")
             .finish_non_exhaustive()
     }
@@ -452,6 +548,26 @@ impl std::fmt::Debug for HttpBlobStore {
 
 impl HttpBlobStore {
     pub(crate) fn new(base_url: &str, token: &str) -> Result<Self, String> {
+        Self::namespaced(base_url, String::new(), token)
+    }
+
+    /// The same store against one space's namespace, with the space's own
+    /// bearer token.
+    ///
+    /// The id is checked against the shape the server mints and routes — 32
+    /// lowercase hex characters, nothing to normalize away — so a hand-edited
+    /// remote cannot walk out of the namespace with a `..` segment or address a
+    /// second server through an absolute one. The server checks the same shape
+    /// before it looks a space up; checking here as well means a bad id is a
+    /// message about the invite rather than a 404 about the server.
+    pub(crate) fn for_space(base_url: &str, space_id: &str, token: &str) -> Result<Self, String> {
+        if !is_space_id(space_id) {
+            return Err("this space address is not a space id — check the invite link".into());
+        }
+        Self::namespaced(base_url, format!("/s/{space_id}"), token)
+    }
+
+    fn namespaced(base_url: &str, namespace: String, token: &str) -> Result<Self, String> {
         let base = base_url.trim_end_matches('/').to_string();
         // A base URL is operator input. Rejecting userinfo and query strings
         // here keeps the token out of error text later (ureq's Display prints
@@ -476,6 +592,7 @@ impl HttpBlobStore {
                 .redirects(0)
                 .build(),
             base,
+            namespace,
             token: token.to_string(),
             retry: RetryPolicy::default(),
         })
@@ -542,9 +659,43 @@ impl HttpBlobStore {
         format!("Bearer {}", self.token)
     }
 
+    /// The address of one protocol route, in this store's namespace.
+    fn route(&self, tail: &str) -> String {
+        format!("{}/v1{}{tail}", self.base, self.namespace)
+    }
+
     fn object_url(&self, name: &str) -> Result<String, String> {
         validate_object_name(name)?;
-        Ok(format!("{}/v1/objects/{name}", self.base))
+        Ok(self.route(&format!("/objects/{name}")))
+    }
+
+    /// [`status_error`], plus what a refusal means inside a space's namespace.
+    ///
+    /// The server answers an unknown space id with 401 rather than 404, on
+    /// purpose: it will not tell a stranger which ids are real. So the two
+    /// commonest ways a join goes wrong — the space was deleted on the server,
+    /// or the invite was typed with a digit wrong — arrive here as a token
+    /// refusal, and nothing on this side can tell them from a token that is
+    /// simply wrong. All three get named rather than sending a member to check
+    /// the one thing that may well be right.
+    fn refusal(&self, label: &str, code: u16) -> String {
+        match code {
+            401 | 403 if !self.namespace.is_empty() => format!(
+                "hosted sync {label} was rejected: check the invite link and the server token — \
+                 the invite may point at a space that no longer exists on this server, or at the \
+                 wrong server"
+            ),
+            _ => status_error(label, code),
+        }
+    }
+
+    /// [`Self::refusal`] for the routes where a 404 means the URL rather than
+    /// the document — [`missing_route_error`] says why.
+    fn refusal_at(&self, label: &str, code: u16) -> String {
+        match code {
+            404 => missing_route_error(&self.base),
+            _ => self.refusal(label, code),
+        }
     }
 }
 
@@ -636,17 +787,14 @@ fn missing_route_error(base: &str) -> String {
     )
 }
 
-/// [`status_error`] for the routes where a 404 means the URL, not the document.
-fn status_error_at(label: &str, code: u16, base: &str) -> String {
-    match code {
-        404 => missing_route_error(base),
-        _ => status_error(label, code),
-    }
-}
-
 impl BlobTransport for HttpBlobStore {
+    /// The namespace is part of the identity: two spaces on one server, or a
+    /// space and the vault beside it, hold different objects under names
+    /// derived from different keys, and a cache one of them filled must never
+    /// vouch for another. The vault's namespace is empty, so its cache key is
+    /// the one it has always been.
     fn store_identity(&self) -> String {
-        format!("http:{}", self.base)
+        format!("http:{}{}", self.base, self.namespace)
     }
 
     fn list_objects(&self, max_objects: usize) -> Result<Vec<String>, String> {
@@ -697,7 +845,7 @@ impl BlobTransport for HttpBlobStore {
             if status == 404 {
                 return Err("hosted sync object is absent from the server".into());
             }
-            return Err(status_error("object download", status));
+            return Err(self.refusal("object download", status));
         };
         read_response_bounded(response, max_bytes, "hosted sync object")
     }
@@ -720,11 +868,11 @@ impl BlobTransport for HttpBlobStore {
         if status == 200 || status == 201 {
             return Ok(());
         }
-        Err(status_error_at("object upload", status, &self.base))
+        Err(self.refusal_at("object upload", status))
     }
 
     fn read_ref(&self, max_bytes: usize) -> Result<Option<VersionedRef>, String> {
-        self.read_document("/v1/ref", "ref", max_bytes)
+        self.read_document("/ref", "ref", max_bytes)
     }
 
     fn compare_and_swap_ref(
@@ -732,11 +880,11 @@ impl BlobTransport for HttpBlobStore {
         expected_version: Option<&str>,
         bytes: &[u8],
     ) -> Result<CasResult, String> {
-        self.cas_document("/v1/ref", "ref", expected_version, bytes)
+        self.cas_document("/ref", "ref", expected_version, bytes)
     }
 
     fn read_key(&self, max_bytes: usize) -> Result<Option<VersionedRef>, String> {
-        self.read_document("/v1/key", "key", max_bytes)
+        self.read_document("/key", "key", max_bytes)
     }
 
     fn compare_and_swap_key(
@@ -744,7 +892,7 @@ impl BlobTransport for HttpBlobStore {
         expected_version: Option<&str>,
         bytes: &[u8],
     ) -> Result<CasResult, String> {
-        self.cas_document("/v1/key", "key", expected_version, bytes)
+        self.cas_document("/key", "key", expected_version, bytes)
     }
 }
 
@@ -787,14 +935,15 @@ impl HttpBlobStore {
         since: Option<&str>,
         max_objects: usize,
     ) -> Result<ObjectListing, ListingRefusal> {
+        let objects = self.route("/objects");
         let url = match since {
-            Some(cursor) => format!("{}/v1/objects?since={cursor}", self.base),
-            None => format!("{}/v1/objects", self.base),
+            Some(cursor) => format!("{objects}?since={cursor}"),
+            None => objects,
         };
-        let sent = self
-            .call_retrying(|| self.agent.get(&url).set("Authorization", &self.authorization()).call());
-        let (status, response) =
-            http_status(sent, "listing").map_err(ListingRefusal::Failed)?;
+        let sent = self.call_retrying(|| {
+            self.agent.get(&url).set("Authorization", &self.authorization()).call()
+        });
+        let (status, response) = http_status(sent, "listing").map_err(ListingRefusal::Failed)?;
         let Some(response) = response else {
             // A server that predates the cursor route has no handler for a
             // query on this path and answers from its object route: 404 for
@@ -820,7 +969,7 @@ impl HttpBlobStore {
             if since.is_some() && !matches!(status, 429 | 500 | 503) {
                 return Err(ListingRefusal::Unsupported);
             }
-            return Err(ListingRefusal::Failed(status_error("listing", status)));
+            return Err(ListingRefusal::Failed(self.refusal("listing", status)));
         };
         let incremental = response
             .header("X-Substrate-List-Mode")
@@ -862,10 +1011,8 @@ impl HttpBlobStore {
         max_bytes: usize,
     ) -> Result<Option<VersionedRef>, String> {
         let label = format!("{noun} read");
-        let request = self
-            .agent
-            .get(&format!("{}{route}", self.base))
-            .set("Authorization", &self.authorization());
+        let request =
+            self.agent.get(&self.route(route)).set("Authorization", &self.authorization());
         let (status, response) = http_status(request.call(), &label)?;
         let Some(response) = response else {
             // No document yet is the first-enrollment / first-push case, not
@@ -873,7 +1020,7 @@ impl HttpBlobStore {
             if status == 404 {
                 return Ok(None);
             }
-            return Err(status_error(&label, status));
+            return Err(self.refusal(&label, status));
         };
         let version = response
             .header("ETag")
@@ -897,7 +1044,7 @@ impl HttpBlobStore {
         }
         let request = self
             .agent
-            .put(&format!("{}{route}", self.base))
+            .put(&self.route(route))
             .set("Authorization", &self.authorization())
             .set("Content-Type", "application/octet-stream");
         // One of the two preconditions is always sent, so this client can never
@@ -913,7 +1060,7 @@ impl HttpBlobStore {
             return Ok(CasResult::Mismatch);
         }
         let Some(response) = response else {
-            return Err(status_error_at(&label, status, &self.base));
+            return Err(self.refusal_at(&label, status));
         };
         let version = response
             .header("ETag")
@@ -2316,6 +2463,168 @@ pub(crate) fn unwrap_master_key(envelope: &[u8], passphrase: &[u8]) -> Result<Ma
     let mut bytes = [0u8; 32];
     bytes.copy_from_slice(&plaintext);
     Ok(MasterKey(bytes))
+}
+
+/// Wrap a space's master key under its invite secret.
+///
+/// The envelope is the vault's, with one substitution: the wrapping key comes
+/// from HKDF instead of Argon2id. Argon2 exists to make a *guessable* input
+/// expensive to guess, and this input is 256 bits from the OS pool — there is
+/// no dictionary in front of it, so the 64 MiB it would cost buys nothing and
+/// is paid on a phone every time an invite is opened.
+///
+/// A random salt stays, because the derivation is the same HKDF every other
+/// key in this file goes through and salting it costs 16 bytes; two spaces
+/// that ever shared a secret would otherwise share a wrapping key exactly.
+/// The magic differs from the vault's so the two envelope shapes can never be
+/// read as each other — a passphrase-wrapped key is not a space key.
+///
+/// The space's id goes into the AAD rather than the derivation, so an envelope
+/// only opens in the namespace it was minted for: replaying one into another
+/// space fails on the tag, structurally, instead of resting on two spaces never
+/// sharing a secret.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn wrap_space_key(
+    key: &MasterKey,
+    space_id: &str,
+    secret: &SpaceSecret,
+) -> Result<Vec<u8>, String> {
+    let mut salt = [0u8; 16];
+    let mut nonce = [0u8; NONCE_LEN];
+    OsRng.fill_bytes(&mut salt);
+    OsRng.fill_bytes(&mut nonce);
+    let mut wrapping_key = derive_key(&secret.0, &salt, SPACE_WRAP_INFO)?;
+    let cipher = XChaCha20Poly1305::new((&wrapping_key).into());
+    let encrypted = cipher.encrypt(
+        XNonce::from_slice(&nonce),
+        Payload { msg: &key.0, aad: &space_wrap_aad(space_id) },
+    );
+    wrapping_key.zeroize();
+    let ciphertext = encrypted.map_err(|_| "could not wrap this space's master key".to_string())?;
+
+    let mut out = Vec::with_capacity(4 + salt.len() + nonce.len() + ciphertext.len());
+    out.extend_from_slice(SPACE_WRAP_MAGIC);
+    out.extend_from_slice(&salt);
+    out.extend_from_slice(&nonce);
+    out.extend_from_slice(&ciphertext);
+    Ok(out)
+}
+
+/// Recover a space's master key from its invite secret.
+///
+/// The id must be the one the envelope was wrapped for — see [`wrap_space_key`]
+/// — so an envelope from another namespace is refused here rather than opened.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn unwrap_space_key(
+    envelope: &[u8],
+    space_id: &str,
+    secret: &SpaceSecret,
+) -> Result<MasterKey, String> {
+    const HEADER: usize = 4 + 16 + NONCE_LEN;
+    if envelope.len() != HEADER + 32 + TAG_LEN || envelope.get(..4) != Some(SPACE_WRAP_MAGIC) {
+        return Err("this space's key document is not one this app wrote".into());
+    }
+    let salt = &envelope[4..20];
+    let nonce = &envelope[20..HEADER];
+    let mut wrapping_key = derive_key(&secret.0, salt, SPACE_WRAP_INFO)?;
+    let cipher = XChaCha20Poly1305::new((&wrapping_key).into());
+    let plaintext = cipher.decrypt(
+        XNonce::from_slice(nonce),
+        Payload { msg: &envelope[HEADER..], aad: &space_wrap_aad(space_id) },
+    );
+    wrapping_key.zeroize();
+    let plaintext = Zeroizing::new(
+        // A secret is never typed, so the two things this can mean are both
+        // about the link rather than about a keyboard: an invite for a
+        // different space, or one issued before the space was re-keyed. An
+        // envelope carried over from another namespace fails here too, on the
+        // id in the AAD rather than on the secret.
+        plaintext.map_err(|_| {
+            "this invite does not open this space — it may belong to another space, or the space \
+             may have been given a new key since the invite was made"
+        })?,
+    );
+    if plaintext.len() != 32 {
+        return Err("this space's key document is not one this app wrote".into());
+    }
+    let mut bytes = [0u8; 32];
+    bytes.copy_from_slice(&plaintext);
+    Ok(MasterKey(bytes))
+}
+
+/// Which gesture is asking, so the transport can refuse the other outcome.
+///
+/// Hosted sync has one form for both and therefore cannot tell them apart —
+/// [`enroll`] says so at length. A space has two gestures: "share this folder"
+/// is unambiguously a create and opening an invite link is unambiguously a
+/// join, so the intent exists here and the outcome that was not asked for is
+/// an error rather than a surprise.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) enum SpaceIntent {
+    /// Minting a new space: a key document already there is a collision.
+    Create,
+    /// Opening an invite: no key document means the link is wrong, and minting
+    /// one would make an empty space nobody else can see rather than join the
+    /// one the invite named.
+    Join,
+}
+
+/// Obtain a space's master key from its namespace and its invite secret.
+///
+/// The mechanics are [`enroll`]'s — read the key document, unwrap it, or mint
+/// and publish one with create-if-absent CAS — under the HKDF wrap and with
+/// the declared intent enforced on both sides.
+///
+/// The id is the namespace the transport already addresses; it is passed here
+/// as well because the envelope is bound to it (see [`wrap_space_key`]), so a
+/// key document served from the wrong namespace does not open.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn enroll_space(
+    transport: &impl BlobTransport,
+    space_id: &str,
+    secret: &SpaceSecret,
+    intent: SpaceIntent,
+) -> Result<(MasterKey, Enrollment), String> {
+    if let Some(existing) = transport.read_key(MAX_REF_ENVELOPE_BYTES)? {
+        if intent == SpaceIntent::Create {
+            return Err(space_already_exists_error());
+        }
+        return Ok((unwrap_space_key(&existing.bytes, space_id, secret)?, Enrollment::Joined));
+    }
+    if intent == SpaceIntent::Join {
+        return Err("this invite points at a space that does not exist yet, or at the wrong \
+                    server — nothing was created"
+            .into());
+    }
+    // The vault's guard, for the same reason: a namespace holding history but
+    // no key document has lost its key, and minting a fresh one here would
+    // succeed at every step while making the history already uploaded
+    // unreadable.
+    if transport.read_ref(MAX_REF_ENVELOPE_BYTES)?.is_some() {
+        return Err(
+            "this space holds encrypted history but no key document; refusing to create a \
+                    new key — restore the server's key document from backup, or delete the space \
+                    on the server and share the folder again"
+                .into(),
+        );
+    }
+    let key = MasterKey::generate();
+    let envelope = wrap_space_key(&key, space_id, secret)?;
+    match transport.compare_and_swap_key(None, &envelope)? {
+        CasResult::Updated(_) => Ok((key, Enrollment::Created)),
+        // A create that loses the race has found an existing key document,
+        // which is the collision this intent refuses. Adopting it here would
+        // be the join a creator did not ask for, and the key it minted is
+        // dropped unpublished.
+        CasResult::Mismatch => Err(space_already_exists_error()),
+    }
+}
+
+fn space_already_exists_error() -> String {
+    "this namespace already holds a space — sharing a folder into it would collide with the one \
+     already there; mint a new space, or open its invite to join it instead"
+        .to_string()
 }
 
 /// How an enrollment got its master key.
@@ -4220,10 +4529,38 @@ mod tests {
     #[test]
     fn only_a_404_is_read_as_the_wrong_url() {
         let base = "https://drop.example/blob";
-        assert_eq!(status_error_at("key update", 404, base), missing_route_error(base));
+        let vault = HttpBlobStore::new(base, "token").unwrap();
+        assert_eq!(vault.refusal_at("key update", 404), missing_route_error(base));
         for code in [401, 403, 409, 413, 429, 503, 500] {
-            assert_eq!(status_error_at("key update", code, base), status_error("key update", code));
+            assert_eq!(vault.refusal_at("key update", code), status_error("key update", code));
         }
+    }
+
+    /// The server answers an unknown space id with 401 so a stranger cannot
+    /// enumerate which ids are real, which means a deleted space and a mistyped
+    /// invite both reach a joiner as a token refusal. In a space's namespace
+    /// that refusal has to name the invite too; the vault's must not, since
+    /// there is no invite in front of it.
+    #[test]
+    fn a_refusal_inside_a_space_names_the_invite_as_well_as_the_token() {
+        let base = "https://drop.example/blob";
+        let vault = HttpBlobStore::new(base, "token").unwrap();
+        let space = HttpBlobStore::for_space(base, &test_space_id(), "token").unwrap();
+
+        for code in [401, 403] {
+            let error = space.refusal("key read", code);
+            assert!(error.contains("check the invite link"), "{code}: {error}");
+            assert!(error.contains("no longer exists"), "{code}: {error}");
+            assert!(error.contains("wrong server"), "{code}: {error}");
+            assert!(error.contains("server token"), "{code}: {error}");
+            assert_eq!(vault.refusal("key read", code), status_error("key read", code));
+        }
+        // Every other status keeps the wording it has for the vault: only the
+        // one the server overloads changes meaning inside a namespace.
+        for code in [409, 413, 429, 500, 503] {
+            assert_eq!(space.refusal("key read", code), status_error("key read", code));
+        }
+        assert_eq!(space.refusal_at("key update", 404), missing_route_error(base));
     }
 
     #[test]
@@ -4329,6 +4666,220 @@ mod tests {
         let (joined, how) = enroll(&store, b"shared passphrase").unwrap();
         assert_eq!(how, Enrollment::Joined);
         assert_eq!(joined.0, winner_key.0, "the loser must adopt the winner's key");
+    }
+
+    // --- spaces: the client half of a namespaced store ---------------------
+
+    /// A space id in the shape the server mints, for tests that need one that
+    /// routes rather than one that means anything.
+    fn test_space_id() -> String {
+        "3b7a".repeat(SPACE_ID_LEN / 4)
+    }
+
+    /// A second one, for the tests that need two namespaces to be different.
+    fn other_space_id() -> String {
+        "9f4c".repeat(SPACE_ID_LEN / 4)
+    }
+
+    #[test]
+    fn a_space_addresses_its_own_routes_and_leaves_the_vault_s_untouched() {
+        let id = test_space_id();
+        let vault = HttpBlobStore::new("https://drop.example/blob", "token").unwrap();
+        let space = HttpBlobStore::for_space("https://drop.example/blob", &id, "token").unwrap();
+
+        assert_eq!(vault.route("/objects"), "https://drop.example/blob/v1/objects");
+        assert_eq!(vault.route("/ref"), "https://drop.example/blob/v1/ref");
+        assert_eq!(space.route("/objects"), format!("https://drop.example/blob/v1/s/{id}/objects"));
+        assert_eq!(space.route("/key"), format!("https://drop.example/blob/v1/s/{id}/key"));
+        let name = "a".repeat(64);
+        assert_eq!(
+            space.object_url(&name).unwrap(),
+            format!("https://drop.example/blob/v1/s/{id}/objects/{name}")
+        );
+
+        // The name cache is keyed on this, so a space and the vault beside it
+        // must never share one.
+        assert_eq!(vault.store_identity(), "http:https://drop.example/blob");
+        assert_ne!(space.store_identity(), vault.store_identity());
+    }
+
+    #[test]
+    fn only_a_minted_space_id_shape_addresses_a_space() {
+        let good = test_space_id();
+        assert!(HttpBlobStore::for_space("https://drop.example", &good, "token").is_ok());
+        for bad in [
+            "",
+            "3b7a",
+            &good[..SPACE_ID_LEN - 1],
+            &good.to_uppercase(),
+            &"../".repeat(SPACE_ID_LEN / 3),
+            &format!("{}/objects", &good[..SPACE_ID_LEN - 8]),
+        ] {
+            let error = HttpBlobStore::for_space("https://drop.example", bad, "token").unwrap_err();
+            assert!(error.contains("check the invite link"), "{bad:?}: {error}");
+        }
+    }
+
+    #[test]
+    fn a_space_key_wrap_round_trips_and_refuses_another_invite() {
+        let id = test_space_id();
+        let key = MasterKey::from_bytes([9; 32]);
+        let secret = SpaceSecret::from_bytes([3; SPACE_SECRET_LEN]);
+        let other = SpaceSecret::from_bytes([4; SPACE_SECRET_LEN]);
+
+        let envelope = wrap_space_key(&key, &id, &secret).unwrap();
+        assert_eq!(unwrap_space_key(&envelope, &id, &secret).unwrap().0, key.0);
+
+        let error = unwrap_space_key(&envelope, &id, &other).unwrap_err();
+        assert!(error.contains("does not open this space"), "{error}");
+        // Nothing about Argon2 is in this path, and the message must not send
+        // a member looking for a passphrase they were never given.
+        assert!(!error.contains("passphrase"), "{error}");
+
+        // Two wraps of one key under one secret share neither salt nor nonce.
+        let again = wrap_space_key(&key, &id, &secret).unwrap();
+        assert_ne!(envelope, again);
+        assert_eq!(unwrap_space_key(&again, &id, &secret).unwrap().0, key.0);
+    }
+
+    /// The envelope is bound to its namespace, not merely to its secret: an
+    /// SSK1 document lifted from one space's `/key` route and served under
+    /// another's does not open there, even in the case the secrets are the
+    /// same. Without the id in the AAD this would rest on two spaces never
+    /// sharing a secret, which is the generator's promise rather than the
+    /// format's.
+    #[test]
+    fn a_space_envelope_does_not_open_under_another_space_s_id() {
+        let key = MasterKey::from_bytes([21; 32]);
+        let secret = SpaceSecret::from_bytes([22; SPACE_SECRET_LEN]);
+        let mine = test_space_id();
+        let theirs = other_space_id();
+
+        let envelope = wrap_space_key(&key, &mine, &secret).unwrap();
+        let error = unwrap_space_key(&envelope, &theirs, &secret).unwrap_err();
+        assert!(error.contains("does not open this space"), "{error}");
+        // The same secret still opens it where it belongs, so the refusal is
+        // the id and nothing else.
+        assert_eq!(unwrap_space_key(&envelope, &mine, &secret).unwrap().0, key.0);
+    }
+
+    #[test]
+    fn a_space_envelope_and_a_passphrase_envelope_are_never_read_as_each_other() {
+        let key = MasterKey::from_bytes([11; 32]);
+        let secret = SpaceSecret::from_bytes([12; SPACE_SECRET_LEN]);
+        let space = wrap_space_key(&key, &test_space_id(), &secret).unwrap();
+        let vault = wrap_master_key(&key, b"correct horse battery staple").unwrap();
+
+        assert!(unwrap_master_key(&space, b"correct horse battery staple")
+            .unwrap_err()
+            .contains("envelope is invalid"));
+        assert!(unwrap_space_key(&vault, &test_space_id(), &secret)
+            .unwrap_err()
+            .contains("not one this app wrote"));
+
+        // A truncated or extended space envelope is refused on its header,
+        // before any derivation runs.
+        for damaged in [&space[..space.len() - 1], &[space.as_slice(), b"x"].concat()] {
+            assert!(unwrap_space_key(damaged, &test_space_id(), &secret)
+                .unwrap_err()
+                .contains("not one this app wrote"));
+        }
+    }
+
+    #[test]
+    fn a_space_secret_survives_the_credential_store_form() {
+        let secret = SpaceSecret::generate();
+        let hex = secret.to_hex();
+        assert_eq!(hex.len(), SPACE_SECRET_LEN * 2);
+        assert_eq!(SpaceSecret::from_hex(&hex).unwrap().0, secret.0);
+        assert_eq!(format!("{secret:?}"), "SpaceSecret([REDACTED])");
+
+        assert!(SpaceSecret::from_hex("").unwrap_err().contains("check the invite link"));
+        for bad in ["3b7a", &hex[..hex.len() - 1], &hex.to_uppercase()] {
+            let error = SpaceSecret::from_hex(bad).unwrap_err();
+            assert!(error.contains("check the invite link"), "{bad:?}: {error}");
+            // Near-miss key material must not travel in an error string, where
+            // it ends up in a log line or a pane's message.
+            assert!(!error.contains(bad), "the value was echoed: {error}");
+        }
+    }
+
+    #[test]
+    fn a_join_refuses_to_mint_the_space_it_was_pointed_at() {
+        let scratch = TempDir::new().unwrap();
+        let store = FileBlobStore::new(scratch.path()).unwrap();
+        let secret = SpaceSecret::from_bytes([5; SPACE_SECRET_LEN]);
+        let id = test_space_id();
+
+        let error = enroll_space(&store, &id, &secret, SpaceIntent::Join).unwrap_err();
+        assert!(error.contains("does not exist yet"), "{error}");
+        assert!(error.contains("nothing was created"), "{error}");
+        assert!(
+            store.read_key(MAX_REF_ENVELOPE_BYTES).unwrap().is_none(),
+            "a refused join published a key document"
+        );
+    }
+
+    #[test]
+    fn a_create_refuses_to_adopt_the_space_already_there() {
+        let scratch = TempDir::new().unwrap();
+        let store = FileBlobStore::new(scratch.path()).unwrap();
+        let secret = SpaceSecret::from_bytes([6; SPACE_SECRET_LEN]);
+        let id = test_space_id();
+
+        let (first, how) = enroll_space(&store, &id, &secret, SpaceIntent::Create).unwrap();
+        assert_eq!(how, Enrollment::Created);
+
+        let error = enroll_space(&store, &id, &secret, SpaceIntent::Create).unwrap_err();
+        assert!(error.contains("already holds a space"), "{error}");
+
+        // The refusal changed nothing: the space's key is still the first one,
+        // and a join still opens it.
+        let (joined, how) = enroll_space(&store, &id, &secret, SpaceIntent::Join).unwrap();
+        assert_eq!(how, Enrollment::Joined);
+        assert_eq!(joined.0, first.0);
+    }
+
+    /// The same refusal when the collision arrives as a lost race rather than
+    /// as a document that was already there. Adopting here would be exactly
+    /// the silent join the create gesture refuses.
+    #[test]
+    fn a_create_that_loses_the_race_refuses_rather_than_joining() {
+        let scratch = TempDir::new().unwrap();
+        let winner_key = MasterKey::from_bytes([43; 32]);
+        let secret = SpaceSecret::from_bytes([7; SPACE_SECRET_LEN]);
+        let id = test_space_id();
+        let store = RacedKeyStore {
+            inner: FileBlobStore::new(scratch.path()).unwrap(),
+            winner_envelope: wrap_space_key(&winner_key, &id, &secret).unwrap(),
+            hidden: std::cell::Cell::new(true),
+        };
+
+        let error = enroll_space(&store, &id, &secret, SpaceIntent::Create).unwrap_err();
+        assert!(error.contains("already holds a space"), "{error}");
+        // The winner's key document is the one that stands.
+        let (joined, how) = enroll_space(&store, &id, &secret, SpaceIntent::Join).unwrap();
+        assert_eq!(how, Enrollment::Joined);
+        assert_eq!(joined.0, winner_key.0);
+    }
+
+    /// The vault's own guard, kept for spaces: history with no key document is
+    /// a lost key, not an empty namespace, and minting over it would make what
+    /// is already uploaded unreadable.
+    #[test]
+    fn a_create_refuses_a_namespace_holding_history_but_no_key() {
+        let scratch = TempDir::new().unwrap();
+        let store = FileBlobStore::new(scratch.path()).unwrap();
+        let secret = SpaceSecret::from_bytes([8; SPACE_SECRET_LEN]);
+        let id = test_space_id();
+        assert!(matches!(
+            store.compare_and_swap_ref(None, b"ref envelope").unwrap(),
+            CasResult::Updated(_)
+        ));
+
+        let error = enroll_space(&store, &id, &secret, SpaceIntent::Create).unwrap_err();
+        assert!(error.contains("no key document"), "{error}");
+        assert!(store.read_key(MAX_REF_ENVELOPE_BYTES).unwrap().is_none());
     }
 
     /// A transport that answers every leg except reading objects back — the
@@ -5284,6 +5835,160 @@ mod tests {
         assert!(enroll(&transport, b"wrong")
             .unwrap_err()
             .contains("passphrase is wrong — mistyped"));
+    }
+
+    /// Mint a namespace the way the app will: the operator token, `POST
+    /// /v1/spaces`, and the id and token the server hands back once.
+    fn mint_space(server: &Server) -> (String, String) {
+        let response = ureq::post(&format!("{}/v1/spaces", server.base_url()))
+            .set("Authorization", &format!("Bearer {TEST_TOKEN}"))
+            .send_bytes(b"")
+            .unwrap();
+        assert_eq!(response.status(), 201);
+        let minted: serde_json::Value =
+            serde_json::from_str(&response.into_string().unwrap()).unwrap();
+        (minted["id"].as_str().unwrap().to_string(), minted["token"].as_str().unwrap().to_string())
+    }
+
+    /// The whole of slice 2 end to end: a minted space, a key enrolled into
+    /// its namespace over HKDF rather than a passphrase, and a vault's history
+    /// pushed through it and pulled down on a second device — with the
+    /// server's own vault namespace untouched throughout.
+    #[test]
+    fn a_space_round_trips_a_vault_through_its_own_namespace() {
+        let scratch = TempDir::new().unwrap();
+        let storage = scratch.path().join("server-storage");
+        let server = serve(&storage);
+        let (id, token) = mint_space(&server);
+        let space = HttpBlobStore::for_space(&server.base_url(), &id, &token).unwrap();
+        let secret = SpaceSecret::generate();
+
+        let (key, how) = enroll_space(&space, &id, &secret, SpaceIntent::Create).unwrap();
+        assert_eq!(how, Enrollment::Created);
+        // A second member joins from the same invite and gets the same key.
+        let joiner = HttpBlobStore::for_space(&server.base_url(), &id, &token).unwrap();
+        let (joined_key, how) = enroll_space(&joiner, &id, &secret, SpaceIntent::Join).unwrap();
+        assert_eq!(how, Enrollment::Joined);
+        assert_eq!(joined_key.0, key.0);
+        // And the create gesture refuses the space that is now there.
+        assert!(enroll_space(&joiner, &id, &secret, SpaceIntent::Create)
+            .unwrap_err()
+            .contains("already holds a space"));
+
+        let a = scratch.path().join("space-a");
+        let b = scratch.path().join("space-b");
+        let history_a = vault(&a);
+        let _history_b = vault(&b);
+        write_note(&a, "Shared.md", "SPACE-PLAINTEXT-MARKER in the body\n");
+        history_a.snapshot("a1").unwrap();
+
+        push(&a, &key, &space, || ()).unwrap();
+        let pulled = pull(&b, &joined_key, &joiner, || ()).unwrap();
+        assert!(pulled.pulled >= 1, "the joining member pulled nothing: {pulled:?}");
+        assert_eq!(
+            vault_contents(&b).get("Shared.md").map(Vec::as_slice),
+            Some(&b"SPACE-PLAINTEXT-MARKER in the body\n"[..])
+        );
+        assert!(!storage_contains(&storage, b"SPACE-PLAINTEXT-MARKER").unwrap());
+
+        // Everything landed inside the space and nothing beside it: the
+        // server's own vault namespace never saw an object, a ref or a key.
+        let objects = space.list_objects(MAX_LIST_OBJECTS).unwrap();
+        assert!(objects.len() >= 3, "expected a commit, a tree and a blob: {objects:?}");
+        let on_disk = storage.join("spaces").join(&id).join("objects");
+        for name in &objects {
+            assert!(on_disk.join(name).is_file(), "{name} is not under spaces/{id}/objects");
+        }
+        let vault_store = http(&server);
+        assert!(vault_store.list_objects(MAX_LIST_OBJECTS).unwrap().is_empty());
+        assert!(vault_store.read_ref(MAX_REF_ENVELOPE_BYTES).unwrap().is_none());
+        assert!(vault_store.read_key(MAX_REF_ENVELOPE_BYTES).unwrap().is_none());
+        for name in &objects {
+            assert!(
+                !storage.join("objects").join(name).exists(),
+                "{name} was written into the vault's namespace as well"
+            );
+        }
+    }
+
+    /// A space's token opens its own namespace and nothing else, and the
+    /// operator's token does not open a space's data routes. The client's job
+    /// is to carry the refusal up as a token problem rather than as a broken
+    /// server.
+    #[test]
+    fn a_space_token_reaches_only_its_own_space() {
+        let scratch = TempDir::new().unwrap();
+        let server = serve(&scratch.path().join("server-storage"));
+        let (first, first_token) = mint_space(&server);
+        let (second, _) = mint_space(&server);
+        assert_ne!(first, second);
+
+        let mine = HttpBlobStore::for_space(&server.base_url(), &first, &first_token).unwrap();
+        assert!(mine.list_objects(MAX_LIST_OBJECTS).unwrap().is_empty());
+
+        // Inside a space's namespace the refusal names the invite as well: the
+        // server answers a wrong token and an id it does not know the same way.
+        let theirs = HttpBlobStore::for_space(&server.base_url(), &second, &first_token).unwrap();
+        assert!(theirs
+            .list_objects(MAX_LIST_OBJECTS)
+            .unwrap_err()
+            .contains("check the invite link and the server token"));
+
+        let operator = HttpBlobStore::for_space(&server.base_url(), &first, TEST_TOKEN).unwrap();
+        assert!(operator
+            .list_objects(MAX_LIST_OBJECTS)
+            .unwrap_err()
+            .contains("check the invite link and the server token"));
+
+        // And a space token is no use on the vault's own routes.
+        let vault_routes = HttpBlobStore::new(&server.base_url(), &first_token).unwrap();
+        assert!(vault_routes
+            .list_objects(MAX_LIST_OBJECTS)
+            .unwrap_err()
+            .contains("check the server token"));
+    }
+
+    /// A namespace that is there and holds no key document — a space minted on
+    /// the server whose creator never finished enrolling. The join says so
+    /// rather than minting a second key behind the same invite, which would
+    /// make an empty space nobody else can see.
+    #[test]
+    fn a_join_against_a_namespace_with_no_key_document_creates_nothing() {
+        let scratch = TempDir::new().unwrap();
+        let storage = scratch.path().join("server-storage");
+        let server = serve(&storage);
+        let (id, token) = mint_space(&server);
+        let space = HttpBlobStore::for_space(&server.base_url(), &id, &token).unwrap();
+        let secret = SpaceSecret::generate();
+
+        let error = enroll_space(&space, &id, &secret, SpaceIntent::Join).unwrap_err();
+        assert!(error.contains("does not exist yet"), "{error}");
+        assert!(space.read_key(MAX_REF_ENVELOPE_BYTES).unwrap().is_none());
+    }
+
+    /// The join failure a member actually hits: a space deleted on the server,
+    /// or an invite typed with a digit wrong. The server answers an unknown id
+    /// with 401 rather than 404 — it will not tell a stranger which ids are
+    /// real — so this arrives as a token refusal, and the message has to cover
+    /// the absent space as well as the token. Nothing is created either way:
+    /// the namespace the id names does not exist to write into.
+    #[test]
+    fn a_join_against_a_space_that_was_never_minted_says_so_and_creates_nothing() {
+        let scratch = TempDir::new().unwrap();
+        let storage = scratch.path().join("server-storage");
+        let server = serve(&storage);
+        // A real invite's token, pointed at an id the server never minted.
+        let (minted, token) = mint_space(&server);
+        let absent = other_space_id();
+        assert_ne!(minted, absent);
+        let space = HttpBlobStore::for_space(&server.base_url(), &absent, &token).unwrap();
+        let secret = SpaceSecret::generate();
+
+        let error = enroll_space(&space, &absent, &secret, SpaceIntent::Join).unwrap_err();
+        assert!(error.contains("check the invite link"), "{error}");
+        assert!(error.contains("no longer exists"), "{error}");
+        assert!(error.contains("wrong server"), "{error}");
+        assert!(!storage.join("spaces").join(&absent).exists(), "a refused join made a namespace");
     }
 
     /// The live shape of a mistyped remote: the host is real and answers, the

@@ -551,6 +551,42 @@ fn hosted_base(url: &str) -> Option<&str> {
     url.strip_prefix(HOSTED_PREFIX)
 }
 
+/// What a hosted remote address names: a server, and either the vault's own
+/// namespace on it or one space's.
+///
+/// A space's remote is the server address with the namespace on the end —
+/// `blob+https://drop.example/s/<space-id>` — because the space id belongs to
+/// the address rather than to a second setting that could disagree with it.
+/// The split is deliberately narrow: only a final `/s/<space-id>` in the exact
+/// shape the server mints is read as a namespace, so a server whose own path
+/// happens to contain `/s/` keeps every byte of it. A vault address is
+/// returned untouched, which is what keeps the vault's requests the ones this
+/// client has always sent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct HostedAddress<'a> {
+    base: &'a str,
+    space: Option<&'a str>,
+}
+
+fn hosted_address(base: &str) -> HostedAddress<'_> {
+    let trimmed = base.trim_end_matches('/');
+    if let Some((server, id)) = trimmed.rsplit_once("/s/") {
+        if blob::is_space_id(id) && !server.is_empty() {
+            return HostedAddress { base: server, space: Some(id) };
+        }
+    }
+    HostedAddress { base, space: None }
+}
+
+/// The blob store one hosted remote address talks to, vault or space.
+fn hosted_store(base: &str, token: &str) -> Result<blob::HttpBlobStore, String> {
+    let address = hosted_address(base);
+    match address.space {
+        Some(id) => blob::HttpBlobStore::for_space(address.base, id, token),
+        None => blob::HttpBlobStore::new(address.base, token),
+    }
+}
+
 /// Whether a plain-HTTP base addresses the local machine and nothing else.
 /// The host comes from the parsed authority and must match exactly — a
 /// prefix check would accept `http://localhost.attacker.example` and send
@@ -610,12 +646,24 @@ fn hosted_transport(
                 .into(),
         );
     }
+    // The same re-read, for the same reason, of the refusal `hosted_set_remote`
+    // enforces at configure time: a rewritten URL can point the vault's push
+    // and pull at a space's namespace. That fails on the server too — a vault's
+    // token opens no space — but a refusal that depends on the far end is not
+    // the guard this function's comment claims, and the vault's key document
+    // has no business being offered to a namespace every member of a space can
+    // reach.
+    if hosted_address(base).space.is_some() {
+        return Err("this vault's sync remote points at a shared space, not at a sync server — a \
+                    vault syncs to the server itself; set the remote again"
+            .into());
+    }
     let store = credential_store(credentials_path);
     let token = load_token(&store, &service_key(root), credentials_path)?;
     let hex =
         zeroize::Zeroizing::new(load_token(&store, &hosted_key_service(root), credentials_path)?);
     let key = blob::MasterKey::from_hex(&hex)?;
-    let transport = blob::HttpBlobStore::new(base, token.trim())?;
+    let transport = hosted_store(base, token.trim())?;
     Ok((transport, key))
 }
 
@@ -1172,6 +1220,18 @@ fn hosted_set_remote(
     passphrase: Option<&str>,
 ) -> Result<RemoteSetup, String> {
     let base = hosted_base(url).unwrap_or_default().trim();
+    // A space's namespace is not somewhere the vault may sync. The two hold
+    // different keys by design — nothing in a space is derivable from the
+    // vault's key and nothing in the vault from a space's — so a vault pointed
+    // at a space address would either collide with the space's key document or
+    // wrap the vault's key under a passphrase inside a namespace every member
+    // of that space can reach. Refused at the one door every remote save comes
+    // through, rather than discovered at the first push.
+    if hosted_address(base).space.is_some() {
+        return Err("that address is a shared space, not a vault sync server — a vault syncs to \
+                    the server itself, and a space is joined from its invite"
+            .into());
+    }
     if !(base.starts_with("https://") || loopback_http_base(base)) {
         return Err(
             "hosted sync remote must be blob+https:// (blob+http:// is allowed for loopback tests)"
@@ -4563,6 +4623,92 @@ mod tests {
         assert!(error.contains("blob+https"), "{error}");
         let error = sync_pull_with_snapshot(&root, &credentials, || Ok(()), || ()).unwrap_err();
         assert!(error.contains("blob+https"), "{error}");
+    }
+
+    /// The other half of that re-read: the same rewrite can point the vault at
+    /// a space's namespace, which `sync_set_remote` refuses at save time. The
+    /// sync path refuses it too, on this side, rather than leaving the vault's
+    /// key document to be turned away by the server.
+    #[test]
+    fn a_rewritten_remote_pointing_at_a_space_is_refused_at_sync_time() {
+        let scratch = TempDir::new().unwrap();
+        let root = scratch.path().join("vault");
+        fs::create_dir_all(&root).unwrap();
+        let _history = owned(&root);
+        let credentials = scratch.path().join("creds.json");
+        let repo = owned_repo(&root).unwrap();
+        repo.remote(REMOTE, &format!("blob+https://drop.example/blob/s/{}", "3b7a".repeat(8)))
+            .unwrap();
+
+        let error = sync_push_gated(&root, &credentials, || ()).unwrap_err();
+        assert!(error.contains("shared space"), "{error}");
+        let error = sync_pull_with_snapshot(&root, &credentials, || Ok(()), || ()).unwrap_err();
+        assert!(error.contains("shared space"), "{error}");
+        // And the preflight names it as a configuration problem rather than an
+        // unreachable server.
+        let error = hosted_preflight(&root, &credentials).unwrap_err();
+        assert!(error.contains("shared space"), "{error}");
+    }
+
+    /// The address is the whole of what says vault or space, so the split has
+    /// to hold on the near misses as firmly as on the exact form.
+    #[test]
+    fn a_hosted_address_names_a_space_only_in_the_shape_the_server_mints() {
+        let id = "3b7a".repeat(8);
+        assert_eq!(
+            hosted_address(&format!("https://drop.example/blob/s/{id}")),
+            HostedAddress { base: "https://drop.example/blob", space: Some(id.as_str()) }
+        );
+        // A trailing slash is the same address.
+        assert_eq!(
+            hosted_address(&format!("https://drop.example/s/{id}/")),
+            HostedAddress { base: "https://drop.example", space: Some(id.as_str()) }
+        );
+
+        for vault_address in [
+            "https://drop.example/blob",
+            // A server path that merely contains the separator keeps it.
+            "https://drop.example/s/blob",
+            "https://drop.example/s/anything/else",
+            // Not the minted shape: too short, too long, uppercase, non-hex.
+            &format!("https://drop.example/s/{}", &id[..31]),
+            &format!("https://drop.example/s/{id}f"),
+            &format!("https://drop.example/s/{}", id.to_uppercase()),
+            &format!("https://drop.example/s/{}z", &id[..31]),
+            // No server left in front of the namespace.
+            &format!("/s/{id}"),
+        ] {
+            assert_eq!(
+                hosted_address(vault_address),
+                HostedAddress { base: vault_address, space: None },
+                "{vault_address} was read as a space"
+            );
+        }
+    }
+
+    /// A space address in the vault's own remote field would put the vault's
+    /// passphrase-wrapped key inside a namespace every member of that space
+    /// can read. Refused at the save, before a token is stored.
+    #[test]
+    fn a_space_address_cannot_be_saved_as_the_vault_s_remote() {
+        let scratch = TempDir::new().unwrap();
+        let root = scratch.path().join("vault");
+        fs::create_dir_all(&root).unwrap();
+        let _history = owned(&root);
+        let credentials = scratch.path().join("creds.json");
+
+        let error = sync_set_remote(
+            &root,
+            &credentials,
+            &format!("blob+https://drop.example/blob/s/{}", "3b7a".repeat(8)),
+            "some-token-0123456789",
+            None,
+            Some("correct horse battery"),
+        )
+        .unwrap_err();
+        assert!(error.contains("shared space"), "{error}");
+        assert!(error.contains("joined from its invite"), "{error}");
+        assert!(!sync_configured(&root), "a refused space address configured the remote anyway");
     }
 
     #[test]
