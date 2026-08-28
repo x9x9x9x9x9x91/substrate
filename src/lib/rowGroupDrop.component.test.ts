@@ -746,7 +746,7 @@ test("a dragged row that is selected carries the whole selection into the group"
   for (const n of notes)
     assert.equal((await vaultRead(n.path)).props.Bundle, "Shelved", `${n.path} missed the group`);
   assert.equal(recorded.length, 1, "three rows grouped, and not one undoable action");
-  assert.equal(r.all("tbody tr.is-selected").length, 0, "the selection outlived the drop");
+  assert.equal(r.all("tbody tr.selected").length, 0, "the selection outlived the drop");
 });
 
 /** The pane's pref is fed from outside, so a fold only takes effect when the

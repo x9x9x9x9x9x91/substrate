@@ -116,8 +116,12 @@
   color: var(--text-3);
 }
 
+/* the row the keys are on: the neutral --active wash for position, with the
+   accent bar for the one thing Enter would run. The wash was a hand-typed
+   grey a third under the token; it is the token now, so the agenda row's
+   rule below is true when it says the two share their tokens. */
 .palette-item.selected {
-  background: rgba(255, 255, 255, 0.065);
+  background: var(--active);
   color: var(--text-1);
   box-shadow: inset 2px 0 0 var(--accent);
 }

@@ -78,6 +78,15 @@
   background: var(--hover-dense);
 }
 
+/* The board has no selection model — its rows and cards are groups of real
+   controls, and the keyboard's place in it IS the focus inside one. So
+   position gets marked where position actually lives: the row or card
+   holding focus takes the neutral --active wash every other cursor in the
+   app takes (tokens.css), one step above the pointer's hover. */
+.tasks-row:focus-within {
+  background: var(--active);
+}
+
 /* Now is the one elevated surface on the board: the chosen list earns a card
    with an accent edge, everything else stays flat hairline rows. */
 .tasks-now {
@@ -474,6 +483,12 @@
 .tasks-card:hover {
   border-color: var(--border-strong);
   box-shadow: var(--shadow-rest);
+}
+
+/* the same position wash as the list's rows, layered over the card's opaque
+   ground (the dbcards/dbtable idiom) so the surface underneath is unchanged */
+.tasks-card:focus-within {
+  background: linear-gradient(var(--active), var(--active)), var(--bg-elevated);
 }
 
 .tasks-card.dragging {

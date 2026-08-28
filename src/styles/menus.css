@@ -136,8 +136,13 @@
   pointer-events: none;
 }
 
+/* The keyboard cursor — where you are in the menu — so it takes the neutral
+   --active wash, one step above the pointer's --hover (tokens.css: position
+   is grey, choice is accent). Hover moves the selection as the pointer
+   travels, so the two never disagree; --active is what a keyboard-only walk
+   shows. */
 .ctx-item.selected {
-  background: var(--hover);
+  background: var(--active);
   color: var(--text-1);
 }
 

@@ -156,20 +156,23 @@
   transition: background-color var(--t) ease-out;
 }
 
-/* A multi-selected row carries the accent tint — it outranks the
-   hover wash (later at equal specificity) and keeps the frozen Name cell's
-   opaque base via the same layer trick as hover/open */
-.db-table tbody tr.is-selected td,
-.db-table tbody tr.is-selected:hover td {
-  background: var(--accent-soft);
-  /* The tint arrives over 140ms so a shift-range select reads as one
-     sweep; declared on the selected rules only, so deselect snaps clear */
+/* A selected row carries the neutral --active wash — the row cursor is
+   WHERE YOU ARE, and position is grey app-wide while choice is accent
+   (tokens.css). It outranks the hover wash (later at equal specificity) and
+   keeps the frozen Name cell's opaque base via the same layer trick as
+   hover/open */
+.db-table tbody tr.selected td,
+.db-table tbody tr.selected:hover td {
+  background: var(--active);
+  /* The wash eases in on the shared 120ms grammar so a shift-range select
+     reads as one sweep; declared on the selected rules only, so deselect
+     snaps clear */
   transition: background-color var(--t) ease-out;
 }
 
-.db-table tbody tr.is-selected td:first-child,
-.db-table tbody tr.is-selected:hover td:first-child {
-  background: linear-gradient(var(--accent-soft), var(--accent-soft)), var(--bg-panel);
+.db-table tbody tr.selected td:first-child,
+.db-table tbody tr.selected:hover td:first-child {
+  background: linear-gradient(var(--active), var(--active)), var(--bg-panel);
   /* the frozen cell carries its tint as a layer over the opaque base, so it
      is background-image that has to ease here for the row to tint as one */
   transition: background-image var(--t) ease-out;
@@ -203,10 +206,10 @@
   .db-table th:hover,
   .db-table tbody tr:hover td,
   .db-table tbody tr:hover td:first-child,
-  .db-table tbody tr.is-selected td,
-  .db-table tbody tr.is-selected:hover td,
-  .db-table tbody tr.is-selected td:first-child,
-  .db-table tbody tr.is-selected:hover td:first-child {
+  .db-table tbody tr.selected td,
+  .db-table tbody tr.selected:hover td,
+  .db-table tbody tr.selected td:first-child,
+  .db-table tbody tr.selected:hover td:first-child {
     transition: none;
   }
 }
@@ -425,7 +428,7 @@
    state is what reads whatever else the row is doing. */
 .db-table tbody tr.row-group-drop td,
 .db-table tbody tr.row-group-drop:hover td,
-.db-table tbody tr.is-selected.row-group-drop:hover td {
+.db-table tbody tr.selected.row-group-drop:hover td {
   background: var(--accent-soft);
   color: var(--text-1);
   box-shadow: inset 0 1px 0 var(--accent), inset 0 -1px 0 var(--accent);
@@ -436,7 +439,7 @@
    wash while the rest of the row goes accent */
 .db-table tbody tr.row-group-drop td:first-child,
 .db-table tbody tr.row-group-drop:hover td:first-child,
-.db-table tbody tr.is-selected.row-group-drop:hover td:first-child {
+.db-table tbody tr.selected.row-group-drop:hover td:first-child {
   background: linear-gradient(var(--accent-soft), var(--accent-soft)), var(--bg-panel);
   box-shadow:
     inset 0 1px 0 var(--accent),
@@ -446,7 +449,7 @@
 
 .db-table tbody tr.row-group-drop td:last-child,
 .db-table tbody tr.row-group-drop:hover td:last-child,
-.db-table tbody tr.is-selected.row-group-drop:hover td:last-child {
+.db-table tbody tr.selected.row-group-drop:hover td:last-child {
   box-shadow:
     inset 0 1px 0 var(--accent),
     inset 0 -1px 0 var(--accent),

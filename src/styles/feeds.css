@@ -35,7 +35,8 @@
   color: var(--text-1);
 }
 
-/* the switcher's mark, so one gesture reads as "on" everywhere */
+/* the switcher's mark, so one gesture reads as "on" everywhere: the accent
+   dash every tab strip wears, because a picked feed is a choice */
 .feed-chip.is-on::after {
   content: "";
   position: absolute;
@@ -43,7 +44,7 @@
   right: 0;
   bottom: 0;
   height: 2px;
-  background: var(--text-2);
+  background: var(--accent);
 }
 
 /* the curator's own stamp, in the head's actions slot */

@@ -795,8 +795,11 @@
   transition: background-color var(--t) ease-out;
 }
 
+/* the pointer wash is the app's --hover; --active is one step up and now
+   belongs to the entry cursor alone (the .selected rule far below), so the
+   two states can never render as the same grey */
 .cal-entry:hover {
-  background: var(--active);
+  background: var(--hover);
 }
 
 /* External subscriptions share the calendar geometry, but never the note
@@ -846,7 +849,7 @@
    chips need their own — same token, same feedback as every other entry
    surface (external/selected keep winning via their later rules) */
 .cal-grid.month .cal-entry:hover {
-  background: var(--active);
+  background: var(--hover);
 }
 
 /* the identity bar: 3×12, rounded, the entry's --entry-tint (set inline by
@@ -1449,29 +1452,33 @@ button.cal-ag-day {
 }
 
 .cal-ag-item:hover {
-  background: var(--active);
+  background: var(--hover);
 }
 
-/* The entry the peek/context menu is editing wears the selected
-   accent tint (Notion-Calendar style) so the popover and its target read as
-   one unit. Same token as a multi-selected table row. Placed after
-   every entry-surface base/hover rule so the tint outranks them at equal or
+/* The entry the peek/context menu is editing wears the neutral --active
+   wash so the popover and its target read as one unit. It is a cursor —
+   where you are, not something you picked — so it takes the grey wash the
+   sidebar row and the table row cursor take (tokens.css: position is grey,
+   choice is accent). Same token as a selected table row. Placed after
+   every entry-surface base/hover rule so the wash outranks them at equal or
    matching specificity; a span's covered days all light together (the
    component marks every segment). */
 .cal-entry.selected,
 .cal-entry.span.selected,
 .cal-grid.month .cal-entry.selected,
 .cal-ag-item.selected {
-  background: var(--accent-soft);
+  background: var(--active);
 }
 
 /* bordered surfaces (week cards, canvas blocks) also pin their border to the
-   accent — the fill alone drowns against --bg-elevated */
+   accent — the neutral fill alone drowns against --bg-elevated. The ring is
+   the accent focus family (tokens.css), the same pairing the command
+   palette's selected row uses: grey wash, accent edge. */
 .cal-grid.week .cal-entry.selected,
 .cal-grid.week .cal-entry.selected:hover,
 .cal-entry.cal-wk-block.selected,
 .cal-entry.cal-wk-block.selected:hover {
-  background: var(--accent-soft);
+  background: var(--active);
   border-color: var(--accent);
 }
 

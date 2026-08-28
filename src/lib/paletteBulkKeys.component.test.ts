@@ -278,7 +278,7 @@ test("Move to Trash and Clear selection finish on Enter alone", async (t) => {
   await key(input, "Enter");
   await r.settle();
   assert.deepEqual(trashed, [[a.path, b.path]]);
-  assert.equal(r.all("tr.is-selected").length, 0, "the trashed rows are still selected");
+  assert.equal(r.all("tr.selected").length, 0, "the trashed rows are still selected");
 
   // and the same route clears a selection instead
   await selectRows(r, 2);
@@ -291,6 +291,6 @@ test("Move to Trash and Clear selection finish on Enter alone", async (t) => {
   );
   await key(input, "Enter");
   await r.settle();
-  assert.equal(r.all("tr.is-selected").length, 0, "Enter on Clear selection kept the selection");
+  assert.equal(r.all("tr.selected").length, 0, "Enter on Clear selection kept the selection");
   assert.deepEqual(trashed.length, 1, "clearing trashed something");
 });

@@ -78,6 +78,8 @@
   color: var(--text-1);
 }
 
+/* the same accent dash every tab strip in the app wears — a mode is a
+   choice, and choice is accent (tokens.css) */
 .share-door-mode.is-on::after {
   content: "";
   position: absolute;
@@ -85,7 +87,7 @@
   right: 0;
   bottom: 0;
   height: 2px;
-  background: var(--text-2);
+  background: var(--accent);
 }
 
 .dbform-select {

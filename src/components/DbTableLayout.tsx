@@ -907,7 +907,7 @@ export default function DbTableLayout({
                   {heads?.map(groupHeaderRow)}
               <tr
                 className={
-                  `${openPath === n.path ? "db-open" : ""}${sel.has(n.path) ? " is-selected" : ""}${missingCls(n)}${rowGroupDropAt === n.path ? " row-group-drop" : ""}`.trim() ||
+                  `${openPath === n.path ? "db-open" : ""}${sel.has(n.path) ? " selected" : ""}${missingCls(n)}${rowGroupDropAt === n.path ? " row-group-drop" : ""}`.trim() ||
                   undefined
                 }
                 // a row hosting an open cell editor stays undraggable — the

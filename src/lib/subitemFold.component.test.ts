@@ -118,7 +118,7 @@ test("folding a parent keeps its children in the selection", async (t) => {
 
   // unfolding paints it back, still selected
   await r.click(".db-tree-chevron");
-  assert.equal(r.all("tr.is-selected").length, 2, "both rows read as selected again");
+  assert.equal(r.all("tr.selected").length, 2, "both rows read as selected again");
 });
 
 test("a group header counts its section, not the slice a fold leaves painted", async (t) => {

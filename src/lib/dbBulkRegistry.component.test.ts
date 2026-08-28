@@ -222,7 +222,7 @@ test("a refused row comes back marked, whichever door asked", async (t) => {
   assert.deepEqual(recorded[0].paths, [a.path], "the refused note is not in the undo");
   // the refused note IS the selection now, and the bar says so
   assert.match(r.text(), /1 didn’t save/);
-  assert.equal(r.all("tr.is-selected").length, 1, "the refused row is not the new selection");
+  assert.equal(r.all("tr.selected").length, 1, "the refused row is not the new selection");
 });
 
 test("Move to Trash from the palette's handler trashes the selection and clears it", async (t) => {

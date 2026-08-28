@@ -108,7 +108,14 @@
   }
 }
 
+/* The card cursor. The ring is the accent focus family every cell cursor in
+   the app wears (tokens.css); the wash under it is the neutral --active the
+   LIST layout's row cursor takes (`.row.focused`, dbtable.css) — position is
+   grey app-wide, and a board card was the one cursor carrying no ground at
+   all. The wash rides as a layer over the card's opaque base, the frozen-cell
+   trick from dbtable.css, so nothing underneath moves. */
 .db-card.focused {
+  background: linear-gradient(var(--active), var(--active)), var(--bg-elevated);
   box-shadow: 0 0 0 1.5px var(--accent);
 }
 
@@ -200,6 +207,7 @@
 }
 
 .db-gcard.focused {
+  background: linear-gradient(var(--active), var(--active)), var(--bg-panel);
   box-shadow: 0 0 0 1.5px var(--accent);
 }
 

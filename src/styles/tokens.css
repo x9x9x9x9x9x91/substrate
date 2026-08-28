@@ -22,10 +22,22 @@
      focus rings, text selection, filled buttons, links and dashboard
      marks all wear one family at a time (owner's call 2026-08-22; the
      earlier dashboard-only scoping is retired, and the tone table's block
-     says why). The selected sidebar row is NOT in the family: it paints the
-     neutral --active wash and stays where it is. Sky is the table's own
-     :root default, so an unset dial still renders the shipped look with no
-     attribute written and no arithmetic that can drift. */
+     says why). Sky is the table's own :root default, so an unset dial still
+     renders the shipped look with no attribute written and no arithmetic
+     that can drift.
+
+     WHERE IT MAY NOT GO — the app-wide rule for a lit state (owner's call
+     2026-08-28, from a rendered side-by-side): POSITION is neutral, CHOICE
+     is accent. Where you are — the sidebar's active row, a list row cursor,
+     the menu item the keys are on, a database row/card cursor, the calendar
+     entry a peek is editing, the command palette's selected row — paints the
+     grey --active wash. What you picked — a settings switch or segment, a
+     filter chip, the tab a strip's 2px dash sits under — paints
+     --accent-soft, or --accent for the dash. Focus RINGS are accent either
+     way: they mark the keyboard's exact target, and a cursor may wear both
+     (grey ground, accent edge — see the palette row and bordered calendar
+     entries). A surface that reads as both is decided by its keyboard
+     behaviour: if arrows move it, it is position. */
   --accent: var(--tone-accent);
   --accent-soft: var(--tone-accent-soft);
   /* the same family lifted to text weight — an emphasised value, a link */
@@ -55,7 +67,9 @@
      mastering range. A ground for a fill to sit on, not a hairline: it shares
      --border-soft's weight today and answers to a different question. */
   --track: rgba(255, 255, 255, 0.06);
-  /* the selected/active wash. Deliberately declared, not aliased to --border:
+  /* the position wash — the ground under WHERE YOU ARE (see the accent
+     block above for the split it is one half of). Deliberately declared,
+     not aliased to --border:
      it happens to land on the same weight, but a hairline and a selection
      wash are unrelated roles and a change to one shouldn't ride along on the
      other (they were identical and nothing said whether that was

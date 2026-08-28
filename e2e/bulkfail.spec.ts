@@ -48,8 +48,8 @@ test("a partly-refused bulk edit leaves the failed note selected, marked and rea
 
   // …and the selection is now exactly the note that didn't take the write, so
   // the bar counts the failures rather than leaving a silently smaller count
-  await expect(page.locator("tr.is-selected")).toHaveCount(1);
-  await expect(row(page, "Annelies")).toHaveClass(/is-selected/);
+  await expect(page.locator("tr.selected")).toHaveCount(1);
+  await expect(row(page, "Annelies")).toHaveClass(/selected/);
   await expect(page.locator(".bulkbar")).toContainText("1 didn’t save");
 
   // the reason lives on the row it happened to, readable without a pointer

@@ -25,14 +25,14 @@ test("⌘-click toggles rows into a selection; the bar counts them", async ({ pa
   await expect(page.locator(".bulkbar")).toContainText("1 selected");
   await titleCell(page, "Noa").click({ modifiers: ["Meta"] });
   await expect(page.locator(".bulkbar")).toContainText("2 selected");
-  await expect(page.locator("tr.is-selected")).toHaveCount(2);
-  await expect(row(page, "Annelies")).toHaveClass(/is-selected/);
-  await expect(row(page, "Noa")).toHaveClass(/is-selected/);
+  await expect(page.locator("tr.selected")).toHaveCount(2);
+  await expect(row(page, "Annelies")).toHaveClass(/selected/);
+  await expect(row(page, "Noa")).toHaveClass(/selected/);
   // toggling a selected row removes it again
   await titleCell(page, "Annelies").click({ modifiers: ["Meta"] });
   await expect(page.locator(".bulkbar")).toContainText("1 selected");
-  await expect(page.locator("tr.is-selected")).toHaveCount(1);
-  await expect(row(page, "Annelies")).not.toHaveClass(/is-selected/);
+  await expect(page.locator("tr.selected")).toHaveCount(1);
+  await expect(row(page, "Annelies")).not.toHaveClass(/selected/);
 });
 
 test("shift-click ranges from the last plain-clicked row over flat rows indices", async ({ page }) => {
@@ -42,7 +42,7 @@ test("shift-click ranges from the last plain-clicked row over flat rows indices"
   await expect(page.locator(".note-title")).toHaveValue("Annelies Verbeek");
   await titleCell(page, "Tess").click({ modifiers: ["Shift"] });
   await expect(page.locator(".bulkbar")).toContainText("4 selected");
-  await expect(page.locator("tr.is-selected")).toHaveCount(4);
+  await expect(page.locator("tr.selected")).toHaveCount(4);
 });
 
 test("a plain click then a \u2318-click selects both rows, first one included", async ({ page }) => {
@@ -55,12 +55,12 @@ test("a plain click then a \u2318-click selects both rows, first one included", 
   // \u2318-clicking a second row brings the first one along, Finder-style
   await titleCell(page, "Noa").click({ modifiers: ["Meta"] });
   await expect(page.locator(".bulkbar")).toContainText("2 selected");
-  await expect(row(page, "Annelies")).toHaveClass(/is-selected/);
-  await expect(row(page, "Noa")).toHaveClass(/is-selected/);
+  await expect(row(page, "Annelies")).toHaveClass(/selected/);
+  await expect(row(page, "Noa")).toHaveClass(/selected/);
   // and either row still toggles back out
   await titleCell(page, "Annelies").click({ modifiers: ["Meta"] });
   await expect(page.locator(".bulkbar")).toContainText("1 selected");
-  await expect(row(page, "Annelies")).not.toHaveClass(/is-selected/);
+  await expect(row(page, "Annelies")).not.toHaveClass(/selected/);
 });
 
 test("a ⌘-toggle that empties the selection doesn't resurrect the dropped row", async ({ page }) => {
@@ -73,8 +73,8 @@ test("a ⌘-toggle that empties the selection doesn't resurrect the dropped row"
   // the next ⌘-click starts a fresh selection of one — Annelies stays out
   await titleCell(page, "Noa").click({ modifiers: ["Meta"] });
   await expect(page.locator(".bulkbar")).toContainText("1 selected");
-  await expect(row(page, "Noa")).toHaveClass(/is-selected/);
-  await expect(row(page, "Annelies")).not.toHaveClass(/is-selected/);
+  await expect(row(page, "Noa")).toHaveClass(/selected/);
+  await expect(row(page, "Annelies")).not.toHaveClass(/selected/);
 
   // the plain-click route can't resurrect either: seed a pair, empty it,
   // and the third ⌘-click still starts fresh
@@ -87,15 +87,15 @@ test("a ⌘-toggle that empties the selection doesn't resurrect the dropped row"
   await expect(page.locator(".bulkbar")).toHaveCount(0);
   await titleCell(page, "Tess").click({ modifiers: ["Meta"] });
   await expect(page.locator(".bulkbar")).toContainText("1 selected");
-  await expect(row(page, "Tess")).toHaveClass(/is-selected/);
+  await expect(row(page, "Tess")).toHaveClass(/selected/);
 
   // and a fresh plain click after all of that still arms the seed
   await titleCell(page, "Annelies").click();
   await page.locator("input.db-title-edit").press("Escape");
   await titleCell(page, "Gero").click({ modifiers: ["Meta"] });
   await expect(page.locator(".bulkbar")).toContainText("2 selected");
-  await expect(row(page, "Annelies")).toHaveClass(/is-selected/);
-  await expect(row(page, "Gero")).toHaveClass(/is-selected/);
+  await expect(row(page, "Annelies")).toHaveClass(/selected/);
+  await expect(row(page, "Gero")).toHaveClass(/selected/);
 });
 
 test("Escape clears the selection first; the table stays put", async ({ page }) => {
@@ -105,7 +105,7 @@ test("Escape clears the selection first; the table stays put", async ({ page }) 
   await expect(page.locator(".bulkbar")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.locator(".bulkbar")).toHaveCount(0);
-  await expect(page.locator("tr.is-selected")).toHaveCount(0);
+  await expect(page.locator("tr.selected")).toHaveCount(0);
   await expect(page.locator(".db-table")).toBeVisible();
 });
 
@@ -206,7 +206,7 @@ test("a double-click with a selection active opens the note and clears the selec
   await titleCell(page, "Gero").dblclick();
   await expect(page.locator(".note-title")).toHaveValue("Gero");
   await expect(page.locator(".bulkbar")).toHaveCount(0);
-  await expect(page.locator("tr.is-selected")).toHaveCount(0);
+  await expect(page.locator("tr.selected")).toHaveCount(0);
 });
 
 // A bulk multi/relation edit REPLACES each selected note's whole

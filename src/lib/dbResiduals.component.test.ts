@@ -340,5 +340,5 @@ test("a selection dropped on a section header carries the whole selection", asyn
       "Reverb",
       `${p} was left behind by the group drop`
     );
-  assert.equal(r.all("tbody tr.is-selected").length, 0, "the selection outlived the drop");
+  assert.equal(r.all("tbody tr.selected").length, 0, "the selection outlived the drop");
 });

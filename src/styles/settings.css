@@ -68,8 +68,10 @@
   background: transparent;
 }
 
-/* The dash itself — the active cell's whole affordance, so hue is never the
-   only carrier of which tab is on (§3 rule 6): the label goes sharp too. */
+/* The dash itself — the accent every tab underline in the app wears
+   (.db-tab.active, .wb-tab.active): a tab is a CHOICE, and choice is accent
+   while position is the neutral wash (tokens.css). Hue is never the only
+   carrier of which tab is on (§3 rule 6): the label goes sharp too. */
 .settings-tab.on::after {
   content: "";
   position: absolute;
@@ -77,7 +79,7 @@
   right: 0;
   bottom: 0;
   height: 2px;
-  background: var(--text-2);
+  background: var(--accent);
 }
 
 .settings-raw {

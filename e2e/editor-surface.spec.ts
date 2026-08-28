@@ -132,8 +132,21 @@ test("the tool row's outline toggle stays clickable when the note is scrolled", 
   // The sticky rail reaches this corner once the note scrolls. locator.click()
   // would scroll the obstruction away before clicking, so this one measures
   // the toggle in place and drives the real mouse at it.
-  await page.locator(".note").evaluate((el) => {
+  // CodeMirror measures the note's height in passes after load, and a
+  // pending pass shifts an already-set scrollTop when it lands (scroll
+  // anchoring; observed +48 under gate load). Hold the scroll at 600 until
+  // it survives 300ms untouched, so the measure passes have drained before
+  // the geometry below is read.
+  await page.locator(".note").evaluate(async (el) => {
     el.scrollTop = 600;
+    let stableSince = performance.now();
+    while (performance.now() - stableSince < 300) {
+      if (el.scrollTop !== 600) {
+        el.scrollTop = 600;
+        stableSince = performance.now();
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
   });
   await expect.poll(async () => page.locator(".note").evaluate((el) => el.scrollTop)).toBe(600);
 
