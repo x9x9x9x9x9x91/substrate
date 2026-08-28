@@ -164,6 +164,102 @@ pub(crate) fn clean_name(name: &str) -> String {
         .to_string()
 }
 
+/// The address on a member's commits. One constant for everybody, on purpose.
+///
+/// A member name is a claim and nothing stands behind it. An address beside it
+/// would read as a second fact, and a checkable one, when it is neither — so
+/// members are told apart by the name they typed and by nothing else, and two
+/// people who type the same name are one row, because in this space they are
+/// one thing.
+pub(crate) const MEMBER_EMAIL: &str = "member@local";
+
+/// The longest member name this build keeps. A git author line is one line in
+/// a log; past this it stops being a name.
+const MAX_MEMBER_CHARS: usize = 60;
+
+/// Tidy a member name into something a git author line can carry.
+///
+/// Control characters go for the reason [`clean_name`] drops them, and `<` and
+/// `>` go because git's own identity syntax uses them: a name carrying one can
+/// close the name early and open an address of its own choosing, which would
+/// let a member write a commit that appears to come from an address they do
+/// not hold. Trimmed to nothing is a valid answer — it means unnamed.
+pub(crate) fn clean_member_name(name: &str) -> String {
+    name.chars()
+        .map(|character| if character.is_control() { ' ' } else { character })
+        .filter(|character| !matches!(character, '<' | '>'))
+        .take(MAX_MEMBER_CHARS)
+        .collect::<String>()
+        .trim()
+        .to_string()
+}
+
+/// One member of a space, as the space's own repository accounts for them.
+///
+/// There is no member list to read. `.vault/spaces.json` carries none, and the
+/// server keeps no per-member accounting (`docs/collab.md` §1.2, §4.2) — so
+/// the only record of who is in a space is what the history says people wrote.
+/// A member appears here because they committed something under this name, and
+/// that is exactly as much as anyone can honestly claim.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Member {
+    /// The author name on their commits — free text they typed.
+    pub(crate) name: String,
+    /// How many commits in this space carry it.
+    pub(crate) commits: usize,
+    /// The most recent of those, as an RFC-3339 timestamp straight from git.
+    pub(crate) last: String,
+}
+
+/// The longest author listing this build reads. A space's log is written by
+/// its members, so the cap is against a repository that arrived rather than
+/// against a person.
+const MAX_AUTHORS_BYTES: usize = 4 * 1024 * 1024;
+
+/// Who has written in this space, most recently active first.
+///
+/// Read off the log rather than off a list, because there is no list — see
+/// [`Member`]. A space nobody has committed to since it was created has one
+/// member, which is right: the person who made it.
+pub(crate) fn members(root: &Path) -> Result<Vec<Member>, String> {
+    read_manifest(root)?;
+    let output = std::process::Command::new("git")
+        .args(["log", "--all", "--date-order", "-z", "--pretty=format:%an%x1f%aI"])
+        .current_dir(root)
+        .output()
+        .map_err(|error| format!("could not read this space's history: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "could not read who has written in this space: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    if output.stdout.len() > MAX_AUTHORS_BYTES {
+        return Err("this space's history is too large to list its members from".into());
+    }
+    let listing = String::from_utf8_lossy(&output.stdout);
+    let mut found: Vec<Member> = Vec::new();
+    for entry in listing.split('\0') {
+        let Some((name, last)) = entry.split_once('\x1f') else {
+            continue;
+        };
+        // Cleaned on the way OUT as well as in: these names were written by
+        // other people's builds, and one of them may not have cleaned it.
+        let name = clean_member_name(name);
+        if name.is_empty() {
+            continue;
+        }
+        match found.iter_mut().find(|member| member.name == name) {
+            // The log is newest-first, so the first timestamp seen for a name
+            // is the latest one.
+            Some(member) => member.commits += 1,
+            None => found.push(Member { name, commits: 1, last: last.trim().to_string() }),
+        }
+    }
+    Ok(found)
+}
+
 fn write_manifest(root: &Path, manifest: &Manifest) -> Result<(), String> {
     let mut json = serde_json::to_string_pretty(manifest)
         .map_err(|error| format!("could not write {MANIFEST}: {error}"))?;
@@ -435,6 +531,10 @@ pub(crate) struct SpacePlan<'a> {
     pub(crate) folder: &'a str,
     /// Where the space's working tree goes — outside the vault root.
     pub(crate) root: &'a Path,
+    /// What this device calls itself in the space it is about to make. Free
+    /// text, device-local, and the author line on the first commit. Empty is
+    /// allowed and means unnamed: the repository's own identity signs it.
+    pub(crate) member: &'a str,
 }
 
 /// A space that now exists locally and on the server.
@@ -575,9 +675,20 @@ pub(crate) fn create_from_folder<G>(
     // manifest is written, and the vault has recorded that they left. A
     // failure now is a failure to PUBLISH, and the local space is the thing
     // that gets published on the next sync — so it stays exactly as it is.
-    space.snapshot(&format!("{} created", manifest.name))?;
+    commit_as(&space, plan.member, &format!("{} created", manifest.name))?;
     let report = blob::push(plan.root, &key, transport, gate)?;
     Ok(Space { root: plan.root.to_path_buf(), manifest, key, report })
+}
+
+/// Commit into a space under the member name this device typed, or under the
+/// repository's own identity when it has not typed one. One place, so no
+/// caller has to remember which of the two a blank name means.
+fn commit_as(space: &History, member: &str, label: &str) -> Result<bool, String> {
+    let name = clean_member_name(member);
+    match name.is_empty() {
+        true => space.snapshot(label),
+        false => space.snapshot_as(label, &name, MEMBER_EMAIL),
+    }
 }
 
 /// Undo a create that failed after the namespace was claimed: put back what
@@ -758,6 +869,84 @@ pub(crate) fn join<G>(
             Err(error)
         }
     }
+}
+
+/// What a re-key produced: the space's new identity, and the two secrets that
+/// open it. Neither is written to disk here — the caller owes the credential
+/// store, exactly as `create_from_folder` does with the key it returns.
+#[derive(Debug)]
+pub(crate) struct Rekeyed {
+    /// The namespace the space now lives in. Not the one it lived in a moment
+    /// ago: a re-key moves.
+    pub(crate) id: String,
+    /// The new master key. The old one is not derived from it, does not open
+    /// anything this key opens, and is not touched by this call.
+    pub(crate) key: MasterKey,
+    /// The new invite secret. Every link made from the old one is now a link
+    /// to a namespace this space no longer uses.
+    pub(crate) secret: SpaceSecret,
+    /// What the space was called before the re-key, for a caller reporting it.
+    pub(crate) was: String,
+}
+
+/// Give a space a new master key in a new namespace, so that what is written
+/// from here on is unreadable to someone who used to be in it.
+///
+/// This is the second of the two actions `docs/collab.md` §3.3 allows, and the
+/// only one that changes what a former member can read. It is worth being
+/// exact about what it does and does not do:
+///
+/// * It mints a NEW master key and a NEW invite secret, and enrolls them into
+///   a namespace that was minted a moment ago — through
+///   [`blob::enroll_space`] with [`SpaceIntent::Create`], so the envelope is
+///   bound to the new namespace's id and cannot be opened anywhere else.
+/// * It rewrites `.space.json` to name the new namespace and commits that, so
+///   the checkout on this device belongs to the space it is about to publish.
+/// * It does NOT push. The re-upload is the caller's next step, after the new
+///   secrets are stored, because a device that pushed before it could store
+///   them would have published a space it could no longer open.
+/// * It does NOT touch the old key, the old secret, or the old namespace.
+///   Nothing it could do to them would take back a copy someone already
+///   holds, and destroying this device's own access to the old namespace
+///   would only cost this device.
+///
+/// Every remaining member has to be invited again, from the new link. There is
+/// no way to carry them across: the whole point is that the old secret no
+/// longer opens anything.
+pub(crate) fn rekey(
+    root: &Path,
+    new_id: &str,
+    member: &str,
+    transport: &impl BlobTransport,
+) -> Result<Rekeyed, String> {
+    if !blob::is_space_id(new_id) {
+        return Err("this space id did not come from the server".into());
+    }
+    let manifest = read_manifest(root)?;
+    if manifest.id == new_id {
+        return Err("a re-key has to move the space to a namespace of its own".into());
+    }
+    let was = manifest.id.clone();
+    let space = History::new(root.to_path_buf())?;
+
+    // The namespace first, and through the same enrollment a create uses: a
+    // key doc already in there means the id was not freshly minted, and this
+    // must refuse rather than write over somebody's space.
+    let secret = SpaceSecret::generate();
+    let (key, enrollment) = blob::enroll_space(transport, new_id, &secret, SpaceIntent::Create)?;
+    debug_assert_eq!(enrollment, Enrollment::Created);
+
+    let moved = Manifest { id: new_id.to_string(), ..manifest };
+    write_manifest(root, &moved)?;
+    if let Err(error) = commit_as(&space, member, &format!("{} re-keyed", moved.name)) {
+        // Put the manifest back: the space still belongs to the namespace it
+        // has always belonged to, and the new one is an empty namespace with a
+        // key doc in it that nothing will ever ask for.
+        let restored = Manifest { id: was.clone(), ..moved };
+        let _ = write_manifest(root, &restored);
+        return Err(format!("this space was not re-keyed: {error}"));
+    }
+    Ok(Rekeyed { id: new_id.to_string(), key, secret, was })
 }
 
 /// What leaving does with the files.
@@ -1356,7 +1545,13 @@ mod tests {
         let before = commits(&vault_root);
 
         let space_root = scratch.path().join("spaces").join("Trip");
-        let plan = SpacePlan { id: &id, name: "Trip", folder: "Trip", root: space_root.as_path() };
+        let plan = SpacePlan {
+            id: &id,
+            name: "Trip",
+            folder: "Trip",
+            member: "",
+            root: space_root.as_path(),
+        };
         let made =
             create_from_folder(&vault_root, &history, &plan, &secret, &transport, || ()).unwrap();
 
@@ -1459,7 +1654,13 @@ mod tests {
         history.snapshot("nested").unwrap();
 
         let space_root = scratch.path().join("spaces").join("Trip");
-        let plan = SpacePlan { id: &id, name: "Trip", folder: "Trip", root: space_root.as_path() };
+        let plan = SpacePlan {
+            id: &id,
+            name: "Trip",
+            folder: "Trip",
+            member: "",
+            root: space_root.as_path(),
+        };
         let error = create_from_folder(&vault_root, &history, &plan, &secret(), &transport, || ())
             .unwrap_err();
         assert!(error.contains(".vault"), "{error}");
@@ -1489,7 +1690,13 @@ mod tests {
         history.snapshot("sealed").unwrap();
 
         let space_root = scratch.path().join("spaces").join("Trip");
-        let plan = SpacePlan { id: &id, name: "Trip", folder: "Trip", root: space_root.as_path() };
+        let plan = SpacePlan {
+            id: &id,
+            name: "Trip",
+            folder: "Trip",
+            member: "",
+            root: space_root.as_path(),
+        };
         let error = create_from_folder(&vault_root, &history, &plan, &secret(), &transport, || ())
             .unwrap_err();
         assert!(error.contains(SCOPE_MARKER), "{error}");
@@ -1510,7 +1717,13 @@ mod tests {
         vault(&vault_root.join("Trip"));
 
         let space_root = scratch.path().join("spaces").join("Trip");
-        let plan = SpacePlan { id: &id, name: "Trip", folder: "Trip", root: space_root.as_path() };
+        let plan = SpacePlan {
+            id: &id,
+            name: "Trip",
+            folder: "Trip",
+            member: "",
+            root: space_root.as_path(),
+        };
         let error = create_from_folder(&vault_root, &history, &plan, &secret(), &transport, || ())
             .unwrap_err();
         assert!(error.contains("git repository of its own"), "{error}");
@@ -1562,7 +1775,8 @@ mod tests {
         let (vault_root, history) = a_vault(scratch.path());
 
         let inside = vault_root.join("Spaces").join("Trip");
-        let plan = SpacePlan { id: &id, name: "Trip", folder: "Trip", root: inside.as_path() };
+        let plan =
+            SpacePlan { id: &id, name: "Trip", folder: "Trip", member: "", root: inside.as_path() };
         let error = create_from_folder(&vault_root, &history, &plan, &secret(), &transport, || ())
             .unwrap_err();
         assert!(error.contains("outside the vault"), "{error}");
@@ -1570,12 +1784,18 @@ mod tests {
 
         // Nor is the vault itself a folder to share.
         let elsewhere = scratch.path().join("spaces").join("All");
-        let plan = SpacePlan { id: &id, name: "All", folder: ".", root: elsewhere.as_path() };
+        let plan =
+            SpacePlan { id: &id, name: "All", folder: ".", member: "", root: elsewhere.as_path() };
         let error = create_from_folder(&vault_root, &history, &plan, &secret(), &transport, || ())
             .unwrap_err();
         assert!(error.contains("whole vault"), "{error}");
-        let plan =
-            SpacePlan { id: &id, name: "Up", folder: "../elsewhere", root: elsewhere.as_path() };
+        let plan = SpacePlan {
+            id: &id,
+            name: "Up",
+            folder: "../elsewhere",
+            member: "",
+            root: elsewhere.as_path(),
+        };
         assert!(create_from_folder(&vault_root, &history, &plan, &secret(), &transport, || ())
             .unwrap_err()
             .contains("inside this vault"));
@@ -1589,7 +1809,13 @@ mod tests {
 
         // `..` does not get to resolve back in on the way past the check.
         let climbing = vault_root.join("..").join("vault").join("Spaces").join("Trip");
-        let plan = SpacePlan { id: &id, name: "Trip", folder: "Trip", root: climbing.as_path() };
+        let plan = SpacePlan {
+            id: &id,
+            name: "Trip",
+            folder: "Trip",
+            member: "",
+            root: climbing.as_path(),
+        };
         let error = create_from_folder(&vault_root, &history, &plan, &secret(), &transport, || ())
             .unwrap_err();
         assert!(error.contains("`..`"), "{error}");
@@ -1686,8 +1912,13 @@ mod tests {
             std::os::unix::fs::symlink(&elsewhere, vault_root.join("Trip/notes/Out")).unwrap();
 
             let space_root = scratch.path().join("spaces").join("Trip");
-            let plan =
-                SpacePlan { id: &id, name: "Trip", folder: "Trip", root: space_root.as_path() };
+            let plan = SpacePlan {
+                id: &id,
+                name: "Trip",
+                folder: "Trip",
+                member: "",
+                root: space_root.as_path(),
+            };
             let run =
                 || create_from_folder(&vault_root, &history, &plan, &secret(), &transport, || ());
             let error = if forced { across_filesystems(run) } else { run() }.unwrap_err();
@@ -1717,8 +1948,13 @@ mod tests {
         std::os::unix::fs::symlink(&documents, vault_root.join("Linked")).unwrap();
 
         let space_root = scratch.path().join("spaces").join("Linked");
-        let plan =
-            SpacePlan { id: &id, name: "Linked", folder: "Linked", root: space_root.as_path() };
+        let plan = SpacePlan {
+            id: &id,
+            name: "Linked",
+            folder: "Linked",
+            member: "",
+            root: space_root.as_path(),
+        };
         let error = create_from_folder(&vault_root, &history, &plan, &secret(), &transport, || ())
             .unwrap_err();
         assert!(error.contains("link to somewhere else"), "{error}");
@@ -1815,7 +2051,13 @@ mod tests {
         history.snapshot("finder was here").unwrap();
 
         let space_root = scratch.path().join("spaces").join("Trip");
-        let plan = SpacePlan { id: &id, name: "Trip", folder: "Trip", root: space_root.as_path() };
+        let plan = SpacePlan {
+            id: &id,
+            name: "Trip",
+            folder: "Trip",
+            member: "",
+            root: space_root.as_path(),
+        };
         let made =
             create_from_folder(&vault_root, &history, &plan, &secret(), &transport, || ()).unwrap();
 
@@ -2000,7 +2242,13 @@ mod tests {
         let (vault_root, history) = a_vault(scratch.path());
 
         let space_root = scratch.path().join("spaces").join("Trip");
-        let plan = SpacePlan { id: &id, name: "Trip", folder: "Trip", root: space_root.as_path() };
+        let plan = SpacePlan {
+            id: &id,
+            name: "Trip",
+            folder: "Trip",
+            member: "",
+            root: space_root.as_path(),
+        };
         let made = across_filesystems(|| {
             create_from_folder(&vault_root, &history, &plan, &secret(), &transport, || ())
         })
@@ -2040,7 +2288,13 @@ mod tests {
             .unwrap_or(false));
 
         let space_root = scratch.path().join("spaces").join("Trip");
-        let plan = SpacePlan { id: &id, name: "Trip", folder: "Trip", root: space_root.as_path() };
+        let plan = SpacePlan {
+            id: &id,
+            name: "Trip",
+            folder: "Trip",
+            member: "",
+            root: space_root.as_path(),
+        };
         let error = across_filesystems(|| {
             create_from_folder(&vault_root, &history, &plan, &secret(), &transport, || ())
         })
@@ -2075,7 +2329,13 @@ mod tests {
         let before = commits(&vault_root);
 
         let space_root = scratch.path().join("spaces").join("Trip");
-        let plan = SpacePlan { id: &id, name: "Trip", folder: "Trip", root: space_root.as_path() };
+        let plan = SpacePlan {
+            id: &id,
+            name: "Trip",
+            folder: "Trip",
+            member: "",
+            root: space_root.as_path(),
+        };
         let error =
             create_from_folder(&vault_root, &history, &plan, &secret, &offline, || ()).unwrap_err();
         assert!(error.contains("network"), "{error}");
@@ -2200,12 +2460,173 @@ mod tests {
         history.snapshot("stray manifest").unwrap();
 
         let space_root = scratch.path().join("spaces").join("Trip");
-        let plan = SpacePlan { id: &id, name: "Trip", folder: "Trip", root: space_root.as_path() };
+        let plan = SpacePlan {
+            id: &id,
+            name: "Trip",
+            folder: "Trip",
+            member: "",
+            root: space_root.as_path(),
+        };
         let error = create_from_folder(&vault_root, &history, &plan, &secret(), &transport, || ())
             .unwrap_err();
         assert!(error.contains("already there"), "{error}");
         assert!(vault_root.join("Trip/Plan.md").is_file(), "the folder was moved anyway");
         assert!(!space_root.exists(), "a space was made anyway");
+    }
+
+    /// A member name is free text on an author line, and the members list is
+    /// read back off the same commits. There is no other record: the registry
+    /// carries no members and the server counts none, so what the history says
+    /// is the whole of what anyone can claim.
+    #[test]
+    fn a_member_name_signs_this_devices_commits_and_is_the_only_member_record() {
+        let scratch = TempDir::new().unwrap();
+        let server = serve(&scratch.path().join("server-storage"));
+        let (id, token) = mint_space(&server);
+        let transport = HttpBlobStore::for_space(&server.base_url(), &id, &token).unwrap();
+        let (vault_root, history) = a_vault(scratch.path());
+
+        let space_root = scratch.path().join("spaces").join("Trip");
+        let plan = SpacePlan {
+            id: &id,
+            name: "Trip",
+            folder: "Trip",
+            member: "Ada",
+            root: space_root.as_path(),
+        };
+        create_from_folder(&vault_root, &history, &plan, &secret(), &transport, || ()).unwrap();
+
+        let signed =
+            String::from_utf8(git(&space_root, &["log", "-1", "--pretty=%an%x1f%ae%x1f%cn"]))
+                .unwrap();
+        assert_eq!(signed.trim(), format!("Ada\x1f{MEMBER_EMAIL}\x1fSubstrate"));
+
+        let listed = members(&space_root).unwrap();
+        assert_eq!(listed.len(), 1, "{listed:?}");
+        assert_eq!(listed[0].name, "Ada");
+        assert_eq!(listed[0].commits, 1);
+        assert!(listed[0].last.starts_with("20"), "{:?}", listed[0].last);
+
+        // Somebody else writes, under a name they typed for themselves, and
+        // the list grows by exactly that claim.
+        write_note(&space_root, "Plan.md", "meet at seven\n");
+        let space = History::new(space_root.clone()).unwrap();
+        space.snapshot_as("Grace edited the plan", "Grace", MEMBER_EMAIL).unwrap();
+        let listed = members(&space_root).unwrap();
+        assert_eq!(listed.len(), 2, "{listed:?}");
+        assert_eq!(listed[0].name, "Grace", "most recently active first");
+        assert_eq!(listed[1].name, "Ada");
+
+        // And a device that never named itself signs under the repository's
+        // own identity rather than under a name nobody typed.
+        write_note(&space_root, "Plan.md", "meet at eight\n");
+        commit_as(&space, "   ", "unnamed").unwrap();
+        let listed = members(&space_root).unwrap();
+        assert!(listed.iter().any(|member| member.name == "Substrate"), "{listed:?}");
+    }
+
+    /// A member name goes on a git author line, and git's identity syntax is
+    /// what an angle bracket would break out of: a name carrying one could
+    /// close the name and open an address of its own choosing.
+    #[test]
+    fn a_member_name_cannot_forge_an_address_or_a_second_line() {
+        assert_eq!(clean_member_name("  Ada  "), "Ada");
+        assert_eq!(clean_member_name("Ada <root@example.com>"), "Ada root@example.com");
+        assert_eq!(clean_member_name("Ada\nGrace"), "Ada Grace");
+        assert_eq!(clean_member_name("   "), "", "trimmed to nothing means unnamed");
+        assert_eq!(clean_member_name(&"n".repeat(200)).chars().count(), MAX_MEMBER_CHARS);
+    }
+
+    /// Re-keying, in both directions at once: the old invite stops opening the
+    /// space, the new one opens it and finds everything, and the namespace the
+    /// space came from is left exactly as it was — because nothing done here
+    /// can take back a copy somebody already pulled.
+    #[test]
+    fn a_re_key_moves_the_space_and_the_old_invite_stops_opening_it() {
+        let scratch = TempDir::new().unwrap();
+        let storage = scratch.path().join("server-storage");
+        let server = serve(&storage);
+        let (id, token) = mint_space(&server);
+        let transport = HttpBlobStore::for_space(&server.base_url(), &id, &token).unwrap();
+        let old_secret = SpaceSecret::generate();
+        let (vault_root, history) = a_vault(scratch.path());
+
+        let space_root = scratch.path().join("spaces").join("Trip");
+        let plan = SpacePlan {
+            id: &id,
+            name: "Trip",
+            folder: "Trip",
+            member: "Ada",
+            root: space_root.as_path(),
+        };
+        let made = create_from_folder(&vault_root, &history, &plan, &old_secret, &transport, || ())
+            .unwrap();
+
+        // A fresh namespace, minted the way the gesture mints one.
+        let (new_id, new_token) = mint_space(&server);
+        let fresh = HttpBlobStore::for_space(&server.base_url(), &new_id, &new_token).unwrap();
+        let rekeyed = rekey(&space_root, &new_id, "Ada", &fresh).unwrap();
+        assert_eq!(rekeyed.was, id);
+        assert_eq!(rekeyed.id, new_id);
+        assert_eq!(read_manifest(&space_root).unwrap().id, new_id, "the checkout did not move");
+        assert_eq!(read_manifest(&space_root).unwrap().name, "Trip", "the name changed");
+        // Compared rather than printed, for the reason the create test gives.
+        assert!(*rekeyed.key.to_hex() != *made.key.to_hex(), "the re-key reused the master key");
+        assert!(
+            *rekeyed.secret.to_hex() != *old_secret.to_hex(),
+            "the re-key reused the invite secret"
+        );
+        // The re-key is a commit like any other, signed by whoever made it.
+        let signed =
+            String::from_utf8(git(&space_root, &["log", "-1", "--pretty=%an%x1f%s"])).unwrap();
+        assert_eq!(signed.trim(), "Ada\x1fTrip re-keyed");
+
+        // A re-key does not re-key twice onto the same namespace.
+        assert!(rekey(&space_root, &new_id, "Ada", &fresh)
+            .unwrap_err()
+            .contains("namespace of its own"));
+
+        // The upload: every object goes, because the namespace is empty. Both
+        // the ciphertext and the names objects are stored under are the new
+        // key's, so the two namespaces share nothing — which is what "re-
+        // encrypt and re-upload" means, and is checkable without either key.
+        blob::push(&space_root, &rekeyed.key, &fresh, || ()).unwrap();
+        let now: std::collections::BTreeSet<String> =
+            fresh.list_objects(LIST).unwrap().into_iter().collect();
+        let was: std::collections::BTreeSet<String> =
+            transport.list_objects(LIST).unwrap().into_iter().collect();
+        assert!(now.len() >= 3, "the re-key did not re-upload the space: {now:?}");
+        assert!(now.is_disjoint(&was), "the re-key left objects under their old names");
+
+        // Direction one: the invite everyone was holding does not open this.
+        let stale = HttpBlobStore::for_space(&server.base_url(), &new_id, &new_token).unwrap();
+        let nowhere = scratch.path().join("stale").join("Trip");
+        let refused = join(&vault_root, &nowhere, &new_id, &old_secret, &stale, || ()).unwrap_err();
+        assert!(refused.contains("does not open this space"), "{refused}");
+        assert!(!nowhere.exists(), "a refused join left a directory behind");
+
+        // Direction two: a remaining member, re-invited, gets the whole space.
+        let invited = HttpBlobStore::for_space(&server.base_url(), &new_id, &new_token).unwrap();
+        let landed = scratch.path().join("re-invited").join("Trip");
+        let joined = join(&vault_root, &landed, &new_id, &rekeyed.secret, &invited, || ()).unwrap();
+        assert!(*joined.key.to_hex() == *rekeyed.key.to_hex(), "the new invite opened nothing");
+        assert_eq!(
+            contents(&landed).get("Plan.md").map(String::as_str),
+            Some("SPACE-PLAINTEXT-MARKER: meet at six\n")
+        );
+
+        // And the space it came from is untouched: still there, still opened
+        // by the old secret. This is the part the screen must not pretend
+        // away — a re-key changes what is written from here on, and nothing
+        // about what somebody already holds.
+        let before = HttpBlobStore::for_space(&server.base_url(), &id, &token).unwrap();
+        let older = scratch.path().join("as-it-was").join("Trip");
+        let still = join(&vault_root, &older, &id, &old_secret, &before, || ()).unwrap();
+        assert!(*still.key.to_hex() == *made.key.to_hex());
+        assert_eq!(still.manifest.id, id);
+
+        // Neither namespace ever held plaintext.
+        assert!(!storage_contains(&storage, b"SPACE-PLAINTEXT-MARKER").unwrap());
     }
 
     fn secret() -> SpaceSecret {

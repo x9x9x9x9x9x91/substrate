@@ -51,6 +51,16 @@ pub struct AppConfig {
     /// inert, with a "Check out…" affordance.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub spaces: std::collections::BTreeMap<String, PathBuf>,
+    /// What this device calls itself in each shared space: space id → member
+    /// name. Free text the person typed, sitting beside the path binding for
+    /// the reason `spaces` gives plus one of its own — a member name is a
+    /// claim about who is at THIS keyboard, and a claim that rode vault sync
+    /// would be made on every other machine the vault reaches too.
+    /// A space with no entry here has not been named on this device: its
+    /// commits are signed by the space's own repository identity, and the
+    /// members list shows that rather than inventing a name.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub space_members: std::collections::BTreeMap<String, String>,
     /// Which vaults may run reflexes ON THIS DEVICE: canonical vault path →
     /// the enable decision. One switch for the whole feature, per
     /// vault, per device. It lives here rather than in the vault for the same
@@ -170,6 +180,32 @@ pub fn write_space_binding(cfg_dir: &Path, id: &str, path: Option<&Path>) -> Res
         }
         None => {
             cfg.spaces.remove(id);
+        }
+    })
+}
+
+/// What this device calls itself in a space. Empty = not named here, which is
+/// a real answer and not a missing one: nothing anywhere requires a member to
+/// have typed a name, and the caller must be able to say so.
+pub fn space_member_name(cfg_dir: &Path, id: &str) -> String {
+    read_config(cfg_dir).space_members.get(id).cloned().unwrap_or_default()
+}
+
+/// Record what this device calls itself in a space, or clear it. Clearing
+/// removes the key for the same reason a released binding does — a name never
+/// typed and a name taken back are the same state, and neither is an empty
+/// string sitting in the file looking like a choice.
+///
+/// The name is stored as it is handed over; tidying it into something a git
+/// author line can carry belongs to the space layer, which is the only thing
+/// that puts it on one.
+pub fn write_space_member_name(cfg_dir: &Path, id: &str, name: Option<&str>) -> Result<(), String> {
+    update_config(cfg_dir, |cfg| match name {
+        Some(n) if !n.is_empty() => {
+            cfg.space_members.insert(id.to_string(), n.to_string());
+        }
+        _ => {
+            cfg.space_members.remove(id);
         }
     })
 }

@@ -753,6 +753,59 @@ impl HttpBlobStore {
         Ok((id, token))
     }
 
+    /// Retire a space's bearer token and mint the one that replaces it:
+    /// `POST /v1/spaces/<id>/token`.
+    ///
+    /// What this changes is who may reach the namespace. The old token stops
+    /// opening it the moment the server has written the new one, so every
+    /// device and every outstanding invite carrying it is locked out at once.
+    /// What it does NOT change is the key: the objects in the namespace are
+    /// encrypted under the same master key they were before, and anyone who
+    /// already pulled a copy can still read it. That distinction belongs to
+    /// the caller to state; this only performs the half the server can do.
+    ///
+    /// Operator's route, like [`Self::mint_space`], and refused on a store
+    /// built for a space for the same reason — so the message names the
+    /// mistake rather than quoting the status the server would return. The
+    /// new token comes back exactly once, inside `Zeroizing`, and the caller
+    /// owes storing it before this value is dropped.
+    pub(crate) fn rotate_space_token(&self, space_id: &str) -> Result<Zeroizing<String>, String> {
+        if !self.namespace.is_empty() {
+            return Err("a space's own address cannot rotate its token — rotate on the server \
+                        itself"
+                .into());
+        }
+        if !is_space_id(space_id) {
+            return Err("this space id did not come from the server".into());
+        }
+        let url = self.route(&format!("/spaces/{space_id}/token"));
+        let sent = self.call_retrying(|| {
+            self.agent.post(&url).set("Authorization", &self.authorization()).send_bytes(b"")
+        });
+        let (status, response) = http_status(sent, "token rotation")?;
+        let Some(response) = response else {
+            return Err(match status {
+                // A 404 here is ambiguous in a way the mint's is not: either
+                // this server has no such route, or it has the route and no
+                // such space. Both are worth acting on and neither can be
+                // told from the other, so both are named.
+                404 => format!(
+                    "{} — or this server does not hold this space any more",
+                    missing_route_error(&self.base)
+                ),
+                _ => status_error("token rotation", status),
+            });
+        };
+        let body = read_response_bounded(response, MAX_MINT_BYTES, "the new token")?;
+        let rotated: serde_json::Value = serde_json::from_slice(&body)
+            .map_err(|_| "this server did not answer with a token".to_string())?;
+        let token = Zeroizing::new(rotated["token"].as_str().unwrap_or_default().to_string());
+        if !is_space_token(&token) {
+            return Err("this server minted a token this build does not understand".into());
+        }
+        Ok(token)
+    }
+
     /// [`Self::refusal`] for the routes where a 404 means the URL rather than
     /// the document — [`missing_route_error`] says why.
     fn refusal_at(&self, label: &str, code: u16) -> String {
@@ -5946,6 +5999,56 @@ mod tests {
         // And a token that opens nothing is a refusal, not a namespace.
         let stranger = HttpBlobStore::new(&server.base_url(), "not-the-operator-token").unwrap();
         assert!(stranger.mint_space().unwrap_err().contains("rejected"));
+    }
+
+    /// Rotating a space's token: the old one stops opening the namespace at
+    /// once, and the key is not touched — which is exactly the line §3.3 draws
+    /// between the two things that can be done about a former member.
+    #[test]
+    fn rotating_a_token_locks_the_old_one_out_and_leaves_the_key_alone() {
+        let scratch = TempDir::new().unwrap();
+        let server = serve(&scratch.path().join("server-storage"));
+        let (id, token) = mint_space(&server);
+        let space = HttpBlobStore::for_space(&server.base_url(), &id, &token).unwrap();
+        let secret = SpaceSecret::generate();
+        let (key, _) = enroll_space(&space, &id, &secret, SpaceIntent::Create).unwrap();
+        let name = "5c".repeat(32);
+        space.put_object(&name, b"ciphertext").unwrap();
+
+        let operator = HttpBlobStore::new(&server.base_url(), TEST_TOKEN).unwrap();
+        let rotated = operator.rotate_space_token(&id).unwrap();
+        assert!(is_space_token(&rotated));
+        assert_ne!(rotated.as_str(), token, "rotation handed back the same token");
+
+        // The device holding the old token — a former member's, or this one's
+        // before it saved the new one — is locked out immediately.
+        let refused = space.list_objects(16).unwrap_err();
+        assert!(refused.contains("rejected"), "{refused}");
+
+        // The new token opens the same namespace, with the same objects in it.
+        let now = HttpBlobStore::for_space(&server.base_url(), &id, &rotated).unwrap();
+        assert_eq!(now.get_object(&name, 64).unwrap(), b"ciphertext");
+        // And the invite secret still unwraps the same master key: rotation
+        // did not re-encrypt anything, and does not make held history
+        // unreadable.
+        let (again, how) = enroll_space(&now, &id, &secret, SpaceIntent::Join).unwrap();
+        assert_eq!(how, Enrollment::Joined);
+        assert_eq!(again.0, key.0);
+
+        // Rotation is the operator's route, like minting.
+        assert!(now.rotate_space_token(&id).unwrap_err().contains("cannot rotate its token"));
+        let stranger = HttpBlobStore::new(&server.base_url(), "not-the-operator-token").unwrap();
+        assert!(stranger.rotate_space_token(&id).unwrap_err().contains("rejected"));
+
+        // A well-formed id for a space this server does not hold says both of
+        // the things a 404 there can mean.
+        let absent = "3b7a".repeat(8);
+        let missing = operator.rotate_space_token(&absent).unwrap_err();
+        assert!(missing.contains("does not hold this space"), "{missing}");
+        assert!(operator
+            .rotate_space_token("not-an-id")
+            .unwrap_err()
+            .contains("did not come from the server"));
     }
 
     /// The whole of slice 2 end to end: a minted space, a key enrolled into

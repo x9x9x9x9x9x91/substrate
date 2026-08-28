@@ -449,6 +449,50 @@ impl History {
         Ok(true)
     }
 
+    /// [`snapshot`](Self::snapshot) with the author line carrying a name the
+    /// repository did not choose.
+    ///
+    /// This is how a shared space's commits are signed. A space has no
+    /// identity behind it — the name is free text somebody typed on their own
+    /// device — so it goes on the author line, which is where git already puts
+    /// a claim about who wrote a change, and nowhere else. Committer stays the
+    /// repo's configured identity, so the two are never confused for each
+    /// other. Whole-tree rather than path-scoped, because the caller is
+    /// committing a whole space it owns rather than fencing off one write.
+    #[cfg(not(mobile))]
+    pub fn snapshot_as(
+        &self,
+        label: &str,
+        author_name: &str,
+        author_email: &str,
+    ) -> Result<bool, String> {
+        if !self.enabled || self.defer_first_snapshot() {
+            return Ok(false);
+        }
+        self.git(&["add", "-A", "."])?;
+        if self.git(&["status", "--porcelain"])?.trim().is_empty() {
+            return Ok(false);
+        }
+        self.git_env(
+            &["commit", "-q", "-m", label],
+            &[("GIT_AUTHOR_NAME", author_name), ("GIT_AUTHOR_EMAIL", author_email)],
+        )?;
+        Ok(true)
+    }
+
+    /// Mobile has no author-overriding git of its own, and a commit under the
+    /// wrong name would be worse than one under none: the space's own identity
+    /// signs it, and the members list shows what is actually there.
+    #[cfg(mobile)]
+    pub fn snapshot_as(
+        &self,
+        label: &str,
+        _author_name: &str,
+        _author_email: &str,
+    ) -> Result<bool, String> {
+        self.snapshot(label)
+    }
+
     /// Stage ONLY the given paths and commit them under the repo's own
     /// identity — the same path-scoped honesty [`commit_paths_as`] gives an
     /// MCP write, for a run that knows what it touched. A bulk sweep uses it
