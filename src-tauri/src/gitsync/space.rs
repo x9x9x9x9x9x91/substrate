@@ -224,10 +224,20 @@ const MAX_AUTHORS_BYTES: usize = 4 * 1024 * 1024;
 /// Read off the log rather than off a list, because there is no list — see
 /// [`Member`]. A space nobody has committed to since it was created has one
 /// member, which is right: the person who made it.
-pub(crate) fn members(root: &Path) -> Result<Vec<Member>, String> {
+///
+/// `not_members` is the set of author ADDRESSES whose commits are not a
+/// membership claim. Not every commit in a space is written by somebody
+/// holding the space master key: a device can write on behalf of a person who
+/// holds no key at all, under an author line that says as much. The members
+/// dialog tells the user, next to every row, that removing it does not change
+/// the fact that the member's device holds the key and a full clone — and a
+/// row for somebody with neither would make that sentence false. The caller
+/// that knows about such an address names it here; a caller with none passes
+/// nothing and gets the whole log.
+pub(crate) fn members(root: &Path, not_members: &[&str]) -> Result<Vec<Member>, String> {
     read_manifest(root)?;
     let output = std::process::Command::new("git")
-        .args(["log", "--all", "--date-order", "-z", "--pretty=format:%an%x1f%aI"])
+        .args(["log", "--all", "--date-order", "-z", "--pretty=format:%an%x1f%ae%x1f%aI"])
         .current_dir(root)
         .output()
         .map_err(|error| format!("could not read this space's history: {error}"))?;
@@ -243,9 +253,18 @@ pub(crate) fn members(root: &Path) -> Result<Vec<Member>, String> {
     let listing = String::from_utf8_lossy(&output.stdout);
     let mut found: Vec<Member> = Vec::new();
     for entry in listing.split('\0') {
-        let Some((name, last)) = entry.split_once('\x1f') else {
+        let Some((name, rest)) = entry.split_once('\x1f') else {
             continue;
         };
+        let Some((email, last)) = rest.split_once('\x1f') else {
+            continue;
+        };
+        // Compared on the address, never on the name: the name is free text
+        // the writer chose, so a list that trusted it could be talked into
+        // hiding a row by anyone who typed the right thing.
+        if not_members.iter().any(|excluded| excluded.eq_ignore_ascii_case(email.trim())) {
+            continue;
+        }
         // Cleaned on the way OUT as well as in: these names were written by
         // other people's builds, and one of them may not have cleaned it.
         let name = clean_member_name(name);
@@ -1378,7 +1397,7 @@ fn outside_the_vault(vault_root: &Path, space_root: &Path) -> Result<(), String>
 /// from the same directory reached the other way. `canonicalize` cannot run on
 /// the leaf, which is the whole point — it does not exist yet — so it runs on
 /// the nearest ancestor that does and the rest is appended.
-fn resolved(path: &Path) -> Result<PathBuf, String> {
+pub(crate) fn resolved(path: &Path) -> Result<PathBuf, String> {
     let mut lexical = if path.is_absolute() {
         PathBuf::new()
     } else {
@@ -1593,6 +1612,7 @@ pub(crate) fn recall(credentials_path: &Path, id: &str) -> Result<Membership, St
     let key = MasterKey::from_hex(&read("key")?)?;
     Ok(Membership { token, key, secret })
 }
+
 
 /// Forget a membership. Best effort, and deliberately: it runs while a create
 /// that could not be written down is already being reported, and a slot that
@@ -2964,7 +2984,7 @@ mod tests {
                 .unwrap();
         assert_eq!(signed.trim(), format!("Ada\x1f{MEMBER_EMAIL}\x1fSubstrate"));
 
-        let listed = members(&space_root).unwrap();
+        let listed = members(&space_root, &[]).unwrap();
         assert_eq!(listed.len(), 1, "{listed:?}");
         assert_eq!(listed[0].name, "Ada");
         assert_eq!(listed[0].commits, 1);
@@ -2975,7 +2995,7 @@ mod tests {
         write_note(&space_root, "Plan.md", "meet at seven\n");
         let space = History::new_space(space_root.clone()).unwrap();
         space.snapshot_as("Grace edited the plan", "Grace", MEMBER_EMAIL).unwrap();
-        let listed = members(&space_root).unwrap();
+        let listed = members(&space_root, &[]).unwrap();
         assert_eq!(listed.len(), 2, "{listed:?}");
         assert_eq!(listed[0].name, "Grace", "most recently active first");
         assert_eq!(listed[1].name, "Ada");
@@ -2984,8 +3004,48 @@ mod tests {
         // own identity rather than under a name nobody typed.
         write_note(&space_root, "Plan.md", "meet at eight\n");
         commit_as(&space, "   ", "unnamed").unwrap();
-        let listed = members(&space_root).unwrap();
+        let listed = members(&space_root, &[]).unwrap();
         assert!(listed.iter().any(|member| member.name == "Substrate"), "{listed:?}");
+    }
+
+    /// Not every commit in a space is a membership claim. A device can write
+    /// into a space on behalf of somebody who holds no key — and the members
+    /// dialog says, beside every row, that the person it names holds the key
+    /// and a clone of the history.
+    #[test]
+    fn an_author_the_caller_calls_no_member_is_not_listed_as_one() {
+        let scratch = TempDir::new().unwrap();
+        let server = serve(&scratch.path().join("server-storage"));
+        let (id, token) = mint_space(&server);
+        let transport = HttpBlobStore::for_space(&server.base_url(), &id, &token).unwrap();
+        let (vault_root, history) = a_vault(scratch.path());
+        let space_root = scratch.path().join("spaces").join("Trip");
+        let plan = SpacePlan {
+            id: &id,
+            name: "Trip",
+            folder: "Trip",
+            member: "Ada",
+            root: space_root.as_path(),
+        };
+        create_from_folder(&vault_root, &history, &plan, &secret(), &transport, || ()).unwrap();
+
+        // somebody with no key at all, written in under an address that says
+        // so — and under a name a member could plausibly have
+        write_note(&space_root, "Plan.md", "meet at seven\n");
+        let space = History::new(space_root.clone()).unwrap();
+        space.snapshot_as("a visitor wrote", "Grace", "byhand@substrate.invalid").unwrap();
+
+        let listed = members(&space_root, &[]).unwrap();
+        assert!(listed.iter().any(|member| member.name == "Grace"), "{listed:?}");
+
+        let listed = members(&space_root, &["byhand@substrate.invalid"]).unwrap();
+        assert!(
+            !listed.iter().any(|member| member.name == "Grace"),
+            "an excluded address is nobody's membership: {listed:?}"
+        );
+        // and the real member is untouched by the exclusion
+        assert_eq!(listed.len(), 1, "{listed:?}");
+        assert_eq!(listed[0].name, "Ada");
     }
 
     /// A member name goes on a git author line, and git's identity syntax is

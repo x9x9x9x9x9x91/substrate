@@ -166,6 +166,22 @@ impl MasterKey {
         Zeroizing::new(hex)
     }
 
+    /// A 32-byte subkey for one subsystem, derived rather than stored.
+    ///
+    /// The same HKDF the object, name and ref keys go through
+    /// ([`derive_key`]), exposed so a caller outside this module can have its
+    /// own key without ever holding this one's bytes. `info` names the
+    /// subsystem and `salt` distinguishes the instances inside it; both are
+    /// domain separation and neither is a secret. Wrapped in `Zeroizing`, so
+    /// the derived material wipes itself the moment the caller drops it.
+    pub(crate) fn derive(
+        &self,
+        salt: &[u8],
+        info: &[u8],
+    ) -> Result<Zeroizing<[u8; 32]>, String> {
+        derive_key(&self.0, salt, info).map(Zeroizing::new)
+    }
+
     /// The inverse of [`Self::to_hex`], for the credential-store read path.
     /// The error deliberately says "configure the remote again" rather than
     /// echoing anything about the stored value.

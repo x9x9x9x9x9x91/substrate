@@ -1,20 +1,21 @@
 #!/usr/bin/env node
-/** Bundles the relay's two browser scripts into the relay source.
+/** Bundles the relay's three browser scripts into the relay source.
  *
  * The relay must stay one dependency-free file at runtime — the deploy recipe
- * is a single esbuild of serve.ts. Both scripts need a real age
+ * is a single esbuild of serve.ts. All three scripts need a real age
  * implementation (typage), so the dependency is resolved HERE, at build time,
  * and the result is checked in as sealing-page.generated.ts: the sender's page
- * for a drop link, and the chips a shared page's question draws for its
- * reader. They are two entry points rather than one because a plain lens — most
- * of them — should not download a sealing library it never calls; the slip
- * script is served on its own route and fetched only by a page that asks
- * something. Regenerate with:
+ * for a drop link, the chips a shared page's question draws for its reader,
+ * and the folder page a shared space opens to. They are separate entry points
+ * rather than one because a plain lens — most of them — should not download a
+ * sealing library it never calls; the slip script is served on its own route
+ * and fetched only by a page that asks something, and the folder page is only
+ * ever inlined into the folder routes. Regenerate with:
  *
  *   node scripts/handoff-relay/sealing-page/build.ts
  *
- * Run it whenever main.ts or the age dependency changes; the generated file is
- * source-of-record for the relay and is read by nothing else.
+ * Run it whenever one of the entry points or the age dependency changes; the
+ * generated file is source-of-record for the relay and is read by nothing else.
  *
  * `--check` rebuilds in memory and exits nonzero when the checked-in file has
  * drifted from the sources, without writing anything: that is the shape a CI
@@ -54,15 +55,18 @@ async function bundle(entry: string): Promise<string> {
 
 const script = await bundle("main.ts");
 const slipScript = await bundle("slip.ts");
+const spaceScript = await bundle("space.ts");
 
 const out = join(here, "..", "sealing-page.generated.ts");
 const generated =
   `// GENERATED FILE — do not edit by hand.\n` +
   `// Rebuild with: node scripts/handoff-relay/sealing-page/build.ts\n` +
-  `// Source: sealing-page/main.ts and sealing-page/slip.ts, each bundled with\n` +
-  `// its age implementation so the relay has no runtime dependencies.\n` +
+  `// Source: sealing-page/main.ts, sealing-page/slip.ts and sealing-page/space.ts,\n` +
+  `// each bundled with its age implementation so the relay has no runtime\n` +
+  `// dependencies.\n` +
   `export const SEALING_PAGE_SCRIPT = ${JSON.stringify(script)};\n` +
-  `export const SLIP_PAGE_SCRIPT = ${JSON.stringify(slipScript)};\n`;
+  `export const SLIP_PAGE_SCRIPT = ${JSON.stringify(slipScript)};\n` +
+  `export const SPACE_PAGE_SCRIPT = ${JSON.stringify(spaceScript)};\n`;
 
 if (check) {
   const onDisk = readFileSync(out, "utf8");
@@ -77,6 +81,6 @@ if (check) {
 } else {
   writeFileSync(out, generated);
   console.log(
-    `pages bundled: ${script.length} + ${slipScript.length} bytes → ${out}`
+    `pages bundled: ${script.length} + ${slipScript.length} + ${spaceScript.length} bytes → ${out}`
   );
 }

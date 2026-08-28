@@ -50,7 +50,11 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
-import { SEALING_PAGE_SCRIPT, SLIP_PAGE_SCRIPT } from "./sealing-page.generated.ts";
+import {
+  SEALING_PAGE_SCRIPT,
+  SLIP_PAGE_SCRIPT,
+  SPACE_PAGE_SCRIPT,
+} from "./sealing-page.generated.ts";
 
 export interface HandoffRelayOptions {
   dataDir: string;
@@ -513,6 +517,63 @@ const LENS_VIEWER_HTML = `<!doctype html>
     implementation; the relay itself stays dependency-free. The footer states
     the same operator-trust boundary the viewer does — the relay serves this
     script, so a hostile operator could serve a different one. */
+/** The folder page's own chrome. A list beside a pane, which is the shape a
+    folder of notes wants and the single-note viewer had no need of. Its own
+    class names throughout (`sl-`), so nothing here can collide with the
+    viewer's above. */
+export const SPACE_PAGE_CSS = `
+  :root { color-scheme: light; }
+  html, body { height: 100%; margin: 0; }
+  body { background: #f6f7f8; color: #1b1e22;
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  #st { margin: 4rem auto; max-width: 26rem; padding: 1.5rem; text-align: center; color: #565b63; }
+  #st.err { color: #8c3a3a; }
+  #st small { display: block; margin-top: .8rem; color: #9198a1; }
+  #shell { display: flex; height: 100%; }
+  .sl-list { width: 16rem; flex: none; overflow-y: auto; padding: 1.1rem .8rem;
+    background: #fff; border-right: 1px solid #e6e8eb; }
+  .sl-name { margin: .2rem .5rem .1rem; font-size: 1rem; }
+  .sl-stamp { margin: 0 .5rem 1rem; font-size: .74rem; color: #9198a1; }
+  .sl-item { display: block; width: 100%; text-align: left; font: inherit; font-size: .9rem;
+    padding: .35rem .5rem; margin-bottom: .1rem; border: 0; border-radius: 6px;
+    background: none; color: #1b1e22; cursor: pointer; }
+  .sl-item:hover { background: #f0f2f4; }
+  .sl-item.sl-on { background: #e9edf1; font-weight: 600; }
+  .sl-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .sl-doc { flex: 1; border: 0; width: 100%; }
+  .sl-error { padding: 1rem 1.25rem; color: #8c3a3a; font-size: .85rem; }
+  .sl-editor { padding: .9rem 1.25rem 1.1rem; background: #fff; border-top: 1px solid #e6e8eb; }
+  .sl-edit-open, .sl-send { font: inherit; font-size: .88rem; padding: .38rem .85rem;
+    border-radius: 999px; border: 1px solid #d5d9de; background: #fff; color: #1b1e22;
+    cursor: pointer; }
+  .sl-edit-open:hover, .sl-send:hover:enabled { border-color: #9198a1; }
+  .sl-send:disabled { cursor: default; color: #9198a1; }
+  .sl-form { display: flex; flex-direction: column; gap: .6rem; }
+  .sl-text { font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; min-height: 16rem;
+    padding: .7rem; border: 1px solid #d5d9de; border-radius: 8px; resize: vertical; }
+  .sl-who { font: inherit; font-size: .9rem; padding: .4rem .6rem; max-width: 18rem;
+    border: 1px solid #d5d9de; border-radius: 8px; }
+  .sl-note { margin: 0; font-size: .74rem; color: #9198a1; }
+  .sl-said { margin: 0; font-size: .74rem; color: #9198a1; }
+  .sl-said.sl-ok { color: #3d6b4a; }
+  .sl-said.sl-err { color: #8c3a3a; }
+`;
+
+/** One page for both folder routes. Which one was opened decides nothing here:
+    the index the fragment key opens either carries a way to write back or it
+    does not, and a read link's does not. */
+const SPACE_PAGE_HTML = `<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Substrate folder</title>
+<style>${SPACE_PAGE_CSS}</style></head>
+<body>
+<div id="st">Decrypting locally…</div>
+<div id="shell" hidden></div>
+<script>${SPACE_PAGE_SCRIPT}</script>
+</body></html>`;
+
 const SEALING_PAGE_HTML = `<!doctype html>
 <html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -1463,6 +1524,23 @@ export function createHandoffRelay(opts: HandoffRelayOptions): Server {
         } else if (lens) {
           req.resume();
           return send(res, 404, "unknown lens");
+        }
+        // A shared folder, read-only. `/f/` rather than `/l/`: one link opens
+        // a whole folder here (D5), and a bug report saying "the lens is
+        // blank" should never be ambiguous about which of the two it means.
+        const folder = url.pathname.match(/^\/f\/([^/]+)$/);
+        if ((req.method === "GET" || req.method === "HEAD") && folder && ID_RE.test(folder[1]))
+          return send(res, 200, SPACE_PAGE_HTML, "text/html; charset=utf-8");
+        // The same folder, editable. Its own prefix because D4 mints a
+        // SECOND, visibly different link rather than upgrading the first — the
+        // person handing one over should be able to see which they are
+        // handing over. Served only when the letterbox is on as well: an edit
+        // is a drop, and a page offering to send one into a door that is shut
+        // would be a promise the relay cannot keep.
+        const editable = url.pathname.match(/^\/e\/([^/]+)$/);
+        if ((req.method === "GET" || req.method === "HEAD") && editable && ID_RE.test(editable[1])) {
+          if (!letterboxOn) return send(res, 404, "not found");
+          return send(res, 200, SPACE_PAGE_HTML, "text/html; charset=utf-8");
         }
         const page = url.pathname.match(/^\/l\/([^/]+)$/);
         if ((req.method === "GET" || req.method === "HEAD") && page && ID_RE.test(page[1]))

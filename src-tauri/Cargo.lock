@@ -5814,6 +5814,7 @@ dependencies = [
  "age",
  "argon2",
  "base64 0.22.1",
+ "bech32",
  "blahaj",
  "chacha20poly1305",
  "chrono",

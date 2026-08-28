@@ -706,7 +706,7 @@ fn now_ms(t: SystemTime) -> u64 {
     t.duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }
 
-fn split_frontmatter(raw: &str) -> (Option<&str>, &str) {
+pub(crate) fn split_frontmatter(raw: &str) -> (Option<&str>, &str) {
     let start = if raw.starts_with("---\n") {
         4
     } else if raw.starts_with("---\r\n") {

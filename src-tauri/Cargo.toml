@@ -46,6 +46,12 @@ chrono-tz = "0.10"
 icalendar = { version = "0.17.13", features = ["parser", "recurrence"] }
 regex = "1"
 base64 = "0.22"
+# already in the tree as `age`'s own dependency — named here because a space
+# derives its letterbox identity from the space master key rather than storing
+# one (docs/collab.md 2.1), and `age` offers no from-bytes constructor: the
+# derived 32 bytes are spelled as the AGE-SECRET-KEY- string age's own parser
+# accepts, so the validation stays age's and this crate only does the encoding.
+bech32 = "0.11"
 # already in the tree via tauri's updater — named here because kinds.rs hashes
 # custom-kind bundles itself and mounts digest file content for
 # sidecar identity
