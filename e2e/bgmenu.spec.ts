@@ -63,7 +63,12 @@ test("calendar day cell: New entry composes on that date; chips keep their menu"
 
   const cell = page.locator(".cal-grid.month .cal-day").nth(10);
   const iso = await cell.getAttribute("data-iso");
-  await cell.click({ button: "right", position: { x: 8, y: 40 } });
+  // The day menu answers a right-click on the cell's own background, so aim at
+  // the empty strip below the entry chips rather than a fixed 40px down: the
+  // chips' height follows the type scale, and 40px sat exactly on the last
+  // chip's bottom edge — a pixel of drift there opens the ENTRY menu instead.
+  const box = (await cell.boundingBox())!;
+  await cell.click({ button: "right", position: { x: 8, y: box.height - 10 } });
   await expect(ctxItem(page, /^New entry on /)).toBeVisible();
   await expect(ctxItem(page, "Open daily note")).toBeVisible();
   await ctxItem(page, /^New entry on /).click();

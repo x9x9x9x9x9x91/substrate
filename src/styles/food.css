@@ -178,7 +178,7 @@
 
 .food-day-label.today {
   color: var(--text-1);
-  font-weight: 560;
+  font-weight: var(--fw-strong);
 }
 
 /* quick add: food name gets the wide field, numbers stay narrow */
@@ -386,7 +386,7 @@
 
 .food-day-label.focus {
   color: var(--text-1);
-  font-weight: 560;
+  font-weight: var(--fw-strong);
 }
 
 /* the focus day's value reads at full strength; the rest stay the quiet
@@ -545,7 +545,7 @@
 .feed-title {
   margin-top: 7px;
   font: var(--dash-sentence);
-  font-weight: 550;
+  font-weight: var(--fw-strong);
   color: var(--text-1);
 }
 
@@ -607,8 +607,8 @@
   border-radius: var(--r-1);
   background: none;
   font-family: var(--mono);
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--fs-3);
+  font-weight: var(--fw-strong);
   line-height: 1;
   color: var(--text-3);
   cursor: pointer;

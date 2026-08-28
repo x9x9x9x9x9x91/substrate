@@ -45,7 +45,12 @@ test("a save echoes once and the open editor never adopts its own echo (SUB-296)
   await ed.evaluate((el) => ((el as unknown as { __tag: number }).__tag = 42));
 
   const marker = `E2E-ECHO ${Date.now()}`;
-  await ed.click();
+  // first line, not the editor's geometric centre: the centre is whatever line
+  // the current body size puts there, and after the first insert it lands
+  // INSIDE the marker — the second insert then splits it and the assertion
+  // reads a mangled string.
+  const firstLine = page.locator(".cm-line").first();
+  await firstLine.click();
   await page.keyboard.insertText(marker);
 
   // one completed save → exactly one watcher echo (engine cadence: the 500ms
@@ -61,7 +66,7 @@ test("a save echoes once and the open editor never adopts its own echo (SUB-296)
 
   // a second save round-trip echoes exactly once more, still no adopt
   const more = `E2E-ECHO-MORE ${Date.now()}`;
-  await ed.click();
+  await firstLine.click();
   await page.keyboard.insertText(more);
   await expect.poll(() => echoCount(page)).toBe(2);
   await expect(ed).toContainText(marker);

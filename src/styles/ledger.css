@@ -49,8 +49,8 @@
 }
 
 .trash-row-title {
-  font-size: 13px;
-  font-weight: 500;
+  font-size: var(--fs-4);
+  font-weight: var(--fw-medium);
   color: var(--text-1);
   white-space: nowrap;
   overflow: hidden;
@@ -68,13 +68,13 @@
 /* type tag on trashed assets, so they read apart from notes */
 .trash-row-tag {
   margin-left: 6px;
-  font-size: 11.5px;
-  font-weight: 400;
+  font-size: var(--fs-2);
+  font-weight: var(--fw-normal);
   color: var(--text-3);
 }
 
 .trash-row-sub {
-  font-size: 11.5px;
+  font-size: var(--fs-2);
   color: var(--text-3);
   white-space: nowrap;
   overflow: hidden;

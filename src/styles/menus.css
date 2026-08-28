@@ -86,7 +86,7 @@
     var(--shadow-float),
     inset 0 1px 0 rgba(255, 255, 255, 0.05);
   color: var(--text-1);
-  font-size: 12px;
+  font-size: var(--fs-3);
   line-height: 1.4;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -121,8 +121,8 @@
   align-items: center;
   gap: 8px;
   border-radius: var(--r-2);
-  font-size: 13px;
-  font-weight: 500;
+  font-size: var(--fs-4);
+  font-weight: var(--fw-medium);
   color: var(--text-2);
   cursor: default;
 }
@@ -185,7 +185,7 @@
   flex: none;
   padding-left: 4px;
   white-space: nowrap;
-  font-size: 11px;
+  font-size: var(--fs-2);
   color: var(--text-3);
 }
 

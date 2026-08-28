@@ -18,7 +18,12 @@ async function boot(page: Page) {
   await page.goto("/");
   await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
-  await page.locator(".cm-content").click();
+  // The cursor goes on the note's FIRST line, not the geometric centre of
+  // `.cm-content`: the centre is whatever line the current body size happens
+  // to put there, so a type-scale change silently moves it onto a blank line
+  // or into a rendered widget and the paste lands somewhere the assertion
+  // below cannot see.
+  await page.locator(".cm-line").first().click();
 }
 
 /** Dispatch a paste carrying `names` as real files, in one clipboard payload. */

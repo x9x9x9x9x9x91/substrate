@@ -5,7 +5,7 @@
   border-radius: var(--r-2);
   background: var(--bg-elevated);
   color: var(--text-1);
-  font-size: 12px;
+  font-size: var(--fs-3);
   padding: 0 8px;
   outline: none;
   min-width: 60px;
@@ -59,7 +59,7 @@
 .chip-suggest-key {
   flex: none;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--fs-3);
   color: var(--text-1);
 }
 
@@ -68,7 +68,7 @@
 .chip-suggest-hint {
   flex: 1;
   min-width: 0;
-  font-size: 11px;
+  font-size: var(--fs-2);
   color: var(--text-3);
   white-space: nowrap;
   overflow: hidden;
@@ -167,7 +167,7 @@
 .prop-rows .prop-key {
   flex: none;
   width: 120px;
-  font-size: 12px;
+  font-size: var(--fs-3);
   color: var(--text-3);
   white-space: nowrap;
   overflow: hidden;
@@ -197,6 +197,6 @@
    are untouched) */
 .prop-rows .prop-empty {
   flex: 1;
-  font-size: 12px;
+  font-size: var(--fs-3);
   color: var(--text-3);
 }

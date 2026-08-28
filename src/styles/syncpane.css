@@ -13,7 +13,7 @@
   border-radius: var(--r-2);
   background: transparent;
   color: var(--text-2);
-  font: 500 11.5px/1 var(--font);
+  font: var(--fw-medium) var(--fs-2) / 1 var(--font);
   letter-spacing: 0;
   text-transform: none;
   /* "RUN ALL" wrapped to two lines inside the head's fixed 24px box and

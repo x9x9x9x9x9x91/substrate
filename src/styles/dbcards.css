@@ -52,7 +52,7 @@
 .db-list .row-sub,
 .cal-wk-sub {
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: var(--fs-1);
   letter-spacing: 0.02em;
 }
 
@@ -81,8 +81,8 @@
   background: transparent;
   color: var(--text-3);
   font-family: var(--font);
-  font-size: 11.5px;
-  font-weight: 500;
+  font-size: var(--fs-2);
+  font-weight: var(--fw-medium);
   text-align: left;
   /* Hidden at rest, but it keeps its grid space, so revealing it
      never shifts the column's cards */
@@ -122,8 +122,8 @@
 }
 
 .db-card-title {
-  font-size: 13px;
-  font-weight: 510;
+  font-size: var(--fs-4);
+  font-weight: var(--fw-medium);
   color: var(--text-1);
 }
 
@@ -263,8 +263,8 @@
 }
 
 .db-gcard-title {
-  font-size: 13px;
-  font-weight: 510;
+  font-size: var(--fs-4);
+  font-weight: var(--fw-medium);
   color: var(--text-1);
   white-space: nowrap;
   overflow: hidden;
@@ -300,8 +300,8 @@
   background: transparent;
   color: var(--text-2);
   font-family: var(--font);
-  font-size: 11.5px;
-  font-weight: 500;
+  font-size: var(--fs-2);
+  font-weight: var(--fw-medium);
   transition:
     background-color var(--t) ease-out,
     color var(--t) ease-out;
@@ -327,14 +327,14 @@
   background: transparent;
   color: var(--text-1);
   font-family: var(--font);
-  font-size: 13px;
-  font-weight: 510;
+  font-size: var(--fs-4);
+  font-weight: var(--fw-medium);
   padding: 0;
 }
 
 .db-draft-input::placeholder {
   color: var(--text-3);
-  font-weight: 400;
+  font-weight: var(--fw-normal);
 }
 
 /* The draft input paints no ring of its own: the wrapper's accent

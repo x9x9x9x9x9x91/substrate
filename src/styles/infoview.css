@@ -22,8 +22,8 @@
   background: transparent;
   color: var(--text-3);
   font-family: var(--font);
-  font-size: 12px;
-  font-weight: 620;
+  font-size: var(--fs-3);
+  font-weight: var(--fw-strong);
 }
 
 .info-view-toggle:hover {
@@ -56,13 +56,13 @@
 .info-view-title {
   margin-bottom: 4px;
   color: var(--text-1);
-  font-size: 12px;
-  font-weight: 580;
+  font-size: var(--fs-3);
+  font-weight: var(--fw-strong);
 }
 
 .info-view-body {
   color: var(--text-3);
-  font-size: 11.5px;
+  font-size: var(--fs-2);
   line-height: 1.45;
 }
 

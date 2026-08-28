@@ -18,7 +18,7 @@
   border-radius: var(--r-3);
   box-shadow: var(--shadow-float);
   color: var(--text-2);
-  font-size: 12px;
+  font-size: var(--fs-3);
   padding: 7px 14px;
   z-index: 120;
   animation: toast-in var(--t) ease-out;
@@ -78,7 +78,7 @@
   background: transparent;
   color: var(--text-2);
   font-family: var(--font);
-  font-size: 13px;
+  font-size: var(--fs-4);
   text-align: left;
 }
 
@@ -111,7 +111,7 @@
   flex: none;
   padding-left: 4px;
   white-space: nowrap;
-  font-size: 11px;
+  font-size: var(--fs-2);
   color: var(--text-3);
 }
 

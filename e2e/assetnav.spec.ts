@@ -21,7 +21,12 @@ async function boot(page: Page) {
    command is held open, so the switch below is guaranteed to happen while the
    IPC is pending — the random async-dispatch window is too narrow to race. */
 async function pasteHeld(page: Page, name: string) {
-  await page.locator(".cm-content").click();
+  // The cursor goes on the note's FIRST line, not the geometric centre of
+  // `.cm-content`: the centre is whatever line the current body size happens
+  // to put there, so a type-scale change silently moves it onto a blank line
+  // or into a rendered widget and the paste lands somewhere the assertion
+  // below cannot see.
+  await page.locator(".cm-line").first().click();
   await page.evaluate(() => window.__mockHoldCommand?.("vault_save_asset"));
   await page.evaluate((n) => {
     const dt = new DataTransfer();

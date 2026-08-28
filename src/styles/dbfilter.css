@@ -21,7 +21,7 @@
   background: transparent;
   color: var(--text-1);
   font-family: var(--font);
-  font-size: 12.5px;
+  font-size: var(--fs-4);
   outline: none;
 }
 
@@ -41,8 +41,8 @@
   border: 1px solid var(--border-soft);
   border-radius: var(--r-2);
   background: transparent;
-  font-size: 11px;
-  font-weight: 530;
+  font-size: var(--fs-2);
+  font-weight: var(--fw-medium);
   color: var(--text-2);
   white-space: nowrap;
 }
@@ -136,7 +136,7 @@
   align-items: baseline;
   gap: 10px;
   padding: 4px 8px;
-  font-size: 12px;
+  font-size: var(--fs-3);
   color: var(--text-2);
 }
 
@@ -154,7 +154,7 @@
   background: var(--surface-faint);
   color: var(--text-1);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--fs-2);
   white-space: nowrap;
 }
 
@@ -162,7 +162,7 @@
   margin-top: 2px;
   padding: 7px 8px 5px;
   border-top: 1px solid var(--border-soft);
-  font-size: 11.5px;
+  font-size: var(--fs-2);
   color: var(--text-3);
 }
 
@@ -172,8 +172,8 @@
 .db-filter-saved {
   flex: none;
   color: var(--ok);
-  font-size: 11px;
-  font-weight: 530;
+  font-size: var(--fs-2);
+  font-weight: var(--fw-medium);
   white-space: nowrap;
 }
 
@@ -205,7 +205,7 @@
   height: 22px;
   border: 1px solid var(--border);
   border-radius: var(--r-pill);
-  font-size: 12px;
+  font-size: var(--fs-3);
 }
 
 .db-chip-key {
@@ -221,7 +221,7 @@
   border: none;
   background: transparent;
   font-family: var(--font);
-  font-size: 12px;
+  font-size: var(--fs-3);
   white-space: nowrap;
 }
 

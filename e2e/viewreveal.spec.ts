@@ -38,7 +38,12 @@ test("arrow keys reach the rendered ```view fence and leave it again (SUB-472)",
   await openUmbra(page);
 
   // click the paragraph below the fence, then arrow up towards it
-  await page.locator(".cm-line", { hasText: "Rows open their note" }).click();
+  // top-left of the line, so the cursor sits on its FIRST visual line: a plain
+  // .click() lands mid-line, and once the body size makes this paragraph wrap
+  // the two ArrowUps below spend one press moving within it instead of leaving.
+  await page
+    .locator(".cm-line", { hasText: "Rows open their note" })
+    .click({ position: { x: 4, y: 4 } });
   await expect(page.locator(".embed-view")).toHaveCount(1);
 
   await page.keyboard.press("ArrowUp"); // the blank line under the fence

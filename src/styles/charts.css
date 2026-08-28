@@ -550,13 +550,13 @@
 
 .kind-review-title {
   font: var(--dash-label);
-  font-size: 15px;
+  font-size: var(--fs-5);
   color: var(--text-1);
 }
 
 .kind-review-desc {
   margin: 10px 0 0;
-  font-size: 13px;
+  font-size: var(--fs-4);
   line-height: 1.5;
   color: var(--text-2);
 }
@@ -566,7 +566,7 @@
   grid-template-columns: max-content 1fr;
   gap: 3px 14px;
   margin: 14px 0 0;
-  font-size: 12.5px;
+  font-size: var(--fs-4);
 }
 
 .kind-review-facts > div {
@@ -590,7 +590,7 @@
   padding: 12px 0 0;
   border-top: 1px solid var(--border);
   list-style: none;
-  font-size: 12.5px;
+  font-size: var(--fs-4);
   line-height: 1.55;
   color: var(--text-2);
 }
@@ -604,7 +604,7 @@
   align-items: flex-start;
   gap: 8px;
   margin-top: 14px;
-  font-size: 12.5px;
+  font-size: var(--fs-4);
   color: var(--text-2);
   cursor: pointer;
 }
@@ -627,7 +627,7 @@
   border-radius: var(--r-2);
   background: var(--accent);
   color: var(--on-accent);
-  font-size: 12.5px;
+  font-size: var(--fs-4);
   cursor: pointer;
 }
 
@@ -645,7 +645,7 @@
 
 .kind-review-error {
   margin-top: 10px;
-  font-size: 12.5px;
+  font-size: var(--fs-4);
   color: var(--danger);
 }
 
@@ -653,7 +653,7 @@
    mount reading its last-known index. Quiet by design: the data is
    real, only possibly stale, so this is not an error voice. */
 .chart-note {
-  font-size: 12.5px;
+  font-size: var(--fs-4);
   color: var(--text-4);
   margin: 2px 0 6px;
 }
@@ -955,7 +955,7 @@
 }
 
 .calfence-month {
-  font-size: 12px;
+  font-size: var(--fs-3);
   color: var(--text-3);
   font-variant-numeric: tabular-nums;
 }
@@ -1010,7 +1010,7 @@
   border-radius: var(--r-2);
   background: var(--bg-input);
   color: var(--text-1);
-  font: 400 12px var(--mono);
+  font: var(--fw-normal) var(--fs-3) var(--mono);
   font-variant-numeric: tabular-nums;
   padding: 0 10px;
   outline: none;
@@ -1044,7 +1044,7 @@
      leftover under any other tone. */
   color: var(--on-accent);
   font: var(--dash-sentence);
-  font-weight: 550;
+  font-weight: var(--fw-strong);
   transition: filter var(--t) ease-out;
 }
 
@@ -1072,7 +1072,7 @@
   background: transparent;
   color: var(--text-2);
   font: var(--dash-sentence);
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   cursor: pointer;
   transition:
     background-color var(--t) ease-out,
@@ -1105,7 +1105,7 @@
 }
 
 .dash-claim-hint {
-  font-weight: 400;
+  font-weight: var(--fw-normal);
   color: var(--text-3);
 }
 

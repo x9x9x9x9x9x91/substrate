@@ -15,7 +15,7 @@ body {
   background: var(--bg);
   color: var(--text-1);
   font-family: var(--font);
-  font-size: 13px;
+  font-size: var(--fs-4);
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
   user-select: none;

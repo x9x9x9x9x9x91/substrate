@@ -148,8 +148,8 @@
 }
 
 .dash-title {
-  font-size: 15px;
-  font-weight: 650;
+  font-size: var(--fs-5);
+  font-weight: var(--fw-strong);
   letter-spacing: -0.01em;
 }
 
@@ -157,7 +157,7 @@
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  font: 400 12px/1.4 var(--font);
+  font: var(--fw-normal) var(--fs-3) / 1.4 var(--font);
   letter-spacing: 0;
   text-transform: none;
   color: var(--text-3);
@@ -216,14 +216,14 @@
 }
 
 .dash-apr {
-  font: 500 36px/1.15 var(--mono);
+  font: var(--fw-medium) var(--fs-6) / 1.15 var(--mono);
   letter-spacing: -0.01em;
   font-variant-numeric: tabular-nums;
 }
 
 .dash-apr-pct {
   font: var(--dash-value);
-  font-weight: 400;
+  font-weight: var(--fw-normal);
   color: var(--text-3);
   margin-left: 2px;
 }
@@ -287,7 +287,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  font: 550 12.5px/1.4 var(--font);
+  font: var(--fw-strong) var(--fs-4) / 1.4 var(--font);
   letter-spacing: 0;
   text-transform: none;
   color: var(--text-2);
@@ -349,7 +349,7 @@
 
 .chlog-release .dash-section-label > span:first-child {
   /* the version number is the scan anchor down the page */
-  font-weight: 650;
+  font-weight: var(--fw-strong);
   color: var(--text-1);
   font-variant-numeric: tabular-nums;
 }
@@ -384,14 +384,14 @@
 .chlog-headline-text {
   /* the flagship's bold lead carries the prominence; its detail run recedes
      so a three-line paragraph reads as "phrase — then detail if you want it" */
-  font: 400 14px/1.55 var(--font);
+  font: var(--fw-normal) var(--fs-4) / 1.55 var(--font);
   color: var(--text-2);
 }
 
 .chlog-headline-text.no-lead {
   /* a flagship without an authored lead keeps the old full-voice treatment —
      it must not read dimmer than the group items below it */
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   color: var(--text-1);
 }
 
@@ -400,11 +400,11 @@
 }
 
 .chlog-headline-text .chlog-lead {
-  font-weight: 600;
+  font-weight: var(--fw-strong);
 }
 
 .chlog-text .chlog-lead {
-  font-weight: 500;
+  font-weight: var(--fw-medium);
 }
 
 .chlog-group {
@@ -461,7 +461,7 @@
   /* a ✦ in the kind color — a highlight mark, not a state dot;
      baseline-aligned with the row's first line by the flex parent */
   flex: none;
-  font-size: 11px;
+  font-size: var(--fs-2);
   line-height: 1;
 }
 
@@ -517,7 +517,7 @@
   align-items: baseline;
   gap: 10px;
   margin: 0 0 6px;
-  font: 500 14.5px/1.4 var(--font);
+  font: var(--fw-medium) var(--fs-4) / 1.4 var(--font);
   color: var(--text-1);
 }
 

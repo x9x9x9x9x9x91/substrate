@@ -16,7 +16,7 @@
   padding: 0;
   display: grid;
   gap: 3px;
-  font-size: 12px;
+  font-size: var(--fs-3);
   line-height: 1.45;
   color: var(--text-2);
 }
@@ -28,7 +28,7 @@
 }
 
 .import-counts strong {
-  font-weight: 600;
+  font-weight: var(--fw-strong);
   /* tabular so a list of counts lines up down its left edge as it changes
      between renders — a preview whose numbers jitter reads as unsettled */
   font-variant-numeric: tabular-nums;
@@ -66,7 +66,7 @@
 
 .import-reading-line {
   color: var(--text-2);
-  font-size: 11.5px;
+  font-size: var(--fs-2);
   /* the digits change every batch; tabular keeps the line from breathing */
   font-variant-numeric: tabular-nums;
 }

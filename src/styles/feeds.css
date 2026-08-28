@@ -185,8 +185,7 @@
 
 .propvis-head {
   padding: 6px 8px 4px;
-  font-size: 11px;
-  font-weight: 600;
+  font: var(--dash-label);
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--text-3);
@@ -380,8 +379,8 @@
     background: var(--bg-panel);
     color: var(--text-2);
     font-family: var(--font);
-    font-size: 12px;
-    font-weight: 560;
+    font-size: var(--fs-3);
+    font-weight: var(--fw-strong);
     box-shadow: var(--shadow-float);
   }
 
@@ -454,7 +453,7 @@
      phone (enrollment: URL, token, passphrase) legible at native size too. */
   .vault-sync-form input,
   .vault-sync-form textarea {
-    font-size: 16px;
+    font-size: var(--fs-5);
   }
 
   .vault-sync-form-foot {

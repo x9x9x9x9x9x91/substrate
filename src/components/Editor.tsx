@@ -148,11 +148,15 @@ import { tableActions, tableCellAtOffset, type TableAction } from "../lib/tablem
 import { errText } from "../lib/errtext";
 
 const mdHighlight = HighlightStyle.define([
-  { tag: tags.heading1, fontSize: "1.5em", fontWeight: "650", letterSpacing: "-0.012em" },
-  { tag: tags.heading2, fontSize: "1.28em", fontWeight: "620", letterSpacing: "-0.008em" },
+  // Sizes stay relative — a heading is a ratio OF the reading surface, not a
+  // step on the app's px ramp. The weights are the app's strong step: the
+  // 650/620 these carried differed from 600 by an amount no reader can see,
+  // and the heading ladder is carried by size.
+  { tag: tags.heading1, fontSize: "1.5em", fontWeight: "600", letterSpacing: "-0.012em" },
+  { tag: tags.heading2, fontSize: "1.28em", fontWeight: "600", letterSpacing: "-0.008em" },
   { tag: tags.heading3, fontSize: "1.12em", fontWeight: "600" },
   { tag: tags.heading4, fontWeight: "600" },
-  { tag: tags.strong, fontWeight: "620" },
+  { tag: tags.strong, fontWeight: "600" },
   { tag: tags.emphasis, fontStyle: "italic" },
   { tag: tags.strikethrough, textDecoration: "line-through", color: "var(--text-3)" },
   { tag: tags.monospace, class: "cm-inline-code" },

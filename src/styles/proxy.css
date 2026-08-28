@@ -81,7 +81,7 @@
 }
 
 .hub-card-body {
-  font-size: 12.5px;
+  font-size: var(--fs-4);
   line-height: 1.55;
   color: var(--text-2);
 }

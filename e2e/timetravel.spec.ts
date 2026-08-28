@@ -33,11 +33,19 @@ test("vault time travel swaps the whole read projection and returns to live stat
   // Typing must not even reach the buffer — the app-root input guard
   // missed CodeMirror's own keymap commands, and the mutated past body then
   // rode orphanedEdits onto the live file.
-  await page.locator(".cm-content").click();
+  // The first line is plain prose with no markdown on it, so parking the cursor
+  // there reveals nothing and the rendered text is the same whether the cursor
+  // stays or moves. The editor's geometric centre is not: it is whatever line
+  // the current body size puts there, and landing on `**\u2318N**` made the
+  // reveal itself the difference this assertion then read as a change.
+  await page.locator(".cm-line").first().click();
+  // Baseline AFTER the click -- focusing can add a scrollbar, which rewraps the
+  // rendered text. What is under test is that the KEYSTROKES change nothing.
+  const focusedRender = await page.locator(".cm-content").innerText();
   await page.keyboard.type("MUST-NOT-LAND");
   await page.keyboard.press("Enter");
   await page.keyboard.press("Backspace");
-  expect(await page.locator(".cm-content").innerText()).toBe(oldRendered);
+  expect(await page.locator(".cm-content").innerText()).toBe(focusedRender);
   expect(await page.evaluate(() => window.__mockBodyOf!("Welcome.md"))).toBe(liveBody);
 
   await bar.getByRole("button", { name: "Return to present" }).click();

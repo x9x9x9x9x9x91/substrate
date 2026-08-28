@@ -65,7 +65,12 @@ test("a missing target renders the missing-file state (SUB-202)", async ({ page 
 
 test("pasting a non-media file attaches it and renders a chip (SUB-202)", async ({ page }) => {
   await boot(page);
-  await page.locator(".cm-content").click();
+  // The cursor goes on the note's FIRST line, not the geometric centre of
+  // `.cm-content`: the centre is whatever line the current body size happens
+  // to put there, so a type-scale change silently moves it onto a blank line
+  // or into a rendered widget and the paste lands somewhere the assertion
+  // below cannot see.
+  await page.locator(".cm-line").first().click();
   // synthetic paste carrying a real File — the intake gate must accept any
   // file type now, not just image/audio MIME (dispatch stays fully in-page:
   // drop/paste simulation through Playwright events is flaky)

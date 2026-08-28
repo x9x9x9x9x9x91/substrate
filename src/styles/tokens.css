@@ -192,11 +192,61 @@
   --chrome-y: 19px;
   --chrome-x: 23px;
   --chrome-slot: 26px;
-  /* the language's four type voices — one place, no per-surface drift */
-  --dash-label: 500 10.5px/1.4 var(--mono); /* + .06–.08em tracking, uppercase */
-  --dash-data: 400 11.5px/18px var(--mono); /* rows, cells, tabular-nums */
-  --dash-value: 500 17px/1.3 var(--mono); /* stat tile values */
-  --dash-sentence: 400 13px/1.5 var(--font); /* prose, hints */
+  /* The type ramp — six sizes, and only six. Assigned by ROLE, not by
+     whichever number a surface happened to be typed with (owner's call
+     2026-08-28 — the tree had drifted to 29 sizes, 225 of them inside seven
+     half-pixel steps between 10.5 and 13.5 that said nothing different from
+     each other). An in-between value rounds UP.
+       --fs-1  the eyebrow tier: uppercase section labels, column heads, micro
+               chips and badges. The size --dash-label carries.
+       --fs-2  dense data: table cells, rows, meta lines, counts — anything
+               tabular or repeated many times down a pane.
+       --fs-3  the app's default. Buttons, inputs, menu items, list rows,
+               settings copy. When a site has no reason to be another step,
+               it is this one.
+       --fs-4  reading and emphasis at UI scale: prose and hints, a card
+               title, a form's section body, the dashboard sentence voice.
+       --fs-5  the reading surface and stat values — the note editor's own
+               body text, a stat tile's number, a pane's own title.
+       --fs-6  display: a note title, a page heading, the one number a screen
+               is about.
+     Two things are deliberately NOT on this ramp. `em`/`%` sizes stay
+     relative — an editor heading at 1.5em and inline code at 0.85em are
+     ratios OF the reading surface, so pinning them to a step would break the
+     very thing they express. And the two PAPER surfaces (`print.css`, the
+     `@media print` block in `keyholders.css`) keep their own scale: paper is
+     read at a different distance and its heading ladder needs finer steps
+     than six — folded onto this ramp, the print h3 and h4 land on the same
+     size and the ladder stops being one. Both exceptions are commented where
+     they sit. */
+  --fs-1: 10.5px;
+  --fs-2: 11.5px;
+  --fs-3: 12px;
+  --fs-4: 13px;
+  --fs-5: 17px;
+  --fs-6: 21px;
+  /* Three weights, and only three. The variable font will render any number
+     between 400 and 700, which is how the tree ended up with sixteen of them
+     — twelve of those on a handful of sites each, differing by ten units
+     nobody can see. An in-between weight rounds UP, so the 550/560 cluster
+     that carried most of the app's labels lands on --fw-strong: labels come
+     out a touch punchier than they were, which is the owner's call
+     (2026-08-28), not a rounding artifact.
+       --fw-normal  body text and anything that is being read, not scanned.
+       --fw-medium  the quiet lift: a label against its value, a table header,
+                    a selected row, the dashboard's own label voice.
+       --fw-strong  titles, active states, and the one word in a row that
+                    should be found first. */
+  --fw-normal: 400;
+  --fw-medium: 500;
+  --fw-strong: 600;
+  /* the language's four type voices — one place, no per-surface drift.
+     Each one is built from the ramp above, so a step moves its voices with
+     it rather than leaving four literals behind. */
+  --dash-label: var(--fw-medium) var(--fs-1) / 1.4 var(--mono); /* + .06–.08em tracking, uppercase */
+  --dash-data: var(--fw-normal) var(--fs-2) / 18px var(--mono); /* rows, cells, tabular-nums */
+  --dash-value: var(--fw-medium) var(--fs-5) / 1.3 var(--mono); /* stat tile values */
+  --dash-sentence: var(--fw-normal) var(--fs-4) / 1.5 var(--font); /* prose, hints */
 }
 
 /* Bounded style tokens — the ONLY place an author's accent name

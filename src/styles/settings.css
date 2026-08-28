@@ -54,7 +54,7 @@
   border-radius: 0;
   background: transparent;
   color: var(--text-3);
-  font-size: 12px;
+  font-size: var(--fs-3);
   cursor: pointer;
 }
 
@@ -84,7 +84,7 @@
   border: none;
   background: none;
   color: var(--text-3);
-  font-size: 12px;
+  font-size: var(--fs-3);
   cursor: pointer;
   padding: 2px 4px;
   border-radius: var(--r-2);
@@ -109,13 +109,13 @@
 
 .settings-label {
   display: block;
-  font-size: 13px;
+  font-size: var(--fs-4);
   color: var(--text-1);
 }
 
 .settings-hint {
   margin-top: 2px;
-  font-size: 11.5px;
+  font-size: var(--fs-2);
   line-height: 1.35;
   color: var(--text-3);
 }
@@ -174,7 +174,7 @@
   border-radius: var(--r-2);
   background: var(--bg);
   color: var(--text-1);
-  font-size: 12.5px;
+  font-size: var(--fs-4);
   font-family: var(--mono);
   outline: none;
 }
@@ -246,7 +246,7 @@
   border: none;
   background: transparent;
   color: var(--text-3);
-  font-size: 12px;
+  font-size: var(--fs-3);
   padding: 4px 12px;
   cursor: pointer;
   transition: background var(--t) ease-out, color var(--t) ease-out;
@@ -312,7 +312,7 @@
 .settings-slider-val {
   width: 30px;
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: var(--fs-2);
   font-variant-numeric: tabular-nums;
   color: var(--text-3);
   text-align: right;
@@ -336,7 +336,7 @@
   border-radius: var(--r-2);
   background: var(--bg-elevated);
   color: var(--text-3);
-  font-size: 12px;
+  font-size: var(--fs-3);
   padding: 4px 9px;
   cursor: pointer;
   transition: background var(--t) ease-out, color var(--t) ease-out,
@@ -419,7 +419,7 @@
 .settings-sheet .palette-section {
   margin-top: 10px;
   font: var(--dash-sentence);
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   letter-spacing: 0;
   text-transform: none;
 }
@@ -430,7 +430,7 @@
 
 .settings-missing {
   padding: 12px;
-  font-size: 12.5px;
+  font-size: var(--fs-4);
   color: var(--text-3);
 }
 
@@ -455,8 +455,8 @@
 
 .settings-section-title {
   color: var(--text-1);
-  font-size: 14px;
-  font-weight: 600;
+  font-size: var(--fs-4);
+  font-weight: var(--fw-strong);
 }
 
 .settings-raw:disabled,
@@ -484,7 +484,7 @@
   border-radius: var(--r-2);
   background: var(--bg-elevated);
   color: var(--text-1);
-  font-size: 12px;
+  font-size: var(--fs-3);
   cursor: pointer;
 }
 
@@ -535,7 +535,7 @@
   display: flex;
   align-items: center;
   color: var(--text-3);
-  font-size: 11.5px;
+  font-size: var(--fs-2);
 }
 
 .mcp-grant-copy {
@@ -545,7 +545,7 @@
   align-items: center;
   gap: 10px;
   flex: 1;
-  font-size: 11.5px;
+  font-size: var(--fs-2);
 }
 
 .mcp-grant-client,
@@ -596,7 +596,7 @@
 .mcp-error {
   margin-top: 8px;
   color: var(--danger);
-  font-size: 11.5px;
+  font-size: var(--fs-2);
   line-height: 1.4;
 }
 
@@ -660,7 +660,7 @@
    within a step of the 13px lede under it, so the sheet opened on a stack of
    near-equal lines with nothing to enter at. */
 .onboarding-title {
-  font: 600 24px/1.25 var(--font);
+  font: var(--fw-strong) var(--fs-6) / 1.25 var(--font);
   letter-spacing: -0.01em;
   color: var(--text-1);
   margin-bottom: 8px;
@@ -867,8 +867,8 @@
   background: transparent;
   color: var(--text-3);
   font-family: var(--font);
-  font-size: 12px;
-  font-weight: 500;
+  font-size: var(--fs-3);
+  font-weight: var(--fw-medium);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

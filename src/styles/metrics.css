@@ -75,8 +75,7 @@
 /* section label above a picker list — "Databases" on the type picker */
 .selmenu-listhead {
   padding: 8px 10px 0;
-  font-size: 10.5px;
-  font-weight: 560;
+  font: var(--dash-label);
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--text-3);
@@ -96,7 +95,7 @@
   outline: none;
   background: transparent;
   color: var(--text-1);
-  font-size: 13px;
+  font-size: var(--fs-4);
   padding: 9px 12px;
   border-bottom: 1px solid var(--border-soft);
 }
@@ -113,7 +112,7 @@
   gap: 8px;
   padding: 6px 8px;
   border-radius: var(--r-2);
-  font-size: 13px;
+  font-size: var(--fs-4);
   color: var(--text-2);
 }
 
@@ -147,12 +146,12 @@
 
 .selmenu-cur {
   color: var(--text-3);
-  font-size: 11px;
+  font-size: var(--fs-2);
 }
 
 .selmenu-note {
   color: var(--text-3);
-  font-size: 11px;
+  font-size: var(--fs-2);
 }
 
 .selmenu-action {
@@ -168,7 +167,7 @@
 
 .selmenu-empty {
   padding: 10px 8px;
-  font-size: 12px;
+  font-size: var(--fs-3);
   color: var(--text-3);
 }
 
@@ -220,10 +219,9 @@
 
 .selmenu-edit-head {
   padding: 9px 12px 5px;
-  font-size: 11px;
-  font-weight: 590;
+  font: var(--dash-label);
   text-transform: uppercase;
-  letter-spacing: 0.4px;
+  letter-spacing: 0.035em;
   color: var(--text-3);
 }
 
@@ -233,7 +231,7 @@
   gap: 8px;
   padding: 4px 8px;
   border-radius: var(--r-2);
-  font-size: 13px;
+  font-size: var(--fs-4);
   color: var(--text-2);
 }
 
@@ -280,7 +278,7 @@
   outline: none;
   background: transparent;
   color: var(--text-1);
-  font-size: 13px;
+  font-size: var(--fs-4);
   padding: 4px 0;
 }
 
@@ -297,7 +295,7 @@
   border-radius: var(--r-2);
   background: transparent;
   color: var(--text-2);
-  font-size: 12px;
+  font-size: var(--fs-3);
   padding: 4px 10px;
 }
 

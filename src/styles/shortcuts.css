@@ -9,8 +9,8 @@
 
 .shortcut-sheet-title {
   padding: 13px 18px;
-  font-size: 13px;
-  font-weight: 560;
+  font-size: var(--fs-4);
+  font-weight: var(--fw-strong);
   color: var(--text-1);
 }
 
@@ -32,7 +32,7 @@
   gap: 10px;
   height: 30px;
   padding: 0 10px;
-  font-size: 13px;
+  font-size: var(--fs-4);
   color: var(--text-2);
 }
 
@@ -144,7 +144,7 @@
   border-radius: 0 0 var(--r-2) var(--r-2);
   background: transparent;
   font: inherit;
-  font-size: 11.5px;
+  font-size: var(--fs-2);
   color: var(--text-3);
   text-align: left;
   cursor: default;
@@ -163,7 +163,7 @@
   border-radius: var(--r-2);
   background: transparent;
   color: var(--text-3);
-  font-size: 11.5px;
+  font-size: var(--fs-2);
   transition:
     color var(--t) ease-out,
     border-color var(--t) ease-out;
@@ -219,8 +219,8 @@
 }
 
 .key-hud-title {
-  font-size: 12.5px;
-  font-weight: 560;
+  font-size: var(--fs-4);
+  font-weight: var(--fw-strong);
   color: var(--text-1);
 }
 
@@ -232,7 +232,7 @@
   border-radius: var(--r-2);
   background: transparent;
   color: var(--text-3);
-  font-size: 11px;
+  font-size: var(--fs-2);
 }
 
 .key-hud-close:hover {
@@ -246,12 +246,13 @@
 
 .key-hud-hint,
 .key-hud-section {
-  font-size: 11px;
+  font-size: var(--fs-2);
   color: var(--text-3);
 }
 
 .key-hud-section {
   margin: 12px 0 6px;
+  font: var(--dash-label);
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
@@ -277,7 +278,7 @@
 
 .key-hud-row-label {
   overflow: hidden;
-  font-size: 12px;
+  font-size: var(--fs-3);
   color: var(--text-2);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -364,7 +365,7 @@
 
 .modkey-hud-head {
   padding: 2px 6px 4px;
-  font-size: 11px;
+  font-size: var(--fs-2);
   line-height: 1.3;
   color: var(--text-3);
 }
@@ -380,7 +381,7 @@
   align-items: center;
   gap: 8px;
   padding: 3px 6px;
-  font-size: 11.5px;
+  font-size: var(--fs-2);
   line-height: 1.3;
   color: var(--text-2);
 }
@@ -409,6 +410,6 @@
 }
 
 .modkey-hud-row-keys .key {
-  font-size: 10px;
+  font-size: var(--fs-1);
   padding: 1px 4px;
 }

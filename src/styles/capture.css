@@ -3,7 +3,7 @@
 .capture-error {
   padding: 0 18px 10px;
   color: var(--danger);
-  font-size: 12px;
+  font-size: var(--fs-3);
 }
 
 /* The context chip: what you were doing when the window opened, attached to
@@ -17,13 +17,13 @@
   gap: 5px;
   padding: 0 16px 4px 42px;
   min-width: 0;
-  font-size: 11.5px;
+  font-size: var(--fs-2);
   color: var(--text-3);
 }
 
 .capture-context-mark {
   flex: none;
-  font-size: 9px;
+  font-size: var(--fs-1);
   line-height: 1;
   color: var(--text-3);
 }
@@ -84,8 +84,7 @@
 
 .palette-section {
   padding: 8px 10px 3px;
-  font-size: 10.5px;
-  font-weight: 560;
+  font: var(--dash-label);
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--text-3);
@@ -97,7 +96,7 @@
   align-items: center;
   height: 38px;
   padding: 0 10px;
-  font-size: 13px;
+  font-size: var(--fs-4);
   color: var(--text-3);
 }
 
@@ -108,7 +107,7 @@
   height: 38px;
   padding: 0 10px;
   border-radius: var(--r-2);
-  font-size: 13.5px;
+  font-size: var(--fs-4);
   color: var(--text-2);
 }
 
@@ -135,7 +134,7 @@
 
 .palette-item-snippet {
   color: var(--text-3);
-  font-size: 12.5px;
+  font-size: var(--fs-4);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -155,7 +154,7 @@
   margin-left: auto;
   flex: none;
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: var(--fs-1);
   letter-spacing: 0.03em;
   color: var(--text-3);
 }
@@ -165,7 +164,7 @@
   gap: 14px;
   padding: 8px 16px;
   border-top: 1px solid var(--border-soft);
-  font-size: 11.5px;
+  font-size: var(--fs-2);
   color: var(--text-3);
 }
 
@@ -175,7 +174,7 @@
   border: 1px solid var(--border);
   border-bottom-width: 2px;
   border-radius: var(--r-1);
-  font-size: 10.5px;
+  font-size: var(--fs-1);
   color: var(--text-2);
   background: var(--surface-faint);
 }
@@ -232,8 +231,7 @@ body.agenda-window .palette-hint {
 .agenda-head {
   flex: none;
   padding: 12px 16px 6px;
-  font-size: 11px;
-  font-weight: 560;
+  font: var(--dash-label);
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--text-3);
@@ -260,7 +258,7 @@ body.agenda-window .palette-hint {
 
 .agenda-empty {
   padding: 6px 8px;
-  font-size: 12.5px;
+  font-size: var(--fs-4);
   color: var(--text-3);
 }
 
@@ -271,7 +269,7 @@ body.agenda-window .palette-hint {
   min-height: 32px;
   padding: 0 8px;
   border-radius: var(--r-2);
-  font-size: 13px;
+  font-size: var(--fs-4);
   color: var(--text-2);
   cursor: pointer;
   transition:
@@ -345,7 +343,7 @@ body.agenda-window .palette:focus-visible {
   margin-top: 4px;
   padding: 8px 8px 0;
   border-top: 1px solid var(--border-soft);
-  font-size: 12.5px;
+  font-size: var(--fs-4);
   color: var(--text-3);
 }
 

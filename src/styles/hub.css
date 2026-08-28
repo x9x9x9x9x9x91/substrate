@@ -1,14 +1,14 @@
 
 .hub-p {
   margin: 0 0 12px;
-  font-size: 13px;
+  font-size: var(--fs-4);
   line-height: 1.6;
   color: var(--text-2);
 }
 
 .hub-card-body .hub-p {
   margin: 0 0 6px;
-  font-size: 12.5px;
+  font-size: var(--fs-4);
 }
 
 /* hub headings join the shared section voice — the hub note's ##
@@ -263,7 +263,7 @@
   border: 1px solid var(--border-soft);
   border-radius: var(--r-2);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--fs-3);
   line-height: 1.55;
   color: var(--text-2);
   overflow: auto;
@@ -272,13 +272,13 @@
 .hub-list {
   margin: 0 0 12px;
   padding-left: 20px;
-  font-size: 13px;
+  font-size: var(--fs-4);
   line-height: 1.6;
   color: var(--text-2);
 }
 
 .hub-card-body .hub-list {
-  font-size: 12.5px;
+  font-size: var(--fs-4);
 }
 
 .hub-task {
@@ -316,7 +316,7 @@
 .hub-embed,
 .hub-missing {
   color: var(--text-3);
-  font-size: 11px;
+  font-size: var(--fs-2);
   font-style: italic;
 }
 
@@ -398,8 +398,8 @@
   background: transparent;
   color: var(--text-3);
   font-family: var(--font);
-  font-size: 12px;
-  font-weight: 500;
+  font-size: var(--fs-3);
+  font-weight: var(--fw-medium);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -512,8 +512,8 @@
   background: transparent;
   color: var(--text-3);
   font-family: var(--font);
-  font-size: 11.5px;
-  font-weight: 500;
+  font-size: var(--fs-2);
+  font-weight: var(--fw-medium);
 }
 
 .db-switch button:hover {
@@ -529,7 +529,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11.5px;
+  font-size: var(--fs-2);
   color: var(--text-3);
 }
 
@@ -541,7 +541,7 @@
   background: transparent;
   color: var(--text-2);
   font-family: var(--font);
-  font-size: 11.5px;
+  font-size: var(--fs-2);
   outline: none;
 }
 
@@ -578,7 +578,7 @@
    panel gives an example, so `status:` reads as syntax being offered. */
 .db-key-completions .search-completion {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--fs-2);
 }
 
 /* One ```kind fence's block (vault-format §5.5e): a custom kind mounted on

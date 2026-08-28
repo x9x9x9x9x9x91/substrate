@@ -1,7 +1,15 @@
 
 /* ---- note → PDF print surface ----
    Invisible on screen; under @media print it replaces the app entirely:
-   light page, clean type, no chrome. */
+   light page, clean type, no chrome.
+
+   Sizes here are OFF the app's six-step type ramp on purpose (tokens.css).
+   Paper is read at a different distance than a screen pane, and this surface
+   needs a six-level heading ladder of its own — cover title, sheet title,
+   h1, h2, h3, h4–h6 — inside a range the screen ramp covers with three
+   steps. Folded onto it, h3 and h4 land on the same size and the ladder
+   stops being a ladder. Weights are NOT an exception: this block wears the
+   app's three, because a weight means the same thing on paper as on glass. */
 
 #print-surface {
   display: none;
@@ -428,7 +436,7 @@
 
   #print-surface .print-title {
     font-size: 23px;
-    font-weight: 650;
+    font-weight: var(--fw-strong);
     letter-spacing: -0.02em;
     margin-bottom: 4px;
   }
@@ -445,7 +453,7 @@
   #print-surface h4,
   #print-surface h5,
   #print-surface h6 {
-    font-weight: 600;
+    font-weight: var(--fw-strong);
     letter-spacing: -0.01em;
     margin: 18px 0 6px;
     break-after: avoid;
@@ -539,7 +547,7 @@
   }
 
   #print-surface th {
-    font-weight: 600;
+    font-weight: var(--fw-strong);
     background: #f6f7f8;
   }
 
@@ -552,7 +560,7 @@
   #print-surface .print-link {
     color: var(--link);
     text-decoration: none;
-    font-weight: 500;
+    font-weight: var(--fw-medium);
   }
 
   #print-surface .print-missing,
@@ -602,7 +610,7 @@
 
   #print-surface .os-title {
     font-size: 30px;
-    font-weight: 650;
+    font-weight: var(--fw-strong);
     letter-spacing: -0.025em;
     line-height: 1.15;
     margin: 0;
@@ -638,12 +646,12 @@
     text-transform: uppercase;
     letter-spacing: 0.07em;
     font-size: 9.5px;
-    font-weight: 500;
+    font-weight: var(--fw-medium);
   }
 
   #print-surface .os-fact-value {
     color: #1e1e1e;
-    font-weight: 500;
+    font-weight: var(--fw-medium);
     text-align: right;
     font-variant-numeric: tabular-nums;
   }
@@ -663,7 +671,7 @@
      generic bordered grid the body renderer prints */
   #print-surface .ts-title {
     font-size: 24px;
-    font-weight: 650;
+    font-weight: var(--fw-strong);
     letter-spacing: -0.02em;
     margin: 0;
   }
@@ -694,7 +702,7 @@
     text-transform: uppercase;
     letter-spacing: 0.07em;
     font-size: 9.5px;
-    font-weight: 500;
+    font-weight: var(--fw-medium);
     border-bottom-color: #b6bac1;
     padding-bottom: 5px;
   }
@@ -704,7 +712,7 @@
   }
 
   #print-surface .print-sheet td.ts-name {
-    font-weight: 550;
+    font-weight: var(--fw-strong);
   }
 
   #print-surface .print-sheet th.ts-num,

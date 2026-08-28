@@ -14,13 +14,13 @@
 }
 
 .list-title {
-  font-size: 13px;
-  font-weight: 590;
+  font-size: var(--fs-4);
+  font-weight: var(--fw-strong);
   letter-spacing: -0.01em;
 }
 
 .list-count {
-  font-size: 12px;
+  font-size: var(--fs-3);
   color: var(--text-3);
   font-variant-numeric: tabular-nums;
 }
@@ -28,8 +28,7 @@
 /* Quiet kind word ("Folder" / "Database" / "Dashboard") naming what
    the open view IS — headers otherwise read identically across kinds */
 .head-kind {
-  font-size: 10.5px;
-  font-weight: 550;
+  font: var(--dash-label);
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--text-3);
@@ -118,8 +117,8 @@
 }
 
 .row-title {
-  font-size: 13px;
-  font-weight: 510;
+  font-size: var(--fs-4);
+  font-weight: var(--fw-medium);
   color: var(--text-1);
   white-space: nowrap;
   overflow: hidden;
@@ -129,13 +128,13 @@
 .row-date {
   margin-left: auto;
   flex: none;
-  font-size: 11px;
+  font-size: var(--fs-2);
   color: var(--text-3);
   font-variant-numeric: tabular-nums;
 }
 
 .row-sub {
-  font-size: 12px;
+  font-size: var(--fs-3);
   color: var(--text-3);
   white-space: nowrap;
   overflow: hidden;
@@ -153,8 +152,8 @@
   gap: 4px;
   height: 100%;
   color: var(--text-2);
-  font-size: 13px;
-  font-weight: 500;
+  font-size: var(--fs-4);
+  font-weight: var(--fw-medium);
 }
 
 .empty > svg {
@@ -176,8 +175,8 @@
 }
 
 .empty-hint {
-  font-size: 12px;
-  font-weight: 400;
+  font-size: var(--fs-3);
+  font-weight: var(--fw-normal);
   color: var(--text-3);
   max-width: 300px;
   text-align: center;
@@ -208,7 +207,7 @@
 /* sparse-journal pointer (under the rows, not a centered empty state) */
 .list-journal-hint {
   padding: 8px 10px;
-  font-size: 12.5px;
+  font-size: var(--fs-4);
   color: var(--text-3);
 }
 
@@ -234,8 +233,8 @@ button.empty-hint-fix:hover {
   border-radius: var(--r-2);
   background: var(--bg-elevated);
   color: var(--text-1);
-  font-size: 12.5px;
-  font-weight: 500;
+  font-size: var(--fs-4);
+  font-weight: var(--fw-medium);
   cursor: pointer;
   transition:
     background-color var(--t) ease-out,
@@ -289,7 +288,7 @@ button.empty-hint-fix:hover {
   border-radius: var(--r-2);
   background: var(--bg-elevated);
   color: var(--text-2);
-  font-size: 12px;
+  font-size: var(--fs-3);
   line-height: 1.45;
 }
 
@@ -305,8 +304,8 @@ button.empty-hint-fix:hover {
   border-radius: var(--r-2);
   background: transparent;
   color: var(--text-1);
-  font-size: 12px;
-  font-weight: 500;
+  font-size: var(--fs-3);
+  font-weight: var(--fw-medium);
   cursor: pointer;
   transition:
     background-color var(--t) ease-out,
@@ -345,7 +344,7 @@ button.empty-hint-fix:hover {
   border-radius: var(--r-2);
   background: transparent;
   color: var(--text-1);
-  font-size: 12px;
+  font-size: var(--fs-3);
   cursor: pointer;
   transition:
     background-color var(--t) ease-out,
@@ -364,8 +363,8 @@ button.empty-hint-fix:hover {
   background: transparent;
   color: var(--text-1);
   font-family: var(--font);
-  font-size: 24px;
-  font-weight: 640;
+  font-size: var(--fs-6);
+  font-weight: var(--fw-strong);
   letter-spacing: -0.015em;
   padding: 0;
 }
@@ -387,7 +386,7 @@ button.empty-hint-fix:hover {
   padding: 0;
   margin: -4px 0 8px;
   color: var(--danger);
-  font-size: 12px;
+  font-size: var(--fs-3);
   cursor: pointer;
 }
 
@@ -423,8 +422,8 @@ button.empty-hint-fix:hover {
 }
 
 .note-title-tag {
-  font-size: 12px;
-  font-weight: 400;
+  font-size: var(--fs-3);
+  font-weight: var(--fw-normal);
   letter-spacing: 0;
   color: var(--text-3);
 }
@@ -457,7 +456,7 @@ button.empty-hint-fix:hover {
   background: rgba(255, 255, 255, 0.045);
   border: 1px solid var(--border-soft);
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--fs-3);
   color: var(--text-2);
   animation: chip-in var(--t) ease-out;
 }
@@ -486,7 +485,7 @@ button.empty-hint-fix:hover {
 
 .chip-val {
   color: var(--text-2);
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   /* non-string props (lists/maps) render as JSON — clamp instead of exploding
      the chip row (bit by the Portfolio dashboard's cards list) */
   max-width: 240px;
