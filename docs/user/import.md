@@ -113,6 +113,139 @@ files. Confirming is safe: it means the same adoption as above, the warning
 is about Substrate listing those files as notes, and nothing is moved,
 rewritten, or seeded.
 
+## From Logseq, Bear or Apple Notes
+
+In the app: **⌘, → Vault → Import**. Pick the source, choose the folder it
+exported to, read the preview, confirm. The import reads a folder on your disk
+and writes notes into the vault — nothing leaves this machine.
+
+### Nothing is written until you confirm
+
+Choosing a folder does not import it. It builds the whole run first and shows
+you what it would do, on a step that has written nothing:
+
+- **The counts** — notes to create, attachments to copy, how many are already
+  imported and will be skipped, how many files were skipped.
+- **The folder tree** it would write to, with a note count per folder.
+- **Why files were skipped**, one line per reason with a count — a graph with
+  400 unsupported files is a number, not 400 lines.
+- **Name clashes.** Titles that repeat inside the run, and how many notes land
+  in a folder that already holds a note of that name. Those land side by side
+  ("Idea", "Idea 2"): nothing is ever merged or overwritten.
+- **What does not carry over** for that source, in a line or two.
+- **One converted note in full**, for Apple Notes — an HTML export is not
+  markdown, and a count cannot tell you whether the conversion came out right.
+- Subfolders the import could not open, as a count, so a total you compare
+  later isn't a mystery.
+
+Reading a large folder reports progress ("Reading 412 of 4820…") and can be
+cancelled; cancelling abandons the read, and either way nothing has been
+written yet. Only the **Import N notes** button writes. Import is unavailable
+while you are viewing history — the note list there is the historical one, so
+the check for what is already imported would be wrong.
+
+### Logseq graph
+
+Pick the graph folder itself. `pages/*.md` land in `Imported/Logseq`, and a
+namespaced page becomes folders: `work___clients.md` lands as **clients** in
+`Imported/Logseq/work`. `journals/` land in the vault's own `Journal/` folder,
+dated for the day they name, so an imported day is the same note the app opens
+for that date — a journal file whose name isn't a date is skipped rather than
+guessed at.
+
+`key:: value` lines at the top of a page become frontmatter. `title`, `type`
+and `created` are the vault's own keys, so a page carrying them keeps them as
+`logseq-title`, `logseq-type` and `logseq-created`. Properties written inside a
+block stay in the body text.
+
+Outline bullets come across as markdown lists: the text survives exactly, and
+the block semantics — references, ids, collapse state — do not. Assets a page
+embeds are copied in; an asset nothing embeds is skipped and counted. Org-mode
+files, markdown outside `pages/` and `journals/`, and pages over a 2 MiB cap
+are skipped with that reason.
+
+### Bear export
+
+Pick the folder Bear exported to. Bear has no folders, so tags are the filing:
+the note's **first** tag is its folder path under `Imported/Bear`, nested tags
+included — `#field/reeds` lands the note in `Imported/Bear/field/reeds` — and
+every other tag becomes an entry in the note's `tags` property. The tag text is
+taken out of the body, because a tag in Bear is filing written inline. A note
+with no tag lands in `Imported/Bear` itself.
+
+The title is the note's leading `# ` heading, which is dropped from the body
+rather than written into the note twice; a note without one is titled with the
+filename Bear exported it under. A heading further down is a heading and stays
+where it was written.
+
+Both export shapes are read. A `Name.textbundle/` directory brings its
+`assets/` in as vault assets and takes `created` from its `info.json`, plus
+`bear-modified` for the date Bear last touched the note. A plain `Name.md`
+carries no dates at all, so those notes are dated the day they land. Bear's
+note identifiers, pinned state and archived flag do not come across. A
+`.bear2bk` backup and a `.textpack` are zip files this import cannot open —
+each is reported as a skipped file saying to unzip it and pick the folder
+inside.
+
+### Apple Notes folder
+
+This reads a *folder of exported notes*, not the Notes database. `.html` and
+`.htm` files are converted, `.txt` files come across as their paragraphs, and
+`.md` files pass through untouched. A subfolder in the export becomes a folder
+of the same name under `Imported/Apple Notes`, so the way the notes were
+organized is the way they land.
+
+The HTML conversion is deliberately partial, which is why the preview shows you
+a finished note before you confirm a folder full of them. Paragraphs and line
+breaks, bold, italic, strikethrough, inline code, headings, nested ordered and
+unordered lists, checklists, links, blockquotes, horizontal rules and `<pre>`
+blocks all have a markdown form and get one. Fonts, colours, sizes and table
+layout do not — a table arrives as its cells, one row per line. Anything the
+converter doesn't know keeps its words and loses its formatting, so nothing is
+dropped without appearing somewhere.
+
+An `<img>` pointing at a file the export actually shipped becomes an
+attachment, copied into the vault and re-pointed at as `![[name]]`; one that
+resolves to nothing keeps the reference it had. A reference that climbs above
+the folder you picked resolves to nothing — an import reads the folder it was
+given and no other. A `.md` or `.txt` note is passed through as written, so its
+own image links are kept exactly as they are and the files behind them are not
+copied in. Apple's export carries no reliable creation date, so these notes are
+dated the day they landed.
+
+### What a finished run leaves behind
+
+Notes land under `Imported/<source>` as above, and every run also writes one
+record note in `Imported/Logs`: what ran, when, the source folder, the counts,
+the skipped files by reason, and a link to every note written. A note that
+fails to write does not abort the run — the rest still land, and the log names
+the ones that didn't.
+
+### Running it again is safe
+
+Every imported note carries two properties naming where it came from —
+`import-source` (the app) and `import-id` (what the note was there). Before an
+import writes anything it reads those off the notes already in the vault and
+drops from the run everything already carrying a matching pair, which is the
+**already imported, will be skipped** line in the preview.
+
+So the right thing to do with an import that was interrupted, or a source
+folder that has grown since, is simply to run it again. Two things break the
+match, and both write a second copy rather than an error:
+
+- **Renaming the folder you picked.** The folder's own name leads every
+  `import-id` — that is what stops two graphs each holding a `pages/Reeds.md`
+  from reading as one another's re-runs — so a renamed source is a new source.
+- **Losing the stamp on a note.** Deleting those two properties is allowed and
+  does nothing else, but a later import no longer recognizes the note. Sealing
+  an imported note has the same effect without looking like it: a sealed note's
+  properties aren't in the index the import matches against. Unseal or delete
+  the note first if a re-run is what you want.
+
+The full contract, including how the stamp resists a source page that carries
+an `import-id` of its own, is in
+[vault-format §2b](../vault-format.md#2b-import-stamps--where-a-note-came-from).
+
 ## Import CSV as a database
 
 In the app: **⌘K → "Import CSV as database…"**, pick a `.csv` file, choose
