@@ -38,7 +38,11 @@ const NONCE_LEN: usize = 24;
 const OID_LEN: usize = 20;
 const TAG_LEN: usize = 16;
 const OBJECT_HEADER_LEN: usize = OID_LEN + 1 + 8;
-const MAX_OBJECT_BYTES: usize = 64 * 1024 * 1024;
+/// The biggest single Git object this transport will carry. Every object is
+/// sealed and uploaded whole, so a blob past this ceiling fails the push it is
+/// part of rather than failing alone — which is why `space.rs` checks a file
+/// against it BEFORE copying it into a space.
+pub(crate) const MAX_OBJECT_BYTES: usize = 64 * 1024 * 1024;
 const MAX_OBJECT_ENVELOPE_BYTES: usize =
     4 + NONCE_LEN + OBJECT_HEADER_LEN + MAX_OBJECT_BYTES + TAG_LEN;
 /// The cap on any small document this stack reads from somewhere it does not
@@ -1607,7 +1611,9 @@ fn push_inner<G>(
         repo.odb().map_err(|error| format!("hosted sync object database unavailable: {error}"))?;
     let mut already_present: Vec<(Oid, String)> = Vec::new();
     let mut uploaded = Vec::new();
-    for oid in reachable_objects(&repo, local_oid)? {
+    let reachable = reachable_objects(&repo, local_oid)?;
+    for oid in &reachable.objects {
+        let oid = *oid;
         let name = object_name(key, oid);
         if remote_names.contains(&name) {
             already_present.push((oid, name));
@@ -1616,7 +1622,11 @@ fn push_inner<G>(
         let object = odb
             .read(oid)
             .map_err(|error| format!("hosted sync object {oid} unavailable: {error}"))?;
-        let envelope = encrypt_object(key, &name, oid, object.kind(), object.data())?;
+        // The 64 MiB refusal lives in `encrypt_object` and knows only the id.
+        // The walk that just handed us that id is the one place that can turn
+        // it back into a path, so the naming happens here.
+        let envelope = encrypt_object(key, &name, oid, object.kind(), object.data())
+            .map_err(|error| naming_the_file(&repo, local_oid, oid, error))?;
         transport.put_object(&name, &envelope)?;
         uploaded.push(name);
     }
@@ -1720,8 +1730,16 @@ fn push_inner<G>(
         }
     }
 
-    let notice =
-        (object_count >= LIST_WARNING_OBJECTS).then(|| listing_ceiling_warning(object_count));
+    // Both notices are whole sentences about a push that succeeded, so a push
+    // that earns both says both rather than picking one.
+    let notice = [
+        gitlink_notice(&reachable.gitlinks),
+        (object_count >= LIST_WARNING_OBJECTS).then(|| listing_ceiling_warning(object_count)),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>();
+    let notice = (!notice.is_empty()).then(|| notice.join(" "));
     Ok(SyncReport { notice, ..report(pushed, 0, Vec::new(), local_oid) })
 }
 
@@ -3150,8 +3168,38 @@ fn object_name(key: &MasterKey, oid: Oid) -> String {
     hex(mac.finalize().into_bytes().as_slice())
 }
 
-fn reachable_objects(repo: &Repository, head: Oid) -> Result<BTreeSet<Oid>, String> {
+/// What a push's history walk reached, and the one thing it left behind on
+/// purpose.
+struct Reachable {
+    objects: BTreeSet<Oid>,
+    /// Vault-relative folders that are their own Git repository in the
+    /// snapshot being pushed. Sorted and deduplicated; empty in every ordinary
+    /// vault.
+    gitlinks: Vec<String>,
+}
+
+/// A tree entry that is another repository's commit rather than this vault's
+/// content — what `git add` writes for a folder with its own `.git` inside.
+const GITLINK_MODE: i32 = 0o160_000;
+
+/// Every object this vault's history reaches, gitlinks excluded.
+///
+/// A folder in the vault with its own `.git` gets a mode-160000 entry naming a
+/// commit that exists only inside THAT repository's object database. Collecting
+/// it here used to hand the upload loop an id `odb.read` could never resolve,
+/// and the push died with "object unavailable" naming a Git id and nothing a
+/// person could act on. Blob sync has no way to carry a submodule, so the entry
+/// is skipped and the rest of the vault goes; the paths come back with the set
+/// so the push can say which folders stayed behind.
+///
+/// Only the head snapshot's gitlinks are collected. The whole history is walked
+/// on every push, so gathering them from every commit would keep naming a
+/// folder years after it stopped being a repository — the skip itself still
+/// applies to every commit, because every one of those ids is just as
+/// unreadable.
+fn reachable_objects(repo: &Repository, head: Oid) -> Result<Reachable, String> {
     let mut objects = BTreeSet::new();
+    let mut gitlinks = BTreeSet::new();
     let mut walk = repo.revwalk().map_err(|error| format!("hosted sync walk failed: {error}"))?;
     walk.push(head).map_err(|error| format!("hosted sync walk failed: {error}"))?;
     for commit_oid in walk {
@@ -3163,13 +3211,79 @@ fn reachable_objects(repo: &Repository, head: Oid) -> Result<BTreeSet<Oid>, Stri
         let tree =
             commit.tree().map_err(|error| format!("hosted sync tree unavailable: {error}"))?;
         objects.insert(tree.id());
-        tree.walk(TreeWalkMode::PreOrder, |_path, entry| {
+        let head_snapshot = commit_oid == head;
+        tree.walk(TreeWalkMode::PreOrder, |path, entry| {
+            if entry.filemode() == GITLINK_MODE {
+                if head_snapshot {
+                    gitlinks.insert(format!("{path}{}", entry_name(entry)));
+                }
+                return TreeWalkResult::Ok;
+            }
             objects.insert(entry.id());
             TreeWalkResult::Ok
         })
         .map_err(|error| format!("hosted sync tree walk failed: {error}"))?;
     }
-    Ok(objects)
+    Ok(Reachable { objects, gitlinks: gitlinks.into_iter().collect() })
+}
+
+/// A tree entry's own name, readable even when the vault holds a filename the
+/// platform allows and UTF-8 does not.
+fn entry_name(entry: &git2::TreeEntry<'_>) -> String {
+    String::from_utf8_lossy(entry.name_bytes()).into_owned()
+}
+
+/// Where an object sits in the snapshot being pushed.
+///
+/// Best effort by design, and only ever called on an error path: an object that
+/// only an older snapshot reaches has no path in this one, and the caller keeps
+/// its id-only wording rather than guessing.
+fn path_in_snapshot(repo: &Repository, head: Oid, target: Oid) -> Option<String> {
+    let tree = repo.find_commit(head).ok()?.tree().ok()?;
+    let mut found = None;
+    // The result is deliberately dropped: libgit2 reports an aborted walk as an
+    // error, and stopping at the entry we came for is the success case.
+    let _ = tree.walk(TreeWalkMode::PreOrder, |path, entry| {
+        if entry.id() == target {
+            found = Some(format!("{path}{}", entry_name(entry)));
+            return TreeWalkResult::Abort;
+        }
+        TreeWalkResult::Ok
+    });
+    found
+}
+
+/// The same refusal with the file named. A push that stops on one object owes
+/// the user the note it stopped on, not only the id git filed it under.
+fn naming_the_file(repo: &Repository, head: Oid, oid: Oid, error: String) -> String {
+    match path_in_snapshot(repo, head, oid) {
+        Some(path) => format!("{error} ({path})"),
+        None => error,
+    }
+}
+
+/// The push landed, and these folders did not travel with it.
+///
+/// Said once per push, listing paths rather than repeating itself per snapshot
+/// or per commit. Long lists are capped: the point is that embedded
+/// repositories are the reason, and five examples make that as well as fifty.
+fn gitlink_notice(paths: &[String]) -> Option<String> {
+    const NAMED: usize = 5;
+    let tail = " Everything else in this vault synced.";
+    match paths {
+        [] => None,
+        [only] => Some(format!("{only} is its own git repository and does not sync.{tail}")),
+        many => {
+            let mut listed = many.iter().take(NAMED).cloned().collect::<Vec<_>>().join(", ");
+            if many.len() > NAMED {
+                listed.push_str(&format!(", and {} more", many.len() - NAMED));
+            }
+            Some(format!(
+                "{} folders are their own git repositories and do not sync: {listed}.{tail}",
+                many.len()
+            ))
+        }
+    }
 }
 
 /// Resolve every object reachable from the encrypted ref before checkout.
@@ -3262,11 +3376,13 @@ fn fetch_reachable_graph(
                     let kind = match entry.kind() {
                         Some(ObjectType::Tree) => ObjectType::Tree,
                         Some(ObjectType::Blob) => ObjectType::Blob,
-                        Some(ObjectType::Commit) => {
-                            return Err(format!(
-                                "hosted sync tree {oid} contains an unsupported gitlink"
-                            ))
-                        }
+                        // A gitlink, naming a commit that lives inside a
+                        // folder's own repository. The push side never uploaded
+                        // it (see `reachable_objects`), so there is nothing to
+                        // fetch and refusing here would make the store the
+                        // pushing device just wrote unpullable on every other
+                        // device. Checkout writes the folder empty.
+                        Some(ObjectType::Commit) => continue,
                         _ => {
                             return Err(format!(
                                 "hosted sync tree {oid} contains an unsupported entry type"
@@ -5855,6 +5971,178 @@ mod tests {
         push(&a, &key, &store, || ()).unwrap();
         assert_eq!(store.full_calls.get(), before + 1);
         assert!(load_listing_cache(&path, &key_for_store).is_some(), "the cache was not rebuilt");
+    }
+
+    /// A folder in the vault with its own `.git` inside it — what someone gets
+    /// by cloning a project, or running `git init`, somewhere under the vault
+    /// root. The vault's own snapshot records it as a gitlink.
+    fn embed_repo(root: &Path, rel: &str) {
+        let folder = root.join(rel);
+        fs::create_dir_all(&folder).unwrap();
+        fs::write(folder.join("README.md"), "its own project\n").unwrap();
+        let git = |args: &[&str]| {
+            let status = std::process::Command::new("git")
+                .args(args)
+                .current_dir(&folder)
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .env("GIT_TERMINAL_PROMPT", "0")
+                .output()
+                .unwrap();
+            assert!(status.status.success(), "git {args:?}: {status:?}");
+        };
+        git(&["init", "-q", "-b", "main"]);
+        git(&["add", "-A", "."]);
+        git(&[
+            "-c",
+            "user.name=Embedded",
+            "-c",
+            "user.email=embedded@example.invalid",
+            "commit",
+            "-q",
+            "-m",
+            "inner",
+        ]);
+    }
+
+    /// The gitlink OID the vault's head snapshot records for `rel`, which is a
+    /// commit that exists only inside that folder's own repository — the id the
+    /// push must never ask this vault's object database for.
+    fn gitlink_oid(root: &Path, rel: &str) -> Oid {
+        let repo = Repository::open(root).unwrap();
+        let head = repo.head().unwrap().peel_to_commit().unwrap();
+        let entry = head.tree().unwrap().get_path(Path::new(rel)).unwrap();
+        assert_eq!(entry.filemode(), GITLINK_MODE, "{rel} is not a gitlink in the snapshot");
+        entry.id()
+    }
+
+    /// The push used to walk the gitlink into the upload loop, where
+    /// `odb.read` could not resolve a commit that lives in another repository,
+    /// and died naming a Git id. Everything else in the vault goes, and the
+    /// report says which folder stayed.
+    #[test]
+    fn a_vault_holding_its_own_git_repository_pushes_the_rest_and_names_the_folder() {
+        let scratch = TempDir::new().unwrap();
+        let a = scratch.path().join("vault-a");
+        let history = vault(&a);
+        let store = FileBlobStore::new(scratch.path().join("blob-store")).unwrap();
+        let key = MasterKey::from_bytes([61; 32]);
+
+        write_note(&a, "Welcome.md", "vault content\n");
+        embed_repo(&a, "Projects/Synth");
+        history.snapshot("with an embedded repo").unwrap();
+
+        let link = gitlink_oid(&a, "Projects/Synth");
+        let report = push(&a, &key, &store, || ()).unwrap();
+        assert_eq!(report.pushed, 1);
+
+        let notice = report.notice.expect("the push said nothing about the folder it left behind");
+        assert_eq!(
+            notice,
+            "Projects/Synth is its own git repository and does not sync. Everything else in this \
+             vault synced."
+        );
+
+        // The walk never handed the id to `odb.read`, so it was never
+        // encrypted and never stored under its name.
+        assert!(!reachable_objects(&Repository::open(&a).unwrap(), history_head(&a))
+            .unwrap()
+            .objects
+            .contains(&link));
+        let names = store.list_objects(MAX_LIST_OBJECTS).unwrap();
+        assert!(
+            !names.contains(&object_name(&key, link)),
+            "the gitlink commit was uploaded after all"
+        );
+        // And the rest of the vault did travel.
+        let b = scratch.path().join("vault-b");
+        vault(&b);
+        pull(&b, &key, &store, || ()).unwrap();
+        assert_eq!(fs::read_to_string(b.join("Welcome.md")).unwrap(), "vault content\n");
+        assert!(!b.join("Projects/Synth/README.md").exists(), "the embedded repo came across");
+    }
+
+    fn history_head(root: &Path) -> Oid {
+        Repository::open(root).unwrap().head().unwrap().target().unwrap()
+    }
+
+    /// Several embedded repositories get one sentence, not one warning each,
+    /// and the folder is named once however many snapshots it has been there
+    /// for.
+    #[test]
+    fn several_embedded_repositories_are_one_sentence_per_push() {
+        let scratch = TempDir::new().unwrap();
+        let a = scratch.path().join("vault-a");
+        let history = vault(&a);
+        let store = FileBlobStore::new(scratch.path().join("blob-store")).unwrap();
+        let key = MasterKey::from_bytes([62; 32]);
+
+        embed_repo(&a, "Projects/Synth");
+        embed_repo(&a, "Projects/Sampler");
+        write_note(&a, "Welcome.md", "vault content\n");
+        history.snapshot("two embedded repos").unwrap();
+        push(&a, &key, &store, || ()).unwrap();
+
+        // A second snapshot over the same two folders, so the notice would
+        // repeat itself if it counted commits rather than folders.
+        write_note(&a, "Later.md", "later\n");
+        history.snapshot("later").unwrap();
+        let notice = push(&a, &key, &store, || ()).unwrap().notice.expect("no warning");
+        assert_eq!(
+            notice,
+            "2 folders are their own git repositories and do not sync: Projects/Sampler, \
+             Projects/Synth. Everything else in this vault synced."
+        );
+    }
+
+    /// An ordinary vault hears nothing about any of this.
+    #[test]
+    fn a_vault_without_an_embedded_repository_gets_no_warning() {
+        let scratch = TempDir::new().unwrap();
+        let a = scratch.path().join("vault-a");
+        let history = vault(&a);
+        let store = FileBlobStore::new(scratch.path().join("blob-store")).unwrap();
+        let key = MasterKey::from_bytes([63; 32]);
+
+        write_note(&a, "Welcome.md", "vault content\n");
+        history.snapshot("plain").unwrap();
+        assert!(push(&a, &key, &store, || ()).unwrap().notice.is_none());
+    }
+
+    /// The other half of the same family: an object-level refusal names the
+    /// Git id, which is nothing a person can act on. The walk knows the path,
+    /// so the refusal gets to carry it.
+    #[test]
+    fn an_object_level_refusal_names_the_note_and_not_only_its_git_id() {
+        let scratch = TempDir::new().unwrap();
+        let a = scratch.path().join("vault-a");
+        let history = vault(&a);
+        let key = MasterKey::from_bytes([64; 32]);
+
+        write_note(&a, "Media/Field Recording.md", "too big for the prototype\n");
+        history.snapshot("one note").unwrap();
+
+        let repo = Repository::open(&a).unwrap();
+        let head = history_head(&a);
+        let note = repo
+            .find_commit(head)
+            .unwrap()
+            .tree()
+            .unwrap()
+            .get_path(Path::new("Media/Field Recording.md"))
+            .unwrap()
+            .id();
+        let refusal = naming_the_file(
+            &repo,
+            head,
+            note,
+            format!("hosted sync object {note} exceeds the 64 MiB prototype limit"),
+        );
+        assert!(refusal.contains("Media/Field Recording.md"), "{refusal}");
+
+        // An id no current snapshot reaches keeps the wording it had rather
+        // than guessing at a path.
+        let absent = Oid::hash_object(ObjectType::Blob, b"never committed").unwrap();
+        assert_eq!(naming_the_file(&repo, head, absent, "plain refusal".into()), "plain refusal");
     }
 
     #[test]

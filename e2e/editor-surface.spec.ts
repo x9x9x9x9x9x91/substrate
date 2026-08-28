@@ -111,14 +111,19 @@ test("the heading rail is toggled from the note tool row and leaves the text col
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
   // from the top of the note, so the jump has somewhere to travel — the
   // toggle no longer needs a scroll-to-top to be clickable
-  await page.locator(".note").evaluate((el) => {
+  const note = page.locator(".note");
+  await note.evaluate((el) => {
     el.scrollTop = 0;
   });
-  const gamma = page.locator(".cm-line", { hasText: "Gamma" });
-  const before = await gamma.boundingBox();
-  expect(before).not.toBeNull();
+  // Measure the SCROLLER, not the heading's box. `# Gamma` is ~60 lines down,
+  // and from the top of the note CodeMirror's next measure pass drops it out
+  // of the rendered viewport — so reading its position BEFORE the click waits
+  // on a `.cm-line` that may not exist (a 60s timeout here on two Linux rigs,
+  // cold-run only). The jump is what this asserts: the note travels, and the
+  // heading the rail was asked for ends up on screen.
   await page.locator(".editor-outline-item", { hasText: "Gamma" }).click();
-  await expect.poll(async () => (await gamma.boundingBox())!.y).toBeLessThan(before!.y - 100);
+  await expect.poll(() => note.evaluate((el) => el.scrollTop)).toBeGreaterThan(100);
+  await expect(page.locator(".cm-line", { hasText: "Gamma" })).toBeInViewport();
 });
 
 test("the tool row's outline toggle stays clickable when the note is scrolled", async ({

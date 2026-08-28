@@ -1,6 +1,6 @@
 import type { NumberLocale } from "../lib/numberLocale";
 import { Fragment, useEffect, useRef, useState } from "react";
-import type { AggKind, NoteMeta, NumberFormat, PropKind, PropSchema, RollupConfig, SavedViewSort, SelectOption } from "../lib/types";
+import type { AggKind, DbIcon, NoteMeta, NumberFormat, PropKind, PropSchema, RollupConfig, SavedViewSort, SelectOption } from "../lib/types";
 import { foldedPropKey, foldedPropStr } from "../lib/types";
 import { aggMarker, aggregationKind, formatAgg, type UnitAgg } from "../lib/aggregate";
 import { audioFileTarget, conversionNote, displayColLabel, displayValue } from "../lib/display";
@@ -14,8 +14,8 @@ import DateMenu from "./DateMenu";
 import FileMenu from "./FileMenu";
 import RelationMenu from "./RelationMenu";
 import SelectMenu, { anchorFrom, MultiValues, optionColor, OptionDot, OptionPill, RelationValues, type AnchorRect } from "./SelectMenu";
-import { ChevronIcon, PlusIcon, WarnIcon, XIcon } from "./Icons";
-import { AGG_OPTIONS, ColMenu, openExternalLink, SubBadge, TreeTwisty, WIN_INITIAL, type Focus } from "./DbPaneShared";
+import { ChevronIcon, PlusIcon, PropKindGlyph, type PropKindMark, WarnIcon, XIcon } from "./Icons";
+import { AGG_OPTIONS, ColMenu, openExternalLink, RowMark, SubBadge, TreeTwisty, WIN_INITIAL, type Focus } from "./DbPaneShared";
 import type { SubSummary } from "../lib/subitems";
 import { byFoldedKey, isBuiltinDateName } from "../lib/schemalookup";
 import type { HopDir } from "../lib/cellhop";
@@ -154,6 +154,8 @@ export default function DbTableLayout({
   shown,
   tableGroup,
   typeSchema,
+  dbType,
+  icon,
   notes,
   dbTypes,
   openPath,
@@ -304,6 +306,10 @@ export default function DbTableLayout({
   shown: string[];
   tableGroup: string | undefined;
   typeSchema: Record<string, PropSchema>;
+  /** the database's own type name and icon — the row mark leading every Name
+      cell resolves from them, the same pair the pane header's icon uses */
+  dbType: string;
+  icon?: DbIcon;
   notes: NoteMeta[];
   dbTypes: string[];
   openPath: string | null;
@@ -743,6 +749,17 @@ export default function DbTableLayout({
   // it was opened from — near the bottom edge every menu flips up on its own.
   // Checkbox columns never reach this: pickBulkCol gave them a choice menu.
   const bulkKey = bulkEdit?.key ?? null;
+  /* what a column's header glyph announces. A select prop is a kindless
+     schema entry carrying options, so it has no PropKind to read; a column
+     with neither kind nor options is text unless its name is one of the
+     built-in dates, which is the same fallback the cells themselves take. */
+  const colMark = (c: string): PropKindMark => {
+    const sc = byFoldedKey(typeSchema, c);
+    if (sc?.kind) return sc.kind;
+    if (sc?.options.length) return "select";
+    return isBuiltinDateName(c) ? "date" : "text";
+  };
+
   const bulkSchema = bulkKey ? byFoldedKey(typeSchema, bulkKey) : undefined;
   const bulkKind = bulkKey
     ? bulkSchema?.kind ?? (isBuiltinDateName(bulkKey) ? "date" : undefined)
@@ -803,6 +820,7 @@ export default function DbTableLayout({
                   aria-label="Sort by Name"
                   onClick={(e) => cycleSort("title", e.shiftKey)}
                 >
+                  <PropKindGlyph kind="title" />
                   Name {sortArrow("title")}
                 </button>
                 <span
@@ -827,6 +845,7 @@ export default function DbTableLayout({
                     onClick={(e) => cycleSort(c, e.shiftKey)}
                     {...colDragProps(c)}
                   >
+                    <PropKindGlyph kind={colMark(c)} />
                     {displayColLabel(c)} {sortArrow(c)}
                   </button>
                   <button
@@ -997,9 +1016,9 @@ export default function DbTableLayout({
                   }}
                 >
                   {subSums ? (
-                    // the tree gutter: twisty, title, branch badge. Only a
-                    // sub-item database grows it — everywhere else the title
-                    // stays the plain span it has always been
+                    // the tree gutter: twisty, mark, title, branch badge. Only
+                    // a sub-item database grows the twisty lane — the mark
+                    // itself leads every Name cell, tree or flat
                     <span
                       className={`db-tree-cell${(treeDepth.get(n.path) ?? 0) > 0 ? " is-child" : ""}`}
                     >
@@ -1009,11 +1028,15 @@ export default function DbTableLayout({
                         title={n.title}
                         onToggle={() => onToggleCollapsed(n.path)}
                       />
+                      <RowMark dbType={dbType} icon={icon} />
                       {titleBody}
                       <SubBadge sum={subSums.get(n.path)} />
                     </span>
                   ) : (
-                    titleBody
+                    <span className="db-name-cell">
+                      <RowMark dbType={dbType} icon={icon} />
+                      {titleBody}
+                    </span>
                   )}
                   {/* The bulk toast counts the failures; this is
                       where THIS note's own reason lives, on the row it

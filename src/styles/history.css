@@ -211,8 +211,10 @@
 }
 
 /* Not the hero slot: this is a 260px column, so the glyph steps down to the
-   default chrome tier, where it is drawn at its native stroke. */
-.empty.hist-empty > svg:not(.hero-mark) {
+   default chrome tier, where it is drawn at its native stroke. The one place a
+   chrome glyph still fills an `.empty` slot — it is sized back to 15 here, so
+   it never sees the hero blowup. */
+.empty.hist-empty > svg {
   width: 15px;
   height: 15px;
   stroke-width: 1.4;

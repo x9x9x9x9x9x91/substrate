@@ -277,7 +277,7 @@ export default function SyncConflicts({
           disabled={busy || !done}
           onClick={() => void finish()}
         >
-          {busy ? <span className="sync-spinner" /> : "Finish merge"}
+          {busy ? <span className="sync-spinner" role="status" aria-label="Working" /> : "Finish merge"}
         </button>
         <span className="vault-sync-muted">
           {done

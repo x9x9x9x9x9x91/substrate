@@ -320,10 +320,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .search-completion {
-    transition: none;
-  }
-
+  /* `animation: none` is load-bearing here, not a restatement of the blanket:
+     search-flash fills `both`, so at the blanket's near-zero duration the
+     jumped-to line would land on its transparent end state and the wash the
+     reader needs to find the line would never appear */
   .cm-flash-line {
     animation: none;
     background: var(--accent-soft);

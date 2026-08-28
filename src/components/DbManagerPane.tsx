@@ -6,6 +6,7 @@ import { typeSchemaFor } from "../lib/schemalookup";
 import { mountSubtitle } from "../lib/mounts";
 import TypeIcon from "./TypeIcon";
 import { DbIcon as DbGlyphIcon, DotsIcon, MountIcon, PlusIcon } from "./Icons";
+import { HeroDatabase } from "./HeroIcons";
 import EmptyState from "./EmptyState";
 import { useEdgeFade } from "../hooks/useEdgeFade";
 import { BackButton } from "./BackButton";
@@ -62,7 +63,7 @@ export default function DbManagerPane({
       <div className={`dbmgr-body${fade.className}`} {...fade.props}>
         {databases.length === 0 ? (
           <EmptyState
-            icon={<DbGlyphIcon />}
+            icon={<HeroDatabase />}
             title="No databases yet"
             hint="a database is a typed collection of notes — releases, contacts, tasks"
             action={{ label: "New database", onClick: onNewDatabase }}

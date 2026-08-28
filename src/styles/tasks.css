@@ -217,8 +217,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* the wash has to persist: without the decay there is nothing to see, and
+     the blanket's near-zero animation leaves no fill behind it */
   .tasks-row.added {
-    animation: none;
     background: var(--accent-soft);
   }
 }
@@ -424,12 +425,6 @@
   transition:
     border-color var(--t) ease-out,
     background-color var(--t) ease-out;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .tasks-col.drop {
-    transition: none;
-  }
 }
 
 .tasks-col-head {

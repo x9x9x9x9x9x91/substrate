@@ -25,7 +25,8 @@ import { setPropUndoableBulk } from "../lib/undoprops";
 import { vaultCreate, vaultRead, vaultWriteBody } from "../lib/ipc";
 import { useEdgeFade } from "../hooks/useEdgeFade";
 import TypeIcon from "./TypeIcon";
-import { NoteIcon, SunIcon } from "./Icons";
+import { NoteIcon } from "./Icons";
+import { HeroToday } from "./HeroIcons";
 import EmptyState from "./EmptyState";
 import { errText } from "../lib/errtext";
 
@@ -711,7 +712,7 @@ export default function TodayPane({
           <QuickAdd onAdd={quickAdd} />
 
           {emptyDay && (
-            <EmptyState className="today-empty" icon={<SunIcon />} title="Nothing on today" />
+            <EmptyState className="today-empty" icon={<HeroToday />} title="Nothing on today" />
           )}
 
           {/* One container owning every option across the lanes, so

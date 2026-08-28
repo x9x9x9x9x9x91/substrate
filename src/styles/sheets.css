@@ -505,17 +505,6 @@ th.sheet-computed:hover {
   gap: 8px;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .sheet-tool,
-  .sheet-addcol-btn,
-  .sheet-addrow button,
-  .sheet-total-add,
-  .sheet-fx-pick,
-  .sheet-sum-add {
-    transition: none;
-  }
-}
-
 /* Metrics dashboard — cards bound to sheet summaries */
 
 .metrics-cards {

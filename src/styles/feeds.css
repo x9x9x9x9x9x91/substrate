@@ -719,10 +719,3 @@
     min-width: 0;
   }
 }
-
-@media (max-width: 700px) and (prefers-reduced-motion: reduce) {
-  .sidebar,
-  .sidebar.mobile-open {
-    transition: none;
-  }
-}

@@ -1,12 +1,13 @@
 import type { NumberLocale } from "../lib/numberLocale";
-import type { NoteMeta, PropSchema } from "../lib/types";
+import type { DbIcon, NoteMeta, PropSchema } from "../lib/types";
 import { displayValue } from "../lib/display";
 import { NOTE_DRAG_MIME } from "../lib/sidebar";
 import { missingCls } from "../lib/mounts";
 import { optionColor, OptionPill } from "./SelectMenu";
-import { BoardIcon, PlusIcon } from "./Icons";
+import { PlusIcon } from "./Icons";
+import { HeroBoard } from "./HeroIcons";
 import EmptyState from "./EmptyState";
-import { cardSubtitle, SubBadge, TreeTwisty, type Focus } from "./DbPaneShared";
+import { CardLines, cardSubtitle, RowMark, SubBadge, TreeTwisty, type Focus } from "./DbPaneShared";
 import type { SubSummary } from "../lib/subitems";
 import { byFoldedKey } from "../lib/schemalookup";
 import type { FxResolver } from "../lib/formula";
@@ -40,6 +41,7 @@ export default function DbBoardLayout({
   newTitle,
   newCol,
   dbType,
+  icon,
   typeSchema,
   fx,
   fxAsOf,
@@ -90,6 +92,8 @@ export default function DbBoardLayout({
   newTitle: string | null;
   newCol: { value: string | null } | null;
   dbType: string;
+  /** the database's icon — the card's leading mark resolves from it */
+  icon?: DbIcon;
   typeSchema: Record<string, PropSchema>;
   fx?: FxResolver;
   fxAsOf?: string;
@@ -142,7 +146,7 @@ export default function DbBoardLayout({
             ＋ form anchored to the header button in DatabasePane, and there is
             no anchor-free way to raise it from here. */}
         <EmptyState
-          icon={<BoardIcon />}
+          icon={<HeroBoard />}
           title="Nothing to group by"
           hint="Add a property (e.g. status) on any note first"
         />
@@ -333,8 +337,8 @@ export default function DbBoardLayout({
                       <span key={lastWritten.nonce} className="db-cell-flash" aria-hidden="true" />
                     )}
                     {subSums ? (
-                      // the card's tree line: twisty, title, branch badge —
-                      // the table's gutter, laid out for a card
+                      // the card's tree line: twisty, mark, title, branch
+                      // badge — the table's gutter, laid out for a card
                       <span className="db-card-tree">
                         <TreeTwisty
                           kids={treeKids.get(n.path) ?? 0}
@@ -342,17 +346,20 @@ export default function DbBoardLayout({
                           title={n.title}
                           onToggle={() => onToggleCollapsed(n.path)}
                         />
+                        <RowMark dbType={dbType} icon={icon} />
                         <span className="db-card-title">{n.title}</span>
                         <SubBadge sum={subSums.get(n.path)} />
                       </span>
                     ) : (
-                      <span className="db-card-title">{n.title}</span>
-                    )}
-                    {cardSubtitle(n, typeSchema, groupBy, undefined, fx, fxAsOf, numberLocale) && (
-                      <span className="row-sub">
-                        {cardSubtitle(n, typeSchema, groupBy, undefined, fx, fxAsOf, numberLocale)}
+                      <span className="db-card-tree">
+                        <RowMark dbType={dbType} icon={icon} />
+                        <span className="db-card-title">{n.title}</span>
                       </span>
                     )}
+                    <CardLines
+                      sub={cardSubtitle(n, typeSchema, groupBy, undefined, fx, fxAsOf, numberLocale)}
+                      excerpt={n.excerpt}
+                    />
                   </div>
                 ))}
                 {/* A visible button in every column is the

@@ -343,16 +343,6 @@
     opacity var(--t) ease-out;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .today-journal,
-  .today-row,
-  .today-act,
-  .today-add-act,
-  .today-wrap-act {
-    transition: none;
-  }
-}
-
 /* Pill regression fixes — chips grow instead of overflowing, table
    rows stay one line tall, the db-open note's × gets clear corner room */
 .chip:has(.multi-pills) {

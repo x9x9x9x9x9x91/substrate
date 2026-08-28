@@ -96,7 +96,8 @@ import {
 } from "./DbPaneShared";
 
 export { cardSubtitle };
-import { CheckIcon, ColumnsIcon, DbIcon as DbGlyphIcon, ExportIcon, EyeOffIcon, FilterIcon, PenIcon, PinIcon, PlusIcon, SubItemsIcon, TrashIcon, XIcon } from "./Icons";
+import { CheckIcon, ColumnsIcon, ExportIcon, EyeOffIcon, FilterIcon, PenIcon, PinIcon, PlusIcon, SubItemsIcon, TrashIcon, XIcon } from "./Icons";
+import { HeroDatabase, HeroFilter } from "./HeroIcons";
 import { BackButton } from "./BackButton";
 import EmptyState from "./EmptyState";
 import { errText } from "../lib/errtext";
@@ -3404,7 +3405,7 @@ function DatabasePane({
   const noMatch = filterEmpty ? (
     /* the dead-end hint is its own control when it can fix the filter, so it
        rides the shell's bespoke slot rather than the plain hint line */
-    <EmptyState icon={<FilterIcon />} title="No matches">
+    <EmptyState icon={<HeroFilter />} title="No matches">
       {deadEndHint &&
         (deadEndHint.fixedQuery ? (
           <button
@@ -3624,7 +3625,7 @@ function DatabasePane({
           <div className="db-body db-list">{draftRow}</div>
         ) : (
           <EmptyState
-            icon={<DbGlyphIcon />}
+            icon={<HeroDatabase />}
             title="Nothing here yet"
             hint={`Notes in the “${dbType}” database show up here`}
             action={{ label: "New entry", onClick: () => setNewTitle("") }}
@@ -3648,6 +3649,7 @@ function DatabasePane({
         newTitle={newTitle}
         newCol={newCol}
         dbType={dbType}
+        icon={icon}
         typeSchema={typeSchema}
         fx={fxResolver}
         fxAsOf={fxRatesState?.asOf}
@@ -3773,6 +3775,8 @@ function DatabasePane({
       newTitle={newTitle}
       shown={shown}
       tableGroup={tableGroup}
+      dbType={dbType}
+      icon={icon}
       typeSchema={typeSchema}
       notes={notes}
       dbTypes={dbTypes}

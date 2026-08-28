@@ -74,6 +74,7 @@ import {
   TrashIcon,
   UndoIcon,
 } from "./Icons";
+import { HeroSearch } from "./HeroIcons";
 import EmptyState from "./EmptyState";
 import { errText } from "../lib/errtext";
 
@@ -1741,7 +1742,7 @@ export default function Palette({
               })}
               {items.length === 0 &&
                 (
-                  <EmptyState icon={<SearchIcon />} title="No matches" role="status" style={{ height: 80 }} />
+                  <EmptyState icon={<HeroSearch />} title="No matches" role="status" style={{ height: 80 }} />
                 )}
             </div>
             <div className="palette-foot">

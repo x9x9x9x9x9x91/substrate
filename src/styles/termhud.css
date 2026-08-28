@@ -146,9 +146,3 @@ body.termhud-resizing-ns .termhud,
 body.termhud-resizing-ew .termhud {
   transition: none;
 }
-
-@media (prefers-reduced-motion: reduce) {
-  .termhud {
-    transition: none;
-  }
-}

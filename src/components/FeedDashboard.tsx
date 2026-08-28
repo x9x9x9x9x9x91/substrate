@@ -381,7 +381,7 @@ export default function FeedDashboard({
                     }
                     onClick={refreshFeed}
                   >
-                    {curating ? <span className="sync-spinner" /> : "↻ refresh"}
+                    {curating ? <span className="sync-spinner" role="status" aria-label="Working" /> : "↻ refresh"}
                   </button>
                   <button
                     type="button"

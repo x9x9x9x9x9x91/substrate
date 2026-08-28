@@ -434,12 +434,6 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .db-tab.active::after {
-    animation: none;
-  }
-}
-
 /* A pinned view's ⌘-digit rides its tab — the app-wide keycap
    (.key), nudged off the tab's name */
 .db-tab .key {

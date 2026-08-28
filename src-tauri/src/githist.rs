@@ -2096,7 +2096,7 @@ mod tests {
         let bare = scratch.path().join("remote.git");
         let credentials = scratch.path().join("config/sync.json");
         Repository::init_bare(&bare).unwrap();
-        assert!(crate::gitsync::history_prepare(&root).unwrap());
+        assert!(crate::gitsync::history_prepare(&root, crate::history::EXCLUDE_CONTENT).unwrap());
         fs::write(root.join("Note.md"), "one\n").unwrap();
         assert!(crate::gitsync::history_snapshot(&root, "snapshot").unwrap());
         crate::gitsync::sync_set_remote(
@@ -2119,7 +2119,7 @@ mod tests {
     fn history_rewrite_marks_the_vault_for_sync() {
         let scratch = TempDir::new().unwrap();
         let root = scratch.path().join("vault");
-        assert!(crate::gitsync::history_prepare(&root).unwrap());
+        assert!(crate::gitsync::history_prepare(&root, crate::history::EXCLUDE_CONTENT).unwrap());
         fs::write(root.join("Note.md"), "kept\n").unwrap();
         fs::write(root.join("Secret.md"), "gone\n").unwrap();
         assert!(crate::gitsync::history_snapshot(&root, "snapshot").unwrap());

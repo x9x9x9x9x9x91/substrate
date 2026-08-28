@@ -68,7 +68,11 @@
   position: sticky;
   top: 0;
   z-index: 1;
-  background: var(--bg-panel);
+  /* the header row sits one step above the rows it labels. The wash rides as
+     a layer over the pane's opaque ground rather than replacing it — the same
+     trick the frozen Name cell uses, and the header has to stay opaque or the
+     rows scroll through it */
+  background: linear-gradient(var(--hover), var(--hover)), var(--bg-panel);
   text-align: left;
   font: var(--dash-label);
   letter-spacing: 0.05em;
@@ -202,18 +206,6 @@
   transition: background-image var(--t) ease-out;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .db-table th:hover,
-  .db-table tbody tr:hover td,
-  .db-table tbody tr:hover td:first-child,
-  .db-table tbody tr.selected td,
-  .db-table tbody tr.selected:hover td,
-  .db-table tbody tr.selected td:first-child,
-  .db-table tbody tr.selected:hover td:first-child {
-    transition: none;
-  }
-}
-
 .db-table tr.db-open td:first-child {
   background:
     linear-gradient(rgba(255, 255, 255, 0.028), rgba(255, 255, 255, 0.028)),
@@ -287,13 +279,6 @@
     opacity: 1;
   }
   to {
-    opacity: 0;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .db-cell-flash {
-    animation: none;
     opacity: 0;
   }
 }
@@ -560,6 +545,43 @@
    with no children get the blank), so a mixed section's titles still read
    down one straight edge. ONE indent step exists on purpose: a grandchild
    stands as a top-level row, so no rule here can ever compound. */
+/* Every Name cell leads on the database's own mark, so a row starts on
+   something the eye can land on rather than on bare text. The mark takes over
+   the cell's left inset and the title gives it up, keeping only its vertical
+   padding — that padding is what sets the row height, and the row height is
+   what the sticky-header scroll margins are calibrated against. The mark is
+   muted grey everywhere: repeated down five hundred rows a coloured mark reads
+   as data about the row, and colour in this table belongs to the select
+   pills, which do carry a fact. */
+.db-name-cell {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.db-row-mark {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-3);
+}
+
+.db-name-cell > .db-row-mark {
+  margin-left: 10px;
+}
+
+.db-name-cell .db-cell-txt {
+  padding-left: 5px;
+  min-width: 0;
+}
+
+/* in the tree gutter the twisty already owns the left inset, so the mark
+   only needs to clear it */
+.db-tree-cell > .db-row-mark {
+  margin-left: 2px;
+}
+
 .db-tree-cell {
   display: flex;
   align-items: center;
@@ -725,12 +747,6 @@
   animation: check-pop var(--t) ease-out;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .prop-check.on {
-    animation: none;
-  }
-}
-
 .db-cell-input {
   display: block;
   width: 100%;
@@ -781,12 +797,6 @@
   transition:
     border-color var(--t) ease-out,
     background-color var(--t) ease-out;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .db-col.drop {
-    transition: none;
-  }
 }
 
 .db-col-head {

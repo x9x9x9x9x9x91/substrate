@@ -463,9 +463,15 @@ fn owned_repo(root: &Path) -> Result<Repository, String> {
 /// stamp but still carries our exclusions — anything else remains
 /// strictly foreign.
 /// Desktop never calls this and keeps its established git CLI behavior.
+///
+/// `exclude` is the flavour: a vault's [`EXCLUDE_CONTENT`] or a space's
+/// [`history::SPACE_EXCLUDE_CONTENT`], which is the desktop split at
+/// `History::new` / `History::new_space` reaching this side too. Writing one
+/// flavour for both would put `.assets/` back into every space this device
+/// opens and quietly stop it committing the images its notes embed.
 // dead on desktop by design — see the `#![allow(dead_code)]` note in githist.rs
 #[allow(dead_code)]
-pub(crate) fn history_prepare(root: &Path) -> Result<bool, String> {
+pub(crate) fn history_prepare(root: &Path, exclude: &str) -> Result<bool, String> {
     let git_dir = root.join(".git");
     let repo = if !git_dir.exists() {
         fs::create_dir_all(root).map_err(|e| format!("could not create vault directory: {e}"))?;
@@ -498,7 +504,7 @@ pub(crate) fn history_prepare(root: &Path) -> Result<bool, String> {
         .map_err(|e| format!("could not configure vault history: {e}"))?;
     fs::create_dir_all(git_dir.join("info"))
         .map_err(|e| format!("could not create vault history settings: {e}"))?;
-    fs::write(git_dir.join("info/exclude"), EXCLUDE_CONTENT)
+    fs::write(git_dir.join("info/exclude"), exclude)
         .map_err(|e| format!("could not configure vault history exclusions: {e}"))?;
     Ok(true)
 }
@@ -6452,7 +6458,7 @@ mod tests {
     fn libgit2_history_path_prepares_and_snapshots_without_git_cli() {
         let scratch = TempDir::new().unwrap();
         let root = scratch.path().join("mobile-vault");
-        assert!(history_prepare(&root).unwrap());
+        assert!(history_prepare(&root, EXCLUDE_CONTENT).unwrap());
         assert!(root.join(SENTINEL).is_file());
         assert!(!history_snapshot(&root, "snapshot").unwrap());
         fs::write(root.join("Note.md"), "one\n").unwrap();
@@ -6467,6 +6473,33 @@ mod tests {
         assert_eq!(walk.count(), 2);
     }
 
+    /// The mobile half of the flavour split, which the desktop tests in
+    /// `history.rs` cannot reach: a space prepared on this path gets a
+    /// space's exclusions, not a vault's. Getting this wrong is invisible
+    /// rather than loud — the space opens, syncs, and quietly never commits
+    /// the images its notes embed.
+    #[test]
+    fn history_prepare_writes_a_spaces_exclusions_for_a_space() {
+        let scratch = TempDir::new().unwrap();
+        let root = scratch.path().join("mobile-space");
+        assert!(history_prepare(&root, crate::history::SPACE_EXCLUDE_CONTENT).unwrap());
+        let exclude = fs::read_to_string(root.join(".git/info/exclude")).unwrap();
+        assert_eq!(exclude, crate::history::SPACE_EXCLUDE_CONTENT);
+        assert!(!exclude.contains(".assets/"), "a space is excluding its own assets: {exclude}");
+
+        // And re-opening it keeps them: this rewrites the file every time.
+        assert!(history_prepare(&root, crate::history::SPACE_EXCLUDE_CONTENT).unwrap());
+        assert!(!fs::read_to_string(root.join(".git/info/exclude")).unwrap().contains(".assets/"));
+
+        // The vault flavour is unchanged beside it.
+        let vault_root = scratch.path().join("mobile-vault");
+        assert!(history_prepare(&vault_root, EXCLUDE_CONTENT).unwrap());
+        assert!(fs::read_to_string(vault_root.join(".git/info/exclude"))
+            .unwrap()
+            .lines()
+            .any(|line| line == ".assets/"));
+    }
+
     #[test]
     fn history_prepare_readopts_a_vault_that_lost_its_sentinel() {
         // Mobile half of the sentinel rule: losing the stamp alone must not turn our own
@@ -6474,12 +6507,12 @@ mod tests {
         // stamp is restored so the next boot takes the cheap path.
         let scratch = TempDir::new().unwrap();
         let root = scratch.path().join("mobile-vault");
-        assert!(history_prepare(&root).unwrap());
+        assert!(history_prepare(&root, EXCLUDE_CONTENT).unwrap());
         fs::write(root.join("Note.md"), "one\n").unwrap();
         assert!(history_snapshot(&root, "snapshot").unwrap());
         fs::remove_file(root.join(SENTINEL)).unwrap();
 
-        assert!(history_prepare(&root).unwrap(), "still ours");
+        assert!(history_prepare(&root, EXCLUDE_CONTENT).unwrap(), "still ours");
         assert!(root.join(SENTINEL).is_file(), "re-stamped");
         fs::write(root.join("Note.md"), "two\n").unwrap();
         assert!(history_snapshot(&root, "snapshot").unwrap(), "history keeps recording");
@@ -6489,7 +6522,7 @@ mod tests {
         fs::create_dir_all(&foreign).unwrap();
         Repository::init(&foreign).unwrap();
         fs::write(foreign.join(".git/info/exclude"), "*.tmp\n").unwrap();
-        assert!(!history_prepare(&foreign).unwrap());
+        assert!(!history_prepare(&foreign, EXCLUDE_CONTENT).unwrap());
         assert!(!foreign.join(SENTINEL).exists());
     }
 
@@ -8042,7 +8075,7 @@ mod sim_round_trip {
         let root = scratch.path().join("phone-vault");
 
         // the mobile boot path: libgit2 prepare, no git CLI anywhere
-        assert!(history_prepare(&root).unwrap());
+        assert!(history_prepare(&root, EXCLUDE_CONTENT).unwrap());
         let creds = scratch.path().join("sync.json");
         sync_set_remote(&root, &creds, &url, &format!("Bearer {}", token.trim()), Some(&pem), None)
             .unwrap();
@@ -8104,7 +8137,7 @@ mod autosync_peer {
         let creds = PathBuf::from(std::env::var("SUBSTRATE_PEER_CREDS").unwrap());
 
         if action == "join" {
-            assert!(history_prepare(&root).unwrap());
+            assert!(history_prepare(&root, EXCLUDE_CONTENT).unwrap());
             let setup = sync_set_remote(
                 &root,
                 &creds,

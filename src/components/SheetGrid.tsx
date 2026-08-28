@@ -60,7 +60,8 @@ import {
 } from "../lib/formula";
 import Editor from "./Editor";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
-import { CheckIcon, NoteIcon, TableIcon } from "./Icons";
+import { CheckIcon, NoteIcon } from "./Icons";
+import { HeroSheet } from "./HeroIcons";
 import EmptyState from "./EmptyState";
 import { errText } from "../lib/errtext";
 
@@ -1253,7 +1254,7 @@ export default function SheetGrid({
             it rides the shell's bespoke slot rather than the plain action */}
         <EmptyState
           className="sheet-empty"
-          icon={<TableIcon />}
+          icon={<HeroSheet />}
           title="No data block yet"
           hint="Add a column to start the grid, or write a ```csv block in source"
         >

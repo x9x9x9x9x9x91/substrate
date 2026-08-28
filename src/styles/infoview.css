@@ -112,23 +112,6 @@
   border-color: var(--border);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .keyhints-panel,
-  .info-view-panel {
-    animation: none;
-  }
-
-  .keyhints-panel.closing {
-    transition: none;
-  }
-
-  /* the HUD still appears — it is information, not decoration; only the
-     travel and fade go away */
-  .modkey-hud {
-    animation: none;
-  }
-}
-
 /* ————— dashboard instrument language —————
    One header, one label voice, one data voice, hairline structure. The page
    is a spec sheet: mono uppercase micro-labels, ruled stat rows instead of

@@ -59,15 +59,6 @@
   animation-name: menu-pop-up;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .selmenu:not(.selmenu-cell),
-  .selmenu-cell-panel,
-  .colmenu,
-  .dots-menu {
-    animation: none;
-  }
-}
-
 /* The hover tooltip. Same elevated card as every other floating
    surface, sized down — it is a label, not a menu. Positioned by
    src/components/Tooltip.tsx (fixed, viewport coords), so nothing here places
@@ -107,12 +98,6 @@
   from {
     opacity: 0;
     transform: scale(0.97);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .tooltip {
-    animation: none;
   }
 }
 

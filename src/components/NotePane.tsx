@@ -83,7 +83,8 @@ import SelectMenu, { anchorFrom, MultiValues, optionColor, OptionPill, type Anch
 import { ChipReceiptLine } from "./ReceiptsPeek";
 import { prefetchFact } from "./useHistory";
 import DotsMenu from "./DotsMenu";
-import { BacklinkIcon, ChevronLeftIcon, ChevronRightIcon, ClockIcon, FileIcon, LockIcon, NoteActionGlyph, OutlineIcon, XIcon } from "./Icons";
+import { BacklinkIcon, ChevronLeftIcon, ChevronRightIcon, ClockIcon, LockIcon, NoteActionGlyph, OutlineIcon, XIcon } from "./Icons";
+import { HeroMissing } from "./HeroIcons";
 import EmptyState from "./EmptyState";
 
 /** url/email/phone-kind chips open outside the app — the OS handler (browser,
@@ -1772,7 +1773,7 @@ function NotePane({
         {/* No verb here yet: nothing in this state is recoverable from the app,
             so there is no existing command to offer — glyph + text. */}
         <EmptyState
-          icon={<FileIcon />}
+          icon={<HeroMissing />}
           title="This note’s file is gone"
           hint="It was moved, deleted, or made unreadable outside Substrate"
         />

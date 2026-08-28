@@ -125,12 +125,6 @@
   transform-origin: top right;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .db-syntax-panel {
-    animation: none;
-  }
-}
-
 .db-syntax-row {
   display: flex;
   align-items: baseline;
@@ -289,12 +283,6 @@
   color: var(--text-1);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .db-chip-x {
-    transition: none;
-  }
-}
-
 /* the operator and value menus: the app's .dots-menu card, hung under the
    part of the chip it edits */
 .db-chip-menu {
@@ -320,11 +308,4 @@
 .db-filter-clear.is-off {
   opacity: 0;
   pointer-events: none;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .db-filter-save,
-  .db-filter-clear {
-    transition: none;
-  }
 }

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { NoteMeta, TrashEntry } from "../lib/types";
 import { historyPurgeNote, historyPurgeNotes, vaultAssetsRestore, vaultAssetsTrashDelete, vaultTrashDelete, vaultTrashDeleteFolder, vaultTrashDeleteTemplate, vaultTrashEmpty, vaultTrashList, vaultTrashRestore, vaultTrashRestoreFolder, vaultTrashRestoreTemplate } from "../lib/ipc";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
-import { FolderIcon, ImageIcon, TrashIcon } from "./Icons";
+import { FolderIcon, ImageIcon } from "./Icons";
 import { HeroTrash } from "./HeroIcons";
 import { dateLocale } from "../lib/dateLocale";
 import { BackButton } from "./BackButton";
@@ -266,7 +266,7 @@ export default function TrashPane({ vaultEpoch, onRestored, onRestoredFolder }: 
              landing only swaps text */
           error === null ? (
             <EmptyState
-              icon={<TrashIcon />}
+              icon={<HeroTrash />}
               title="Loading trash"
               hint="deleted notes and assets land here, recoverable until you empty them"
             />

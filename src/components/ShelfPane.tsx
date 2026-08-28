@@ -22,6 +22,7 @@ import {
   parentPrefix,
 } from "../lib/shelf";
 import { DriveIcon, FileIcon, FolderIcon } from "./Icons";
+import { HeroDrive } from "./HeroIcons";
 import { BackButton } from "./BackButton";
 import EmptyState from "./EmptyState";
 import { errText } from "../lib/errtext";
@@ -213,7 +214,7 @@ export default function ShelfPane({ view, setView, vaultEpoch }: ShelfPaneProps)
           )}
           {entries === null ? null : shown.length === 0 ? (
             <EmptyState
-              icon={<DriveIcon />}
+              icon={<HeroDrive />}
               title={query ? "Nothing here matches" : "Nothing cataloged here"}
               hint={
                 query
@@ -282,7 +283,7 @@ export default function ShelfPane({ view, setView, vaultEpoch }: ShelfPaneProps)
         {hits !== null ? (
           hits.length === 0 ? (
             <EmptyState
-              icon={<DriveIcon />}
+              icon={<HeroDrive />}
               title="No drive has a file by that name"
               hint="every catalog was searched, including the drives that aren’t connected"
             />
@@ -314,7 +315,7 @@ export default function ShelfPane({ view, setView, vaultEpoch }: ShelfPaneProps)
           )
         ) : drives === null ? null : drives.length === 0 ? (
           <EmptyState
-            icon={<DriveIcon />}
+            icon={<HeroDrive />}
             title="No drives cataloged yet"
             hint="plug an external disk in and it is cataloged here — after that it stays, browsable with the disk in a drawer"
             action={{ label: "Look for drives", onClick: rescan }}

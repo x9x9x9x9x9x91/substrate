@@ -409,12 +409,6 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .cm-task-toggle:checked {
-    animation: none;
-  }
-}
-
 .cm-task-done {
   text-decoration: line-through;
   text-decoration-color: rgba(255, 255, 255, 0.18);

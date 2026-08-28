@@ -11,16 +11,57 @@ import { isTauri } from "../lib/tauri";
 import { coverSource } from "../lib/assets";
 import { optionColor, OptionDot, type AnchorRect } from "./SelectMenu";
 import TypeIcon from "./TypeIcon";
-import { BoardIcon, ChevronIcon, ColumnsIcon, GalleryIcon, HelpIcon, ListIcon, SortIcon, TableIcon, XIcon } from "./Icons";
+import { resolveIcon } from "../lib/dbicons";
+import { BoardIcon, ChevronIcon, ColumnsIcon, GalleryIcon, HelpIcon, ListIcon, NoteIcon, SortIcon, TableIcon, XIcon } from "./Icons";
 import type { SubSummary } from "../lib/subitems";
 import { QUERY_SYNTAX, QUERY_SYNTAX_FOOT } from "../lib/query";
 import { MAX_SORT_KEYS } from "../lib/dbsort";
+
+/** The mark leading a row: the database's own glyph in the table's Name cell
+    and at the head of a board card, so every row starts on something the eye
+    can land on instead of bare text.
+
+    Two deliberate narrowings against the icon the database header wears.
+    It renders MUTED — the resolved tint is dropped — because a coloured mark
+    repeated down five hundred rows reads as data about the row, which it
+    isn't; colour in a table stays with the select-value pills, which do carry
+    a fact. And a database with no glyph of its own falls back to the generic
+    note mark rather than the type's auto-letter square: a column of identical
+    initials is a label repeated, not an anchor. An explicit emoji stays as
+    the user set it. */
+export function RowMark({ dbType, icon }: { dbType: string; icon?: DbIcon }) {
+  const resolved = resolveIcon(dbType, icon);
+  return (
+    <span className="db-row-mark" aria-hidden="true">
+      {resolved ? (
+        <TypeIcon type={dbType} icon={{ ...resolved, tint: undefined }} size={12} />
+      ) : (
+        <NoteIcon size={12} />
+      )}
+    </span>
+  );
+}
 
 /** Card/list subtitle: the notable props joined with " · ". A part whose
     value matches a colored schema option leads with that option's dot,
     so a status reads as a status, not as more text. `keys`
     overrides the notable set — a curated view lists exactly its columns.
     Exported for the calendar's week cards. */
+/** The two lines under a card's title: the metadata subtitle, then the first
+    words of the note's body. When no notable prop answered, `cardSubtitle`
+    falls back to the excerpt itself — the preview line takes it over in that
+    case, so the mono metadata voice never speaks the body's prose in the wrong
+    register, and the card never says the same words twice. */
+export function CardLines({ sub, excerpt }: { sub: React.ReactNode; excerpt?: string }) {
+  const preview = excerpt || null;
+  return (
+    <>
+      {sub && sub !== preview && <span className="row-sub">{sub}</span>}
+      {preview && <span className="db-card-preview">{preview}</span>}
+    </>
+  );
+}
+
 export function cardSubtitle(
   n: NoteMeta,
   typeSchema: Record<string, PropSchema>,

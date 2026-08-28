@@ -264,13 +264,6 @@
   color: var(--text-3);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .tagfolder-chips-reject-a,
-  .tagfolder-chips-reject-b {
-    animation: none;
-  }
-}
-
 .tagfolder-opts {
   display: flex;
   flex-wrap: wrap;

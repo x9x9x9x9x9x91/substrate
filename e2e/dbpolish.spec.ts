@@ -66,7 +66,16 @@ test("gallery: cover entrance honors reduced motion (SUB-945)", async ({ page })
 
   const cover = page.locator(".db-gcover img").first();
   await expect(cover).toHaveClass(/is-loaded/);
-  await expect(cover).toHaveCSS("animation-name", "none");
+  /* Honoring the preference means the entrance does not visibly play. The
+     reduced-motion blanket (base.css) collapses durations to near-zero rather
+     than clearing animation names, so ask the question the user can see:
+     either no animation at all, or one too short to perceive. */
+  const entrance = await cover.evaluate((el) => {
+    const cs = getComputedStyle(el);
+    const ms = (v: string) => parseFloat(v) * (v.trim().endsWith("ms") ? 1 : 1000);
+    return { name: cs.animationName, duration: ms(cs.animationDuration) };
+  });
+  expect(entrance.name === "none" || entrance.duration <= 50).toBe(true);
 });
 
 test("board: per-column New reveals on hover and stays up while its draft is open (SUB-945)", async ({

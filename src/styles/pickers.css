@@ -339,12 +339,6 @@
     color var(--t-fast) ease-out;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .datemenu-day {
-    transition: none;
-  }
-}
-
 .datemenu-day.out {
   color: var(--text-3);
   opacity: 0.5;

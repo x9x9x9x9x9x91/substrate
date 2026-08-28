@@ -21,17 +21,35 @@ async function accept(page: Page, label: string) {
   await page.keyboard.press("Enter");
 }
 
-/** Scratch → Welcome, then a fresh last line to type on. */
+/** Scratch → Welcome, then a fresh last line to type on.
+
+    The wait is on where the CARET landed, not on a line count. CodeMirror only
+    keeps the lines around the visible viewport in the DOM, so `.cm-line` counts
+    what is RENDERED, not what the document holds: on a host whose font makes
+    Welcome taller than the 800px window, Ctrl-End scrolls and the rendered set
+    GROWS (20 lines before, 24 after — all three Linux rigs, every run), so a
+    `before + 1` count was really asserting that the note fits on screen. What
+    the specs below need is the caret sitting on an empty line at the end of the
+    document; the selection says that directly, on any host. */
 async function boot(page: Page) {
   await page.goto("/");
   await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
   await page.locator(".cm-content").click();
-  const lines = page.locator(".cm-line");
-  const before = await lines.count();
   await page.keyboard.press(docEnd);
   await page.keyboard.press("Enter");
-  await expect(lines).toHaveCount(before + 1);
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const node = window.getSelection()?.anchorNode;
+        const from = node?.nodeType === Node.ELEMENT_NODE ? (node as Element) : node?.parentElement;
+        const line = from?.closest(".cm-line");
+        if (!line) return null;
+        const rendered = document.querySelectorAll(".cm-content .cm-line");
+        return { text: line.textContent, last: rendered[rendered.length - 1] === line };
+      })
+    )
+    .toEqual({ text: "", last: true });
 }
 
 test("/calc opens a line that computes, and the answer lands beside it", async ({ page }) => {

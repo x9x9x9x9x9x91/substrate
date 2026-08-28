@@ -1,5 +1,6 @@
 import type { BulkActionIcon } from "../lib/bulkactions";
 import type { NoteActionIcon } from "../lib/noteactions";
+import type { NewPropKind } from "../lib/types";
 
 /* The shared drawing base every chrome glyph inherits: a 16 viewBox rendered at
    15px with a 1.4 stroke. Exported because it is the app's only glyph grid —
@@ -510,6 +511,110 @@ export function NoteActionGlyph({ name }: { name: NoteActionIcon }) {
       return <PinIcon />;
     case "trash":
       return <TrashIcon />;
+  }
+}
+
+/* The kind a column's header glyph announces: the schema's PropKind, plus
+   `select` (a kindless schema entry with options, which carries no PropKind of
+   its own) and `title` for the Name column. */
+export type PropKindMark = NewPropKind | "title";
+
+/* The mark a column header wears before its name, so a table's header row says
+   what kind of thing each column holds before a single value is read. Drawn as
+   one family at the dense 12 tier rather than assembled from the chrome icons:
+   these sit inside a header line box calibrated to the row the sticky-header
+   scroll margins are measured against, and a family drawn together stays a
+   family when one of its members moves. Muted grey like the row mark — the
+   header is furniture, not data. */
+export function PropKindGlyph({ kind }: { kind: PropKindMark }) {
+  const g = { ...base, width: 12, height: 12 };
+  switch (kind) {
+    // text and the Name column share the paragraph mark: the title IS text,
+    // and a separate glyph for it would claim a distinction the data lacks
+    case "title":
+    case "text":
+      return (
+        <svg {...g}>
+          <path d="M2.5 4h11M2.5 8h11M2.5 12h7" />
+        </svg>
+      );
+    case "number":
+      return (
+        <svg {...g}>
+          <path d="M6 2 4.5 14M11.5 2 10 14M2.5 5.5h11M2 10.5h11" />
+        </svg>
+      );
+    case "date":
+      return (
+        <svg {...g}>
+          <rect x="2" y="3.5" width="12" height="10.5" rx="1.6" />
+          <path d="M2 7h12M5.5 1.8v3.2M10.5 1.8v3.2" />
+        </svg>
+      );
+    case "checkbox":
+      return (
+        <svg {...g}>
+          <rect x="2.2" y="2.2" width="11.6" height="11.6" rx="2" />
+          <path d="m5 8.2 2.2 2.2L11 6" />
+        </svg>
+      );
+    // one option is a tag; several are the same tag stacked
+    case "select":
+      return (
+        <svg {...g}>
+          <path d="M8.2 2.2H3a.8.8 0 0 0-.8.8v5.2c0 .2.1.4.2.6l5 5a.8.8 0 0 0 1.2 0l5-5a.8.8 0 0 0 0-1.2l-5-5a.8.8 0 0 0-.4-.4Z" />
+          <path d="M5.2 5.2h.01" />
+        </svg>
+      );
+    case "multi":
+      return (
+        <svg {...g}>
+          <path d="M2 4.5h5M2 8h9M2 11.5h7" />
+          <circle cx="13" cy="8" r="1" />
+        </svg>
+      );
+    case "url":
+      return (
+        <svg {...g}>
+          <path d="M6.6 9.4a2.8 2.8 0 0 0 4 0l2.2-2.2a2.8 2.8 0 0 0-4-4l-1 1" />
+          <path d="M9.4 6.6a2.8 2.8 0 0 0-4 0L3.2 8.8a2.8 2.8 0 0 0 4 4l1-1" />
+        </svg>
+      );
+    case "email":
+      return (
+        <svg {...g}>
+          <rect x="1.8" y="3.5" width="12.4" height="9" rx="1.6" />
+          <path d="m2.4 4.8 5.1 3.6a.9.9 0 0 0 1 0l5.1-3.6" />
+        </svg>
+      );
+    case "phone":
+      return (
+        <svg {...g}>
+          <path d="M4 2.2h2.2l1.1 2.8-1.4 1a8 8 0 0 0 4.1 4.1l1-1.4 2.8 1.1V12a1.8 1.8 0 0 1-2 1.8A11.2 11.2 0 0 1 2.2 4.2 1.8 1.8 0 0 1 4 2.2Z" />
+        </svg>
+      );
+    case "file":
+      return (
+        <svg {...g}>
+          <path d="M9 1.8H4.5a1.6 1.6 0 0 0-1.6 1.6v9.2a1.6 1.6 0 0 0 1.6 1.6h7a1.6 1.6 0 0 0 1.6-1.6V5.8Z" />
+          <path d="M9 1.8v4h4.1" />
+        </svg>
+      );
+    // a relation points out of this row at another one
+    case "relation":
+      return (
+        <svg {...g}>
+          <path d="M6.5 3.5h6a1.6 1.6 0 0 1 1.6 1.6v5.8a1.6 1.6 0 0 1-1.6 1.6h-6" />
+          <path d="M1.9 8h6.4M6.2 5.9 8.3 8l-2.1 2.1" />
+        </svg>
+      );
+    // a rollup gathers many rows into one figure
+    case "rollup":
+      return (
+        <svg {...g}>
+          <path d="M12 2.4H4l4.6 5.6L4 13.6h8" />
+        </svg>
+      );
   }
 }
 

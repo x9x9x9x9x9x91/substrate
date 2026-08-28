@@ -167,16 +167,12 @@
   margin-bottom: 14px;
 }
 
-/* A hero mark (components/HeroIcons.tsx) is DRAWN for this tier: a 48 viewBox
-   at stroke 1.5, rendered at 44, so its stroke lands at 1.375px — optically
-   level with 15px chrome. A chrome glyph borrowed into the same slot is a 16
-   viewBox blown up 2.75×, so its 1.4 stroke would ink at 3.85px, the heaviest
-   line in the app. It gets the stroke it would have had if it were drawn here:
-   0.5 × 2.75 = 1.375px, the same band. The right long answer for a borrowed
-   glyph is still a hero mark of its own. */
-.empty > svg:not(.hero-mark) {
-  stroke-width: 0.5;
-}
+/* Every glyph in this slot is a hero mark (components/HeroIcons.tsx), DRAWN
+   for the tier: a 48 viewBox at stroke 1.5, rendered at 44, so its stroke lands
+   at 1.375px — optically level with 15px chrome. No chrome glyph is borrowed up
+   here any more, so nothing needs its stroke compensated back down to that
+   band. Panels that step the glyph OUT of the hero tier (`.hist-empty`) size
+   and stroke it themselves. */
 
 .empty-hint {
   font-size: var(--fs-3);
@@ -469,12 +465,6 @@ button.empty-hint-fix:hover {
   from {
     opacity: 0;
     transform: scale(0.96);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .chip {
-    animation: none;
   }
 }
 

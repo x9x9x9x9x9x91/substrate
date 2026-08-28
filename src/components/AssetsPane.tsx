@@ -6,7 +6,8 @@ import { assetBlobUrl } from "../lib/assets";
 import { isImageName } from "../lib/artwork";
 import { formatFileSize } from "../lib/display";
 import { dateLocale } from "../lib/dateLocale";
-import { ImageIcon, NoteIcon } from "./Icons";
+import { NoteIcon } from "./Icons";
+import { HeroAssets } from "./HeroIcons";
 import { BackButton } from "./BackButton";
 import EmptyState from "./EmptyState";
 import { errText } from "../lib/errtext";
@@ -154,14 +155,14 @@ export default function AssetsPane({ vaultEpoch }: AssetsPaneProps) {
              landing only swaps text */
           error === null ? (
             <EmptyState
-              icon={<ImageIcon />}
+              icon={<HeroAssets />}
               title="Scanning .assets"
               hint="checking every file in .assets/ against note embeds"
             />
           ) : null
         ) : entries.length === 0 ? (
           <EmptyState
-            icon={<ImageIcon />}
+            icon={<HeroAssets />}
             title="No orphaned assets"
             hint="every file in .assets/ is still embedded in a note"
           />

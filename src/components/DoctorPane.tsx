@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import type { DoctorFinding, DoctorKind, DoctorReport } from "../lib/types";
 import { vaultDoctor } from "../lib/ipc";
-import { NoteIcon, PulseIcon } from "./Icons";
+import { NoteIcon } from "./Icons";
+import { HeroDoctor } from "./HeroIcons";
 import { BackButton } from "./BackButton";
 import EmptyState from "./EmptyState";
 import { errText } from "../lib/errtext";
@@ -91,14 +92,14 @@ export default function DoctorPane({ vaultEpoch, onOpenNote }: DoctorPaneProps) 
              landing only swaps text */
           error === null ? (
             <EmptyState
-              icon={<PulseIcon />}
+              icon={<HeroDoctor />}
               title="Scanning the vault"
               hint="checking every link, relation, embed and property"
             />
           ) : null
         ) : report.findings.length === 0 ? (
           <EmptyState
-            icon={<PulseIcon />}
+            icon={<HeroDoctor />}
             title="No problems found"
             hint={`every link, relation, embed and property in ${report.notes} notes resolves`}
           />

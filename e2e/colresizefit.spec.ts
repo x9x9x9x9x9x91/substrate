@@ -20,9 +20,10 @@ async function dragCol(page: Page, col: string, dx: number) {
   await page.mouse.up();
   const after = (await th.boundingBox())!.width;
   if (dx > 0) expect(after, `${col} grow by ${dx}`).toBeGreaterThan(before + dx - 15);
-  // shrink may floor early (MIN_COL_W / the nowrap header label) — require
-  // real movement, not the exact delta
-  else expect(after, `${col} shrink by ${dx}`).toBeLessThan(before - 25);
+  // shrink may floor early (MIN_COL_W / the nowrap header label, which now
+  // also carries the column's kind glyph) — require real movement, not the
+  // exact delta
+  else expect(after, `${col} shrink by ${dx}`).toBeLessThan(before - 18);
   // reset so the next drag starts from auto
   await th.locator(".db-th-resize").dblclick();
 }

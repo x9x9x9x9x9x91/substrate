@@ -27,8 +27,9 @@ export default function EmptyState({
   style,
   children,
 }: {
-  /** required: every empty state carries a glyph — a chrome icon, or one of the
-      purpose-drawn hero marks in HeroIcons.tsx for the four big empties */
+  /** required: every empty state carries a glyph — one of the purpose-drawn
+      hero marks in HeroIcons.tsx. A chrome icon only where the panel steps the
+      slot back out of the hero tier (`.hist-empty`). */
   icon: ReactNode;
   title: ReactNode;
   hint?: ReactNode;

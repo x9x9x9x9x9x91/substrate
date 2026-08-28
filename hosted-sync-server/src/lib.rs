@@ -36,9 +36,10 @@
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufWriter, ErrorKind, Read, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::mpsc::{sync_channel, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -67,6 +68,34 @@ const MAX_CONNECTIONS: usize = 64;
 /// the head parses and there is no namespace to charge it to. A body may take
 /// the full read timeout; a head is a few hundred bytes.
 const HEAD_DEADLINE: Duration = Duration::from_secs(10);
+/// What a refused connection reads before it closes, and how long it spends
+/// reading it.
+///
+/// A refusal is written and the socket dropped — but a close on a socket whose
+/// peer is still sending is a reset, and a reset discards the response the peer
+/// had not read yet. The caller then sees "connection reset by peer" exactly
+/// where the server had just told them, in a status and a header, why it said
+/// no. So a refusal shuts its write half down and reads what is still in
+/// flight, which lets the peer see the response and then a clean end of stream.
+/// Bounded both ways on purpose: an unbounded drain would hand a refused caller
+/// the right to decide how long this server reads for them, which is the cost
+/// the refusal existed not to pay. A request head plus a small body fits well
+/// inside these; a 64 MiB upload does not, and the reset it then gets is the
+/// one case where the diagnostic is worth less than the slot.
+const REFUSAL_DRAIN_BYTES: usize = 64 * 1024;
+const REFUSAL_DRAIN_DEADLINE: Duration = Duration::from_millis(250);
+/// How many refused sockets wait to be drained on the accept path.
+///
+/// The accept loop is one thread and every connection this server will ever
+/// take crosses it, so it may not spend the drain deadline itself: a peer that
+/// connects over the cap and then says nothing would be buying 250 ms of the
+/// listener with a syscall, and eight of them at once measured a 179x slowdown
+/// on the time to refuse. So the accept path writes the refusal and hands the
+/// socket to one long-lived reaper thread — one thread for the whole server,
+/// not one per refusal, which is the exhaustion the cap exists to prevent.
+/// The queue is bounded and an overflow simply drops the socket: under a flood
+/// the diagnostic is what gets lost, never the listener's next accept.
+const REFUSAL_REAPER_QUEUE: usize = 64;
 /// The share of [`MAX_CONNECTIONS`] one space may hold at once, and the share
 /// every space together may hold.
 ///
@@ -155,6 +184,15 @@ impl Server {
         listener
             .set_nonblocking(true)
             .map_err(|error| format!("could not configure the listener: {error}"))?;
+        // One reaper for the whole server. It ends when the accept loop drops
+        // its sender, which is the moment nothing can refuse a connection
+        // again, so there is nothing to join.
+        let (reaper, refused): (SyncSender<TcpStream>, _) = sync_channel(REFUSAL_REAPER_QUEUE);
+        thread::spawn(move || {
+            while let Ok(mut stream) = refused.recv() {
+                close_after_refusal(&mut stream);
+            }
+        });
         let thread = {
             let shutdown = Arc::clone(&shutdown);
             let accepted = Arc::clone(&accepted);
@@ -174,6 +212,20 @@ impl Server {
                                     Response::error(503, "Service Unavailable")
                                         .with_header(REFUSAL_HEADER, "server-busy"),
                                 );
+                                // Refused before a byte of the request was
+                                // read, so this is the path where the whole
+                                // head is sitting unread in the receive buffer
+                                // and a bare close would reset it away. The
+                                // drain that saves the response from that
+                                // reset happens on the reaper, never here:
+                                // time spent on this thread is time no other
+                                // caller is accepted, and how long a silent
+                                // peer takes to drain is the peer's choice.
+                                if let Err(TrySendError::Full(refused) | TrySendError::Disconnected(refused)) =
+                                    reaper.try_send(stream)
+                                {
+                                    drop(refused);
+                                }
                                 continue;
                             }
                             // Counted only once the slot is taken, so a test —
@@ -1015,6 +1067,46 @@ struct Fleet {
     /// numbers drifting apart. An id disappears from the map when its last
     /// request finishes, so a deleted space leaves nothing behind here.
     in_flight: Mutex<HashMap<String, usize>>,
+    /// Namespaces whose delete began and has not finished, by space id.
+    ///
+    /// A delete unlinks the metadata and then removes the directory, and the
+    /// second half can fail — a filesystem error, a subdirectory the process
+    /// cannot enter, a half-restored backup. Without this the space was already
+    /// out of the map by then, so the operator's retry answered `404` while the
+    /// ciphertext sat on disk with nothing left that could reclaim it. An entry
+    /// here is what a retry finds: the storage is unreachable and unopenable
+    /// from the moment the delete starts, and stays deletable until it is
+    /// actually gone.
+    pending_deletes: Mutex<HashMap<String, PendingDelete>>,
+    /// The ids whose delete some thread is attempting right now. An attempt
+    /// holds its entry out of `pending_deletes` so no second caller can
+    /// reclaim the same bytes, and this is how the second caller tells that
+    /// state apart from an id that never existed.
+    owned_deletes: Mutex<HashSet<String>>,
+}
+
+/// What a `DELETE` of a space id found. Separate from `bool` because "a delete
+/// of this id is happening on another thread" is neither "gone" nor "never
+/// existed", and answering `404` to it would tell the operator the ciphertext
+/// is not there while it is still being removed.
+#[derive(Debug)]
+enum SpaceDelete {
+    /// The storage is gone and the bytes are back in the budget.
+    Done,
+    /// No such space, and nothing owed for the id.
+    Absent,
+    /// Another caller owns this delete right now.
+    InFlight,
+}
+
+/// A delete that has begun. `bytes` is what the space was charged against the
+/// server's total when it was still live, and is given back at the moment the
+/// storage really goes — an interrupted delete leaves the bytes on disk, so it
+/// leaves them charged rather than telling the operator's budget they are free.
+#[derive(Clone)]
+struct PendingDelete {
+    root: PathBuf,
+    bytes: u64,
 }
 
 /// One space's claim on the connection pool, held for exactly as long as the
@@ -1060,6 +1152,8 @@ impl Fleet {
             spaces: Mutex::new(HashMap::new()),
             total_bytes: AtomicU64::new(0),
             in_flight: Mutex::new(HashMap::new()),
+            pending_deletes: Mutex::new(HashMap::new()),
+            owned_deletes: Mutex::new(HashSet::new()),
         };
         fleet.load_spaces()?;
         Ok(fleet)
@@ -1086,6 +1180,7 @@ impl Fleet {
             Err(error) => return Err(format!("could not scan the spaces directory: {error}")),
         };
         let mut spaces = self.spaces.lock().unwrap_or_else(|error| error.into_inner());
+        let mut pending = self.pending_deletes.lock().unwrap_or_else(|error| error.into_inner());
         let mut total: u64 = 0;
         for entry in entries {
             let entry = match entry {
@@ -1100,11 +1195,36 @@ impl Fleet {
                 continue;
             }
             let root = entry.path();
-            let meta = match fs::read_to_string(root.join("meta.json"))
-                .map_err(|error| error.to_string())
-                .and_then(|text| SpaceMeta::from_json(&text))
-            {
-                Ok(meta) => meta,
+            let meta = match fs::read_to_string(root.join("meta.json")) {
+                Ok(text) => match SpaceMeta::from_json(&text) {
+                    Ok(meta) => meta,
+                    Err(error) => {
+                        eprintln!("hosted-sync: a space could not be opened: {error}");
+                        continue;
+                    }
+                },
+                // No metadata at all is a directory no route can reach, and
+                // two things leave one: an interrupted delete — unlinking the
+                // metadata is the first thing `delete_space` does — and a
+                // crash inside `create_space`, which makes the directory and
+                // opens the store before it persists `meta.json`. Enrolling
+                // either as an owed delete is right: the first finishes the
+                // delete the operator asked for, and the second removes
+                // storage that never became a space. The directory is still
+                // left exactly where it is — this function repairs nothing —
+                // but a `DELETE` of the id now finishes it instead of being
+                // told 404 over ciphertext nothing can reach.
+                //
+                // `bytes: 0` is honest about what survives a restart and not
+                // about what is on disk: the charge a live space carried is
+                // rebuilt from `meta.json`, which is the file already gone, so
+                // the "an interrupted delete keeps its bytes charged"
+                // guarantee holds within a process run and a restart re-enrolls
+                // the delete owing nothing to the budget.
+                Err(error) if error.kind() == ErrorKind::NotFound => {
+                    pending.insert(id, PendingDelete { root, bytes: 0 });
+                    continue;
+                }
                 Err(error) => {
                     eprintln!("hosted-sync: a space could not be opened: {error}");
                     continue;
@@ -1243,26 +1363,110 @@ impl Fleet {
     /// to the authenticator the instant the delete begins: the worst a crash
     /// can now leave is storage nothing can open, which is exactly the state
     /// `load_spaces` skips.
-    fn delete_space(&self, id: &str) -> Result<bool, String> {
+    ///
+    /// What that ordering left over is what [`Fleet::pending_deletes`] closes.
+    /// The removal can fail — a filesystem error, a directory the process
+    /// cannot descend into — and the space is out of the map by then, so the
+    /// operator's retry used to be answered `404` while the ciphertext was
+    /// still on disk and the total budget had already been told it was free.
+    /// A delete is therefore *owed* from the moment it starts until the
+    /// storage is really gone: enrolled before the first unlink, retried by
+    /// the next `DELETE` of the same id, and only then given back to the
+    /// budget. The answers this route has keep their meanings — `204` is
+    /// "the bytes are gone", `500` is "retry me", `404` is "nothing is owed
+    /// for this id", and `503` is "another caller is removing it right now" —
+    /// and no path leaves ciphertext behind with nothing that can reclaim it.
+    fn delete_space(&self, id: &str) -> Result<SpaceDelete, String> {
         let removed = {
             let mut spaces = self.spaces.lock().unwrap_or_else(|error| error.into_inner());
             spaces.remove(id)
         };
-        let Some(space) = removed else { return Ok(false) };
-        let held = space.quota().bytes;
-        self.total_bytes.fetch_sub(held.min(self.total_bytes.load(Ordering::SeqCst)), Ordering::SeqCst);
-        let meta_path = space.meta_path();
+        // One caller at a time owns a delete. The entry is *taken out* of
+        // `pending_deletes` rather than read from it, and the id is marked as
+        // being worked on in the same critical section, so the owner is the
+        // only thread that can decide the storage is gone and hand the bytes
+        // back. Two racing `DELETE`s of the same id used to both clone the
+        // entry and both subtract, which put the total budget below what was
+        // on disk with nothing that could reconcile it.
+        let claimed = {
+            let mut pending =
+                self.pending_deletes.lock().unwrap_or_else(|error| error.into_inner());
+            let mut owned = self.owned_deletes.lock().unwrap_or_else(|error| error.into_inner());
+            if owned.contains(id) {
+                // Somebody else is inside the removal for this id. Neither
+                // "gone" nor "never existed" is a true answer to that.
+                None
+            } else {
+                let entry = match removed {
+                    // Taking the space out of the live map is itself
+                    // exclusive, so this caller owns the delete from here. Any
+                    // entry recorded for the id is a delete that is over — the
+                    // space went live again — and this one supersedes it.
+                    Some(space) => {
+                        pending.remove(id);
+                        Some(PendingDelete { root: space.root.clone(), bytes: space.quota().bytes })
+                    }
+                    // Not live. Either the id never named a space — a `404` —
+                    // or a delete of it began and did not finish, which is the
+                    // one case that is retryable rather than absent.
+                    None => pending.remove(id),
+                };
+                if entry.is_some() {
+                    owned.insert(id.to_string());
+                }
+                entry
+            }
+        };
+        let Some(pending) = claimed else {
+            let busy = self
+                .owned_deletes
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .contains(id);
+            return Ok(if busy { SpaceDelete::InFlight } else { SpaceDelete::Absent });
+        };
+        // The delete is owed for the whole attempt: enrolled before anything is
+        // unlinked, held by this caller alone while the attempt runs, and put
+        // back for the next caller if the removal fails.
+        let outcome = self.reclaim_space(&pending);
+        {
+            let mut pending_map =
+                self.pending_deletes.lock().unwrap_or_else(|error| error.into_inner());
+            let mut owned = self.owned_deletes.lock().unwrap_or_else(|error| error.into_inner());
+            if outcome.is_err() {
+                pending_map.insert(id.to_string(), pending);
+            }
+            owned.remove(id);
+        }
+        outcome.map(|()| SpaceDelete::Done)
+    }
+
+    /// Finish a delete that has begun: the credential first, then the bytes,
+    /// then the budget. Every step is idempotent, so a retry after a failure
+    /// picks up wherever the last attempt stopped and each attempt that removes
+    /// anything is progress rather than a repeat.
+    fn reclaim_space(&self, pending: &PendingDelete) -> Result<(), String> {
+        let meta_path = pending.root.join("meta.json");
         match fs::remove_file(&meta_path) {
             Ok(()) => sync_directory_of(&meta_path)
                 .map_err(|error| format!("could not revoke the space: {error}"))?,
             Err(error) if error.kind() == ErrorKind::NotFound => {}
             Err(error) => return Err(format!("could not revoke the space: {error}")),
         }
-        match fs::remove_dir_all(&space.root) {
-            Ok(()) => Ok(true),
-            Err(error) if error.kind() == ErrorKind::NotFound => Ok(true),
-            Err(error) => Err(format!("could not delete the space: {error}")),
+        match fs::remove_dir_all(&pending.root) {
+            Ok(()) => {}
+            Err(error) if error.kind() == ErrorKind::NotFound => {}
+            Err(error) => return Err(format!("could not delete the space: {error}")),
         }
+        // Only here: the bytes are off the disk, so now the total budget hears
+        // about them. The caller holds the only copy of the entry — it came
+        // out of `pending_deletes` before this ran — so exactly one thread
+        // reaches this subtraction per delete, and the entry goes back if
+        // anything above failed, which is the honest state: the storage is
+        // still there.
+        let held = pending.bytes.min(self.total_bytes.load(Ordering::SeqCst));
+        self.total_bytes.fetch_sub(held, Ordering::SeqCst);
+        Ok(())
     }
 
     /// Store an object into a space, charged against its quota.
@@ -1604,11 +1808,61 @@ fn serve_connection(mut stream: TcpStream, fleet: &Fleet) -> Result<(), String> 
     // back when the whole request is done — head, body, work and answer — and
     // not a moment before.
     let mut slot = None;
-    let response = match read_request(&mut stream, fleet, &mut slot) {
-        Ok(request) => handle(&request, fleet),
-        Err(response) => response,
+    // A refusal is answered before the request was fully read, so its body — or
+    // the rest of its head — is still arriving when the socket closes. That is
+    // the shape that turns a close into a reset and loses the answer, so those
+    // responses get the drain and the ordinary ones, whose request was read to
+    // its end, do not need it.
+    //
+    // Not every early answer is worth the drain, though, and the rule is: a
+    // genuine refusal, decided before this connection took a namespace slot.
+    // A `500` is this server failing, not the caller being told no; a `408`
+    // was already held for the whole head deadline and is a silent peer by
+    // definition, so there is nothing in flight to save; and anything decided
+    // after `slot` was taken — the `507`/`503` a space's ceilings answer with —
+    // holds that space's own share of the pool for the length of the drain,
+    // which is the one place a refused caller could still cost the namespace
+    // it was refused from. Those close straight away.
+    let (response, refused) = match read_request(&mut stream, fleet, &mut slot) {
+        Ok(request) => (handle(&request, fleet), false),
+        Err(response) => {
+            let genuine = slot.is_none() && !matches!(response.status, 408 | 500);
+            (response, genuine)
+        }
     };
-    write_response(&mut stream, response)
+    let written = write_response(&mut stream, response);
+    if refused {
+        close_after_refusal(&mut stream);
+    }
+    written
+}
+
+/// Shut the write half down and read what the peer is still sending, up to
+/// [`REFUSAL_DRAIN_BYTES`] and [`REFUSAL_DRAIN_DEADLINE`], so the refusal
+/// already written reaches them instead of being lost to a reset.
+///
+/// Never called on the accept thread: the deadline below is time a silent peer
+/// chooses, so it is only ever spent on a connection's own thread or on the
+/// server's single refusal reaper.
+///
+/// Every error is dropped: this runs on the way out of a connection that has
+/// already been answered, and there is nothing left to report one to.
+fn close_after_refusal(stream: &mut TcpStream) {
+    // The response is out and nothing more will be written, so the peer can be
+    // told that now — a caller reading to end of stream gets there without
+    // waiting for the drain below to finish.
+    let _ = stream.shutdown(Shutdown::Write);
+    let _ = stream.set_read_timeout(Some(REFUSAL_DRAIN_DEADLINE));
+    let started = std::time::Instant::now();
+    let mut drained = 0usize;
+    let mut sink = [0u8; 4096];
+    while drained < REFUSAL_DRAIN_BYTES && started.elapsed() < REFUSAL_DRAIN_DEADLINE {
+        match stream.read(&mut sink) {
+            Ok(0) => break,
+            Ok(read) => drained += read,
+            Err(_) => break,
+        }
+    }
 }
 
 /// The headers this server makes a decision on: who is calling, how long the
@@ -1913,8 +2167,13 @@ fn handle(request: &Request, fleet: &Fleet) -> Response {
             Err(_) => Response::error(500, "Internal Server Error"),
         },
         Target::SpaceItem(id) if method == "DELETE" => match fleet.delete_space(id) {
-            Ok(true) => Response::new(204, "No Content"),
-            Ok(false) => Response::error(404, "Not Found"),
+            Ok(SpaceDelete::Done) => Response::new(204, "No Content"),
+            Ok(SpaceDelete::Absent) => Response::error(404, "Not Found"),
+            // The crate's answer for "this namespace is busy, ask again" —
+            // same status and the same header shape as the space-connection
+            // refusal, because the retry that follows is the same retry.
+            Ok(SpaceDelete::InFlight) => Response::error(503, "Service Unavailable")
+                .with_header(REFUSAL_HEADER, "delete-in-progress"),
             Err(_) => Response::error(500, "Internal Server Error"),
         },
         // A management path asked for with the wrong method is a client bug,
@@ -2690,6 +2949,25 @@ mod tests {
         String::from_utf8_lossy(&response).into_owned()
     }
 
+    /// `exchange`, plus whether the read really reached end of stream. A
+    /// connection reset delivers what was already buffered and then fails, so
+    /// the bytes alone do not say whether the peer was answered or reset.
+    fn exchange_to_end(
+        server: &Server,
+        head: &str,
+        body: &[u8],
+    ) -> (String, std::io::Result<usize>) {
+        let mut stream = TcpStream::connect(server.address()).unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        stream.write_all(head.as_bytes()).unwrap();
+        if !body.is_empty() {
+            stream.write_all(body).unwrap();
+        }
+        let mut response = Vec::new();
+        let ended = stream.read_to_end(&mut response);
+        (String::from_utf8_lossy(&response).into_owned(), ended)
+    }
+
     #[test]
     fn an_unauthorized_upload_is_refused_without_its_body_being_read() {
         let mut server = serve("unauth");
@@ -2825,6 +3103,62 @@ mod tests {
         drop(held);
         server.stop();
         assert!(response.starts_with("HTTP/1.1 503"), "{response}");
+    }
+
+    /// A refused caller gets to read the refusal. Both refusal paths answer
+    /// with the request still arriving — the accept-path 503 has not read a
+    /// byte of it, and the 401 is decided before the body — so before the
+    /// drain the close was a reset and the client saw "connection reset by
+    /// peer" where the server had written a status and a header saying exactly
+    /// what was wrong. Each leg sends real unread body bytes, which is the only
+    /// thing that makes a close a reset.
+    #[test]
+    fn a_refused_caller_reads_the_refusal_rather_than_a_reset() {
+        let mut server = serve("refusaldrain");
+        let unread = vec![b'u'; 8 * 1024];
+
+        // Refused at the credential, with its body already on the wire.
+        let head = format!(
+            "PUT /v1/objects/{} HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer wrong\r\nContent-Length: {}\r\n\r\n",
+            name('a'),
+            unread.len()
+        );
+        let (refused, ended) = exchange_to_end(&server, &head, &unread);
+        assert!(refused.starts_with("HTTP/1.1 401"), "{refused}");
+        assert!(refused.contains("WWW-Authenticate: Bearer"), "{refused}");
+        // Not just "the bytes were there": the read has to finish at end of
+        // stream. A reset surfaces here, and a client reading its response the
+        // ordinary way reports that error rather than the status.
+        ended.expect("the refusal ended in a reset rather than a clean close");
+
+        // The accept-path refusal: every slot held, so this connection is
+        // answered and dropped by the accept loop itself without ever being
+        // read from.
+        let mut held = Vec::new();
+        for _ in 0..MAX_CONNECTIONS {
+            let mut stream = TcpStream::connect(server.address()).unwrap();
+            stream.write_all(b"GET /v1/health HTTP/1.1\r\n").unwrap();
+            held.push(stream);
+        }
+        for _ in 0..1000 {
+            if server.accepted_connections() >= MAX_CONNECTIONS as u64 + 1 {
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        let busy_head = format!(
+            "PUT /v1/objects/{} HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer {TEST_TOKEN}\r\nContent-Length: {}\r\n\r\n",
+            name('b'),
+            unread.len()
+        );
+        let (busy, busy_ended) = exchange_to_end(&server, &busy_head, &unread);
+        drop(held);
+        server.stop();
+
+        // The whole point: the diagnostic survives the close.
+        assert!(busy.starts_with("HTTP/1.1 503"), "{busy}");
+        assert!(busy.contains("X-Substrate-Refusal: server-busy"), "{busy}");
+        busy_ended.expect("the accept-path refusal ended in a reset rather than a clean close");
     }
 
     /// A caller that sends half a head and then says nothing at all. Before
@@ -3120,6 +3454,238 @@ mod tests {
         server.stop();
 
         fs::set_permissions(&wedge, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    /// The other half of an interrupted delete: it stays *deletable*. The
+    /// space is out of the map the moment the delete begins, so before this
+    /// the operator's retry was answered `404` — "no such space" — while the
+    /// ciphertext was still on disk and nothing left could reclaim it. A
+    /// delete is owed until the storage is really gone, and a restart in the
+    /// middle does not forget it.
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_delete_is_retried_rather_than_answered_404() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = scratch("deleteretrywire");
+        let mut server = serve_at(&root);
+        let (id, token) = create_space(&server);
+        let object = format!("/v1/s/{id}/objects/{}", name('c'));
+        assert!(send(&server, "PUT", &object, &token, b"doomed").starts_with("HTTP/1.1 201"));
+
+        let space_root = root.join("spaces").join(&id);
+        let wedge = space_root.join("objects").join("wedge");
+        fs::create_dir(&wedge).unwrap();
+        fs::set_permissions(&wedge, fs::Permissions::from_mode(0o000)).unwrap();
+
+        let path = format!("/v1/spaces/{id}");
+        let failed = send(&server, "DELETE", &path, TEST_TOKEN, b"");
+        assert!(failed.starts_with("HTTP/1.1 500"), "{failed}");
+        // The retry names the same failure. A 404 here would be the server
+        // saying the bytes are gone while they are still on the disk.
+        let retried = send(&server, "DELETE", &path, TEST_TOKEN, b"");
+        assert!(retried.starts_with("HTTP/1.1 500"), "{retried}");
+        server.stop();
+
+        // A restart in the middle: the directory an interrupted delete leaves
+        // has no `meta.json`, which is the state nothing but a delete produces,
+        // so the delete is picked back up as owed rather than lost.
+        let mut server = serve_at(&root);
+        let after_restart = send(&server, "DELETE", &path, TEST_TOKEN, b"");
+        assert!(after_restart.starts_with("HTTP/1.1 500"), "{after_restart}");
+        // Still revoked throughout — retryable is not reachable.
+        assert!(send(&server, "GET", &object, &token, b"").starts_with("HTTP/1.1 401"));
+
+        fs::set_permissions(&wedge, fs::Permissions::from_mode(0o755)).unwrap();
+        let finished = send(&server, "DELETE", &path, TEST_TOKEN, b"");
+        assert!(finished.starts_with("HTTP/1.1 204"), "{finished}");
+        assert!(!space_root.exists(), "the retry answered 204 over storage still on disk");
+        assert!(!storage_contains(&root, b"doomed").unwrap(), "the ciphertext survived the retry");
+        // Only now is the id absent rather than owed.
+        let absent = send(&server, "DELETE", &path, TEST_TOKEN, b"");
+        assert!(absent.starts_with("HTTP/1.1 404"), "{absent}");
+        server.stop();
+    }
+
+    /// What a failed delete does to the operator's total budget. The bytes are
+    /// charged against `TOTAL_SPACE_MAX_BYTES` while they are on disk, so a
+    /// delete that did not finish must not hand them back — before this it did,
+    /// and the counter drifted below the disk with no route that could ever
+    /// reconcile it. The retry is what gives them back.
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_delete_keeps_its_bytes_charged_until_the_retry_reclaims_them() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = scratch("deleteretrybytes");
+        let config = Config { storage: root.clone(), token: TEST_TOKEN.into() };
+        let id = {
+            let fleet = Fleet::new(config.clone()).unwrap();
+            let (id, _token) = fleet.create_space().unwrap();
+            // Charged the way a real upload charges, without moving four
+            // kibibytes through the wire to do it.
+            let charged = SpaceMeta { bytes: 4096, objects: 1, ..space_meta(&root, &id) };
+            fs::write(root.join("spaces").join(&id).join("meta.json"), charged.to_json()).unwrap();
+            id
+        };
+        let fleet = Fleet::new(config).unwrap();
+        assert_eq!(fleet.total_bytes.load(Ordering::SeqCst), 4096);
+
+        let space_root = root.join("spaces").join(&id);
+        let wedge = space_root.join("objects").join("wedge");
+        fs::create_dir(&wedge).unwrap();
+        fs::set_permissions(&wedge, fs::Permissions::from_mode(0o000)).unwrap();
+
+        fleet.delete_space(&id).expect_err("the wedged remove reported success");
+        assert!(fleet.space(&id).is_none(), "a half-deleted space stayed reachable");
+        assert!(space_root.exists(), "the wedge did not interrupt the remove");
+        assert_eq!(
+            fleet.total_bytes.load(Ordering::SeqCst),
+            4096,
+            "the bytes are still on disk, so they are still the operator's budget"
+        );
+
+        fs::set_permissions(&wedge, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(
+            matches!(fleet.delete_space(&id).expect("the retry failed"), SpaceDelete::Done),
+            "the retry did not finish the delete"
+        );
+        assert!(!space_root.exists());
+        assert_eq!(fleet.total_bytes.load(Ordering::SeqCst), 0, "the reclaimed bytes never came back");
+        assert!(
+            matches!(fleet.delete_space(&id).unwrap(), SpaceDelete::Absent),
+            "a finished delete is still owed"
+        );
+    }
+
+    /// Refusing a connection may not cost the listener the refused peer's
+    /// silence. The accept loop is one thread, so when the drain ran on it a
+    /// peer that connected over the cap and then said nothing burned the whole
+    /// `REFUSAL_DRAIN_DEADLINE` there, serialized: eight of them measured 1.76 s
+    /// to the eighth refusal against 9.9 ms before the drain existed. The
+    /// deadline is now spent on the reaper thread, so the time to refuse is the
+    /// server's to choose again.
+    #[test]
+    fn refusing_a_silent_peer_does_not_hold_the_accept_loop() {
+        let mut server = serve("refusalstall");
+        // Every slot held by a head that never terminates, so the connections
+        // below are refused by the accept loop itself.
+        let mut held = Vec::new();
+        for _ in 0..MAX_CONNECTIONS {
+            let mut stream = TcpStream::connect(server.address()).unwrap();
+            stream.write_all(b"GET /v1/health HTTP/1.1\r\n").unwrap();
+            held.push(stream);
+        }
+        for _ in 0..1000 {
+            if server.accepted_connections() >= MAX_CONNECTIONS as u64 {
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(server.accepted_connections(), MAX_CONNECTIONS as u64);
+
+        // None of these ever sends a byte. Each one still has to be answered.
+        let refusals = 8usize;
+        let started = std::time::Instant::now();
+        let mut silent = Vec::new();
+        for _ in 0..refusals {
+            let stream = TcpStream::connect(server.address()).unwrap();
+            stream.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
+            silent.push(stream);
+        }
+        for stream in &mut silent {
+            let mut head = [0u8; 16];
+            let read = stream.read(&mut head).expect("a refused connection was never answered");
+            let head = String::from_utf8_lossy(&head[..read]).into_owned();
+            assert!(head.starts_with("HTTP/1.1 503"), "{head}");
+        }
+        let waited = started.elapsed();
+        drop(silent);
+        drop(held);
+        server.stop();
+
+        // Deliberately generous: the point is that the peers' silence is not a
+        // lever on this thread, not that the machine is fast. Serialized
+        // drains would put this at `refusals * REFUSAL_DRAIN_DEADLINE` — two
+        // full seconds — and each further refused peer would add another 250 ms.
+        assert!(
+            waited < Duration::from_secs(1),
+            "{refusals} silent refusals took {waited:?}; the accept loop is paying for their silence"
+        );
+        assert!(
+            waited * 2 < REFUSAL_DRAIN_DEADLINE * refusals as u32,
+            "the refusals cost about what a serialized drain costs: {waited:?}"
+        );
+    }
+
+    /// Two `DELETE`s of the same id at once. The retry this branch introduced
+    /// is a workflow an operator runs concurrently by accident — a second click,
+    /// a script and a hand — and before the claim below both callers cloned the
+    /// same pending entry and both subtracted its bytes, which put the total
+    /// budget under what was on disk with no route that could reconcile it.
+    /// Measured drift before the fix: 196,608 bytes over sixty-three rounds.
+    #[cfg(unix)]
+    #[test]
+    fn racing_deletes_of_one_id_give_the_budget_back_once() {
+        let root = scratch("deleterace");
+        let config = Config { storage: root.clone(), token: TEST_TOKEN.into() };
+        let rounds = 32usize;
+        let charge = 4096u64;
+
+        // Each round's victim is charged for the same amount, and one space is
+        // never deleted so the honest total is a number rather than zero — a
+        // double decrement that saturated at zero would otherwise pass.
+        let (victims, bystander) = {
+            let fleet = Fleet::new(config.clone()).unwrap();
+            let mut victims = Vec::new();
+            for _ in 0..rounds {
+                let (id, _token) = fleet.create_space().unwrap();
+                let charged = SpaceMeta { bytes: charge, objects: 1, ..space_meta(&root, &id) };
+                fs::write(root.join("spaces").join(&id).join("meta.json"), charged.to_json())
+                    .unwrap();
+                victims.push(id);
+            }
+            let (id, _token) = fleet.create_space().unwrap();
+            let charged =
+                SpaceMeta { bytes: charge * rounds as u64, objects: 1, ..space_meta(&root, &id) };
+            fs::write(root.join("spaces").join(&id).join("meta.json"), charged.to_json()).unwrap();
+            (victims, id)
+        };
+
+        let fleet = Arc::new(Fleet::new(config).unwrap());
+        let on_disk = charge * rounds as u64;
+        assert_eq!(fleet.total_bytes.load(Ordering::SeqCst), on_disk * 2);
+
+        let mut finished = 0usize;
+        for id in &victims {
+            let handles: Vec<_> = (0..2)
+                .map(|_| {
+                    let fleet = Arc::clone(&fleet);
+                    let id = id.clone();
+                    thread::spawn(move || fleet.delete_space(&id))
+                })
+                .collect();
+            for handle in handles {
+                match handle.join().unwrap().expect("a raced delete failed") {
+                    SpaceDelete::Done => finished += 1,
+                    // The loser either arrived while the winner held the claim
+                    // — `503`, ask again — or after it was over, which is the
+                    // ordinary `404` a deleted id has always answered.
+                    SpaceDelete::InFlight | SpaceDelete::Absent => {}
+                }
+            }
+        }
+
+        assert_eq!(finished, rounds, "a delete was reported done more than once");
+        assert_eq!(
+            fleet.total_bytes.load(Ordering::SeqCst),
+            on_disk,
+            "the total budget drifted away from the bytes actually on disk"
+        );
+        assert!(fleet.space(&bystander).is_some(), "the bystander was deleted too");
+        for id in &victims {
+            assert!(!root.join("spaces").join(id).exists(), "a raced delete left its storage");
+        }
     }
 
     /// The counters are what bounds the damage a leaked invite can do to the

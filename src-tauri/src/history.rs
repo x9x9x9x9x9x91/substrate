@@ -68,10 +68,32 @@ pub(crate) const SENTINEL: &str = ".git/substrate-owned";
 pub(crate) const EXCLUDE_CONTENT: &str =
     ".assets/\n.trash/\n.DS_Store\n.vault/notifications.json\n.vault/jobs-exit.json\n.vault/seal-conversion.json\n.vault/seal-trust.json\n";
 
-/// Every line `EXCLUDE_CONTENT` has ever carried, across versions — the
+/// `.git/info/exclude` for a shared space's repository, which is a different
+/// list for two reasons.
+///
+/// **`.assets/` is absent, and that is the point.** A vault's assets are
+/// excluded because they are one device's attachments beside one device's
+/// notes: nothing else ever needs them and they would only make the vault's
+/// history heavy. In a space the same folder is the difference between a
+/// member seeing an image and a member seeing a broken embed, so a space
+/// commits its assets like any other content and they travel with its history.
+/// The size question that exclusion was avoiding is answered where the files
+/// come in rather than here — a space's assets are copied in at share time,
+/// and anything past the transport's per-object ceiling is left in the vault
+/// with a sentence saying so (`gitsync/space.rs`).
+///
+/// **The `.vault/` paths are absent because a space has no `.vault/`.** The
+/// allowlist refuses the whole directory, so listing files inside it would be
+/// excluding paths that can never exist. What is left is the device noise a
+/// folder picks up on its own: the trash the app writes, and what Finder
+/// leaves behind.
+pub(crate) const SPACE_EXCLUDE_CONTENT: &str = ".trash/\n.DS_Store\n";
+
+/// Every line either exclude constant has ever carried, across versions — the
 /// vocabulary of an exclude file Substrate wrote. Used as a fallback ownership
 /// marker when the sentinel is gone (`exclude_is_ours`), so it must stay a
-/// superset of the current constant (asserted in `exclude_vocabulary_covers_the_constant`).
+/// superset of both current constants (asserted in
+/// `exclude_vocabulary_covers_the_constant`).
 /// Anything else in `.git/info/exclude` means a human wrote it.
 pub(crate) const EXCLUDE_LINES_EVER_OURS: &[&str] = &[
     ".assets/",
@@ -93,10 +115,16 @@ pub(crate) const EXCLUDE_LINES_EVER_OURS: &[&str] = &[
 /// boot — version history off forever, on a repo that was always ours.
 ///
 /// So a second marker: an exclude file whose every line is one Substrate has
-/// written, anchored on `.assets/` + `.trash/` (present in every version).
-/// A user's own repo would have to hold exactly that vocabulary and nothing
-/// else — no `*.tmp`, no `node_modules/`, no comment — to be mistaken for
-/// ours, while `.trash/`-style entries are meaningless outside a vault.
+/// written, anchored on `.trash/` + `.DS_Store` — the two lines every version
+/// of both flavours carries. A user's own repo would have to hold exactly that
+/// vocabulary and nothing else — no `*.tmp`, no `node_modules/`, no comment —
+/// to be mistaken for ours, while a `.trash/`-style entry is meaningless
+/// outside a vault or a space.
+///
+/// The anchor is those two rather than `.assets/` + `.trash/` because a space
+/// repository deliberately does NOT exclude `.assets/`
+/// ([`SPACE_EXCLUDE_CONTENT`]) — anchoring on a line only one flavour writes
+/// would read every space this app makes as somebody else's repository.
 /// Deliberately NOT part of the marker: the local `user.name`/`user.email`,
 /// which a user can set to anything (the hijack shape in
 /// `mixed_authorship_repo_stays_foreign` sets them to Substrate's own).
@@ -105,8 +133,8 @@ pub(crate) fn exclude_is_ours(root: &Path) -> bool {
         return false;
     };
     let lines: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
-    lines.contains(&".assets/")
-        && lines.contains(&".trash/")
+    lines.contains(&".trash/")
+        && lines.contains(&".DS_Store")
         && lines.iter().all(|l| EXCLUDE_LINES_EVER_OURS.contains(l))
 }
 
@@ -167,12 +195,42 @@ fn resolve_rename(p: &str) -> String {
 impl History {
     #[cfg(mobile)]
     pub fn new(root: PathBuf) -> Result<Self, String> {
-        let enabled = crate::gitsync::history_prepare(&root)?;
+        let enabled = crate::gitsync::history_prepare(&root, EXCLUDE_CONTENT)?;
+        Ok(History { root, enabled })
+    }
+
+    /// The mobile half of `new_space` below, which owns the reasoning. It
+    /// exists because spaces are built on mobile too — the space command
+    /// surface carries no `cfg`, so `gitsync/space.rs` compiles for iOS and
+    /// calls this. Delegating to the vault-flavour prepare instead would
+    /// hand every iOS space a vault's exclusions, which is the one thing
+    /// this constructor exists to prevent.
+    #[cfg(mobile)]
+    pub fn new_space(root: PathBuf) -> Result<Self, String> {
+        let enabled = crate::gitsync::history_prepare(&root, SPACE_EXCLUDE_CONTENT)?;
         Ok(History { root, enabled })
     }
 
     #[cfg(not(mobile))]
     pub fn new(root: PathBuf) -> Result<Self, String> {
+        Self::opened(root, EXCLUDE_CONTENT)
+    }
+
+    /// The same repository, made and re-opened as a SPACE's rather than a
+    /// vault's: everything about it is identical except the exclusions it
+    /// writes ([`SPACE_EXCLUDE_CONTENT`] — assets travel in a space).
+    ///
+    /// It matters on every call and not only the first: this rewrites
+    /// `.git/info/exclude` each time it opens a repository it owns, so
+    /// re-opening a space through the vault's constructor would put `.assets/`
+    /// back and stop the space committing its own images from that moment on.
+    #[cfg(not(mobile))]
+    pub fn new_space(root: PathBuf) -> Result<Self, String> {
+        Self::opened(root, SPACE_EXCLUDE_CONTENT)
+    }
+
+    #[cfg(not(mobile))]
+    fn opened(root: PathBuf, exclude: &str) -> Result<Self, String> {
         let git_dir = root.join(".git");
         let owned = if !git_dir.exists() {
             let h = History { root: root.clone(), enabled: true };
@@ -212,8 +270,7 @@ impl History {
             // dotfiles; .trash/ stays out so "delete forever" there means it —
             // a note's pre-trash snapshots remain under its original path
             fs::create_dir_all(h.root.join(".git/info")).map_err(|e| e.to_string())?;
-            fs::write(h.root.join(".git/info/exclude"), EXCLUDE_CONTENT)
-                .map_err(|e| e.to_string())?;
+            fs::write(h.root.join(".git/info/exclude"), exclude).map_err(|e| e.to_string())?;
             h.untrack_notification_state();
         }
         Ok(h)
@@ -1807,12 +1864,64 @@ mod tests {
         // EXCLUDE_LINES_EVER_OURS is what `exclude_is_ours` matches against;
         // if a new exclusion lands in EXCLUDE_CONTENT without being added
         // there, every vault carrying it stops looking like ours
-        for line in EXCLUDE_CONTENT.lines().filter(|l| !l.trim().is_empty()) {
+        // — and the same for the space flavour, which is a second thing we
+        // write into the same file and is read by the same detection.
+        let ours = EXCLUDE_CONTENT.lines().chain(SPACE_EXCLUDE_CONTENT.lines());
+        for line in ours.filter(|l| !l.trim().is_empty()) {
             assert!(
                 EXCLUDE_LINES_EVER_OURS.contains(&line),
                 "{line:?} is written by us but missing from EXCLUDE_LINES_EVER_OURS"
             );
         }
+    }
+
+    /// A space's exclusions are a shorter list than a vault's, and the shorter
+    /// list has to stay recognisable as ours. The ownership check is what
+    /// stands between a repository this app made and being read as somebody
+    /// else's checkout — which turns version history off for it.
+    #[test]
+    fn a_spaces_exclude_is_ours_too() {
+        let dir = user_repo("spaceexcludes");
+        user_git(&dir, &["init", "-q", "-b", "main"]);
+        let exclude = dir.join(".git/info/exclude");
+
+        fs::write(&exclude, SPACE_EXCLUDE_CONTENT).unwrap();
+        assert!(exclude_is_ours(&dir), "a space's own exclude is not recognised as ours");
+        // The point of the constant: a space does not exclude its assets, so
+        // the images its notes embed are committed and travel with it.
+        assert!(!SPACE_EXCLUDE_CONTENT.contains(".assets/"), "a space is excluding its assets");
+        // A vault still does.
+        assert!(EXCLUDE_CONTENT.contains(".assets/\n"), "a vault stopped excluding its assets");
+        // And a person's own line in a space's exclude is still a person's.
+        fs::write(&exclude, format!("{SPACE_EXCLUDE_CONTENT}*.tmp\n")).unwrap();
+        assert!(!exclude_is_ours(&dir));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// The space constructor differs from the vault's in exactly one visible
+    /// way, and it applies on every open rather than only at creation —
+    /// re-opening a space through the vault's constructor would put `.assets/`
+    /// back and stop it committing images from that moment on.
+    #[test]
+    fn opening_a_space_writes_a_spaces_exclusions_every_time() {
+        let dir = user_repo("spaceopen");
+        let space = History::new_space(dir.clone()).unwrap();
+        drop(space);
+        let exclude = dir.join(".git/info/exclude");
+        assert_eq!(fs::read_to_string(&exclude).unwrap(), SPACE_EXCLUDE_CONTENT);
+        // A hand-edit, or an older build's vault-flavoured file, is put right.
+        fs::write(&exclude, EXCLUDE_CONTENT).unwrap();
+        History::new_space(dir.clone()).unwrap();
+        assert_eq!(fs::read_to_string(&exclude).unwrap(), SPACE_EXCLUDE_CONTENT);
+        // While a vault opened as a vault is unchanged by any of this.
+        let vault_dir = user_repo("vaultopen");
+        History::new(vault_dir.clone()).unwrap();
+        assert_eq!(
+            fs::read_to_string(vault_dir.join(".git/info/exclude")).unwrap(),
+            EXCLUDE_CONTENT
+        );
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&vault_dir);
     }
 
     #[test]

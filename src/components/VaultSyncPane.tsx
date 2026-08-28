@@ -652,7 +652,7 @@ export default function VaultSyncPane({
                     onClick={() => void replaceHosted()}
                   >
                     {busy === "replace" ? (
-                      <span className="sync-spinner" />
+                      <span className="sync-spinner" role="status" aria-label="Working" />
                     ) : replaceArmed ? (
                       "Replace the server’s copy"
                     ) : (
@@ -722,7 +722,7 @@ export default function VaultSyncPane({
                     onClick={() => void adoptReplaced()}
                   >
                     {busy === "adopt" ? (
-                      <span className="sync-spinner" />
+                      <span className="sync-spinner" role="status" aria-label="Working" />
                     ) : adoptArmed ? (
                       adoptCost ? (
                         "Discard this device\u2019s work and sync"
@@ -761,7 +761,7 @@ export default function VaultSyncPane({
                     disabled={acking}
                     onClick={() => void dismissPrivacy()}
                   >
-                    {acking ? <span className="sync-spinner" /> : "Dismiss"}
+                    {acking ? <span className="sync-spinner" role="status" aria-label="Working" /> : "Dismiss"}
                   </button>
                 </div>
               </div>
@@ -775,7 +775,7 @@ export default function VaultSyncPane({
                   disabled={busy !== null}
                   onClick={() => void run("pull")}
                 >
-                  {busy === "pull" ? <span className="sync-spinner" /> : "Pull"}
+                  {busy === "pull" ? <span className="sync-spinner" role="status" aria-label="Working" /> : "Pull"}
                 </button>
                 <button
                   type="button"
@@ -783,7 +783,7 @@ export default function VaultSyncPane({
                   disabled={busy !== null}
                   onClick={() => void run("push")}
                 >
-                  {busy === "push" ? <span className="sync-spinner" /> : "Push"}
+                  {busy === "push" ? <span className="sync-spinner" role="status" aria-label="Working" /> : "Push"}
                 </button>
               </div>
             )}
@@ -954,7 +954,7 @@ export default function VaultSyncPane({
                       disabled={busy !== null}
                     >
                       {busy === "passphrase" ? (
-                        <span className="sync-spinner" />
+                        <span className="sync-spinner" role="status" aria-label="Working" />
                       ) : (
                         "Change passphrase"
                       )}
@@ -1158,7 +1158,7 @@ export default function VaultSyncPane({
                   disabled={busy !== null || !remoteUrl.trim() || statusPending}
                 >
                   {busy === "save" ? (
-                    <span className="sync-spinner" />
+                    <span className="sync-spinner" role="status" aria-label="Working" />
                   ) : downgradeArmed ? (
                     "Save unencrypted remote"
                   ) : (

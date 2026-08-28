@@ -42,9 +42,11 @@
 // until then the tests are what keep those parts honest.
 #![cfg_attr(not(test), allow(dead_code))]
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use unicase::UniCase;
 use walkdir::WalkDir;
@@ -606,6 +608,11 @@ pub(crate) struct Space {
     /// store; it is not written to disk here.
     pub(crate) key: MasterKey,
     pub(crate) report: SyncReport,
+    /// One sentence per referenced asset that did not come along — too big for
+    /// the transport, a name a space may not carry, a link, unreadable. Empty
+    /// on every ordinary share, and empty on a join, which copies nothing.
+    /// The share succeeded either way; this is what to say about it.
+    pub(crate) left_behind: Vec<String>,
 }
 
 /// Turn a vault folder into a space: enroll a key into the namespace, move the
@@ -698,10 +705,14 @@ pub(crate) fn create_from_folder<G>(
         name: clean_name(plan.name),
     };
     let mut recorded = false;
+    let mut left_behind = Vec::new();
+    // What the copy-in wrote, so an undo can take exactly that back out
+    // before it moves the folder home (`undo_create`).
+    let mut copied = CopiedIn::default();
     let built = (|| {
         fs::create_dir_all(plan.root)
             .map_err(|error| format!("could not create {}: {error}", plan.root.display()))?;
-        let space = History::new(plan.root.to_path_buf())?;
+        let space = History::new_space(plan.root.to_path_buf())?;
         let left = move_contents(&source, plan.root)?;
         // The folder goes only when the move emptied it. What can be left is
         // an excluded name — a `.DS_Store` Finder wrote — and that is somebody
@@ -713,6 +724,11 @@ pub(crate) fn create_from_folder<G>(
             })?;
         }
         write_manifest(plan.root, &manifest)?;
+        // After the move, because what the notes embed is read from where the
+        // notes now are; before the vault's snapshot, because the vault is
+        // only recording a departure and nothing it holds changes here.
+        copied = copy_referenced_assets(vault_root, plan.root)?;
+        left_behind = copied.left_behind.clone();
 
         // The vault records the departure as its own edit — the files are
         // gone from its working tree and its next snapshot has to say so, or a
@@ -727,7 +743,7 @@ pub(crate) fn create_from_folder<G>(
         Ok(space) => space,
         Err(error) => {
             let vault = recorded.then_some(vault);
-            return Err(undo_create(&source, plan.root, vault, &folder, error));
+            return Err(undo_create(&source, plan.root, vault, &folder, &copied, error));
         }
     };
 
@@ -737,7 +753,211 @@ pub(crate) fn create_from_folder<G>(
     // that gets published on the next sync — so it stays exactly as it is.
     commit_as(&space, plan.member, &format!("{} created", manifest.name))?;
     let report = blob::push(plan.root, &key, transport, gate)?;
-    Ok(Space { root: plan.root.to_path_buf(), manifest, key, report })
+    Ok(Space { root: plan.root.to_path_buf(), manifest, key, report, left_behind })
+}
+
+/// How big a file is, in the words a person uses about one.
+fn how_big(bytes: u64) -> String {
+    const MB: f64 = (1024 * 1024) as f64;
+    match bytes {
+        n if n >= 10 * 1024 * 1024 => format!("{} MB", (n as f64 / MB).round() as u64),
+        n => format!("{:.1} MB", n as f64 / MB),
+    }
+}
+
+/// The vault assets a shared folder's notes point at, copied into the space's
+/// own `.assets/`.
+///
+/// A vault has ONE flat `.assets/` at its root, and a note names an attachment
+/// by bare name. Sharing a subfolder moves the notes out of the vault and
+/// leaves that folder behind, so without this the person who shared the folder
+/// is the first to see the broken embeds — on their own machine, at create,
+/// with no network involved. Members see them too, because what is not in the
+/// space's history never reaches anybody.
+///
+/// It COPIES. The vault keeps its originals, because the notes still in the
+/// vault may embed the same file and a share is not a licence to break them.
+/// Inside the space the convention is unchanged: a flat `.assets/` at the
+/// space root, resolved by bare name, so no note body is rewritten by this.
+///
+/// What it does not do is guess. Only a bare name resolves — an embed carrying
+/// a path, or pointing at an absolute or `~/` location, names something that
+/// was never in `.assets/` and stays a link to where it is. An embed inside a
+/// code fence or an inline span is an example of the syntax rather than a
+/// reference, exactly as the vault's own orphan sweep reads it, so it brings
+/// nothing along.
+///
+/// Returns a sentence for each file that did NOT come, and returns them rather
+/// than failing: a file past the transport's per-object ceiling, one whose
+/// name a space may not carry, one that is a link, one that is a folder or
+/// some other thing that is not a file, one that could not be read — and a
+/// note this cannot read as text, whose embeds it therefore never saw. None
+/// of those stops the share. Failing the create over a single oversized image
+/// would cost someone the whole gesture for one file, and saying nothing is
+/// the silence this work exists to end — including the silences that would be
+/// accidents rather than decisions, which is why every skip below either
+/// leaves a sentence or is a case where nothing changed at all.
+fn copy_referenced_assets(vault_root: &Path, space_root: &Path) -> Result<CopiedIn, String> {
+    let embed = Regex::new(r"!\[\[([^\[\]]+)\]\]").expect("a literal pattern compiles");
+    // Keyed by folded name, valued by the name as a note writes it: the
+    // filesystem the app runs on resolves embeds case-insensitively, so two
+    // notes naming `Cover.png` and `cover.png` want one copy, not two.
+    let mut wanted: BTreeMap<String, String> = BTreeMap::new();
+    let mut left_behind = Vec::new();
+    for entry in WalkDir::new(space_root)
+        .min_depth(1)
+        .follow_links(false)
+        .follow_root_links(false)
+        .into_iter()
+        .filter_entry(|entry| {
+            let name = entry.file_name();
+            name != GIT_DIR && !same_name(&name.to_string_lossy(), ASSETS_DIR)
+        })
+    {
+        let entry =
+            entry.map_err(|error| format!("could not read {}: {error}", space_root.display()))?;
+        if !entry.file_type().is_file()
+            || !entry.path().extension().is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
+        {
+            continue;
+        }
+        // A note this call cannot read as text is one whose embeds it cannot
+        // see. It is not a reason to fail the share and the note travels
+        // either way, but it IS a reason to say so: silently bringing none of
+        // one note's images is indistinguishable, from the outside, from that
+        // note having none.
+        let Ok(body) = fs::read_to_string(entry.path()) else {
+            let named = entry.path().strip_prefix(space_root).unwrap_or(entry.path());
+            left_behind.push(format!(
+                "{} is not text this could read, so any images it embeds stayed in the \
+                 vault — the note itself came along",
+                named.display()
+            ));
+            continue;
+        };
+        let code = crate::vault::code_ranges(&body);
+        for found in embed.captures_iter(&body) {
+            let whole = found.get(0).expect("a match has a whole");
+            if crate::vault::in_code(&code, whole.start(), whole.end()) {
+                continue;
+            }
+            let name = crate::vault::embed_target(&found[1]);
+            // A bare name is one path component, so what disqualifies one is
+            // a SEPARATOR — or a component that is itself a directory rather
+            // than a name. `..` inside a name is neither: `photo..2024.png`
+            // is a file people have, and skipping it was this feature's own
+            // kind of accidental silence.
+            if name.is_empty()
+                || name.contains('/')
+                || name.contains('\\')
+                || name == "."
+                || name == ".."
+            {
+                continue;
+            }
+            wanted.entry(name.to_lowercase()).or_insert_with(|| name.to_string());
+        }
+    }
+
+    let source_dir = vault_root.join(ASSETS_DIR);
+    let target_dir = space_root.join(ASSETS_DIR);
+    // The name a copy is written under comes from the vault's directory
+    // entry, never from the note. `![[Cover.png]]` resolves to `cover.png` on
+    // the case-insensitive filesystem the app runs on, but the copy TRAVELS —
+    // and a member on a case-sensitive one (an iOS device, a Linux checkout)
+    // gets a file the note's own spelling no longer finds. Keyed by folded
+    // name, the same way `wanted` is.
+    let mut on_disk: BTreeMap<String, String> = BTreeMap::new();
+    if let Ok(entries) = fs::read_dir(&source_dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let folded = name.to_lowercase();
+            // A case-sensitive filesystem can hold `cover.png` AND
+            // `Cover.png`, and then the note's own spelling is the one it
+            // means: it is what its filesystem resolved.
+            let exact = wanted.get(&folded).is_some_and(|spelled| *spelled == name);
+            if exact || !on_disk.contains_key(&folded) {
+                on_disk.insert(folded, name);
+            }
+        }
+    }
+    // Whether the shared folder brought an `.assets/` of its own decides
+    // whether the undo may remove the directory or only the files in it.
+    let had_assets_dir = target_dir.exists();
+    let mut copied = Vec::new();
+    for (folded, spelled) in &wanted {
+        let name = on_disk.get(folded).unwrap_or(spelled);
+        let source = source_dir.join(name);
+        // An embed naming nothing was already broken in the vault, and a copy
+        // cannot mend it. Silence is the honest answer: nothing changed.
+        let Ok(found) = fs::symlink_metadata(&source) else { continue };
+        if found.file_type().is_symlink() {
+            left_behind.push(format!(
+                "{name} is a link to somewhere else, and a space carries files rather than \
+                 links, so it stayed in the vault"
+            ));
+            continue;
+        }
+        if found.is_dir() {
+            left_behind.push(format!(
+                "{name} is a folder rather than a file, and a space carries the files its notes                  embed, so it stayed in the vault"
+            ));
+            continue;
+        }
+        if !found.is_file() {
+            left_behind.push(format!(
+                "{name} is not an ordinary file, and a space carries ordinary files, so it                  stayed in the vault"
+            ));
+            continue;
+        }
+        // The allowlist, asked before anything is written rather than after:
+        // an asset whose own name a space may not carry would otherwise be
+        // copied in and then refuse every pull for every member.
+        let relative = format!("{ASSETS_DIR}/{name}");
+        if let Some(why) = refusal(&relative) {
+            left_behind.push(format!("{why}, so it stayed in the vault"));
+            continue;
+        }
+        if found.len() > blob::MAX_OBJECT_BYTES as u64 {
+            left_behind.push(format!(
+                "{name} is {}, and a space carries files up to {}, so it stayed in the vault — \
+                 the notes that embed it will show it as missing",
+                how_big(found.len()),
+                how_big(blob::MAX_OBJECT_BYTES as u64)
+            ));
+            continue;
+        }
+        let target = target_dir.join(name);
+        // The shared folder may have brought an `.assets/` of its own. That
+        // file is the one its notes have always resolved to; the vault's copy
+        // does not get to write over it.
+        if target.exists() {
+            continue;
+        }
+        match fs::create_dir_all(&target_dir).and_then(|()| fs::copy(&source, &target).map(|_| ()))
+        {
+            Ok(()) => copied.push(name.to_string()),
+            Err(error) => {
+                left_behind.push(format!("{name} could not be copied into the space: {error}"));
+            }
+        }
+    }
+    let made_assets_dir = !had_assets_dir && !copied.is_empty();
+    Ok(CopiedIn { left_behind, copied, made_assets_dir })
+}
+
+/// What a copy-in did, for the two callers that need different halves of it:
+/// the create reports `left_behind` to the person sharing, and the undo needs
+/// `copied` to take back out exactly what was put in.
+#[derive(Default)]
+struct CopiedIn {
+    /// One plain sentence per file that did NOT come.
+    left_behind: Vec<String>,
+    /// The names written into the space's `.assets/`, as they were written.
+    copied: Vec<String>,
+    /// The space had no `.assets/` until this made one, so an undo may remove
+    /// the directory as well as its contents.
+    made_assets_dir: bool,
 }
 
 /// Commit into a space under the member name this device typed, or under the
@@ -753,6 +973,15 @@ fn commit_as(space: &History, member: &str, label: &str) -> Result<bool, String>
 
 /// Undo a create that failed after the namespace was claimed: put back what
 /// moved, take the half-built space away, and say which of those happened.
+///
+/// It takes the vault's assets back out FIRST. The create copies them into
+/// the space's `.assets/` before the vault's departure snapshot, so a failure
+/// after that point would otherwise move them home along with everything
+/// else — leaving a second copy of the vault's own attachments at
+/// `<vault>/<folder>/.assets/`, where the vault excludes them at any depth
+/// and neither its history nor its orphan sweep would ever mention them. The
+/// promise this makes is that the folder is back as it was, so what the
+/// create itself put in the folder does not come back with it.
 ///
 /// The order matters and so does the refusal to force it. Whatever is still in
 /// the space root is either nothing or a copy of files that are now back in
@@ -771,8 +1000,22 @@ fn undo_create(
     root: &Path,
     vault: Option<&History>,
     folder: &str,
+    copied: &CopiedIn,
     error: String,
 ) -> String {
+    // Exactly what the copy-in wrote, by name — never the whole directory,
+    // because the shared folder may have brought an `.assets/` of its own and
+    // those files came from the vault's folder and belong back in it. The
+    // directory goes only when this create is what made it. Best effort like
+    // the restore below: the vault still holds every original, so a removal
+    // that fails leaves a duplicate rather than a hole.
+    let space_assets = root.join(ASSETS_DIR);
+    for name in &copied.copied {
+        let _ = fs::remove_file(space_assets.join(name));
+    }
+    if copied.made_assets_dir {
+        let _ = fs::remove_dir(&space_assets);
+    }
     let restored = restore_folder(source, root);
     if restored == Restored::Partial {
         return format!(
@@ -824,6 +1067,10 @@ enum Restored {
 /// the create itself made. Best effort by design: it reports how far it got
 /// rather than failing, because it runs while another failure is already
 /// being reported.
+///
+/// It skips `.git` and the manifest by name, and it relies on its one caller
+/// having already removed the assets the create copied in — everything else
+/// left in the space root came out of the vault's folder and goes back.
 fn restore_folder(source: &Path, root: &Path) -> Restored {
     if fs::create_dir_all(source).is_err() {
         return Restored::Partial;
@@ -906,7 +1153,7 @@ pub(crate) fn join<G>(
     fs::create_dir_all(root)
         .map_err(|error| format!("could not create {}: {error}", root.display()))?;
     let joined = (|| {
-        History::new(root.to_path_buf())?;
+        History::new_space(root.to_path_buf())?;
         let report = blob::pull_space(root, &key, transport, gate)?;
         let mut refused = refused_paths(root)?;
         refused.extend(refused_in_history(root)?);
@@ -920,7 +1167,11 @@ pub(crate) fn join<G>(
         Ok((manifest, report))
     })();
     match joined {
-        Ok((manifest, report)) => Ok(Space { root: root.to_path_buf(), manifest, key, report }),
+        // A join copies nothing in: the assets arrived with the history, which
+        // is the whole of what this side has to do about them.
+        Ok((manifest, report)) => {
+            Ok(Space { root: root.to_path_buf(), manifest, key, report, left_behind: Vec::new() })
+        }
         Err(error) => {
             // Nothing here is anyone's work yet — it was all pulled seconds
             // ago and is still on the server — so the half-joined directory
@@ -987,7 +1238,7 @@ pub(crate) fn rekey(
         return Err("a re-key has to move the space to a namespace of its own".into());
     }
     let was = manifest.id.clone();
-    let space = History::new(root.to_path_buf())?;
+    let space = History::new_space(root.to_path_buf())?;
 
     // The namespace first, and through the same enrollment a create uses: a
     // key doc already in there means the id was not freshly minted, and this
@@ -2469,6 +2720,62 @@ mod tests {
         assert!(!space_root.exists(), "the half-built space was left behind");
     }
 
+    /// The same undo, on a create that got far enough to copy the vault's
+    /// assets in. "The folder is back as it was" has to mean that: moving the
+    /// space root home wholesale would leave a second copy of the vault's own
+    /// attachments at `<vault>/Trip/.assets/`, a path the vault excludes at
+    /// any depth — so neither its history nor its orphan sweep would ever
+    /// mention them, and nobody would find them to delete them.
+    #[test]
+    fn a_create_that_fails_after_copying_assets_takes_them_back_out() {
+        let scratch = TempDir::new().unwrap();
+        let server = serve(&scratch.path().join("server-storage"));
+        let (id, token) = mint_space(&server);
+        let transport = HttpBlobStore::for_space(&server.base_url(), &id, &token).unwrap();
+        let (vault_root, history) = a_vault_with_assets(scratch.path());
+        // Wedge the vault's repository. The departure snapshot is the very
+        // next thing after the copy-in, and git will not write an index while
+        // a lock file is sitting beside it — a failure in exactly the window
+        // where the assets are already in the space.
+        fs::write(vault_root.join(".git/index.lock"), "").unwrap();
+
+        let space_root = scratch.path().join("spaces").join("Trip");
+        let plan = SpacePlan {
+            id: &id,
+            name: "Trip",
+            folder: "Trip",
+            member: "",
+            root: space_root.as_path(),
+        };
+        let error =
+            create_from_folder(&vault_root, &history, &plan, &secret(), &transport, || ())
+                .unwrap_err();
+        fs::remove_file(vault_root.join(".git/index.lock")).unwrap();
+
+        assert!(error.contains("back in this vault"), "{error}");
+        let vault_now = contents(&vault_root);
+        assert_eq!(
+            vault_now.get("Trip/Plan.md").map(String::as_str).map(|body| body.contains("meet at six")),
+            Some(true),
+            "{vault_now:?}"
+        );
+        assert!(!space_root.exists(), "the half-built space was left behind");
+        // The point of the test: nothing the create copied came home with the
+        // folder, at any depth under it.
+        assert!(
+            !vault_root.join("Trip").join(ASSETS_DIR).exists(),
+            "the undo planted the vault's assets inside the folder it put back"
+        );
+        assert!(
+            vault_now.keys().all(|path| !path.starts_with("Trip/.assets")),
+            "{vault_now:?}"
+        );
+        // And the vault still has every original, untouched by any of it.
+        for name in ["cover.png", "diagram.png", "private.png"] {
+            assert!(vault_root.join(ASSETS_DIR).join(name).is_file(), "the vault lost {name}");
+        }
+    }
+
     /// The recovery the doc comment claims, tested rather than asserted in
     /// prose: a push that fails once the files have moved leaves a complete
     /// local space — files, manifest, a commit, and the vault's record of the
@@ -2666,7 +2973,7 @@ mod tests {
         // Somebody else writes, under a name they typed for themselves, and
         // the list grows by exactly that claim.
         write_note(&space_root, "Plan.md", "meet at seven\n");
-        let space = History::new(space_root.clone()).unwrap();
+        let space = History::new_space(space_root.clone()).unwrap();
         space.snapshot_as("Grace edited the plan", "Grace", MEMBER_EMAIL).unwrap();
         let listed = members(&space_root).unwrap();
         assert_eq!(listed.len(), 2, "{listed:?}");
@@ -2783,6 +3090,368 @@ mod tests {
 
         // Neither namespace ever held plaintext.
         assert!(!storage_contains(&storage, b"SPACE-PLAINTEXT-MARKER").unwrap());
+    }
+
+    /// A vault whose root `.assets/` holds attachments, one of them embedded
+    /// by the folder about to be shared and one of them not. Returns the vault
+    /// root and its history, with the folder's note already written.
+    fn a_vault_with_assets(scratch: &Path) -> (PathBuf, History) {
+        let root = scratch.join("vault");
+        let history = vault(&root);
+        write_note(&root, "Journal.md", "not shared, and it embeds ![[private.png]]\n");
+        write_note(&root, ".assets/cover.png", "COVER-BYTES\n");
+        write_note(&root, ".assets/diagram.png", "DIAGRAM-BYTES\n");
+        write_note(&root, ".assets/private.png", "PRIVATE-BYTES\n");
+        write_note(
+            &root,
+            "Trip/Plan.md",
+            "SPACE-PLAINTEXT-MARKER: meet at six\n\
+             \n\
+             ![[cover.png]] and ![[Cover.png|400]] are one file.\n\
+             \n\
+             ```\n\
+             ![[diagram.png]]\n\
+             ```\n\
+             \n\
+             `![[diagram.png]]` is an example too.\n\
+             \n\
+             ![[nowhere.png]] never existed, and ![[folder/deep.png]] is not a bare name.\n",
+        );
+        write_note(&root, "Trip/notes/Packing.md", "socks\n");
+        history.snapshot("before").unwrap();
+        (root, history)
+    }
+
+    /// The two halves together, because neither is worth anything alone: the
+    /// notes' images are copied into the space at share time, and the space's
+    /// own exclusions let them be committed and travel.
+    ///
+    /// What this pins, in order: exactly the files the notes embed come along
+    /// and nothing else in the vault's `.assets/` does; an embed inside a code
+    /// fence or an inline span is an example and brings nothing; two spellings
+    /// of one name are one copy; the vault keeps its originals; the space's
+    /// history really contains `.assets/` rather than excluding it; and a
+    /// second machine joining from the invite ends up with the image on disk.
+    #[test]
+    fn a_shared_folders_notes_bring_the_images_they_embed() {
+        let scratch = TempDir::new().unwrap();
+        let storage = scratch.path().join("server-storage");
+        let server = serve(&storage);
+        let (id, token) = mint_space(&server);
+        let transport = HttpBlobStore::for_space(&server.base_url(), &id, &token).unwrap();
+        let secret = SpaceSecret::generate();
+        let (vault_root, history) = a_vault_with_assets(scratch.path());
+
+        let space_root = scratch.path().join("spaces").join("Trip");
+        let plan = SpacePlan {
+            id: &id,
+            name: "Trip",
+            folder: "Trip",
+            member: "",
+            root: space_root.as_path(),
+        };
+        let made =
+            create_from_folder(&vault_root, &history, &plan, &secret, &transport, || ()).unwrap();
+        assert!(made.left_behind.is_empty(), "{:?}", made.left_behind);
+
+        // Exactly what the notes embed, and nothing else the vault happens to
+        // hold: the fenced and inline `diagram.png` are examples of the
+        // syntax, `private.png` belongs to a note that stayed behind, and
+        // neither a missing name nor a path-carrying one invents a file.
+        let in_space = contents(&space_root);
+        assert_eq!(
+            in_space.get(".assets/cover.png").map(String::as_str),
+            Some("COVER-BYTES\n"),
+            "{in_space:?}"
+        );
+        let assets: Vec<&String> =
+            in_space.keys().filter(|path| path.starts_with(".assets/")).collect();
+        assert_eq!(assets, vec![".assets/cover.png"], "the space took more than it was sent");
+
+        // The vault keeps every original — the note still in it embeds one of
+        // them, and sharing a folder is not a licence to break that.
+        let in_vault = contents(&vault_root);
+        for name in ["cover.png", "diagram.png", "private.png"] {
+            assert!(in_vault.contains_key(&format!(".assets/{name}")), "the vault lost {name}");
+        }
+
+        // The space's history holds the image — the exclusions half. With a
+        // vault's exclusions the file would sit in the working tree,
+        // uncommitted, and never leave this machine.
+        let tracked =
+            String::from_utf8(git(&space_root, &["ls-tree", "-r", "--name-only", "HEAD"])).unwrap();
+        assert!(
+            tracked.lines().any(|line| line == ".assets/cover.png"),
+            "the space did not commit its assets: {tracked}"
+        );
+        let exclude = fs::read_to_string(space_root.join(".git/info/exclude")).unwrap();
+        assert!(!exclude.contains(ASSETS_DIR), "a space is still excluding its assets: {exclude}");
+        // And the vault's own repository is untouched by any of it.
+        let vault_exclude = fs::read_to_string(vault_root.join(".git/info/exclude")).unwrap();
+        assert!(
+            vault_exclude.lines().any(|line| line == ".assets/"),
+            "the vault stopped excluding its assets: {vault_exclude}"
+        );
+
+        // A second machine joins and the image is there — over the transport,
+        // not by reading the sharer's disk.
+        let joiner = HttpBlobStore::for_space(&server.base_url(), &id, &token).unwrap();
+        let joined_root = scratch.path().join("elsewhere").join("Trip");
+        join(&vault_root, &joined_root, &id, &secret, &joiner, || ()).unwrap();
+        let joined = contents(&joined_root);
+        assert_eq!(
+            joined.get(".assets/cover.png").map(String::as_str),
+            Some("COVER-BYTES\n"),
+            "the image did not travel: {joined:?}"
+        );
+        assert!(
+            joined.keys().all(|path| path != ".assets/private.png"),
+            "a vault asset nobody embedded reached a member: {joined:?}"
+        );
+        assert!(!storage_contains(&storage, b"COVER-BYTES").unwrap());
+    }
+
+    /// The transport seals and uploads each object whole, so a blob past
+    /// `MAX_OBJECT_BYTES` would fail the push it is part of — every member's
+    /// sync, over one image. The ceiling is therefore asked BEFORE the copy,
+    /// and the answer is a sentence rather than an error: the folder is still
+    /// shared, everything else still comes along, and the one file that did
+    /// not is named.
+    #[test]
+    fn an_image_too_big_for_the_transport_stays_in_the_vault_and_the_share_still_happens() {
+        let scratch = TempDir::new().unwrap();
+        let storage = scratch.path().join("server-storage");
+        let server = serve(&storage);
+        let (id, token) = mint_space(&server);
+        let transport = HttpBlobStore::for_space(&server.base_url(), &id, &token).unwrap();
+        let secret = SpaceSecret::generate();
+        let (vault_root, history) = a_vault_with_assets(scratch.path());
+        // One byte past the ceiling, and sparse: what is checked is the length
+        // the filesystem reports, which is what the blob would weigh.
+        let huge = vault_root.join(ASSETS_DIR).join("huge.png");
+        fs::File::create(&huge).unwrap().set_len(blob::MAX_OBJECT_BYTES as u64 + 1).unwrap();
+        write_note(&vault_root, "Trip/Big.md", "![[huge.png]] beside ![[cover.png]]\n");
+        history.snapshot("a big one").unwrap();
+
+        let space_root = scratch.path().join("spaces").join("Trip");
+        let plan = SpacePlan {
+            id: &id,
+            name: "Trip",
+            folder: "Trip",
+            member: "",
+            root: space_root.as_path(),
+        };
+        let made =
+            create_from_folder(&vault_root, &history, &plan, &secret, &transport, || ()).unwrap();
+
+        // The share happened, and the rest of it came along.
+        assert!(space_root.join("Big.md").is_file());
+        assert!(space_root.join(".assets/cover.png").is_file(), "one refusal took the others");
+        assert!(!space_root.join(".assets/huge.png").exists());
+        assert!(vault_root.join(".assets/huge.png").is_file(), "the vault lost the original");
+
+        // And it was said, in words about files rather than about objects.
+        assert_eq!(made.left_behind.len(), 1, "{:?}", made.left_behind);
+        let why = &made.left_behind[0];
+        assert!(why.contains("huge.png"), "{why}");
+        assert!(why.contains("64 MB"), "{why}");
+        assert!(why.contains("stayed in the vault"), "{why}");
+        assert!(!why.contains("MAX_OBJECT"), "the ceiling is named in code words: {why}");
+    }
+
+    /// An embed's casing is the note author's, and the filesystem the app runs
+    /// on forgives it. The copy does not travel on that filesystem: it is
+    /// committed under whatever name it was written with and checked out on
+    /// every member's machine, some of them case-sensitive. So the copy takes
+    /// the name the vault's own directory entry carries, and the note that
+    /// spelled it differently keeps resolving it everywhere it already did.
+    #[test]
+    fn a_miscased_embed_copies_the_file_under_the_name_the_vault_gave_it() {
+        let scratch = TempDir::new().unwrap();
+        let server = serve(&scratch.path().join("server-storage"));
+        let (id, token) = mint_space(&server);
+        let transport = HttpBlobStore::for_space(&server.base_url(), &id, &token).unwrap();
+        let secret = SpaceSecret::generate();
+        let (vault_root, history) = a_vault_with_assets(scratch.path());
+        write_note(&vault_root, ".assets/banner.png", "BANNER-BYTES\n");
+        write_note(&vault_root, "Trip/Cased.md", "![[Banner.png]] is spelled the other way\n");
+        history.snapshot("a cased one").unwrap();
+
+        let space_root = scratch.path().join("spaces").join("Trip");
+        let plan = SpacePlan {
+            id: &id,
+            name: "Trip",
+            folder: "Trip",
+            member: "",
+            root: space_root.as_path(),
+        };
+        let made =
+            create_from_folder(&vault_root, &history, &plan, &secret, &transport, || ()).unwrap();
+        assert!(made.left_behind.is_empty(), "{:?}", made.left_behind);
+
+        // Asked of the history rather than of the disk: a case-insensitive
+        // filesystem answers `exists()` yes to either spelling, and what
+        // travels to every member is what git recorded.
+        let tracked =
+            String::from_utf8(git(&space_root, &["ls-tree", "-r", "--name-only", "HEAD"])).unwrap();
+        assert!(
+            tracked.lines().any(|line| line == ".assets/banner.png"),
+            "the copy did not take the vault's spelling: {tracked}"
+        );
+        assert!(
+            !tracked.lines().any(|line| line == ".assets/Banner.png"),
+            "the copy took the note's spelling: {tracked}"
+        );
+    }
+
+    /// `..` inside a name is not traversal, and the guard that skipped every
+    /// name containing it was refusing ordinary files — a date in a filename,
+    /// a double extension — without a word to anybody. What disqualifies a
+    /// bare name is a path SEPARATOR, or a component that is itself `.` or
+    /// `..`. So this one simply works.
+    #[test]
+    fn an_embed_whose_name_has_dots_in_it_is_a_name_and_the_file_comes_along() {
+        let scratch = TempDir::new().unwrap();
+        let server = serve(&scratch.path().join("server-storage"));
+        let (id, token) = mint_space(&server);
+        let transport = HttpBlobStore::for_space(&server.base_url(), &id, &token).unwrap();
+        let secret = SpaceSecret::generate();
+        let (vault_root, history) = a_vault_with_assets(scratch.path());
+        write_note(&vault_root, ".assets/photo..2024.png", "PHOTO-BYTES\n");
+        write_note(&vault_root, "Trip/Dated.md", "![[photo..2024.png]] from that year\n");
+        history.snapshot("a dated one").unwrap();
+
+        let space_root = scratch.path().join("spaces").join("Trip");
+        let plan = SpacePlan {
+            id: &id,
+            name: "Trip",
+            folder: "Trip",
+            member: "",
+            root: space_root.as_path(),
+        };
+        let made =
+            create_from_folder(&vault_root, &history, &plan, &secret, &transport, || ()).unwrap();
+        assert!(made.left_behind.is_empty(), "{:?}", made.left_behind);
+        assert_eq!(
+            contents(&space_root).get(".assets/photo..2024.png").map(String::as_str),
+            Some("PHOTO-BYTES\n"),
+        );
+
+        // The space took the dated photo and nothing else — the guard that
+        // still holds is the one on separators, not on dots.
+        let assets: Vec<String> = contents(&space_root)
+            .into_keys()
+            .filter(|path| path.starts_with(".assets/"))
+            .collect();
+        assert_eq!(assets, vec![".assets/cover.png", ".assets/photo..2024.png"], "{assets:?}");
+    }
+
+    /// The two remaining accidental silences, said out loud. An embed naming a
+    /// FOLDER in `.assets/` and a note this cannot read as text both used to
+    /// skip without a word — and in a feature whose whole point is that a
+    /// person is told what did not travel, a silence that is an oversight
+    /// reads exactly like a silence that is an answer.
+    #[test]
+    fn a_folder_embed_and_an_unreadable_note_each_say_what_stayed_behind() {
+        let scratch = TempDir::new().unwrap();
+        let server = serve(&scratch.path().join("server-storage"));
+        let (id, token) = mint_space(&server);
+        let transport = HttpBlobStore::for_space(&server.base_url(), &id, &token).unwrap();
+        let secret = SpaceSecret::generate();
+        let (vault_root, history) = a_vault_with_assets(scratch.path());
+        // A folder in `.assets/` that a note embeds by name.
+        write_note(&vault_root, ".assets/gallery/inside.png", "INSIDE-BYTES\n");
+        write_note(&vault_root, "Trip/Folder.md", "![[gallery]] is a folder\n");
+        // A note that is not UTF-8 — bytes no text reader will take.
+        fs::write(vault_root.join("Trip").join("Bytes.md"), [0xff, 0xfe, 0x00, 0x9c]).unwrap();
+        history.snapshot("odd ones").unwrap();
+
+        let space_root = scratch.path().join("spaces").join("Trip");
+        let plan = SpacePlan {
+            id: &id,
+            name: "Trip",
+            folder: "Trip",
+            member: "",
+            root: space_root.as_path(),
+        };
+        let made =
+            create_from_folder(&vault_root, &history, &plan, &secret, &transport, || ()).unwrap();
+
+        assert_eq!(made.left_behind.len(), 2, "{:?}", made.left_behind);
+        let folder = made
+            .left_behind
+            .iter()
+            .find(|why| why.contains("gallery"))
+            .unwrap_or_else(|| panic!("nothing was said about the folder: {:?}", made.left_behind));
+        assert!(folder.contains("folder rather than a file"), "{folder}");
+        assert!(folder.contains("stayed in the vault"), "{folder}");
+        let note = made
+            .left_behind
+            .iter()
+            .find(|why| why.contains("Bytes.md"))
+            .unwrap_or_else(|| panic!("nothing was said about the note: {:?}", made.left_behind));
+        assert!(note.contains("stayed in the vault"), "{note}");
+
+        // Neither of them stopped the share, and the note itself travelled.
+        assert!(space_root.join("Bytes.md").is_file(), "the unreadable note was left behind");
+        assert!(space_root.join(".assets/cover.png").is_file(), "one oddity took the others");
+        assert!(!space_root.join(".assets/gallery").exists());
+        assert!(vault_root.join(".assets/gallery/inside.png").is_file(), "the vault lost it");
+    }
+
+    /// `refusal()` refuses every dot-name that is not `.assets/` itself or the
+    /// manifest, and a path INSIDE `.assets/` is checked component by
+    /// component — so `.assets/.hidden.png` is refused like any other. That
+    /// answer has to be asked before the copy: a hidden file copied in would
+    /// be committed, pushed, and then refuse the pull of every member in the
+    /// space, including the sharer's own second device.
+    #[test]
+    fn a_hidden_name_inside_assets_is_refused_and_is_asked_before_the_copy() {
+        assert!(refusal(".assets/.hidden.png").is_some());
+        assert!(refusal(".assets/cover.png").is_none());
+
+        let scratch = TempDir::new().unwrap();
+        let storage = scratch.path().join("server-storage");
+        let server = serve(&storage);
+        let (id, token) = mint_space(&server);
+        let transport = HttpBlobStore::for_space(&server.base_url(), &id, &token).unwrap();
+        let secret = SpaceSecret::generate();
+        let (vault_root, history) = a_vault_with_assets(scratch.path());
+        write_note(&vault_root, ".assets/.hidden.png", "HIDDEN-BYTES\n");
+        write_note(&vault_root, "Trip/Odd.md", "![[.hidden.png]] and ![[cover.png]]\n");
+        history.snapshot("an odd one").unwrap();
+
+        let space_root = scratch.path().join("spaces").join("Trip");
+        let plan = SpacePlan {
+            id: &id,
+            name: "Trip",
+            folder: "Trip",
+            member: "",
+            root: space_root.as_path(),
+        };
+        let made =
+            create_from_folder(&vault_root, &history, &plan, &secret, &transport, || ()).unwrap();
+
+        assert!(!space_root.join(".assets/.hidden.png").exists());
+        assert!(space_root.join(".assets/cover.png").is_file());
+        // BEFORE the copy, not after it: a file copied in and then cleaned up
+        // would still be in the space's history, and the history is what the
+        // allowlist runs over on every member's pull.
+        let ever = String::from_utf8(git(
+            &space_root,
+            &["log", "--all", "--name-only", "--pretty=format:"],
+        ))
+        .unwrap();
+        assert!(!ever.contains(".hidden.png"), "it was copied in and then taken out: {ever}");
+        assert_eq!(made.left_behind.len(), 1, "{:?}", made.left_behind);
+        assert!(made.left_behind[0].contains(".hidden.png"), "{:?}", made.left_behind);
+        assert!(made.left_behind[0].contains("stayed in the vault"), "{:?}", made.left_behind);
+        // The space it made is one a member can still join — which is the
+        // whole reason the question is asked here rather than on the far side.
+        let joiner = HttpBlobStore::for_space(&server.base_url(), &id, &token).unwrap();
+        let joined_root = scratch.path().join("elsewhere").join("Trip");
+        join(&vault_root, &joined_root, &id, &secret, &joiner, || ()).unwrap();
+        assert!(joined_root.join(".assets/cover.png").is_file());
     }
 
     fn secret() -> SpaceSecret {

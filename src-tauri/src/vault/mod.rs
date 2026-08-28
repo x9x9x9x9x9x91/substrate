@@ -246,7 +246,7 @@ fn machine_fence_re() -> &'static Regex {
 /// the same character and at least as long closes it; EOF closes an unclosed
 /// fence. Inline spans are same-line only — an opening run of N backticks
 /// closes at the next run of exactly N.
-fn code_ranges(body: &str) -> Vec<(usize, usize)> {
+pub(crate) fn code_ranges(body: &str) -> Vec<(usize, usize)> {
     let mut out: Vec<(usize, usize)> = Vec::new();
     let mut fence: Option<(char, usize, usize)> = None; // marker, len, block start
     let mut at = 0usize;
@@ -309,7 +309,7 @@ fn code_ranges(body: &str) -> Vec<(usize, usize)> {
 
 /// Does `[from, to)` touch any literal-code range? Link and embed scanning
 /// skips the ones that do.
-fn in_code(ranges: &[(usize, usize)], from: usize, to: usize) -> bool {
+pub(crate) fn in_code(ranges: &[(usize, usize)], from: usize, to: usize) -> bool {
     ranges.iter().any(|(a, b)| from < *b && to > *a)
 }
 

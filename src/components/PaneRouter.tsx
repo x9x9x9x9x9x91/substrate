@@ -27,8 +27,8 @@ import type { DbPaneCtx } from "./DbPaneStack";
 import NotePane from "./NotePane";
 import ListPane from "./ListPane";
 import EmptyState from "./EmptyState";
-import { MountIcon, PinIcon, XIcon } from "./Icons";
-import { HeroNote } from "./HeroIcons";
+import { XIcon } from "./Icons";
+import { HeroMount, HeroNote, HeroPin } from "./HeroIcons";
 
 /* lazy tier 1 — the route-exclusive panes, none of them on the cold-open path
    (`{kind:"notes"}`). Each is behind a view kind the first paint never
@@ -593,7 +593,7 @@ export default function PaneRouter(props: PaneRouterProps) {
               {/* No verb here yet: remounting is the Databases pane's verb, not
                   one this pane can run — glyph + text until copy work lands. */}
               <EmptyState
-                icon={<MountIcon />}
+                icon={<HeroMount />}
                 title="Mounted folder not found"
                 hint="It may have been unmounted in another window"
               />
@@ -654,7 +654,7 @@ export default function PaneRouter(props: PaneRouterProps) {
               {/* No verb here yet: the pin is gone, and re-pinning happens on
                   the view it came from, so there is none to offer here. */}
               <EmptyState
-                icon={<PinIcon />}
+                icon={<HeroPin />}
                 title="Saved view not found"
                 hint="The pin may have been removed outside the app"
               />

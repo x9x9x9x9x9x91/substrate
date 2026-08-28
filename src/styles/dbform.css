@@ -286,6 +286,14 @@
 
 .db-th-title,
 .db-th-label {
+  /* the kind mark leads the column name, so the header row says what kind of
+     thing each column holds before a single value is read. A flex lane rather
+     than an inline glyph on purpose: at the dense 12 tier the mark is shorter
+     than the label's own line box, so the header keeps exactly the height the
+     sticky-header scroll margins are measured against */
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   padding: 0;
   border: 0;
   background: transparent;
@@ -295,6 +303,19 @@
   text-transform: inherit;
   text-align: left;
   cursor: pointer;
+}
+
+/* the mark is furniture under the label, not a second label beside it */
+.db-th-title > svg,
+.db-th-label > svg {
+  flex: none;
+  opacity: 0.65;
+}
+
+.db-table th:hover .db-th-title > svg,
+.db-table th:hover .db-th-label > svg {
+  opacity: 1;
+  transition: opacity var(--t) ease-out;
 }
 
 .db-th-caret {
@@ -589,16 +610,6 @@ body.col-resizing * {
 .db-agg-cell:hover .db-agg-ghost,
 .db-agg-cell:focus-within .db-agg-ghost {
   opacity: 1;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .db-agg-value {
-    animation: none;
-  }
-
-  .db-agg-ghost {
-    transition: none;
-  }
 }
 
 /* add-property popover's name field (rides the schema editor card) */

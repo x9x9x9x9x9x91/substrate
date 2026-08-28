@@ -160,7 +160,11 @@ test("a resize drag still wins over the floor, in both directions, and reset ret
   await page.mouse.up();
   await page.waitForTimeout(120);
   const narrowed = (await th.boundingBox())!.width;
-  expect(narrowed).toBeLessThan(floored - 30);
+  // 20, not 30: the Name column's own content floor rose by the width of the
+  // row mark every title now leads on, so the drag has that much less
+  // headroom over the floor it is beating. What is under test is that the
+  // committed width wins at all, not by how many pixels
+  expect(narrowed).toBeLessThan(floored - 20);
 
   // and it stays narrow across further window slides — no floor creeps under it
   await scrollTo(page, 2600);
