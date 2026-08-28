@@ -3,7 +3,9 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 export interface MenuItem {
   label: string;
   icon?: React.ReactNode;
-  hint?: string;
+  /** quiet trailing note — a shortcut string, or a drawn mark (CheckIcon)
+      for the setting in force */
+  hint?: React.ReactNode;
   danger?: boolean;
   disabled?: boolean;
   /** Draw a hairline above this item — groups it apart (e.g. the destructive lane). */

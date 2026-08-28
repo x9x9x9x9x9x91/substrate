@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { TagCount, TagFolder, TagMatch } from "../lib/types";
 import { tagFolderSummary, tagOptions } from "../lib/tags";
+import { XIcon } from "./Icons";
 
 /* The tag-folder builder. Clicked together, never typed: a name,
    tags as chips, an any/all toggle, and an exclusion row. There is no query
@@ -98,7 +99,7 @@ function ChipRow({
               aria-label={`Remove #${t}`}
               onClick={() => onChange(tags.filter((x) => x !== t))}
             >
-              ×
+              <XIcon />
             </button>
           </span>
         ))}

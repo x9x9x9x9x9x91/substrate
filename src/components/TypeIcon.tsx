@@ -1,5 +1,6 @@
 import type { DbIcon } from "../lib/types";
 import { autoGlyphLetter, GLYPHS, resolveIcon, tintVar } from "../lib/dbicons";
+import { iconBase } from "./Icons";
 
 interface TypeIconProps {
   /** database type name — feeds the curated default and the auto-glyph letter */
@@ -30,15 +31,10 @@ export default function TypeIcon({ type, icon, size = 15 }: TypeIconProps) {
     const tint = tintVar(resolved?.tint);
     return (
       <svg
+        {...iconBase}
         className="type-icon"
         width={size}
         height={size}
-        viewBox="0 0 16 16"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={1.4}
-        strokeLinecap="round"
-        strokeLinejoin="round"
         style={tint ? { color: tint } : undefined}
       >
         {paths.map((d, i) => (

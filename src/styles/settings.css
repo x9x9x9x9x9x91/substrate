@@ -132,6 +132,14 @@
 /* the terminal-font row's "not found" line: the hint's own type, one
    grey step brighter so it reads as the newer line without becoming an error
    state — nothing is broken, the font just isn't resolving */
+/* the "already done" marker beside an install/grant row: a drawn tick where
+   the row would otherwise hold a button */
+.settings-hint-done {
+  display: flex;
+  align-items: center;
+  margin-top: 0;
+}
+
 .settings-hint-warn {
   margin-top: 3px;
   color: var(--text-2);

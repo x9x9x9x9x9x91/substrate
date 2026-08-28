@@ -144,7 +144,7 @@ import PaneRouter from "./components/PaneRouter";
 const SettingsPane = lazy(() => import("./components/SettingsPane"));
 import type { MenuItem } from "./components/ContextMenu";
 import type { AnchorRect } from "./components/SelectMenu";
-import { ClockIcon, FolderIcon, MenuIcon, MountIcon, NoteIcon, PlusIcon, SidebarIcon, ChevronLeftIcon, ChevronUpIcon, ChevronDownIcon } from "./components/Icons";
+import { ClockIcon, FolderIcon, MenuIcon, MountIcon, NoteIcon, PlusIcon, SidebarIcon, XIcon, ChevronLeftIcon, ChevronUpIcon, ChevronDownIcon } from "./components/Icons";
 import { useSidebarHidden } from "./hooks/useSidebarHidden";
 import { useZoom } from "./hooks/useZoom";
 import { useTerminalHud } from "./hooks/useTerminalHud";
@@ -3935,7 +3935,7 @@ export default function App() {
               aria-label="Dismiss"
               onClick={() => setToast(null)}
             >
-              ✕
+              <XIcon />
             </button>
           )}
         </div>

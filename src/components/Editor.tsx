@@ -144,6 +144,7 @@ import { scanAudioAnnotationFences } from "../lib/audio-annotations";
 import { extractLink, extractTitle } from "../lib/extractnote";
 import { parseCalloutStyle } from "../lib/styletokens";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
+import { CheckIcon } from "./Icons";
 import { tableActions, tableCellAtOffset, type TableAction } from "../lib/tablemenu";
 import { errText } from "../lib/errtext";
 
@@ -2622,7 +2623,7 @@ export default function Editor({
       rendered: menu.rendered,
     }).map((action) => ({
       label: action.label,
-      hint: action.current ? "✓" : undefined,
+      hint: action.current ? <CheckIcon /> : undefined,
       danger: action.danger,
       separatorAbove: action.separatorAbove,
       // "Edit cell" writes nothing itself, so it has no rewritten source to

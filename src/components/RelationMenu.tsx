@@ -5,7 +5,7 @@ import type { RelationCandidate } from "../lib/relation";
 import { filterCandidates, toggleValue } from "../lib/relation";
 import type { AnchorRect } from "./SelectMenu";
 import type { HopDir } from "../lib/cellhop";
-import { PlusIcon } from "./Icons";
+import { CheckIcon, PlusIcon } from "./Icons";
 
 type Row =
   | { kind: "entry"; cand: RelationCandidate; picked: boolean }
@@ -167,7 +167,7 @@ export default function RelationMenu({
         return (
           <>
             <span className="selmenu-val">{r.cand.title}</span>
-            {r.picked && <span className="selmenu-cur">✓</span>}
+            {r.picked && <span className="selmenu-cur" aria-hidden="true"><CheckIcon /></span>}
           </>
         );
       case "create":

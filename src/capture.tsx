@@ -15,6 +15,7 @@ import type { NoteMeta } from "./lib/types";
 import { looksLikeUrl } from "./lib/url";
 import { escapeHint, voiceEscape } from "./lib/voice";
 import { errText } from "./lib/errtext";
+import { iconBase } from "./components/Icons";
 
 // Floating quick-capture window: global hotkey shows it, Enter files the note
 // into Inbox, Escape (or clicking away — the window hides on blur) dismisses.
@@ -484,11 +485,12 @@ function CaptureApp() {
                   }}
                 />
               ) : (
-                <svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true" fill="none"
-                  stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                  <rect x="9" y="2" width="6" height="12" rx="3" />
-                  <path d="M5 11a7 7 0 0 0 14 0" />
-                  <line x1="12" y1="18" x2="12" y2="22" />
+                // the app's one glyph grid, not this window's own: a 16 viewBox at
+                // stroke 1.4, rendered at the dense 12 tier
+                <svg {...iconBase} width={12} height={12} aria-hidden="true">
+                  <rect x="6" y="2" width="4" height="7.4" rx="2" />
+                  <path d="M3.6 8.2a4.4 4.4 0 0 0 8.8 0" />
+                  <path d="M8 12.6v1.9" />
                 </svg>
               )}
             </button>

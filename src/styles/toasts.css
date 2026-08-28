@@ -57,14 +57,16 @@
   border-color: var(--border-strong);
 }
 
-/* Dismiss ✕ on sticky toasts (updater) — quieter than the action
+/* Dismiss mark on sticky toasts (updater) — quieter than the action
    button; it's the escape hatch, not the offer. `.toast button` outranks a
    bare class, so this selector must carry the same specificity + order */
 .toast button.toast-dismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 3px 7px;
   border: none;
   color: var(--text-3);
-  font-size: var(--fs-3);
   transition: color var(--t) ease-out;
 }
 
@@ -139,7 +141,7 @@
   border-color: var(--border-strong);
 }
 
-/* the quiet ✕ clear affordance — icon-sized beside the labeled buttons */
+/* the quiet clear affordance — icon-sized beside the labeled buttons */
 .bulkbar button.bulkbar-x {
   display: inline-flex;
   align-items: center;

@@ -60,7 +60,7 @@ import {
 } from "../lib/formula";
 import Editor from "./Editor";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
-import { NoteIcon, TableIcon } from "./Icons";
+import { CheckIcon, NoteIcon, TableIcon } from "./Icons";
 import EmptyState from "./EmptyState";
 import { errText } from "../lib/errtext";
 
@@ -810,7 +810,7 @@ export default function SheetGrid({
       if (m.notify) {
         const set = (notify: boolean, before: number | null) => () =>
           onSetColumnNotify?.(m.name, notify, before);
-        const mark = (on: boolean) => (on ? "✓" : undefined);
+        const mark = (on: boolean) => (on ? <CheckIcon /> : undefined);
         return [
           {
             label: "Back",

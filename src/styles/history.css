@@ -210,9 +210,12 @@
   color: var(--text-2);
 }
 
-.empty.hist-empty > svg {
-  width: 22px;
-  height: 22px;
+/* Not the hero slot: this is a 260px column, so the glyph steps down to the
+   default chrome tier, where it is drawn at its native stroke. */
+.empty.hist-empty > svg:not(.hero-mark) {
+  width: 15px;
+  height: 15px;
+  stroke-width: 1.4;
   margin-bottom: 6px;
 }
 
@@ -421,8 +424,8 @@
 }
 
 .sheet-tool svg {
-  width: 14px;
-  height: 14px;
+  width: 15px;
+  height: 15px;
 }
 
 .sheet-flex {

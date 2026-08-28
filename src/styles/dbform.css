@@ -136,8 +136,8 @@
 }
 
 .dbform-x svg {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
 }
 
 .dbform-addprop {
@@ -158,8 +158,8 @@
 }
 
 .dbform-addprop svg {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
 }
 
 /* CSV import dialog: the scrollable column/include checklist —
@@ -322,8 +322,8 @@
 }
 
 .db-th-caret svg {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
 }
 
 /* Column drag handle — a grab strip riding the header cell's right
@@ -396,6 +396,17 @@ body.col-resizing * {
   box-shadow: var(--shadow-float);
 }
 
+/* The "in force" mark's slot in a colmenu: rendered on every row so the labels
+   share one left edge, holding a 12px tick on the row that is chosen. */
+.colmenu-mark {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  color: var(--text-3);
+}
+
 /* an entry the menu keeps but cannot run yet: the row's own metrics, dimmed,
    with the unmet precondition under the label in the kind hint's voice. Inert
    by construction — a div, so there is nothing to click and no hover lift */
@@ -462,8 +473,8 @@ body.col-resizing * {
 }
 
 .db-add-btn svg {
-  width: 11px;
-  height: 11px;
+  width: 12px;
+  height: 12px;
 }
 
 .db-add-cell {

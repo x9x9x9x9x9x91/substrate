@@ -144,9 +144,12 @@
   white-space: nowrap;
 }
 
+/* the chosen mark: a drawn tick, so the slot is a box to centre an svg in
+   rather than a line of text to set */
 .selmenu-cur {
+  display: flex;
+  align-items: center;
   color: var(--text-3);
-  font-size: var(--fs-2);
 }
 
 .selmenu-note {

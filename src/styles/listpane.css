@@ -156,22 +156,26 @@
   font-weight: var(--fw-medium);
 }
 
+/* The empty state's glyph slot IS the hero tier — 44, the third and largest of
+   the three sanctioned sizes (12 / 15 / 44). It used to be 30, which was a size
+   nothing else in the app used, chosen so a scaled chrome glyph would not look
+   TOO heavy there. */
 .empty > svg {
-  width: 30px;
-  height: 30px;
-  color: var(--text-3);
-  margin-bottom: 10px;
-}
-
-/* The rule above scales a 16-viewBox chrome glyph to 30px, which renders its
-   1.4 stroke at 2.63px — twice the weight of the same glyph in the sidebar. A
-   hero mark (components/HeroIcons.tsx) is drawn at 48 and rendered at 44, so it
-   opts OUT of that scaling: 1.5 at 0.917 scale is 1.375px, optically level with
-   15px chrome. */
-.empty > svg.hero-mark {
   width: 44px;
   height: 44px;
+  color: var(--text-3);
   margin-bottom: 14px;
+}
+
+/* A hero mark (components/HeroIcons.tsx) is DRAWN for this tier: a 48 viewBox
+   at stroke 1.5, rendered at 44, so its stroke lands at 1.375px — optically
+   level with 15px chrome. A chrome glyph borrowed into the same slot is a 16
+   viewBox blown up 2.75×, so its 1.4 stroke would ink at 3.85px, the heaviest
+   line in the app. It gets the stroke it would have had if it were drawn here:
+   0.5 × 2.75 = 1.375px, the same band. The right long answer for a borrowed
+   glyph is still a hero mark of its own. */
+.empty > svg:not(.hero-mark) {
+  stroke-width: 0.5;
 }
 
 .empty-hint {

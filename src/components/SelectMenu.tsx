@@ -8,7 +8,7 @@ import { optionColorVar } from "../lib/dbicons";
 import { byFoldedKey } from "../lib/schemalookup";
 import { optionColor } from "../lib/cellpill";
 import { canonicalReviewWindow, windowLabel } from "../lib/shelflife";
-import { PlusIcon, XIcon } from "./Icons";
+import { CheckIcon, PlusIcon, XIcon } from "./Icons";
 import TypeIcon from "./TypeIcon";
 
 /** Named dot colors — muted Linear-dosage palette, tokens in styles.css. */
@@ -176,7 +176,7 @@ interface SelectMenuProps {
       identity icon so "type" reads as database membership */
   valueIcons?: Record<string, DbIcon>;
   onCommit: (v: string) => void;
-  /** multi kind only: the note's current values (membership drives the ✓s) */
+  /** multi kind only: the note's current values (membership drives the check marks) */
   values?: string[];
   /** bulk bar only: one quiet line under the filter input stating
       that the write REPLACES every selected note's values — the multi
@@ -693,7 +693,7 @@ export default function SelectMenu({
             <OptionDot color={r.opt.color} />
             <span className="selmenu-val">{r.opt.value}</span>
             {(isMulti ? member(r.opt.value) : r.opt.value === value) && (
-              <span className="selmenu-cur">✓</span>
+              <span className="selmenu-cur" aria-hidden="true"><CheckIcon /></span>
             )}
           </>
         );
@@ -709,7 +709,7 @@ export default function SelectMenu({
             <span className="selmenu-val">{r.value}</span>
             {!valueIcons && <span className="selmenu-note">in use</span>}
             {(isMulti ? member(r.value) : r.value === value) && (
-              <span className="selmenu-cur">✓</span>
+              <span className="selmenu-cur" aria-hidden="true"><CheckIcon /></span>
             )}
           </>
         );
@@ -854,7 +854,7 @@ export default function SelectMenu({
                   onClick={() => setDraftTarget(d)}
                 >
                   <span className="selmenu-val">{d}</span>
-                  {chosen && <span className="selmenu-cur">✓</span>}
+                  {chosen && <span className="selmenu-cur" aria-hidden="true"><CheckIcon /></span>}
                 </div>
               );
             })}
@@ -916,7 +916,7 @@ export default function SelectMenu({
                       onClick={() => pickRollRelation(d)}
                     >
                       <span className="selmenu-val">{d}</span>
-                      {chosen && <span className="selmenu-cur">✓</span>}
+                      {chosen && <span className="selmenu-cur" aria-hidden="true"><CheckIcon /></span>}
                     </div>
                   );
                 })}
@@ -972,7 +972,7 @@ export default function SelectMenu({
                       onClick={() => setDraftRollProp(p)}
                     >
                       <span className="selmenu-val">{p}</span>
-                      {chosen && <span className="selmenu-cur">✓</span>}
+                      {chosen && <span className="selmenu-cur" aria-hidden="true"><CheckIcon /></span>}
                     </div>
                   );
                 })}

@@ -23,7 +23,7 @@ import {
 } from "../lib/foodsuggest";
 import type { FoodDrift } from "../lib/foodsuggest";
 import { useTodayIso } from "./useTodayIso";
-import { ChevronLeftIcon, ChevronRightIcon, NoteIcon } from "./Icons";
+import { ChevronLeftIcon, ChevronRightIcon, NoteIcon, XIcon } from "./Icons";
 import { DashHead } from "./DashHead";
 import SwitchGroup from "./SwitchGroup";
 import { useDashUndo, type DashUndoStore } from "./useDashUndo";
@@ -1050,7 +1050,7 @@ export default function FoodDashboard({
                     aria-label="Dismiss"
                     onClick={() => setDrift(null)}
                   >
-                    ×
+                    <XIcon />
                   </button>
                 </div>
               )}
@@ -1082,7 +1082,7 @@ export default function FoodDashboard({
                             }
                           }}
                         >
-                          ×
+                          <XIcon />
                         </button>
                       </div>
                     ))}
@@ -1228,7 +1228,7 @@ export default function FoodDashboard({
                                 title="Remove food"
                                 onClick={() => delDbEntry(e.idx)}
                               >
-                                ×
+                                <XIcon />
                               </button>
                             </div>
                           ))}

@@ -225,6 +225,9 @@
 }
 
 .key-hud-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   margin-left: auto;
   width: 20px;
   height: 20px;
@@ -232,7 +235,6 @@
   border-radius: var(--r-2);
   background: transparent;
   color: var(--text-3);
-  font-size: var(--fs-2);
 }
 
 .key-hud-close:hover {

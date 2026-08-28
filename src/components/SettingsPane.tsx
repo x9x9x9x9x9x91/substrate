@@ -26,6 +26,7 @@ import { DATE_LOCALES, dateLocaleSample } from "../lib/dateLocale";
 import { setPropUndoable } from "../lib/undoprops";
 import { useEdgeFade } from "../hooks/useEdgeFade";
 import KindsSettings from "./KindsSettings";
+import { CheckIcon } from "./Icons";
 import { useUndo } from "../lib/undoContext";
 import {
   missingTerminalFonts,
@@ -154,7 +155,9 @@ function VoiceModelRow({ onToast }: { onToast: (msg: string) => void }) {
           )}
         </div>
         {state.installed ? (
-          <div className="settings-hint">✓</div>
+          <div className="settings-hint settings-hint-done" role="img" aria-label="installed">
+            <CheckIcon />
+          </div>
         ) : (
           <button
             className="settings-raw"
@@ -427,7 +430,9 @@ function ExperimentalSection({
             </div>
           </div>
           {trusted ? (
-            <div className="settings-hint">✓</div>
+            <div className="settings-hint settings-hint-done" role="img" aria-label="granted">
+              <CheckIcon />
+            </div>
           ) : (
             <button
               className="settings-raw"

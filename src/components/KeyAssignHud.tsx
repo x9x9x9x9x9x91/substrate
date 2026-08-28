@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ASSIGNABLE_KEYS, keyLabel, pinIndexForToken, splitFreeKeys, targetLabel } from "../lib/keyassign";
 import { KEY_DRAG_MIME } from "../lib/sidebar";
+import { XIcon } from "./Icons";
 
 /** The key HUD: a floating panel of draggable key chips. Drag a free
     chip onto any sidebar destination to bind it; drag an assigned chip back
@@ -127,7 +128,7 @@ export default function KeyAssignHud({
       <div className="key-hud-head">
         <span className="key-hud-title">Assign keys</span>
         <button type="button" className="key-hud-close" onClick={close} aria-label="Close">
-          ✕
+          <XIcon />
         </button>
       </div>
       <div className="key-hud-body">

@@ -101,11 +101,12 @@
 }
 
 .cal-feeds-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 24px;
   height: 24px;
   border-radius: var(--r-2);
-  font-size: var(--fs-5);
-  line-height: 20px;
 }
 
 .cal-feeds-close:hover,
@@ -1586,8 +1587,8 @@ button.cal-ag-day {
 }
 
 .sealed-lock-mark svg {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
 }
 
 .sealed-lock-title {

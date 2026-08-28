@@ -181,7 +181,11 @@
 /* The hint is the row's second column, never a wrapping one: it holds its
    natural width and keeps a real lane between itself and the label, so a long
    label truncates against the hint instead of running under it. */
+/* a shortcut string, or the drawn mark for the setting in force — inline-flex
+   so the svg centres on the row instead of sitting on the text baseline */
 .ctx-hint {
+  display: inline-flex;
+  align-items: center;
   flex: none;
   padding-left: 4px;
   white-space: nowrap;

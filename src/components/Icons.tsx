@@ -1,7 +1,13 @@
 import type { BulkActionIcon } from "../lib/bulkactions";
 import type { NoteActionIcon } from "../lib/noteactions";
 
-const base = {
+/* The shared drawing base every chrome glyph inherits: a 16 viewBox rendered at
+   15px with a 1.4 stroke. Exported because it is the app's only glyph grid —
+   a component that hand-copies these numbers (TypeIcon did) drifts silently the
+   next time one of them moves. Sizes come from three sanctioned tiers only:
+   12 (dense chrome — chips, ticks, close marks), 15 (default chrome), and 44
+   (the hero tier, HeroIcons.tsx). */
+export const iconBase = {
   width: 15,
   height: 15,
   viewBox: "0 0 16 16",
@@ -11,6 +17,8 @@ const base = {
   strokeLinecap: "round" as const,
   strokeLinejoin: "round" as const,
 };
+
+const base = iconBase;
 
 export const SearchIcon = () => (
   <svg {...base}>
@@ -95,8 +103,19 @@ export const PlusIcon = () => (
 );
 
 export const XIcon = () => (
-  <svg {...base} width={11} height={11}>
+  <svg {...base} width={12} height={12}>
     <path d="m4 4 8 8M12 4l-8 8" />
+  </svg>
+);
+
+/* The chosen/current mark. Every tick in the app is this path — before it
+   existed, eighteen sites drew U+2713 in whatever font the surface inherited,
+   so the same "yes" rendered at a different weight in a menu than in settings.
+   Defaults to the dense 12 tier because a tick is always beside a label,
+   never a control of its own. */
+export const CheckIcon = ({ size = 12 }: { size?: number } = {}) => (
+  <svg {...base} width={size} height={size}>
+    <path d="m3.5 8.4 3 3 6-6.8" />
   </svg>
 );
 

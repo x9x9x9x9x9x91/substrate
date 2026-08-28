@@ -90,7 +90,7 @@ test("aligning a column writes the delimiter and the grid follows", async ({ pag
 
   // and choosing it again clears it — the menu marks the alignment in force
   await openOn(page, "Length");
-  await expect(item(page, "Align right")).toContainText("✓");
+  await expect(item(page, "Align right").locator(".ctx-hint svg")).toHaveCount(1);
   await item(page, "Align right").click();
   await expect.poll(() => body(page)).toContain("| --- | --- |");
 });

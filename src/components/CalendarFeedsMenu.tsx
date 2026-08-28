@@ -7,6 +7,7 @@ import {
 } from "../lib/ipc";
 import type { CalendarFeed, CalendarFeedConfig, CalendarFeedSnapshot } from "../lib/types";
 import { ICON_TINTS, tintVar } from "../lib/dbicons";
+import { XIcon } from "./Icons";
 
 interface Props {
   snapshot: CalendarFeedSnapshot;
@@ -105,7 +106,7 @@ export default function CalendarFeedsMenu({ snapshot, onClose, onChanged, onToas
             <div className="cal-feeds-sub">Read-only · cached for offline use</div>
           </div>
           <button type="button" className="cal-feeds-close" onClick={onClose} aria-label="Close">
-            ×
+            <XIcon />
           </button>
         </header>
 

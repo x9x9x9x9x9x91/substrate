@@ -171,7 +171,11 @@ test("table aggregation footer: pick, compute, persist (SUB-74)", async ({ page 
   // the active option is marked; setting both back to None returns the
   // footer to rest — still mounted, back to ghosts
   await tracks.locator(".db-agg-btn").click();
-  await expect(page.locator(".colmenu .dots-item", { hasText: "✓ Sum" })).toHaveCount(1);
+  // the mark is drawn now, so it is the row's icon slot that says "in force",
+  // not a tick prefixed into the label
+  await expect(
+    page.locator(".colmenu .dots-item", { hasText: /^Sum$/ }).locator("svg")
+  ).toHaveCount(1);
   await page.locator(".colmenu .dots-item", { hasText: /^None$/ }).click();
   await expect(tracks.locator(".db-agg-ghost")).toHaveText("Calc");
   await page.locator('.db-agg-cell[data-col="artist"] .db-agg-btn').click();

@@ -476,6 +476,8 @@
   color: var(--accent);
 }
 .food-drift .food-drift-x {
+  display: inline-flex;
+  align-items: center;
   color: var(--text-3);
 }
 

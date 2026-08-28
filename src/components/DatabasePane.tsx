@@ -96,7 +96,7 @@ import {
 } from "./DbPaneShared";
 
 export { cardSubtitle };
-import { ColumnsIcon, DbIcon as DbGlyphIcon, ExportIcon, EyeOffIcon, FilterIcon, PenIcon, PinIcon, PlusIcon, SubItemsIcon, TrashIcon, XIcon } from "./Icons";
+import { CheckIcon, ColumnsIcon, DbIcon as DbGlyphIcon, ExportIcon, EyeOffIcon, FilterIcon, PenIcon, PinIcon, PlusIcon, SubItemsIcon, TrashIcon, XIcon } from "./Icons";
 import { BackButton } from "./BackButton";
 import EmptyState from "./EmptyState";
 import { errText } from "../lib/errtext";
@@ -267,6 +267,19 @@ const NO_COLLAPSE: ReadonlySet<string> = new Set();
 /** "no section is folded" — a stable empty list, so a pref without the key
     never re-runs the row memo. */
 const EMPTY_GROUP_KEYS: string[] = [];
+
+
+/* The aggregation menu's "in force" mark. The slot is always rendered, empty
+   or not, so every label in the menu starts at the same x — the tick used to
+   be glued to the label string, which moved one row's text and left the rest
+   where they were. */
+function AggMark({ on }: { on: boolean }) {
+  return (
+    <span className="colmenu-mark" aria-hidden="true">
+      {on ? <CheckIcon /> : null}
+    </span>
+  );
+}
 
 function DatabasePane({
   dbType,
@@ -3525,12 +3538,17 @@ function DatabasePane({
           up={aggMenu.up}
           onClose={() => setAggMenu(null)}
           items={[
+            // the current aggregation is marked in the row's icon slot, not
+            // glued to its label — a drawn tick, and a label that still reads
+            // as the thing it names
             {
-              label: `${aggregationKind(aggs, aggMenu.col) === undefined ? "✓ " : ""}None`,
+              label: "None",
+              icon: <AggMark on={aggregationKind(aggs, aggMenu.col) === undefined} />,
               run: () => setAgg(aggMenu.col, null),
             },
             ...AGG_OPTIONS.map((o) => ({
-              label: `${aggregationKind(aggs, aggMenu.col) === o.kind ? "✓ " : ""}${o.label}`,
+              label: o.label,
+              icon: <AggMark on={aggregationKind(aggs, aggMenu.col) === o.kind} />,
               run: () => setAgg(aggMenu.col, o.kind),
             })),
           ]}
