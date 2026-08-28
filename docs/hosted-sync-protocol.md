@@ -10,7 +10,7 @@ Git object ID, branch name, path, content, commit message, author, or history
 edge in plaintext. All Git graph work and merge/conflict handling stays on the
 client.
 
-Status: executable client and single-tenant server, both in this repository,
+Status: executable client and server, both in this repository,
 and wired into the app: a vault remote saved as `blob+https://<server>` routes
 push and pull through this transport (`src-tauri/src/gitsync.rs` dispatches on
 the URL prefix), and the Sync pane's passphrase field drives the §1 wrap via
@@ -18,19 +18,20 @@ the key document below. `src-tauri/src/gitsync/blob.rs` implements
 the crypto and Git object import/export behind a `BlobTransport` trait with two
 implementations: `FileBlobStore`, an in-process model used by the unit tests,
 and `HttpBlobStore`, which speaks §2.1 to a real server. `hosted-sync-server/`
-is that server — single-tenant, one bearer token, ciphertext only (§7). The
+is that server — one operator token over the vault, ciphertext only (§7). The
 round-trip test in `blob.rs` runs the server's own library on a localhost socket,
 so what the suite proves is the wire protocol, not a model of it.
 
-The account surface, multi-tenant service, and production recovery flow remain
-separate work; this server has no accounts, quotas, or
-tenancy and must not be exposed as if it did.
+The account surface, the hosted service, and production recovery flow remain
+separate work; this server has no accounts and must not be exposed as if it
+did. It does carry namespaces beside the vault — spaces, with their own tokens
+and storage ceilings (§7).
 
 `FileBlobStore`'s ref CAS is linearizable only among callers sharing one
 process, which is why it is a test model and not a deployment target. The
 shipped server serializes ref reads and swaps under one lock and publishes
 through an atomic rename, giving the cross-process linearizability §2 requires
-for the single-tenant case; a multi-process or multi-host deployment of the same
+for a one-process deployment; a multi-process or multi-host deployment of the same
 storage root would not, and is out of scope for v1.
 
 ## 1. Cryptographic suite and key hierarchy
@@ -225,8 +226,11 @@ that path.
 | GET key | `GET /v1/key` | `200` + wrap envelope, `ETag: "<version>"` | `404` no key yet |
 | CAS key | `PUT /v1/key` + same preconditions as the ref | `204` + new `ETag` | same as CAS ref; the body cap is the ref's 4 KiB (the `SBK1` envelope is ~100 bytes) |
 
-Any route can answer `401` (bad or missing token) or `503` (the server is at
-its connection cap, below).
+Any route can answer `401` (bad or missing token) or one of the refusals below —
+`503` at a connection cap, `503` when the operator's total space budget is
+spent, `507` when a space is full. Where two of them share a status, the
+`X-Substrate-Refusal` header names which one, so a client never infers a remedy
+from a number two conditions can both produce.
 
 The `ETag` value is the opaque version token of §2. It is a concurrency token
 only: authenticity comes from the envelope's AEAD tag, never from the ETag.
@@ -242,15 +246,44 @@ stay distinct from a transient failure.
 Transfer coding is not supported: a request with `Transfer-Encoding` is rejected
 with `411`, so every body length is known before a byte is read. Request heads
 are capped at 8 KiB (`431` beyond it) and bodies at the route's §2 cap (`413`),
-both enforced before allocation. Read and write both carry a 60-second deadline
-(`408` on a stalled head).
+both enforced before allocation. Read and write carry a 60-second deadline, and
+the request head carries a tighter one of its own: 10 seconds from the first
+byte of the head to its terminating blank line. The head deadline is the
+socket's own read timeout for that phase, not only a check between reads, so a
+caller that sends half a head and then goes silent is released on the head
+deadline rather than holding a connection slot for the full minute; the
+60-second read deadline applies to the body, once the head has parsed. Either
+deadline answers `408`.
 
 The server serves one connection per thread and caps concurrent connections at
-64; over the cap it answers a bare `503` on the accept thread and closes,
-without spawning anything. One person's devices need a handful of connections,
-so the cap is invisible in normal use and is what stops a stranger with a
-socket generator from turning thread-per-connection into the host's memory.
-A `503` is transient: retry.
+64. One person's devices need a handful, so the cap is invisible in normal use
+and is what stops a stranger with a socket generator from turning
+thread-per-connection into the host's memory. Beside the global cap, each space
+may hold at most 8 of those connections and all spaces together at most 48, so
+the slots a space can never occupy are the vault's reserve: a stalled space
+cannot make the operator's own vault unreachable.
+
+Four refusals share the two "cannot right now" statuses, and they do not have
+the same remedy. `X-Substrate-Refusal` is what tells them apart:
+
+| Status | `X-Substrate-Refusal` | Means | Client's move |
+| --- | --- | --- | --- |
+| `503` | `server-busy` | The server is at its 64-connection cap. Written on the accept thread, which then closes without spawning anything. | Transient: back off and retry. |
+| `503` | `space-busy` | This space is at its share of the connection pool. Answered after the token is checked, before the body is read. | Transient: back off and retry; the space's own other requests are what is holding it. |
+| `503` | `server-full` | The operator's total budget across all spaces (16 GiB) is spent. This space may be nearly empty. | **Not transient in the client's hands.** Nobody in the space can free the bytes; only the operator can. Retrying will not clear it — surface it as the operator's problem, never as "delete some notes". |
+| `507` | `space-full` | This space is over one of its own ceilings — its byte budget or its object count. Reads keep working and nothing about the sync is broken. | Not transient either, but it is the members' to fix: free room in this space. |
+
+Both fullness refusals are answered on a space's object `PUT`, from the declared
+`Content-Length` before a byte of the body is admitted and again under the
+space's lock before the write, so the two checks can never disagree. An object
+larger than the space's per-object ceiling is `413`, as in §2. The vault's own
+routes carry neither refusal: the storage budget belongs to spaces, and the
+vault is the operator's own.
+
+One more `507` is not a sync refusal at all: `POST /v1/spaces` answers it when
+the server already holds its maximum of 64 namespaces. It carries no
+`X-Substrate-Refusal` header, because it is an operator answer on an operator
+route — delete a space rather than retry.
 
 Clients must not follow redirects — `HttpBlobStore` sets a redirect limit of
 zero, because following one would hand the bearer token to whatever host the
@@ -447,10 +480,11 @@ envelope (§3) and can test passphrase guesses against it offline, priced only
 by Argon2id's per-guess cost — there is no server-side rate limit on a copy.
 A weak passphrase therefore undoes the encryption; user-facing copy says so.
 Envelopes are also not bound to a vault identity: isolation between vaults
-comes from single-tenant deployment (one token, one vault, one store), not
-from the ciphertext. A future multi-tenant operator could cross-serve two
-vaults that share a passphrase; binding the wrap AAD to a vault identity is
-part of any multi-tenant design, not a v1 claim.
+comes from deployment (one token, one vault, one store), not from the
+ciphertext — and equally between spaces, which are separate tokens over
+separate stores rather than a cryptographic boundary. An operator could
+cross-serve two namespaces that share a passphrase; binding the wrap AAD to a
+vault identity is part of any multi-tenant design, not a v1 claim.
 
 The server controls availability and can omit objects or replay an older valid
 ref to a new device. Authentication detects modification and cross-name swaps,
@@ -602,16 +636,20 @@ pull that follows.
 The server's own suite covers token length and constant-time comparison, object
 name syntax as the traversal defence, immutable publish under a concurrent PUT,
 ref CAS against a stale version, and key CAS refusing to clobber an existing
-key while allowing an If-Match re-wrap. Four tests drive real sockets: an
+key while allowing an If-Match re-wrap. A further set drives real sockets: an
 unauthenticated upload that declares four megabytes and sends none of them is
 still answered `401`, an empty ref body is `400`, the connection past the
-cap gets `503`, and the key route stores and returns the wrapped key with the
-ref's precondition rules.
+cap gets `503`, the key route stores and returns the wrapped key with the
+ref's precondition rules, a space token is refused on every namespace but its
+own, a space that cannot be opened is skipped instead of taking the server
+down, a stalled flood against one space leaves the vault answering, and an
+object body reaches its staging file a chunk at a time rather than being sized
+into memory on the caller's say-so.
 
 All vaults and blob stores are temporary test directories; no `~/Vault` path is
 read or written.
 
-## 7. The single-tenant server
+## 7. The server
 
 `hosted-sync-server/` is a standalone crate with **no dependencies at all** — a
 hand-rolled HTTP/1.1 subset over `std::net`. That is a deliberate cost: this is
@@ -619,11 +657,24 @@ the only Substrate code that runs on a host the user does not sit at, so the
 whole of it must be auditable in one sitting, and it must not inherit a
 transitive supply chain to hold ciphertext in a directory.
 
-It is single-tenant by construction: one bearer token, one storage root, one
-ref. There are no accounts, quotas, rate limits, or tenancy, and adding them is
-a different piece of work — the connection cap is a resource bound, not a rate
-limit, and per-IP rate limiting belongs in the proxy in front. Do not put it in
-front of more than one person's vault.
+It carries two kinds of namespace in one process. The **vault** is the
+operator's own and is what §2 describes: one bearer token, the storage root
+itself, one ref. Beside it are **spaces** — collaboration namespaces the
+operator mints through `/v1/spaces`, each with its own token, its own store
+under `spaces/<id>/`, and its own byte and object ceilings recorded in that
+space's `meta.json`. A space's routes are the vault's routes under
+`/v1/s/<space-id>/…`, and the two credentials do not overlap: a space token
+opens its own namespace and no management route, the operator token opens the
+management routes and no space's data. So a leaked space token is one space and
+a leaked operator token is the whole server.
+
+What is still absent is accounts and rate limits. Quotas here are storage
+ceilings — per space, and one total across all spaces — not per-caller budgets;
+the connection cap and each namespace's bounded share of it are resource bounds
+that stop one space starving the others, not rate limits; per-IP rate limiting
+belongs in the proxy in front. A space is shared ciphertext between people who
+already share its token, and it is not a second person's vault: do not put this
+in front of more than one person's vault.
 
 Configuration is environment-only, so a supervisor owns the credential and this
 repository can never ship it:
