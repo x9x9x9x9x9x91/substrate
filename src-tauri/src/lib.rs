@@ -14,6 +14,10 @@ mod gitsync;
 mod history;
 mod kinds;
 mod landing;
+/// Reads the app's own source and pins the order its three long-lived mutexes
+/// are nested in. Tests only — nothing here ships.
+#[cfg(test)]
+mod lock_order;
 mod mcpdoor;
 mod net;
 mod notify;
@@ -21,16 +25,17 @@ mod notify;
 mod panel;
 mod reflexes;
 mod smoke;
+mod syncfolders;
 mod term;
 #[cfg(test)]
 mod testenv;
 mod vault;
 mod vaultfmt;
 #[cfg(target_os = "macos")]
-mod voice;
-#[cfg(target_os = "macos")]
 mod vibrancy;
 mod viewexport;
+#[cfg(target_os = "macos")]
+mod voice;
 mod widgets;
 
 use gitsync::SyncReport;
@@ -48,7 +53,49 @@ use tauri::{Emitter, Manager, RunEvent, State};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use vault::{Engine, Settings};
 
-pub(crate) struct AppState(pub(crate) Mutex<Engine>);
+/// The engine and the read-side copy of its index.
+///
+/// `.0` is the one lock every command that touches the vault takes. The
+/// engine owns a SQLite connection and a memo cell, so it cannot be read by
+/// two threads at once and this cannot become an `RwLock` — a mount scan, a
+/// seal conversion or a folder sync therefore excludes a foreground search
+/// for as long as it runs.
+///
+/// The published snapshot is how the note-shaped reads get out of that
+/// queue. It rides inside the lock wrapper because that is what publishes
+/// it: a writer's guard installs a fresh copy as it releases the engine, so
+/// a reader always has a complete answer to hand — the one before the write
+/// while the write is running, the one after it once it is done. Listing,
+/// backlinks, metas and related take no lock at all. Search is the
+/// exception: its answer comes out of the FTS tables inside that SQLite
+/// connection, which no copy can carry, so it still queues behind a writer.
+pub(crate) struct AppState(pub(crate) vault::EngineLock);
+
+impl AppState {
+    pub(crate) fn new(engine: Engine) -> AppState {
+        AppState(vault::EngineLock::new(engine))
+    }
+}
+
+/// The read-side index, without waiting on a writer.
+///
+/// There is no rebuild here and no freshness test: the copy in hand is
+/// always a whole, consistent index, and a writer republishes under the
+/// engine lock before releasing it. So a read that starts after a write
+/// finished sees that write, and a read that starts during one answers from
+/// the vault as it stood when the write began rather than queueing for the
+/// write's whole length. The lock is taken only before anything has ever
+/// been published, which the constructor already rules out.
+pub(crate) fn read_index(app: &tauri::AppHandle) -> std::sync::Arc<vault::ReadIndex> {
+    let state: State<AppState> = app.state();
+    if let Some(index) = state.0.snapshot() {
+        return index;
+    }
+    let engine = state.0.lock().unwrap();
+    let index = engine.read_index();
+    drop(engine);
+    index
+}
 
 /// First-run state. `pending` is true when resolution found no
 /// vault, so the frontend shows onboarding instead of the app; the Engine is
@@ -57,6 +104,69 @@ pub(crate) struct AppState(pub(crate) Mutex<Engine>);
 struct OnboardingState {
     pending: Mutex<bool>,
     config_dir: std::path::PathBuf,
+    /// The vault root this run resolved to, kept here so the boot status can
+    /// be answered without the engine. The two can never disagree: choosing a
+    /// different vault takes effect on relaunch, never under a running engine.
+    root: std::path::PathBuf,
+}
+
+/// Is the vault index up?
+///
+/// Launch hands the frontend a managed engine before its scan has run and
+/// fills it on a background thread (see `setup`), so this is the flag that
+/// says which side of that a command is on. It exists to be readable WITHOUT
+/// the history or engine locks — every vault command blocks on those until
+/// the scan finishes, which is exactly the wait this flag lets the boot
+/// screen report instead of hanging on.
+///
+/// It is also the launch's one ordering barrier for work that must see a
+/// scanned vault. Taking the engine lock is NOT that barrier: the boot thread
+/// is spawned, so a background worker can win the lock before the boot thread
+/// has taken it and read an empty vault as the real one. `wait_ready` is the
+/// barrier; `mark` is raised exactly once, and on every exit from the boot
+/// thread including a panic, so nothing here can wait forever.
+struct VaultReady {
+    ready: Mutex<bool>,
+    landed: std::sync::Condvar,
+}
+
+impl VaultReady {
+    fn new(ready: bool) -> Self {
+        Self { ready: Mutex::new(ready), landed: std::sync::Condvar::new() }
+    }
+
+    fn is_ready(&self) -> bool {
+        *self.ready.lock().unwrap()
+    }
+
+    fn mark(&self) {
+        *self.ready.lock().unwrap() = true;
+        self.landed.notify_all();
+    }
+
+    /// Block until the vault index is up. Background-thread use only — this
+    /// is the wait the main thread must never do.
+    fn wait_ready(&self) {
+        let mut ready = self.ready.lock().unwrap();
+        while !*ready {
+            ready = self.landed.wait(ready).unwrap();
+        }
+    }
+}
+
+/// Run the launch's vault boot sequence and mark the vault ready afterwards
+/// — on EVERY exit, including a panic. Returns false if it panicked.
+///
+/// The mark is deliberately not the sequence's own last statement. A panic in
+/// there (a poisoned lock, a migration, a rescan) used to leave `vault_ready`
+/// false forever while `onboarding_status` kept answering cleanly: a boot
+/// frame that never lifts and never says why, and every gated read behind it
+/// waiting on an event that will not come. A vault that failed to index is a
+/// broken app either way; the one that admits it is the recoverable one.
+fn run_vault_boot(ready: &VaultReady, body: impl FnOnce()) -> bool {
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(body));
+    ready.mark();
+    outcome.is_ok()
 }
 
 /// None when git is unavailable — the app runs fine, history features error politely.
@@ -366,6 +476,7 @@ use commands::reflexes::*;
 use commands::schema::*;
 use commands::search::*;
 use commands::share::*;
+use commands::syncfolders::*;
 use commands::tags::*;
 use commands::trash::*;
 use commands::vaultsync::*;
@@ -783,9 +894,8 @@ pub fn run() {
                 // comparison: it is the chord that has always been registered,
                 // and an unrecognised one is likelier a stale registration
                 // than a reason to do nothing at all.
-                let matches = |chord: &str| {
-                    chord.trim().parse::<Shortcut>().is_ok_and(|s| &s == shortcut)
-                };
+                let matches =
+                    |chord: &str| chord.trim().parse::<Shortcut>().is_ok_and(|s| &s == shortcut);
                 #[cfg(target_os = "macos")]
                 {
                     let rt: State<SharedRuntime> = app.state();
@@ -887,13 +997,14 @@ pub fn run() {
             app.manage(OnboardingState {
                 pending: Mutex::new(first_run),
                 config_dir: config_dir.clone(),
+                root: root.clone(),
             });
             // A fresh phone vault is populated by its first sync pull. Create
             // the container now so Engine does not seed desktop demo notes,
             // which would manufacture an unrelated root commit and conflicts.
             #[cfg(mobile)]
             std::fs::create_dir_all(&root).expect("could not create mobile vault dir");
-            let mut engine = if first_run { Engine::new_unconfigured(root) } else { Engine::new(root) }
+            let engine = if first_run { Engine::new_unconfigured(root) } else { Engine::new_deferred_scan(root) }
                 // machine-local storage: mount document text, alongside the
                 // mount path bindings that already live here
                 .with_local_dir(config_dir.clone());
@@ -921,134 +1032,186 @@ pub fn run() {
                     }
                 }
             };
-            // a power/process loss during a multi-file seal leaves a
-            // journal before it leaves any ciphertext. Resume encryption and
-            // the one batch history purge before IPC, watcher and snapshot
-            // threads can observe or commit a half-converted scope — and
-            // before the mounts migration below rescans, so it never indexes
-            // a half-converted scope's remaining plaintext.
-            if !first_run {
-                match engine.resume_seal_scope() {
-                    Ok(Some(paths)) => {
-                        let completed = match hist.as_ref() {
-                            Some(h) if h.is_enabled() => {
-                                let rels: Vec<&str> = paths.iter().map(String::as_str).collect();
-                                h.purge_files(&rels).is_ok()
-                            }
-                            Some(_) => false,
-                            None => !engine.root.join(".git").exists(),
-                        };
-                        if completed {
-                            if let Err(error) = engine.finish_seal_scope() {
-                                applog!("pending seal conversion could not commit its marker: {error}");
-                            } else if let Some(h) = hist.as_ref() {
-                                h.snapshot("resume seal conversion").ok();
-                            }
-                        } else {
-                            applog!(
-                                "pending seal conversion remains encrypted but uncommitted: history cleanup unavailable"
-                            );
-                        }
-                    }
-                    Ok(None) => {}
-                    Err(error) => applog!("pending seal conversion recovery failed: {error}"),
-                }
-            }
-            // Folder-backed databases became mounts. Migrate on
-            // load, before anything reads the vault: one folder concept
-            // afterwards, never two. A recovery point goes first — a snapshot
-            // where history is on, an explicit file backup where it is not
-            // and the run is idempotent, so a crash mid-migration
-            // is retried on the next launch.
-            // `has_migratable_folder_mappings`, not `folder_mappings()`: a
-            // mapping with no type is left in place by design, so gating on
-            // "any mapping at all" would re-enter this on every launch and
-            // write a fresh backup dir each time.
-            let mut engine = engine;
-            if engine.has_migratable_folder_mappings() {
-                let protected = mounts_migration_restore_point(
-                    hist.as_ref()
-                        .map(|h| h.snapshot_restore_point("before mounts migration")),
-                    || engine.backup_before_mounts_migration(),
-                );
-                match protected {
-                    Err(error) => {
-                        applog!("mounts migration deferred: {error}");
-                    }
-                    Ok(point) => {
-                        if let MountsRestorePoint::Backup(dir) = &point {
-                            applog!("mounts migration: no version history, backed up to {}", dir.display());
-                        }
-                        let report = engine.migrate_folder_mappings();
-                        for (id, path) in &report.bindings {
-                            if let Err(e) =
-                                appcfg::write_mount_binding(
-                                    &migrate_cfg_dir,
-                                    id,
-                                    // bindings come back in `~/…` form; the config
-                                    // stores real paths, so expand once here
-                                    Some(&vault::expand_tilde(path)),
-                                )
-                            {
-                                applog!("mounts migration: binding {id}: {e}");
-                            }
-                        }
-                        for e in &report.errors {
-                            applog!("mounts migration: {e}");
-                        }
-                        applog!(
-                            "mounts migration: {} mount(s), {} note(s) adopted",
-                            report.mounts.len(),
-                            report.adopted
-                        );
-                        engine.rescan();
-                    }
-                }
-            }
-            // Machine-local mount text for mounts this vault no longer has —
-            // above all, the mounts of a DIFFERENT vault the app used to be
-            // pointed at, since the config dir is per app. Runs
-            // after the migration so the mounts it just created count as
-            // live, and only for a real vault: the first-run placeholder has
-            // no mounts, and sweeping against it would throw away text the
-            // vault picked on the next launch still wants.
-            if !first_run {
-                let collected = engine.collect_mount_text();
-                if collected > 0 {
-                    applog!("mount text: collected {collected} store(s) no mount can name");
-                }
-            }
-            // Engine::new's first rescan may adopt plaintext under an already
-            // active marker (a file created while the app was closed), and so
-            // may the mounts migration's rescan just above — which is why this
-            // drain sits BELOW it: one boundary for both, while the
-            // migration's own prior paths are still the current ones. Purge
-            // before the launch snapshot can preserve their plaintext versions.
-            if !first_run {
-                let startup_converted = engine.take_seal_conversions();
-                if !startup_converted.is_empty() {
-                    let cleaned = match hist.as_ref() {
-                        Some(h) if h.is_enabled() => {
-                            let rels: Vec<&str> =
-                                startup_converted.iter().map(String::as_str).collect();
-                            h.purge_files(&rels).is_ok()
-                        }
-                        Some(_) => false,
-                        None => !engine.root.join(".git").exists(),
-                    };
-                    if !cleaned {
-                        applog!(
-                            "startup seal adoption encrypted files but could not remove old plaintext history"
-                        );
-                    }
-                }
-                for error in engine.take_seal_failures() {
-                    applog!("startup inherited sealing failed: {error}");
-                }
-            }
-            app.manage(AppState(Mutex::new(engine)));
-            app.manage(calendarfeed::CalendarFeedState::new(&config_dir));
+            // The vault's boot sequence — the whole-vault scan, the seal
+            // resume, the mounts migration — used to run right here, and Tauri
+            // owns this thread: the window was up and could not paint a pixel
+            // until the last of it returned, which on a real vault is the black
+            // launch frame this moved to fix. The engine is managed UNSCANNED
+            // instead and filled on a thread, so the frontend's boot status
+            // answers immediately and the shell paints while the index builds.
+            //
+            // The ordering invariant that used to be "finish before setup
+            // returns" is now "finish before the locks are released": the
+            // thread takes them first and holds them across the entire
+            // sequence, so a command, the watcher or the snapshot loop
+            // arriving early WAITS rather than observing a vault with no
+            // index, or a half-converted seal scope.
+            //
+            // It takes HISTORY FIRST, THEN THE ENGINE, which is the repo's
+            // one legal nesting (`with_history_rewrite`, commands/history.rs).
+            // The watcher thread started below takes the same two in the same
+            // order on every batch, so it simply waits; the inverse order here
+            // would be an ABBA deadlock at launch against it.
+            app.manage(AppState::new(engine));
             app.manage(HistoryState(Mutex::new(hist)));
+            // a first run has no vault to index: nothing to wait for, and the
+            // onboarding screen must not sit behind a boot frame
+            app.manage(VaultReady::new(first_run));
+            let boot_handle = app.handle().clone();
+            std::thread::spawn(move || {
+                // `run_vault_boot`, not a bare call: the mark and the two
+                // emits below have to happen even when the sequence panics,
+                // or the boot frame is up for good with nothing said.
+                let finished = run_vault_boot(boot_handle.state::<VaultReady>().inner(), || {
+                    let history = boot_handle.state::<HistoryState>();
+                    let history = history.0.lock().unwrap();
+                    let hist = history.as_ref();
+                    let state: State<AppState> = boot_handle.state();
+                    let mut engine = state.0.lock().unwrap();
+                    // the walk `Engine::new` used to run in its constructor:
+                    // every note read, parsed and written into the index
+                    if !first_run {
+                        engine.rescan();
+                        match engine.resume_seal_scope() {
+                            Ok(Some(paths)) => {
+                                let completed = match hist {
+                                    Some(h) if h.is_enabled() => {
+                                        let rels: Vec<&str> = paths.iter().map(String::as_str).collect();
+                                        h.purge_files(&rels).is_ok()
+                                    }
+                                    Some(_) => false,
+                                    None => !engine.root.join(".git").exists(),
+                                };
+                                if completed {
+                                    if let Err(error) = engine.finish_seal_scope() {
+                                        applog!("pending seal conversion could not commit its marker: {error}");
+                                    } else if let Some(h) = hist {
+                                        h.snapshot("resume seal conversion").ok();
+                                    }
+                                } else {
+                                    applog!(
+                                        "pending seal conversion remains encrypted but uncommitted: history cleanup unavailable"
+                                    );
+                                }
+                            }
+                            Ok(None) => {}
+                            Err(error) => applog!("pending seal conversion recovery failed: {error}"),
+                        }
+                    }
+
+                    // Folder-backed databases became mounts. Migrate on
+                    // load, before anything reads the vault: one folder concept
+                    // afterwards, never two. A recovery point goes first — a snapshot
+                    // where history is on, an explicit file backup where it is not
+                    // and the run is idempotent, so a crash mid-migration
+                    // is retried on the next launch.
+                    // `has_migratable_folder_mappings`, not `folder_mappings()`: a
+                    // mapping with no type is left in place by design, so gating on
+                    // "any mapping at all" would re-enter this on every launch and
+                    // write a fresh backup dir each time.
+                    if engine.has_migratable_folder_mappings() {
+                        let protected = mounts_migration_restore_point(
+                            hist
+                                .map(|h| h.snapshot_restore_point("before mounts migration")),
+                            || engine.backup_before_mounts_migration(),
+                        );
+                        match protected {
+                            Err(error) => {
+                                applog!("mounts migration deferred: {error}");
+                            }
+                            Ok(point) => {
+                                if let MountsRestorePoint::Backup(dir) = &point {
+                                    applog!("mounts migration: no version history, backed up to {}", dir.display());
+                                }
+                                let report = engine.migrate_folder_mappings();
+                                for (id, path) in &report.bindings {
+                                    if let Err(e) =
+                                        appcfg::write_mount_binding(
+                                            &migrate_cfg_dir,
+                                            id,
+                                            // bindings come back in `~/…` form; the config
+                                            // stores real paths, so expand once here
+                                            Some(&vault::expand_tilde(path)),
+                                        )
+                                    {
+                                        applog!("mounts migration: binding {id}: {e}");
+                                    }
+                                }
+                                for e in &report.errors {
+                                    applog!("mounts migration: {e}");
+                                }
+                                applog!(
+                                    "mounts migration: {} mount(s), {} note(s) adopted",
+                                    report.mounts.len(),
+                                    report.adopted
+                                );
+                                engine.rescan();
+                            }
+                        }
+                    }
+                    // Machine-local mount text for mounts this vault no longer has —
+                    // above all, the mounts of a DIFFERENT vault the app used to be
+                    // pointed at, since the config dir is per app. Runs
+                    // after the migration so the mounts it just created count as
+                    // live, and only for a real vault: the first-run placeholder has
+                    // no mounts, and sweeping against it would throw away text the
+                    // vault picked on the next launch still wants.
+                    if !first_run {
+                        let collected = engine.collect_mount_text();
+                        if collected > 0 {
+                            applog!("mount text: collected {collected} store(s) no mount can name");
+                        }
+                    }
+                    // The boot rescan above may adopt plaintext under an already
+                    // active marker (a file created while the app was closed), and so
+                    // may the mounts migration's rescan just above — which is why this
+                    // drain sits BELOW it: one boundary for both, while the
+                    // migration's own prior paths are still the current ones. Purge
+                    // before the launch snapshot can preserve their plaintext versions.
+                    if !first_run {
+                        let startup_converted = engine.take_seal_conversions();
+                        if !startup_converted.is_empty() {
+                            let cleaned = match hist {
+                                Some(h) if h.is_enabled() => {
+                                    let rels: Vec<&str> =
+                                        startup_converted.iter().map(String::as_str).collect();
+                                    h.purge_files(&rels).is_ok()
+                                }
+                                Some(_) => false,
+                                None => !engine.root.join(".git").exists(),
+                            };
+                            if !cleaned {
+                                applog!(
+                                    "startup seal adoption encrypted files but could not remove old plaintext history"
+                                );
+                            }
+                        }
+                        for error in engine.take_seal_failures() {
+                            applog!("startup inherited sealing failed: {error}");
+                        }
+                    }
+                });
+                if !finished {
+                    // Worse than an incomplete index: the sequence holds the
+                    // history and engine guards for its whole body, so an
+                    // unwind poisons both mutexes and every later vault
+                    // command panics on `lock().unwrap()`. Nothing here can
+                    // repair that — the honest move is to say so and let the
+                    // window offer a relaunch rather than fail read by read.
+                    applog!(
+                        "vault boot sequence panicked: the vault locks are poisoned and vault commands will fail until relaunch"
+                    );
+                    // beside the two below, so the frontend learns it from the
+                    // same place it learns the vault is up
+                    boot_handle.emit("vault:boot-failed", ()).ok();
+                }
+                // the boot screen is waiting on this one, and the shell's
+                // normal refetch path on the other — one event each, so a
+                // frontend that missed neither does exactly one list
+                boot_handle.emit("vault:ready", ()).ok();
+                boot_handle.emit("vault:changed", Vec::<String>::new()).ok();
+            });
+            app.manage(calendarfeed::CalendarFeedState::new(&config_dir));
             let sync_config_dir = app.path().app_config_dir().expect("no app config dir");
             let privacy_path = sync_config_dir.join("vault-sync-privacy.json");
             app.manage(VaultSyncState {
@@ -1112,6 +1275,7 @@ pub fn run() {
                 applied_opacity: None,
             })));
             app.manage(context_snapshot::PendingContext::default());
+            app.manage(commands::window::OpenTargets::default());
             #[cfg(desktop)]
             app.manage(term::TermState::default());
             #[cfg(desktop)]
@@ -1125,23 +1289,37 @@ pub fn run() {
                 // in app config forever.
                 let handle = app.handle().clone();
                 voice::transcribe::start_worker(&handle);
-                let recovered = {
-                    let state: State<AppState> = handle.state();
-                    let mut engine = state.0.lock().unwrap();
-                    voice::recover_orphans(&handle, &mut engine)
-                };
-                if recovered > 0 {
-                    handle.state::<SnapDirty>().mark();
-                }
-                // Everything still without a transcript, oldest first: notes
-                // recovered just now, notes filed while the model was still
-                // downloading, and anything a crash left half-done. The prop's
-                // absence is the queue, so this needs no state of its own.
-                {
-                    let state: State<AppState> = handle.state();
-                    let engine = state.0.lock().unwrap();
-                    voice::transcribe::sweep_pending(&handle, &engine);
-                }
+                // …on a thread, because both halves below need the engine and
+                // the boot thread holds it until the vault index is up. Run
+                // here they would put the whole launch back on this thread,
+                // which is the wait the deferred scan exists to remove. The
+                // engine they get is the scanned one: the lock is the queue.
+                std::thread::spawn(move || {
+                    let recovered = {
+                        let state: State<AppState> = handle.state();
+                        let mut engine = state.0.lock().unwrap();
+                        voice::recover_orphans(&handle, &mut engine)
+                    };
+                    if recovered > 0 {
+                        handle.state::<SnapDirty>().mark();
+                        // Recovery used to finish before the first `vault_list`
+                        // could be served; now it races it, so a note filed
+                        // here can land after the board has drawn. Tell the
+                        // frontend the vault changed for the same reason the
+                        // extract sink does — a background writer that says
+                        // nothing is a note the user never sees appear.
+                        handle.emit("vault:changed", Vec::<String>::new()).ok();
+                    }
+                    // Everything still without a transcript, oldest first: notes
+                    // recovered just now, notes filed while the model was still
+                    // downloading, and anything a crash left half-done. The prop's
+                    // absence is the queue, so this needs no state of its own.
+                    {
+                        let state: State<AppState> = handle.state();
+                        let engine = state.0.lock().unwrap();
+                        voice::transcribe::sweep_pending(&handle, &engine);
+                    }
+                });
             }
 
             // Floating quick-capture window: hidden until the hotkey fires,
@@ -1428,8 +1606,16 @@ pub fn run() {
                         // History first, engine second — inherited encryption
                         // can require an immediate graph rewrite, and this is
                         // the same lock order as every command boundary.
+                        //
+                        // Both guards end with the block below, BEFORE the
+                        // emits and the reflex run: `snapshot_reflex_writes`
+                        // takes the history lock again, on this thread, and
+                        // `std::sync::Mutex` is not re-entrant — holding this
+                        // guard into `run_reflexes` deadlocks the watcher
+                        // outright on any batch whose rules write. Nothing
+                        // after the block reads history, so scoping is the
+                        // whole fix.
                         let history: State<HistoryState> = handle.state();
-                        let hist_guard = history.0.lock().unwrap();
                         let state: State<AppState> = handle.state();
                         let mut notes_touched = matches!(batch, vault::WatchBatch::Rescan);
                         let mut config_touched = notes_touched;
@@ -1441,6 +1627,7 @@ pub fn run() {
                         // events only, never on a catch-up sweep
                         let mut outcomes: Vec<(String, vault::NoteChange)> = Vec::new();
                         let mut reflexes_touched = false;
+                        let hist_guard = history.0.lock().unwrap();
                         if let Ok(mut engine) = state.0.lock() {
                             match batch {
                                 vault::WatchBatch::Rescan => engine.rescan(),
@@ -1478,6 +1665,7 @@ pub fn run() {
                             )
                             .ok();
                         }
+                        drop(hist_guard);
                         if settings_touched {
                             apply_settings(&handle, &settings_root);
                         }
@@ -1675,6 +1863,7 @@ pub fn run() {
             widget_summary_write,
             widget_configured_ids,
             vault_list,
+            vault_metas,
             vault_read,
             vault_sealed_configured,
             vault_seal_scopes,
@@ -1793,6 +1982,9 @@ pub fn run() {
             vault_sync_resolve_clear,
             vault_sync_resolve_finish,
             vault_sync_ack_privacy,
+            sync_folders_list,
+            sync_folders_index,
+            sync_folders_set,
             mounts_list,
             mount_add,
             mount_bind,
@@ -1846,6 +2038,7 @@ pub fn run() {
             agenda_resize,
             palette_open_note,
             palette_open_view,
+            open_targets_take_pending,
             capture_pivot_palette,
             palette_seed_query,
             commands::deeplink::deeplink_take_pending,
@@ -1880,6 +2073,41 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    /// A panic inside the launch's vault boot sequence must still leave the
+    /// vault marked ready. Not marking it is the silent failure: the app
+    /// paints its boot frame and never lifts it, while `onboarding_status`
+    /// keeps answering "still indexing" perfectly politely, forever.
+    #[test]
+    fn a_panicking_boot_sequence_still_lets_the_app_through() {
+        let ready = super::VaultReady::new(false);
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {})); // the panic is the fixture, not a failure
+        let finished = super::run_vault_boot(&ready, || panic!("rescan blew up"));
+        std::panic::set_hook(previous);
+
+        assert!(!finished, "the caller has to be able to log what happened");
+        assert!(ready.is_ready(), "a boot frame that never lifts is the worse failure");
+        // and every background wait behind the same flag is released too,
+        // rather than parking a thread for the life of the process
+        ready.wait_ready();
+    }
+
+    /// The barrier the meaning indexer waits on: it must not return before
+    /// the boot sequence has marked, and must return once it has.
+    #[test]
+    fn waiting_for_the_vault_index_ends_when_the_boot_thread_marks() {
+        let ready = std::sync::Arc::new(super::VaultReady::new(false));
+        assert!(!ready.is_ready());
+        let marker = std::sync::Arc::clone(&ready);
+        let t = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            marker.mark();
+        });
+        ready.wait_ready();
+        assert!(ready.is_ready());
+        t.join().unwrap();
+    }
+
     #[test]
     fn mounts_migration_never_runs_without_a_restore_point() {
         use super::MountsRestorePoint;
@@ -1990,6 +2218,9 @@ mod tests {
         );
 
         fail.note_success();
-        assert!(!fail.note_failure(t0 + Duration::from_secs(10 * 60 * 60)), "a success did not reset the run");
+        assert!(
+            !fail.note_failure(t0 + Duration::from_secs(10 * 60 * 60)),
+            "a success did not reset the run"
+        );
     }
 }

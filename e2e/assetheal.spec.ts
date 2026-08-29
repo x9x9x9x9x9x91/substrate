@@ -29,16 +29,16 @@ const PIXEL_PNG =
 
 test("missing file chip and image heal when the asset appears (SUB-289)", async ({ page }) => {
   await boot(page);
-  await seedBody(page, "gone\n\n![[gone.pdf]]\n\n![[gone.png]]\n");
+  await seedBody(page, "gone\n\n![[gone.docx]]\n\n![[gone.png]]\n");
   const missing = page.locator(".cm-embed-missing");
   await expect(missing).toHaveCount(2);
-  await expect(missing.filter({ hasText: "gone.pdf" })).toContainText("missing file · gone.pdf");
+  await expect(missing.filter({ hasText: "gone.docx" })).toContainText("missing file · gone.docx");
   await expect(missing.filter({ hasText: "gone.png" })).toContainText("missing image · gone.png");
 
   // the assets land on disk, straight in the mock store (no app write → no
   // echo window), then the watcher fires — nothing reloads or edits the note
   await page.evaluate((png) => {
-    window.__mockSaveAsset("gone.pdf", "JVBERi0xLjQKbW9jayBwZGYK");
+    window.__mockSaveAsset("gone.docx", "ZTJlIGRvY3VtZW50");
     window.__mockSaveAsset("gone.png", png);
   }, PIXEL_PNG);
   await page.evaluate(() => window.__mockEmit("vault:changed"));
@@ -46,9 +46,9 @@ test("missing file chip and image heal when the asset appears (SUB-289)", async 
   // both widgets heal in place — no reload, no cursor pass through the source
   const chip = page.locator(".cm-filechip");
   await expect(chip).toBeVisible();
-  await expect(chip.locator(".cm-filechip-name")).toHaveText("gone.pdf");
+  await expect(chip.locator(".cm-filechip-name")).toHaveText("gone.docx");
   // the size fills in once vault_asset_info lands (mock: 8 + name.length)
-  await expect(chip.locator(".cm-filechip-size")).toHaveText("16 B");
+  await expect(chip.locator(".cm-filechip-size")).toHaveText("17 B");
   const img = page.locator(".cm-embed-img img");
   await expect(img).toHaveCount(1);
   await expect(img).toHaveAttribute("alt", "gone.png");
@@ -58,15 +58,15 @@ test("missing file chip and image heal when the asset appears (SUB-289)", async 
 
 test("healthy embeds keep their DOM across a vault change (SUB-289)", async ({ page }) => {
   await boot(page);
-  await seedBody(page, "mixed\n\n![[old-bounce.wav]]\n\n![[gone.pdf]]\n");
+  await seedBody(page, "mixed\n\n![[old-bounce.wav]]\n\n![[gone.docx]]\n");
   await expect(page.locator(".cm-audio")).toBeVisible();
-  await expect(page.locator(".cm-embed-missing")).toContainText("missing file · gone.pdf");
+  await expect(page.locator(".cm-embed-missing")).toContainText("missing file · gone.docx");
 
   // tag the healthy player's DOM node — a rebuild would drop the attribute
   await page.evaluate(() => {
     document.querySelector(".cm-audio")!.setAttribute("data-heal-probe", "kept");
   });
-  await page.evaluate(() => window.__mockSaveAsset("gone.pdf", "JVBERi0xLjQKbW9jayBwZGYK"));
+  await page.evaluate(() => window.__mockSaveAsset("gone.docx", "ZTJlIGRvY3VtZW50"));
   await page.evaluate(() => window.__mockEmit("vault:changed"));
 
   // the failed chip heals — proof the epoch bump and decoration rebuild landed

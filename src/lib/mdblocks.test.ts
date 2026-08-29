@@ -84,18 +84,32 @@ test("a pipe line without a divider under it is a paragraph", () => {
   assert.deepEqual(kinds(scanMdBlocks("| a | b |\n| c | d |\n", PRINT)), ["para"]);
 });
 
-test("list items arrive with marker and checkbox stripped", () => {
+test("list items arrive with marker and checkbox stripped, and their own line", () => {
   const md = ["- plain", "- [ ] open", "- [x] done", "- [X] done too"].join("\n");
   const [block] = scanMdBlocks(md, PRINT);
   assert.ok(block.kind === "list");
   if (block.kind !== "list") return;
   assert.equal(block.ordered, false);
   assert.deepEqual(block.items, [
-    { text: "plain", done: null },
-    { text: "open", done: false },
-    { text: "done", done: true },
-    { text: "done too", done: true },
+    { text: "plain", done: null, line: 0 },
+    { text: "open", done: false, line: 1 },
+    { text: "done", done: true, line: 2 },
+    { text: "done too", done: true, line: 3 },
   ]);
+});
+
+test("an item's line is its position in the scanned text, not in its list", () => {
+  const md = ["intro prose", "", "- [ ] first", "- [ ] second"].join("\n");
+  const blocks = scanMdBlocks(md, PRINT);
+  const list = blocks.find((b) => b.kind === "list");
+  assert.ok(list && list.kind === "list");
+  if (!list || list.kind !== "list") return;
+  // the offsets a LIVE renderer writes a toggle back through — they must
+  // count from the top of the text the scanner was handed
+  assert.deepEqual(
+    list.items.map((i) => i.line),
+    [2, 3]
+  );
 });
 
 test("ordered is the marker kind of the run's FIRST line", () => {

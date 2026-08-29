@@ -7,10 +7,10 @@
 //! under a separately reviewed design.
 //!
 //! The tool surface is vault-shaped and small: `vault_list`, `note_read`,
-//! `note_write`, `note_create`, `vault_search`. Every decision runs through
-//! the scope engine (`super::scope`); writes check [`ScopeSet::decide_resolved`]
-//! — never the string-level half alone — so a planted symlink cannot carry a
-//! grant somewhere it doesn't reach.
+//! `note_write`, `note_create`, `vault_search`, `view_read`. Every decision
+//! runs through the scope engine (`super::scope`); writes check
+//! [`ScopeSet::decide_resolved`] — never the string-level half alone — so a
+//! planted symlink cannot carry a grant somewhere it doesn't reach.
 //!
 //! Grants are reloaded from `mcp-scopes.json` on EVERY tool call: deleting a
 //! grant revokes access for a client that is already connected, without a
@@ -65,10 +65,7 @@ impl Door {
             return Err("no folders are shared (mcp-scopes.json is missing or empty)".into());
         }
         let engine = Engine::new_unconfigured(vault_root);
-        debug_assert_ne!(
-            cfg_dir, engine.root,
-            "MCP grants must stay outside the synced vault"
-        );
+        debug_assert_ne!(cfg_dir, engine.root, "MCP grants must stay outside the synced vault");
         let history = match History::new(engine.root.clone()) {
             Ok(h) => {
                 if h.is_enabled() {
@@ -154,9 +151,8 @@ impl Door {
         let method = match msg.get("method").and_then(Value::as_str) {
             Some(method) => method,
             None => {
-                return id.map(|id| {
-                    rpc_envelope(id, Err((-32600, "request method is required".into())))
-                })
+                return id
+                    .map(|id| rpc_envelope(id, Err((-32600, "request method is required".into()))))
             }
         };
         let params = msg.get("params").cloned().unwrap_or(Value::Null);
@@ -218,6 +214,7 @@ impl Door {
             "note_write" => self.note_write(&scopes, &args),
             "note_create" => self.note_create(&scopes, &args),
             "vault_search" => self.vault_search(&scopes, &args),
+            "view_read" => self.view_read(&scopes, &args),
             _ => return rpc_envelope(id, Err((-32602, format!("unknown tool: {name}")))),
         };
         let result = match outcome {
@@ -274,15 +271,13 @@ impl Door {
         if !matches!(scopes.decide_resolved(&self.engine.root, &rel), Decision::Allow(_)) {
             return Err(format!("not shared: {rel}"));
         }
-        let content = self
-            .engine
-            .read(&rel)
-            .map_err(|_| format!("note unavailable: {rel}"))?;
-        let title = self
-            .engine
-            .meta(&rel)
-            .map(|m| m.title)
-            .unwrap_or_else(|| Path::new(&rel).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default());
+        let content = self.engine.read(&rel).map_err(|_| format!("note unavailable: {rel}"))?;
+        let title = self.engine.meta(&rel).map(|m| m.title).unwrap_or_else(|| {
+            Path::new(&rel)
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        });
         Ok(json!({ "path": rel, "title": title, "props": content.props, "body": content.body }))
     }
 
@@ -302,11 +297,8 @@ impl Door {
         let folder = str_arg(args, "folder").unwrap_or_default();
         let title = str_arg(args, "title").ok_or("title is required")?;
         let note_type = str_arg(args, "type");
-        let folder = if folder.trim().is_empty() {
-            String::new()
-        } else {
-            sanitize_folder_rel(&folder)?
-        };
+        let folder =
+            if folder.trim().is_empty() { String::new() } else { sanitize_folder_rel(&folder)? };
         if scopes.decide_resolved(&self.engine.root, &folder) != Decision::Allow(Access::Write) {
             return Err(format!("folder is not shared for writing: {folder:?}"));
         }
@@ -347,6 +339,75 @@ impl Door {
             .map(|h| json!({ "path": h.path, "snippet": h.snippet }))
             .collect();
         Ok(json!({ "query": query, "hits": hits }))
+    }
+
+    /// A view, evaluated — the rows it shows, in the order it shows them,
+    /// with the cells it paints. The same answer the pane paints and the
+    /// headless verb prints, because it is the same evaluator: the door runs
+    /// it (`super::viewengine`) rather than deciding membership itself.
+    ///
+    /// Scoped the way [`Door::vault_search`] is, and for the same reason: the
+    /// allow-list is decided HERE, before the evaluator starts, so a note in
+    /// an ungranted folder is never opened. That matters more for a view than
+    /// for a search, because a view's rollup columns follow relations out of
+    /// their own database — an evaluator handed the whole vault would read
+    /// ungranted notes to fill a granted row's cell. Sealed notes are dropped
+    /// from the list too: they are name-only everywhere, and a sealed row's
+    /// cells exist nowhere to be shown.
+    ///
+    /// The answer is therefore the view AS THIS CLIENT'S GRANTS SEE IT, which
+    /// is not always the whole view; `reader.scope` says so on every payload.
+    /// When the grants reach no note of the view's database at all, that is a
+    /// refusal rather than an empty table — an agent must not read "you were
+    /// never given this" as "there is nothing to do". A SAVED view over such a
+    /// database is refused a step earlier and differently: the evaluator only
+    /// resolves a name against the pins over databases this client's own notes
+    /// are members of, so a pin it was never given fails exactly like a name
+    /// this vault does not carry. The database is named back only when the
+    /// client supplied it itself, in a fence in a note it can read.
+    fn view_read(&mut self, scopes: &ScopeSet, args: &Value) -> Result<Value, String> {
+        let view = str_arg(args, "view");
+        let path = str_arg(args, "path");
+        if view.is_some() && path.is_some() {
+            return Err("ask for a saved view or a note's fence, not both".into());
+        }
+        // a fence is read out of a note, so the note itself must be shared —
+        // resolved, not string-level, like every other read of one file
+        if let Some(rel) = &path {
+            if !matches!(scopes.decide_resolved(&self.engine.root, rel), Decision::Allow(_)) {
+                return Err(format!("not shared: {rel}"));
+            }
+        }
+        self.engine.rescan();
+        let allowed: Vec<String> = self
+            .engine
+            .list()
+            .into_iter()
+            .filter(|n| !n.sealed)
+            .map(|n| n.path)
+            .filter(|p| readable(scopes, p))
+            .collect();
+        if allowed.is_empty() {
+            return Err("no shared folder holds notes to evaluate a view over".into());
+        }
+        let mut request = json!({ "vault": self.engine.root, "allow": allowed });
+        for (key, value) in [("view", view), ("path", path), ("db", str_arg(args, "db"))] {
+            if let Some(v) = value {
+                request[key] = json!(v);
+            }
+        }
+        if let Some(today) = str_arg(args, "today") {
+            request["today"] = json!(today);
+        }
+        if let Some(fence) = args.get("fence").and_then(Value::as_u64) {
+            request["fence"] = json!(fence);
+        }
+        let payload = super::viewengine::evaluate(&request)?;
+        if payload["reader"]["members"].as_u64() == Some(0) {
+            let db = payload["view"]["db"].as_str().unwrap_or_default();
+            return Err(format!("no shared folder holds a note of database {db:?}"));
+        }
+        Ok(payload)
     }
 
 
@@ -433,9 +494,7 @@ fn rpc_envelope(id: Value, result: Result<Value, (i64, String)>) -> Value {
 
 
 fn tool_definitions() -> Value {
-    let obj = |props: Value, required: &[&str]| {
-        json!({"type": "object", "properties": props, "required": required})
-    };
+    let obj = |props: Value, required: &[&str]| json!({"type": "object", "properties": props, "required": required});
     json!([
         {
             "name": "vault_list",
@@ -469,6 +528,17 @@ fn tool_definitions() -> Value {
             }), &["title"]),
         },
         {
+            "name": "view_read",
+            "description": "Read a view the way the app shows it: the rows it matches, in its order, with its computed cells. Name a saved view, or give the path of a note with a ```view fence. Rows outside the shared folders are never included.",
+            "inputSchema": obj(json!({
+                "view": {"type": "string", "description": "A saved view's name or id"},
+                "db": {"type": "string", "description": "Database, when two saved views share a name"},
+                "path": {"type": "string", "description": "Instead of view: a note holding a ```view fence"},
+                "fence": {"type": "integer", "description": "Which view fence in that note, 1-based (default 1)"},
+                "today": {"type": "string", "description": "Reference day for relative date filters, e.g. 2026-08-18"}
+            }), &[]),
+        },
+        {
             "name": "vault_search",
             "description": "Full-text search across the shared folders. Results never include unshared folders.",
             "inputSchema": obj(json!({
@@ -492,7 +562,12 @@ fn bundle_identifier() -> Option<String> {
 /// writes `mcp-scopes.json` and `config.json`. The sidecar has no Tauri
 /// handle, so the platform paths are mirrored here.
 /// `SUBSTRATE_CONFIG_DIR` overrides for tests and dev runs.
-pub(super) fn config_dir() -> Option<PathBuf> {
+///
+/// `crate::meaning::embed` borrows it for the same reason and one step
+/// further: the downloaded ONNX runtime lives under this directory, and the
+/// lookup has to give the same answer in the app and in the sidecar, neither
+/// of which can reach it through `current_exe()` any more.
+pub(crate) fn config_dir() -> Option<PathBuf> {
     if let Some(d) = std::env::var_os("SUBSTRATE_CONFIG_DIR") {
         if !d.is_empty() {
             return Some(PathBuf::from(d));
@@ -522,9 +597,8 @@ pub(super) fn config_dir() -> Option<PathBuf> {
 /// no vault anywhere — is a refusal: the sidecar never picks a vault.
 pub(super) fn resolve_root(cfg_dir: &Path) -> Option<PathBuf> {
     let env_vault = std::env::var("VAULT_DIR").ok();
-    let home = std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .map(PathBuf::from)?;
+    let home =
+        std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from)?;
     match crate::appcfg::resolve_vault(cfg_dir, env_vault.as_deref(), &home.join("Vault")) {
         crate::appcfg::Resolution::Root(root, _) => Some(root),
         crate::appcfg::Resolution::FirstRun => None,
@@ -573,10 +647,7 @@ mod tests {
 
     fn write_scopes(cfg: &Path, grants: &[(&str, Access)]) {
         let set = ScopeSet {
-            grants: grants
-                .iter()
-                .map(|(p, a)| Grant::folder("TestClient", p, *a))
-                .collect(),
+            grants: grants.iter().map(|(p, a)| Grant::folder("TestClient", p, *a)).collect(),
             extra: Default::default(),
         };
         set.save(cfg).unwrap();
@@ -615,8 +686,7 @@ mod tests {
 
     #[test]
     fn door_refuses_to_open_without_grants() {
-        let base =
-            std::env::temp_dir().join(format!("mcp-door-{}-closed", std::process::id()));
+        let base = std::env::temp_dir().join(format!("mcp-door-{}-closed", std::process::id()));
         let _ = fs::remove_dir_all(&base);
         let root = base.join("vault");
         let cfg = base.join("cfg");
@@ -658,9 +728,7 @@ mod tests {
         // root grant still never exposes the config surface
         assert!(door.note_read(&scopes, &json!({"path": "Settings.md"})).is_err());
         assert!(door.note_read(&scopes, &json!({"path": ".vault/folders.json"})).is_err());
-        let missing = door
-            .note_read(&scopes, &json!({"path": "Notes/missing.md"}))
-            .unwrap_err();
+        let missing = door.note_read(&scopes, &json!({"path": "Notes/missing.md"})).unwrap_err();
         assert_eq!(missing, "note unavailable: Notes/missing.md");
         assert!(!missing.contains(&root.to_string_lossy().to_string()));
     }
@@ -669,9 +737,8 @@ mod tests {
     fn write_needs_a_write_grant() {
         let (mut door, root, _cfg) = setup("wgrant", &[("Notes", Access::Read)]);
         let scopes = ScopeSet::load(&door.cfg_dir);
-        let err = door
-            .note_write(&scopes, &json!({"path": "Notes/a.md", "body": "hacked"}))
-            .unwrap_err();
+        let err =
+            door.note_write(&scopes, &json!({"path": "Notes/a.md", "body": "hacked"})).unwrap_err();
         assert!(err.contains("not shared for writing"), "{err}");
         assert!(!fs::read_to_string(root.join("Notes/a.md")).unwrap().contains("hacked"));
     }
@@ -815,9 +882,7 @@ mod tests {
         // create land on it — the destination check is what refuses
         fs::remove_file(root.join("AGENTS.md")).unwrap();
         door.engine.rescan();
-        let err = door
-            .note_create(&scopes, &json!({"folder": "", "title": "AGENTS"}))
-            .unwrap_err();
+        let err = door.note_create(&scopes, &json!({"folder": "", "title": "AGENTS"})).unwrap_err();
         assert!(err.contains("not shared for writing"), "{err}");
         assert!(!root.join("AGENTS.md").exists(), "instruction surface was authored");
         // an ordinary root note under the same grant still works
@@ -836,10 +901,7 @@ mod tests {
         // the decision itself, not just the engine's own missing-file
         // refusal: a dangling link must never be mistaken for a free name a
         // create may take, or the target inherits the grant once it appears
-        assert_eq!(
-            scopes.decide_resolved(&door.engine.root, "Notes/keys.md"),
-            Decision::Deny
-        );
+        assert_eq!(scopes.decide_resolved(&door.engine.root, "Notes/keys.md"), Decision::Deny);
         assert!(door
             .note_write(&scopes, &json!({"path": "Notes/keys.md", "body": "ssh-rsa AAAA"}))
             .is_err());
@@ -981,6 +1043,7 @@ mod tests {
                 "note_read",
                 "note_write",
                 "note_create",
+                "view_read",
                 "vault_search"
             ]
         );
@@ -1053,10 +1116,139 @@ mod tests {
             assert!(door
                 .note_write(&scopes, &json!({"path": "Notes/fin/f.md", "body": "x"}))
                 .is_err());
-            assert_eq!(
-                fs::read_to_string(root.join("Finance/f.md")).unwrap(),
-                "secret ledger\n"
-            );
+            assert_eq!(fs::read_to_string(root.join("Finance/f.md")).unwrap(), "secret ledger\n");
         }
+    }
+
+    /// Give the setup vault a database, a saved pin over it and a note with a
+    /// view fence, and point the door at the engine in this checkout. The
+    /// tests read what the pane would paint, so the vault has to be one a
+    /// view can be evaluated over.
+    fn seed_views(root: &Path) {
+        fs::create_dir_all(root.join(".vault")).unwrap();
+        fs::write(
+            root.join(".vault/views.json"),
+            r#"{"$views":[
+                 {"id":"open","name":"Open tasks","db":"task","query":"-status:done",
+                  "columns":["status","due"],"sorts":[{"key":"due","dir":1}]},
+                 {"id":"ledger","name":"Ledger review","db":"entry","query":"","columns":[],"sorts":[]}
+               ]}"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join(".vault/schema.json"),
+            r#"{"task":{"status":{"kind":"select"},"due":{"kind":"date"}},"entry":{}}"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("Notes/t1.md"),
+            "---\ntype: task\nstatus: doing\ndue: 2026-08-01\n---\nfirst\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("Notes/t2.md"),
+            "---\ntype: task\nstatus: done\ndue: 2026-07-01\n---\nsecond\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("Finance/t3.md"),
+            "---\ntype: task\nstatus: doing\ndue: 2026-06-01\n---\nthird\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("Notes/Board.md"),
+            "# Board\n\n```view\ntype: task\ncolumns: status, due\nsort: due:desc\n```\n",
+        )
+        .unwrap();
+        // a fence over a database no note belongs to: the caller wrote the
+        // type itself, so the "grants reach none of these" refusal can name
+        // it back without telling the caller anything it did not already have
+        fs::write(
+            root.join("Finance/e1.md"),
+            "---\ntype: entry\n---\nan entry the Notes grant does not reach\n",
+        )
+        .unwrap();
+        fs::write(root.join("Notes/Ledger.md"), "# Ledger\n\n```view\ntype: entry\n```\n").unwrap();
+        // the source engine, not a bundled build: `node` runs the .ts directly,
+        // which is how the headless verb next to it already runs
+        let engine = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../scripts/view-read/viewengine.ts")
+            .canonicalize()
+            .unwrap();
+        std::env::set_var("SUBSTRATE_VIEW_ENGINE", engine);
+    }
+
+    #[test]
+    fn view_read_refuses_a_database_no_grant_reaches() {
+        let (mut door, root, _cfg) = setup("viewdeny", &[("Notes", Access::Read)]);
+        seed_views(&root);
+        let scopes = ScopeSet::load(&door.cfg_dir);
+        // "Ledger review" is a pin over a database no note this client can
+        // read belongs to. It refuses the way a name this vault never carried
+        // refuses, to the byte: otherwise the two shapes of "no" sort the
+        // vault's pins into the ones withheld from this client and the ones
+        // that do not exist, which is the pin list it was not given.
+        let ungranted = door.view_read(&scopes, &json!({"view": "Ledger review"})).unwrap_err();
+        let unknown = door.view_read(&scopes, &json!({"view": "Ferrous log"})).unwrap_err();
+        assert_eq!(
+            ungranted.replace("Ledger review", "<asked>"),
+            unknown.replace("Ferrous log", "<asked>"),
+            "{ungranted} / {unknown}"
+        );
+        // and the database behind the withheld pin is not named either
+        assert!(!ungranted.contains("entry"), "{ungranted}");
+        // a fence the client wrote over that same database is the case the
+        // members refusal is still for: an empty table there must not read as
+        // "nothing to do", and the type came out of the client's own note
+        let err = door.view_read(&scopes, &json!({"path": "Notes/Ledger.md"})).unwrap_err();
+        assert!(err.contains("no shared folder holds a note of database"), "{err}");
+        // and with no readable note at all, the refusal comes before the engine
+        let (mut door, root, _cfg) = setup("viewnogrant", &[("Finance", Access::Read)]);
+        seed_views(&root);
+        fs::remove_file(root.join("Finance/f.md")).unwrap();
+        fs::remove_file(root.join("Finance/t3.md")).unwrap();
+        fs::remove_file(root.join("Finance/e1.md")).unwrap();
+        let scopes = ScopeSet::load(&door.cfg_dir);
+        let err = door.view_read(&scopes, &json!({"view": "Open tasks"})).unwrap_err();
+        assert!(err.contains("no shared folder holds notes"), "{err}");
+    }
+
+    #[test]
+    fn view_read_refuses_an_unknown_view_without_naming_the_others() {
+        let (mut door, root, _cfg) = setup("viewname", &[("Notes", Access::Read)]);
+        seed_views(&root);
+        let scopes = ScopeSet::load(&door.cfg_dir);
+        let err = door.view_read(&scopes, &json!({"view": "Nope"})).unwrap_err();
+        assert!(err.contains("no saved view named Nope"), "{err}");
+        // a client whose grants reach one folder must not learn the name of
+        // every pin in the vault from a typo
+        assert!(!err.contains("Ledger review"), "{err}");
+        // a fence read still needs the note it lives in to be shared
+        let err = door.view_read(&scopes, &json!({"path": "Finance/f.md"})).unwrap_err();
+        assert_eq!(err, "not shared: Finance/f.md");
+    }
+
+    #[test]
+    fn view_read_answers_a_granted_view_with_the_evaluated_payload() {
+        let (mut door, root, _cfg) = setup("viewok", &[("Notes", Access::Read)]);
+        seed_views(&root);
+        let scopes = ScopeSet::load(&door.cfg_dir);
+        let v =
+            door.view_read(&scopes, &json!({"view": "Open tasks", "today": "2026-08-20"})).unwrap();
+        assert_eq!(v["schema"], "substrate.view/1");
+        assert_eq!(v["view"]["name"], "Open tasks");
+        assert_eq!(v["source"]["kind"], "saved");
+        assert_eq!(v["reader"]["scope"], "granted folders");
+        // t2 is filtered out by the pin, t3 is a task the grant does not reach
+        let rows = v["rows"].as_array().unwrap();
+        assert_eq!(rows.len(), 1, "{v}");
+        assert_eq!(rows[0]["path"], "Notes/t1.md");
+        assert_eq!(rows[0]["cells"]["due"]["display"], "Aug 1, 2026");
+        // and the fence in a shared note evaluates over the same granted set
+        let v = door.view_read(&scopes, &json!({"path": "Notes/Board.md"})).unwrap();
+        assert_eq!(v["source"], json!({"kind": "fence", "path": "Notes/Board.md", "fence": 1}));
+        let paths: Vec<&str> =
+            v["rows"].as_array().unwrap().iter().map(|r| r["path"].as_str().unwrap()).collect();
+        assert_eq!(paths, ["Notes/t1.md", "Notes/t2.md"], "{v}");
     }
 }

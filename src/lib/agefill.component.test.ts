@@ -113,3 +113,27 @@ test("a vault with no history is asked once, not once per repaint", async () => 
   }
   assert.equal(calls, 1);
 });
+
+test("an answer for a torn-down region's table is dropped", async () => {
+  // A column region is destroyed WRAPPER AND ALL, so the table it built keeps
+  // a parent all the way down — the only honest question left is whether it
+  // is still on the page. Two of these running at once would be one remount
+  // painting over another's cells.
+  const path = "torndown.md";
+  const { wrap, table } = tableFor(path, "phone");
+  let release: (a: FactFreshness[]) => void = () => {};
+  const ask = () =>
+    new Promise<FactFreshness[]>((r) => {
+      release = r;
+    });
+  fillAges(table, result(path, "phone", "phone", "yearly"), ask);
+  document.body.appendChild(wrap);
+  // the caret enters the region: CodeMirror throws the whole widget away
+  await new Promise((r) => setTimeout(r, 0));
+  wrap.remove();
+  assert.equal(table.parentNode, wrap, "still parented, and still dead");
+
+  release([answer(path, "phone", 2 * YEAR)]);
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(table.querySelector("td")?.textContent, "");
+});

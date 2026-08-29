@@ -547,10 +547,8 @@ impl Engine {
         // claim truncation. Unscoped, the count covers every note row
         // returned. Pictures join the page only after this, so they are never
         // in the truncation math at all.
-        let counted_out = out
-            .iter()
-            .filter(|h| !(scope.is_some() && scope_admitted(&h.hit.path)))
-            .count() as u32;
+        let counted_out =
+            out.iter().filter(|h| !(scope.is_some() && scope_admitted(&h.hit.path))).count() as u32;
         let total_notes = total_notes.max(counted_out);
         let truncated = counted_out < total_notes;
         let pictures = self.full_search_page(&expr, IMAGE_ONLY, FULL_SEARCH_MAX_IMAGES);
@@ -639,68 +637,18 @@ impl Engine {
         out
     }
 
+    /// Every note whose `[[wikilinks]]` name this one. Answered from the
+    /// read-side snapshot, which indexes the link table by target name.
     pub fn backlinks(&self, rel: &str) -> Vec<NoteMeta> {
-        let Some(target) = self.notes.get(rel) else { return Vec::new() };
-        let names = [target.title.to_lowercase(), target.stem.to_lowercase()];
-        let mut out: Vec<NoteMeta> = self
-            .links
-            .iter()
-            .filter(|(src, tgt)| src != rel && names.contains(tgt))
-            .filter_map(|(src, _)| self.notes.get(src).cloned())
-            .collect();
-        out.sort_by(|a, b| a.title.cmp(&b.title));
-        out.dedup_by(|a, b| a.path == b.path);
-        out
+        self.read_index().backlinks(rel)
     }
 
     /// Every note naming `rel` in a relation prop aimed at its type — the
-    /// structured cousin of backlinks: "3 releases point here".
+    /// structured cousin of backlinks: "3 releases point here". Answered from
+    /// the read-side snapshot: this used to walk the whole vault and resolve
+    /// every note's type against the schema on each note open.
     pub fn related(&self, rel: &str) -> Vec<RelatedEntry> {
-        let Some(target) = self.notes.get(rel) else { return Vec::new() };
-        let names = [target.title.to_lowercase(), target.stem.to_lowercase()];
-        let target_type = folded_prop_str(&target.props, "type").unwrap_or_default().to_lowercase();
-        let schema = self.schema();
-        let mut out: Vec<RelatedEntry> = Vec::new();
-        for n in self.notes.values() {
-            if n.path == rel {
-                continue;
-            }
-            let Some(t) = folded_prop_str(&n.props, "type") else { continue };
-            let Some(schema_key) = folded_hash_key(&schema, &t) else { continue };
-            let Some(props) = schema.get(schema_key) else { continue };
-            for (key, ps) in &props.props {
-                if ps.kind.as_deref() != Some("relation") {
-                    continue;
-                }
-                // only relations aimed at this note's type point at it; an
-                // untyped target can't be aimed at, so any relation matches
-                let aimed = target_type.is_empty()
-                    || ps.target.as_deref().map(str::to_lowercase).as_deref()
-                        == Some(target_type.as_str());
-                if !aimed {
-                    continue;
-                }
-                let name_hit = |s: &str| names.contains(&s.trim().to_lowercase());
-                let Some(actual_key) = folded_prop_key(&n.props, key) else { continue };
-                let hit = match n.props.get(actual_key) {
-                    Some(serde_json::Value::String(s)) => name_hit(s),
-                    Some(serde_json::Value::Array(items)) => {
-                        items.iter().filter_map(serde_json::Value::as_str).any(name_hit)
-                    }
-                    _ => false,
-                };
-                if hit {
-                    out.push(RelatedEntry {
-                        path: n.path.clone(),
-                        title: n.title.clone(),
-                        db_type: schema_key.to_string(),
-                        prop: actual_key.to_string(),
-                    });
-                }
-            }
-        }
-        out.sort_by(|a, b| a.title.cmp(&b.title).then(a.prop.cmp(&b.prop)));
-        out
+        self.read_index().related(rel)
     }
 }
 
@@ -765,7 +713,8 @@ mod tests {
         let (mut e, dir) = temp_vault("scopemount");
         let watched = temp_watched("scopemount");
         fs::write(watched.join("spectral-paper.pdf"), b"stand-in bytes").unwrap();
-        fs::write(dir.join("Spectral.md"), "---\ntype: note\n---\nspectral texture here\n").unwrap();
+        fs::write(dir.join("Spectral.md"), "---\ntype: note\n---\nspectral texture here\n")
+            .unwrap();
         fs::write(dir.join("Other.md"), "---\ntype: log\n---\nspectral again\n").unwrap();
         e.apply_changes(&[dir.join("Spectral.md"), dir.join("Other.md")]);
         let m = e.add_mount("Papers", vec![], false).unwrap();
@@ -827,7 +776,8 @@ mod tests {
         let (mut e, dir) = temp_vault("scopeall");
         let watched = temp_watched("scopeall");
         fs::write(watched.join("spectral-paper.pdf"), b"stand-in bytes").unwrap();
-        fs::write(dir.join("Spectral.md"), "---\ntype: note\n---\nspectral texture here\n").unwrap();
+        fs::write(dir.join("Spectral.md"), "---\ntype: note\n---\nspectral texture here\n")
+            .unwrap();
         e.apply_changes(&[dir.join("Spectral.md")]);
         let m = e.add_mount("Papers", vec![], false).unwrap();
         e.scan_mount(&m.id, &watched);

@@ -16,6 +16,10 @@ pub mod lastseen;
 // nothing on mobile can spawn a sidecar, so it doesn't exist there.
 #[cfg(not(mobile))]
 pub mod server;
+// Running the app's own view evaluator for the door, rather than spelling
+// what a view shows a second time in Rust.
+#[cfg(not(mobile))]
+pub mod viewengine;
 // The headless door: argv in, one scoped operation out. A caller of the
 // server above, not a second door — same grants, same decisions, same
 // receipts, because it drives the same code path.

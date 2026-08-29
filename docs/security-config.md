@@ -15,7 +15,7 @@ derived from what the app actually does, not from a template; each allowance has
 a call site.
 
 ```
-default-src 'self'; script-src 'self' substrate-kind: http://substrate-kind.localhost;
+default-src 'self'; script-src 'self' 'wasm-unsafe-eval' substrate-kind: http://substrate-kind.localhost;
 style-src 'self' 'unsafe-inline';
 font-src 'self' data:; img-src 'self' asset: http://asset.localhost data: blob:;
 media-src 'self' asset: http://asset.localhost data: blob:;
@@ -27,6 +27,25 @@ frame-src 'none'; frame-ancestors 'none'; form-action 'none'
 - **`script-src 'self'`** — no `'unsafe-inline'`, no `'unsafe-eval'`, no remote
   origin. This is the directive that matters: it is what stops a crafted note
   from executing anything.
+- **`'wasm-unsafe-eval'`** — the one relaxation, and it is not an eval. The
+  token permits compiling and instantiating WebAssembly and nothing else: no
+  `eval`, no `new Function`, no path at all from a string to running
+  JavaScript. It is here because the inline PDF viewer's image and colour
+  decoders (JBIG2, JPEG 2000, and the ICC colour engine) are WebAssembly
+  modules the app ships and hands to the renderer as a buffer, and
+  Chromium-family webviews — WebView2 on Windows, WebKitGTK's newer
+  engines — refuse `WebAssembly.instantiate` under a `script-src` without it.
+  WebKit on macOS and iOS does not gate on this directive, so the gap only
+  shows on the platforms the mac lane cannot see, which is why the check is a
+  browser test rather than a reading of the policy: `e2e/pdfembed.spec.ts`
+  serves this exact directive to Chromium and instantiates a module under it,
+  and fails if the shipped policy stops allowing it. Without the token the
+  failure is quiet rather than loud — pdf.js falls back to a JavaScript
+  decoder for JBIG2 and JPEG 2000 (600 KB of it, much slower), and ICC colour
+  management simply switches off, so a scanned or colour-managed document
+  renders in the wrong colours with a console warning and no other sign.
+  Running those decoders inside the wasm sandbox is also the safer of the two
+  places to decode a hostile image.
 - **`substrate-kind:` / `http://substrate-kind.localhost` in `script-src` and
   `connect-src`** — the custom-kind scheme, and the only reason
   `script-src` is not bare `'self'`. Custom dashboard kinds are JS that lives in

@@ -73,6 +73,29 @@ test("productionPackagePaths keeps prod deps and drops dev-only ones", () => {
   assert.deepEqual(paths, ["node_modules/react"]);
 });
 
+test("productionPackagePaths drops the per-platform prebuilt binaries", () => {
+  // one of these is installed on any given machine and the rest are not, so
+  // listing them would make the notice read differently per platform
+  const paths = productionPackagePaths({
+    packages: {
+      "node_modules/@napi-rs/canvas": { version: "1.0.8", optional: true },
+      "node_modules/@napi-rs/canvas-darwin-arm64": {
+        version: "1.0.8",
+        optional: true,
+        os: ["darwin"],
+        cpu: ["arm64"],
+      },
+      "node_modules/@napi-rs/canvas-win32-x64-msvc": {
+        version: "1.0.8",
+        optional: true,
+        os: ["win32"],
+        cpu: ["x64"],
+      },
+    },
+  });
+  assert.deepEqual(paths, ["node_modules/@napi-rs/canvas"]);
+});
+
 test("productionPackagePaths returns a stable order", () => {
   const packages = {
     "node_modules/zzz": { version: "1.0.0" },

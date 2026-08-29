@@ -4,7 +4,6 @@ import type { CSSProperties } from "react";
 import type { NoteMeta } from "../lib/types";
 import { foldedPropStr } from "../lib/types";
 import { vaultRead, vaultResolve, vaultWriteBody } from "../lib/ipc";
-import { isTyping } from "../lib/dom";
 import { appendFoodEntry, dayLabel, foodData, kcalInRange, removeFoodEntry } from "../lib/food";
 import type { DayState, FoodEntry } from "../lib/food";
 import { parseFoodDb, removeFoodDbEntry, upsertFoodDbEntry } from "../lib/fooddb";
@@ -26,18 +25,16 @@ import { useTodayIso } from "./useTodayIso";
 import { ChevronLeftIcon, ChevronRightIcon, NoteIcon, XIcon } from "./Icons";
 import { DashHead } from "./DashHead";
 import SwitchGroup from "./SwitchGroup";
-import { useDashUndo, type DashUndoStore } from "./useDashUndo";
 import { DashAlert, DashEmpty, DashFoot } from "./DashNotice";
 import { errText } from "../lib/errtext";
+import { useUndo } from "../lib/undoContext";
+import { bodyEditUndoable } from "../lib/undobody";
 
 interface FoodDashboardProps {
   meta: NoteMeta;
   vaultEpoch: number;
   onOpenSource: (path: string) => void;
   onMutated: () => void;
-  /** Registered-into while mounted, so the shortcut HUD advertises
-      this pane's ⌘Z / ⌘⇧Z only where it fires */
-  dashUndo?: DashUndoStore;
 }
 
 /* Daily net-kcal tracker: the `dashboard: food` note renders a
@@ -91,10 +88,9 @@ export default function FoodDashboard({
   vaultEpoch,
   onOpenSource,
   onMutated,
-  dashUndo,
 }: FoodDashboardProps) {
   const todayIso = useTodayIso();
-  const publishDashUndo = useDashUndo(dashUndo);
+  const undo = useUndo();
   const logName = foldedPropStr(meta.props, "log") ?? "Food Log";
   const dbName = foldedPropStr(meta.props, "db") ?? "Food DB";
   const weightName = foldedPropStr(meta.props, "weight") ?? "Weight Log";
@@ -258,85 +254,59 @@ export default function FoodDashboard({
 
   const dbEntries = useMemo(() => (dbBody !== null ? parseFoodDb(dbBody) : []), [dbBody]);
 
-  // optimistic write, guarded: the log note isn't the one on
-  // screen, so an external edit between our read and this write must fail
-  // as a conflict, not be clobbered — on any failure the epoch reload
-  // re-reads disk truth and the row simply doesn't stick
-  const write = (next: string, expected: string) => {
-    if (logPath === null) return;
-    setBody(next);
+  /** One guarded, optimistic write for either data note. Optimistic because
+      neither note is the one on screen: the row appears at once and the epoch
+      reload re-reads disk truth if the write loses. Guarded because an
+      external edit between our read and this write must fail as a conflict
+      rather than be clobbered — and the rejection is re-thrown so undo hears
+      it, where the forward callers below only need the message on screen. */
+  const writeNote = (which: "log" | "db", next: string, expected: string): Promise<void> => {
+    const path = which === "log" ? logPath : dbPath;
+    if (path === null) return Promise.reject(new Error("the note this board writes is missing"));
+    (which === "log" ? setBody : setDbBody)(next);
     setWriteErr(null);
-    vaultWriteBody(logPath, next, expected)
-      .then(() => onMutated())
-      .catch((e) => {
+    return vaultWriteBody(path, next, expected).then(
+      () => {
+        onMutated();
+      },
+      (e: unknown) => {
         setWriteErr(errText(e));
         onMutated(); // reload disk truth, dropping the optimistic body
-      });
+        throw e;
+      }
+    );
   };
 
-  // same guarded optimistic write for the DB note
-  const writeDb = (next: string, expected: string) => {
-    if (dbPath === null) return;
-    setDbBody(next);
-    setWriteErr(null);
-    vaultWriteBody(dbPath, next, expected)
-      .then(() => onMutated())
-      .catch((e) => {
-        setWriteErr(errText(e));
-        onMutated();
-      });
+  /* Every log and DB mutation is an action on the app's own stack, scoped to
+     this pane (docs/undo.md §3.4-3). It used to be a private pair of stacks
+     here, which emptied on navigation and — worse — was pushed before the
+     write resolved, so a refused write still ate an undo step. The shared
+     helper records only what actually reached disk, and ⌘Z reaches these
+     entries in the same chronological order as every other edit. */
+  const FOOD_SCOPE = "pane:food" as const;
+  const editBody = (which: "log" | "db", next: string, label: string) => {
+    const prior = which === "log" ? body : dbBody;
+    const path = which === "log" ? logPath : dbPath;
+    if (prior === null || path === null) return;
+    void bodyEditUndoable({
+      path,
+      next,
+      prior,
+      label,
+      scope: FOOD_SCOPE,
+      record: undo.record,
+      write: (b, expected) => writeNote(which, b, expected),
+    }).catch(() => {
+      // the failure is already on screen as the pane's write error; there is
+      // no second thing to say about it here
+    });
   };
 
-  // ⌘Z / ⌘⇧Z over log mutations (the yield board's stack in
-  // food shape): every log/DB add/delete pushes the prior body of THE NOTE IT
-  // mutates; undo restores it through that note's conflict-guarded write, so
-  // an external edit mid-session fails as a conflict instead of being
-  // clobbered. Stacks are session-local to the open pane — the note's history
-  // panel remains the durable trail.
-  const undoStack = useRef<{ which: "log" | "db"; body: string }[]>([]);
-  const redoStack = useRef<{ which: "log" | "db"; body: string }[]>([]);
-  const bodies = useRef({ log: "", db: "" });
-  bodies.current = { log: body ?? "", db: dbBody ?? "" };
-  // the keydown listener binds once (its publish callback is stable), but
-  // `write` closes over the resolved logPath — route restores through the
-  // latest render's writes
-  const writeRef = useRef({ log: write, db: writeDb });
-  writeRef.current = { log: write, db: writeDb };
-  const pushUndo = (which: "log" | "db") => {
-    undoStack.current.push({ which, body: bodies.current[which] });
-    if (undoStack.current.length > 50) undoStack.current.shift();
-    redoStack.current = [];
-    publishDashUndo(true, false);
-  };
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z" || e.altKey) return;
-      // inputs keep their native text undo — except the pane's own form:
-      // after Enter-to-add the focus still sits in a (now cleared) field,
-      // and ⌘Z right there must mean "undo the add", not a no-op
-      if (
-        isTyping(e.target) &&
-        !(e.target instanceof HTMLElement && e.target.closest(".dash-form"))
-      )
-        return;
-      const [from, onto] = e.shiftKey
-        ? [redoStack.current, undoStack.current]
-        : [undoStack.current, redoStack.current];
-      const to = from.pop();
-      if (!to) return;
-      e.preventDefault();
-      const cur = bodies.current[to.which];
-      onto.push({ which: to.which, body: cur });
-      // setState lands after this native event. Advance the imperative body
-      // immediately so burst undo/redo chords chain from one another instead
-      // of all comparing against the pre-burst render.
-      bodies.current = { ...bodies.current, [to.which]: to.body };
-      publishDashUndo(undoStack.current.length > 0, redoStack.current.length > 0);
-      if (to.body !== cur) writeRef.current[to.which](to.body, cur);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [publishDashUndo]);
+  // A pane:* inverse writes through this pane's own state setters, so the
+  // entries leave with it rather than firing on behalf of a board that is
+  // gone (docs/undo.md §2.3).
+  const evictScope = undo.evictScope;
+  useEffect(() => () => evictScope(FOOD_SCOPE), [evictScope]);
 
   const kcalNum = Number(formKcal);
   const kcalTyped = formKcal.trim() !== "" && isFinite(kcalNum);
@@ -377,8 +347,9 @@ export default function FoodDashboard({
 
   const logEntry = (entry: FoodEntry) => {
     if (body === null) return;
-    pushUndo("log");
-    write(appendFoodEntry(body, entry), body);
+    // the food's own name, so the toast and the undo menu read as the thing
+    // the user did — "Undid Log Eggs", not "Undid body edit"
+    editBody("log", appendFoodEntry(body, entry), `Log ${entry.food || "entry"}`);
   };
 
   const dbKcalNum = Number(dbKcal);
@@ -395,16 +366,17 @@ export default function FoodDashboard({
     const gRaw = dbPer === "x" && dbGrams.trim() !== "" ? Number(dbGrams) : null;
     const p = pRaw !== null && isFinite(pRaw) ? pRaw : null;
     const g = gRaw !== null && isFinite(gRaw) ? gRaw : null;
-    pushUndo("db");
-    writeDb(
+    const name = dbFood.trim();
+    editBody(
+      "db",
       upsertFoodDbEntry(dbBody, {
-        name: dbFood.trim(),
+        name,
         kcal: dbKcalNum,
         per: dbPer,
         protein: p !== null && isFinite(p) ? p : null,
         g: g !== null && isFinite(g) && g > 0 ? g : null,
       }),
-      dbBody
+      `Add ${name} to the food DB`
     );
     setDbFood("");
     setDbKcal("");
@@ -414,8 +386,12 @@ export default function FoodDashboard({
 
   const delDbEntry = (idx: number) => {
     if (dbBody === null) return;
-    pushUndo("db");
-    writeDb(removeFoodDbEntry(dbBody, idx), dbBody);
+    const name = dbEntries[idx]?.name;
+    editBody(
+      "db",
+      removeFoodDbEntry(dbBody, idx),
+      name ? `Remove ${name} from the food DB` : "Remove a food DB row"
+    );
   };
 
   // the tripwire's action: move the kcal authority to the drift
@@ -424,8 +400,8 @@ export default function FoodDashboard({
   const pinDrift = () => {
     if (drift === null || dbBody === null) return;
     const existing = dbEntries.find((e) => e.name.toLowerCase() === drift.base.toLowerCase());
-    pushUndo("db");
-    writeDb(
+    editBody(
+      "db",
       upsertFoodDbEntry(dbBody, {
         name: existing?.name ?? drift.base,
         kcal: Math.round(drift.nextPerKcal * (drift.unit === "x" ? 1 : 100)),
@@ -433,7 +409,7 @@ export default function FoodDashboard({
         protein: existing?.protein ?? null,
         g: existing?.g ?? null,
       }),
-      dbBody
+      `Reprice ${existing?.name ?? drift.base}`
     );
     setDrift(null);
   };
@@ -889,6 +865,9 @@ export default function FoodDashboard({
 
               <form
                 className="dash-form"
+                // after Enter-to-add the caret sits in a cleared field: ⌘Z
+                // there means "take the entry back", not "restore the text"
+                data-undo-scope="app"
                 onSubmit={(e) => {
                   e.preventDefault();
                   submit();
@@ -1077,8 +1056,11 @@ export default function FoodDashboard({
                           title="Remove row"
                           onClick={() => {
                             if (body !== null) {
-                              pushUndo("log");
-                              write(removeFoodEntry(body, row.idx), body);
+                              editBody(
+                                "log",
+                                removeFoodEntry(body, row.idx),
+                                `Remove ${row.food || "row"}`
+                              );
                             }
                           }}
                         >
@@ -1124,6 +1106,7 @@ export default function FoodDashboard({
                     <>
                       <form
                         className="dash-form food-db-form"
+                        data-undo-scope="app"
                         onSubmit={(e) => {
                           e.preventDefault();
                           addDbEntry();

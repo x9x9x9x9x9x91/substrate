@@ -505,13 +505,15 @@ body.col-resizing * {
 }
 
 /* aggregation footer: pinned under the table with the sticky
-   header's discipline — same panel background, one hairline on top */
+   header's discipline — same panel background, one hairline on top, the
+   header line's solid twin (the grid's verticals cross it, and translucent
+   crossings dot — tokens.css, --line-panel) */
 .db-table tfoot td {
   position: sticky;
   bottom: 0;
   z-index: 1;
   background: var(--bg-panel);
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--line-panel);
   border-bottom: none;
   padding: 0;
 }

@@ -12,22 +12,27 @@ import {
   vaultWriteBody,
 } from "../lib/ipc";
 import { isTauri } from "../lib/tauri";
-import { parseFeedCurator, SETTINGS_PATH } from "../lib/settings";
+import { parseFeedCurator, parseFeedTopics, SETTINGS_PATH } from "../lib/settings";
 import { isCommandTrusted, TERM_TRUST_KEY, withTrusted } from "../lib/termtrust";
 import {
   feedStaleness,
   feedTopics,
   filterFeedItems,
+  forgetStoredTopics,
   groupFeedByDay,
   isOpenableUrl,
+  legacyStoredTopics,
   parseFeedItems,
   setFeedback,
+  topicsMigrationDone,
 } from "../lib/feed";
 import type { FeedItem } from "../lib/feed";
 import { dayLabel } from "../lib/food";
 import { DashHead } from "./DashHead";
 import { DashAlert, DashEmpty } from "./DashNotice";
 import { errText } from "../lib/errtext";
+import { useUndo } from "../lib/undoContext";
+import { setPropUndoable } from "../lib/undoprops";
 
 interface FeedDashboardProps {
   meta: NoteMeta;
@@ -61,22 +66,68 @@ function openExternalLink(url: string) {
   if (isTauri) openUrl(url).catch(console.error);
 }
 
-/* Topic filter: a stated preference, so it persists per window in
-   localStorage like the calendar layout. Stored as a JSON string
-   array of lowercased slugs; anything malformed reads as "no filter". */
-const FEED_FILTER_KEY = "substrate.feedTopics";
+/* Topic filter: a stated preference, so it is a settings key —
+   `feed-topics` in Settings.md, a list of lowercased slugs, read here and
+   written by the chips through the same undoable path every settings row
+   uses. "The topics I care about" is a fact about the reader, not about this
+   display, so it belongs in the vault and follows them to a second machine;
+   how tall a panel is on this screen is the other kind and stays out. */
 
-function readFeedFilter(): string[] {
-  try {
-    const raw = JSON.parse(localStorage.getItem(FEED_FILTER_KEY) ?? "[]");
-    return Array.isArray(raw) ? raw.filter((t): t is string => typeof t === "string") : [];
-  } catch {
-    return [];
+/** one migration write at a time, and no more: the settings read re-runs on
+    every vaultEpoch bump, and two overlapping guarded writes of the same key
+    would have the second refused as a conflict for no reason. Deliberately NOT
+    a "this window already tried" latch — that was module-global, so a vault
+    that refuses the write (sealed, read-only) suppressed the migration for a
+    writable vault opened next in the same window. What suppression there is
+    now comes from the persisted marker, which is only set once the store has
+    actually been forgotten. */
+let topicsMigrating = false;
+
+/** The chips' selection, from the note if the note says anything.
+
+    Before this key the filter lived in this machine's browser store, where no
+    file could reach it and a second machine never saw it. So an older
+    profile's selection is honoured once AND written into Settings.md, and from
+    then on the file is what says which chips are lit. A refused write costs
+    the migration, never the selection — the store keeps the old key until the
+    note is known to carry the answer.
+
+    Two things end the store's say, and both mark it done: a migration write
+    landing, and the note simply stating the key. The second matters as much as
+    the first — a machine whose `feed-topics` arrived by sync or through the ⌘,
+    sheet never took the migration branch, so without it the legacy key would
+    sit there forever and the first deliberate clear would resurrect it (the
+    clear removes the key, absence would read as "never migrated"). The marker
+    then keeps the clear cleared even if the store could not be emptied. */
+function adoptFeedTopics(props: Record<string, unknown>): string[] {
+  const stated = parseFeedTopics(props);
+  if (stated) {
+    // the note has spoken; the browser copy is dead weight from here
+    forgetStoredTopics();
+    return stated;
   }
+  // no key AND the store has already had its say: this is a filter someone
+  // cleared, not a profile waiting to be moved
+  if (topicsMigrationDone()) return [];
+  const legacy = legacyStoredTopics();
+  if (legacy && !topicsMigrating) {
+    topicsMigrating = true;
+    // guarded on "still absent": a window that wrote it first wins, and this
+    // one simply reads the value on its next pass
+    void vaultSetProp(SETTINGS_PATH, "feed-topics", legacy, { value: null })
+      .then(forgetStoredTopics)
+      .catch(() => {})
+      .finally(() => {
+        topicsMigrating = false;
+      });
+  }
+  return legacy ?? [];
 }
 
-function writeFeedFilter(topics: string[]): void {
-  localStorage.setItem(FEED_FILTER_KEY, JSON.stringify(topics));
+/** the undo entry's phrase — "feed-topics → " reads as nothing at all when the
+    selection is cleared, and clearing is the commonest flip */
+function topicsUndoLabel(topics: string[]): string {
+  return `topic filter → ${topics.length > 0 ? topics.join(", ") : "all topics"}`;
 }
 
 export default function FeedDashboard({
@@ -85,6 +136,7 @@ export default function FeedDashboard({
   onOpenSource,
   onMutated,
 }: FeedDashboardProps) {
+  const undo = useUndo();
   const itemsName = foldedPropStr(meta.props, "items") ?? "News Items";
   // rendered verbatim — the curator's own stamp. The head also parses it for
   // the head's staleness dot: a stamp older than ~36h means the curator (and
@@ -137,25 +189,74 @@ export default function FeedDashboard({
 
   const items = useMemo(() => (body !== null ? parseFeedItems(body) : []), [body]);
   // Chips narrow the stream client-side; the sheet and the fb write
-  // path always see the full item set (idx stays a full-sheet row index)
-  const [activeTopics, setActiveTopics] = useState<string[]>(() => readFeedFilter());
+  // path always see the full item set (idx stays a full-sheet row index).
+  // The selection itself is `feed-topics` in Settings.md, filled by the
+  // settings read below — the whole stream until the note (or an older
+  // profile's browser store) says otherwise.
+  const [activeTopics, setActiveTopics] = useState<string[]>([]);
   const topics = useMemo(() => feedTopics(items), [items]);
+  /* What the row offers: today's topics, plus any slug the selection names
+     that today's stream doesn't have. A selection follows the person across
+     machines and outlives the curator retiring a topic, so a lit slug with no
+     items behind it is normal — and it filters the stream to nothing. It has
+     to be on screen as a chip you can switch off, or the only way out is
+     editing Settings.md by hand. */
+  const chipTopics = useMemo(
+    () => [...topics, ...activeTopics.filter((t) => !topics.includes(t))],
+    [topics, activeTopics]
+  );
   const visible = useMemo(() => filterFeedItems(items, activeTopics), [items, activeTopics]);
   const days = useMemo(() => groupFeedByDay(visible), [visible]);
   const filtered = activeTopics.length > 0 && visible.length !== items.length;
   const rated = items.filter((i) => i.fb !== "").length;
 
-  const toggleTopic = (t: string) => {
-    const next = activeTopics.includes(t)
-      ? activeTopics.filter((x) => x !== t)
-      : [...activeTopics, t];
+  /* Settle the chips on what the note says. The re-read, not the value a
+     click captured: another window may have written its own answer in the
+     time a rejected write took, and restoring the captured one would put the
+     pane back behind the file. Never migrates — that is the boot read's job
+     (`adoptFeedTopics`), and an undo is not a first launch. */
+  const rereadTopics = async (fallback: string[]) => {
+    try {
+      const c = await vaultRead(SETTINGS_PATH);
+      setActiveTopics(parseFeedTopics(c.props) ?? []);
+    } catch {
+      // the note is unreadable too — the selection the click started from is
+      // the best answer left
+      setActiveTopics(fallback);
+    }
+  };
+
+  /* A chip flip is a settings write, so it goes through the same undoable
+     path the ⌘, rows use: ⌘Z takes a topic back, and the selection is already
+     there on the next machine. The local move comes first because the stream
+     re-renders under the click and waiting for the round trip would leave the
+     chip looking dead; a refused write settles back on the note and says so
+     in the pane's own error line. */
+  const writeTopics = (next: string[]) => {
+    const prior = activeTopics;
     setActiveTopics(next);
-    writeFeedFilter(next);
+    setWriteErr(null);
+    setPropUndoable({
+      path: SETTINGS_PATH,
+      key: "feed-topics",
+      value: next,
+      label: topicsUndoLabel(next),
+      record: undo.record,
+      onApplied: () => rereadTopics(next),
+    })
+      .then(() => onMutated())
+      .catch((e) => {
+        setWriteErr(errText(e));
+        void rereadTopics(prior);
+      });
   };
-  const clearTopics = () => {
-    setActiveTopics([]);
-    writeFeedFilter([]);
+
+  const toggleTopic = (t: string) => {
+    writeTopics(
+      activeTopics.includes(t) ? activeTopics.filter((x) => x !== t) : [...activeTopics, t]
+    );
   };
+  const clearTopics = () => writeTopics([]);
 
   /* The refresh button: one click runs
      the vault's `feed-curator` command (curator.rs holds the single run
@@ -171,7 +272,11 @@ export default function FeedDashboard({
     let gone = false;
     vaultRead(SETTINGS_PATH)
       .then((c) => {
-        if (!gone) setCuratorCmd(parseFeedCurator(c.props));
+        if (gone) return;
+        setCuratorCmd(parseFeedCurator(c.props));
+        // the chips ride the same read: one pass over the note per epoch, so
+        // a write from the ⌘, sheet or another window reaches them too
+        setActiveTopics(adoptFeedTopics(c.props));
       })
       .catch(() => {
         // no Settings.md (or unreadable) = no curator configured — the setup
@@ -297,7 +402,14 @@ export default function FeedDashboard({
   const saveCurator = () => {
     const cmd = draft.trim();
     if (cmd === "" && (curatorCmd ?? "") === "") return;
-    vaultSetProp(SETTINGS_PATH, "feed-curator", cmd === "" ? null : cmd)
+    setPropUndoable({
+      path: SETTINGS_PATH,
+      key: "feed-curator",
+      value: cmd === "" ? null : cmd,
+      record: undo.record,
+      label: cmd === "" ? "Unplug the feed curator" : `Set the feed curator to ${cmd}`,
+      onApplied: onMutated,
+    })
       .then(() => {
         if (cmd !== "") {
           try {
@@ -404,7 +516,9 @@ export default function FeedDashboard({
         {writeErr && <DashAlert>{writeErr}</DashAlert>}
         {curatorErr && <DashAlert>{curatorErr}</DashAlert>}
 
-        {topics.length > 1 && (
+        {/* one topic and nothing selected is not a filter, it's a label — but a
+            selection always gets its row back, "all" included */}
+        {(chipTopics.length > 1 || activeTopics.length > 0) && (
           <div className="feed-filter" role="group" aria-label="Filter by topic">
             <button
               type="button"
@@ -413,7 +527,7 @@ export default function FeedDashboard({
             >
               all
             </button>
-            {topics.map((t) => (
+            {chipTopics.map((t) => (
               <button
                 type="button"
                 key={t}

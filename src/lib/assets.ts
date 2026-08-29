@@ -39,14 +39,21 @@ export function audioSource(name: string): Promise<AudioSource> {
  * clear too, revoked so they don't leak. */
 export function resetAudioSources() {
   sources.clear();
+  pdfs.clear();
   for (const p of blobUrls.values()) {
     p.then((url) => URL.revokeObjectURL(url)).catch(() => {});
   }
   blobUrls.clear();
 }
 
+/** The content type to stamp on a blob built from a `.assets/` file. Unknown
+ * extensions fall back to `image/png`: this started as the inline-image path
+ * and images are still the overwhelming majority of what gets blobbed. A
+ * viewer that sniffs the type — the PDF page renderer does — needs its own
+ * entry here or it is handed a blob claiming to be an image. */
 export function mimeFor(name: string): string {
   const ext = name.split(".").pop()?.toLowerCase();
+  if (ext === "pdf") return "application/pdf";
   if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
   if (ext === "gif") return "image/gif";
   if (ext === "webp") return "image/webp";
@@ -114,6 +121,31 @@ async function mockImageUrl(name: string): Promise<string> {
     if (!isImageName(name)) throw new Error("not an image");
     return synthCoverUrl(name);
   }
+}
+
+const pdfs = new Map<string, Promise<AudioSource>>();
+
+/** A fetchable URL for a PDF embed plus a stable identity for the parsed
+ * document cache — the same shape as `audioSource`, and for the same reason:
+ * in Tauri the URL streams through the asset protocol, so a 40 MB report is
+ * read in ranges by the page renderer instead of being base64'd through IPC
+ * into memory. The mock backend has no asset protocol, so a stored asset
+ * comes back as a blob URL; nothing is synthesized, because a plausible-looking
+ * PDF cannot be faked the way a WAV can — an unstored name misses, and the
+ * embed shows its missing state. */
+export function pdfSource(name: string): Promise<AudioSource> {
+  let p = pdfs.get(name);
+  if (!p) {
+    p = vaultAssetInfo(name).then(async (info) => ({
+      url: isTauri ? convertFileSrc(info.path) : await assetBlobUrl(name),
+      cacheKey: `${info.path}:${info.size}:${info.mtime_ms}`,
+      size: info.size,
+    }));
+    // don't cache failures — the file may appear right after an import
+    p.catch(() => pdfs.delete(name));
+    pdfs.set(name, p);
+  }
+  return p;
 }
 
 const covers = new Map<string, { stamp: number; p: Promise<string | null> }>();

@@ -12,6 +12,7 @@ import {
   vaultSchemaRead,
 } from "./lib/ipc";
 import { agendaDone, agendaPayload, type AgendaPayload } from "./lib/agenda";
+import { createLatestGuard } from "./lib/latest";
 import { humanDay, isoDay } from "./lib/calendar";
 import { PlusIcon } from "./components/Icons";
 
@@ -89,11 +90,19 @@ function AgendaApp() {
     return () => ro.disconnect();
   }, []);
 
+  // Refreshed from two places that can overlap — every re-show of the
+  // window and every `vault:changed` — and both reads are async, so two
+  // passes in flight can come back in either order and the older one would
+  // draw the day as it was before the change.
+  const reloadGuard = useMemo(() => createLatestGuard(), []);
   const reload = useCallback(() => {
+    const id = reloadGuard.issue();
     Promise.all([vaultList(), vaultSchemaRead()])
-      .then(([notes, schema]) => setPayload(agendaPayload(notes, schema, isoDay(new Date()))))
+      .then(([notes, schema]) => {
+        if (reloadGuard.isLatest(id)) setPayload(agendaPayload(notes, schema, isoDay(new Date())));
+      })
       .catch(console.error);
-  }, []);
+  }, [reloadGuard]);
 
   useEffect(() => {
     reload();
@@ -120,8 +129,11 @@ function AgendaApp() {
       cancelled = true;
       unFocus?.();
       unVault?.();
+      // cancel anything still in flight: a response landing after unmount
+      // would otherwise call a setter on an unmounted component
+      reloadGuard.issue();
     };
-  }, [reload]);
+  }, [reload, reloadGuard]);
 
   /* Every row's identity, in render order: the agenda items (same key the
      rows are React-keyed by) followed by the Capture row, which always

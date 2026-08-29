@@ -446,10 +446,39 @@ export function noteFromFile(
 
 /** The whole vault: notes, schema, saved views, per-database prefs, and the
     settings frontmatter the number dialect is read from. */
-export function readVault(vault: string): VaultRead {
-  const rels: string[] = [];
-  walk(vault, "", rels);
-  rels.sort();
+export interface ReadOptions {
+  /** Which of the vault's note paths this read may open at all.
+   *
+   *  The CLI verb reads a folder it was pointed at and passes nothing here.
+   *  The MCP door does: an agent's grants cover some folders and not others,
+   *  and the door decides that allow-list BEFORE any evaluation runs, so a
+   *  note outside it is never opened — not read and dropped later, where a
+   *  rollup or a group count could still carry its existence out. A path this
+   *  returns false for is absent, not warned about: it was not unreadable,
+   *  it was not this caller's to read. */
+  allow?: (rel: string) => boolean;
+}
+
+/** Why a note could not be opened, with no host path in it.
+ *
+ *  Node's fs errors spell the absolute path into `message` ("EACCES:
+ *  permission denied, open '/Users/…/Vault/Notes/b.md'"), and a warning
+ *  travels out to a caller that was never told where the vault sits — the
+ *  vault root is the one host path the engine holds and it does not leave.
+ *  The system code says as much as the sentence did, and the `path` beside
+ *  this reason already names the note, vault-relative. */
+function unreadableReason(error: unknown): string {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === "string" && code !== ""
+    ? `the file could not be read (${code})`
+    : "the file could not be read";
+}
+
+export function readVault(vault: string, opts: ReadOptions = {}): VaultRead {
+  const walked: string[] = [];
+  walk(vault, "", walked);
+  walked.sort();
+  const rels = opts.allow === undefined ? walked : walked.filter(opts.allow);
 
   const notes: NoteMeta[] = [];
   const warnings: VaultWarning[] = [];
@@ -458,7 +487,7 @@ export function readVault(vault: string): VaultRead {
     try {
       read = noteFromFile(vault, rel);
     } catch (error) {
-      warnings.push({ path: rel, reason: error instanceof Error ? error.message : String(error) });
+      warnings.push({ path: rel, reason: unreadableReason(error) });
       continue;
     }
     if (read.rejected !== null) {

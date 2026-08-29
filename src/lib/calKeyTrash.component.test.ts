@@ -76,6 +76,7 @@ async function calendar(t: Parameters<typeof renderComponent>[0]) {
       onTrashNote: (path: string) => trashed.push(path),
       onRenameNote: async () => {},
       onOpenJournal: () => {},
+      upcomingDock: "bottom" as const,
     }),
   );
   return { r, trashed };

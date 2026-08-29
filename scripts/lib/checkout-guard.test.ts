@@ -151,6 +151,7 @@ test("every executable entry point in scripts/ is guarded", () => {
   // A new script that forgets the guard is exactly how this defect returns.
   const entries = [
     "autosync-verify.sh",
+    "rig-provision-sync-keychain.sh",
     "with-merge-lock.sh",
     "lane-prepush.sh",
     "install-git-hooks.sh",
@@ -161,6 +162,14 @@ test("every executable entry point in scripts/ is guarded", () => {
   // Exempt ON PURPOSE, and asserted to STAY exempt so the exemption cannot rot
   // into an oversight: a script here must not call the guard, and must say why.
   const exempt: Array<[string, string]> = [
+    [
+      "gate-timing-append.sh",
+      // A telemetry leaf verify-gates.sh calls mid-run, never an operator
+      // entry point — and its one invariant is that it can never fail or
+      // slow a gate run, which a guard refusal would violate. The caller
+      // already ran under the guard by the time this executes.
+      "leaf helper of verify-gates.sh; must never fail or slow a gate run",
+    ],
   ];
   for (const name of entries) {
     const body = execFileSync("cat", [join(ROOT, "scripts", name)], { encoding: "utf8" });

@@ -8,6 +8,12 @@ import { settingsTab } from "./settings";
 // a cap on the panel's height (a sparse agenda shrinks, a full one is not
 // clipped by the drag grip), and a rail never takes the day columns below the
 // floor that keeps them readable.
+//
+// The two halves answer to different places. Where the panel docks is a
+// setting, so the switch writes `upcoming-dock` into Settings.md and an
+// outside edit to that key moves the panel. Whether it is folded and how many
+// pixels it takes are per-window arrangement and stay in localStorage — which
+// is why the size test still reads the store and the dock tests never do.
 
 /** the floor `.cal-grid-scroll > *` claims: 46px hour gutter + 7 × 110px */
 const GRID_FLOOR = 816;
@@ -115,6 +121,14 @@ test.describe("Upcoming docked as a rail", () => {
     await expect(railSwitch).toHaveAttribute("aria-checked", "false");
     await railSwitch.click();
     await expect(railSwitch).toHaveAttribute("aria-checked", "true");
+
+    // the answer landed in Settings.md, not in a browser store: where the
+    // panel docks is a setting, so an editor or an agent reading the vault
+    // sees the same choice the sheet does
+    await expect
+      .poll(() => page.evaluate(() => window.__mockPropOf!("Settings.md", "upcoming-dock")))
+      .toBe("right");
+
     await page.keyboard.press("Escape");
     await expect(page.locator(".settings-sheet")).toHaveCount(0);
 
@@ -146,5 +160,26 @@ test.describe("Upcoming docked as a rail", () => {
     await page.keyboard.press("Escape");
     await expect(page.locator(".cal-body.rail")).toHaveCount(0);
     await expect(page.locator(".cal-agenda")).toBeVisible();
+    await expect
+      .poll(() => page.evaluate(() => window.__mockPropOf!("Settings.md", "upcoming-dock")))
+      .toBe("bottom");
+  });
+
+  test("someone editing the setting outside the app moves the panel", async ({ page }) => {
+    await openCalendar(page);
+    await expect(page.locator(".cal-body.rail")).toHaveCount(0);
+
+    // a hand edit in an editor, or an agent working the vault: the watcher
+    // announces it and the calendar re-reads, with no visit to the sheet
+    await page.evaluate(() => {
+      window.__mockEditProp!("Settings.md", "upcoming-dock", "right");
+      window.__mockEmit!("vault:changed");
+    });
+    await expect(page.locator(".cal-body.rail")).toHaveCount(1);
+    await expect(page.locator(".cal-agenda.rail")).toBeVisible();
+
+    // and the switch in the sheet shows what the file says
+    await openSettings(page);
+    await expect(page.locator("#set-cal-agenda-rail")).toHaveAttribute("aria-checked", "true");
   });
 });

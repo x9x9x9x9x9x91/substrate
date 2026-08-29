@@ -510,6 +510,53 @@
   font-weight: var(--fw-medium);
 }
 
+/* Every toggle group ON a dashboard is ONE thing: labelled underline-dashes
+   (design principles section 5), never the pill group above. Database VIEWS
+   keep the pill; a switch inside a dashboard, and .wb-subpages — chrome for
+   the dashboard under it, sitting above that dashboard's .dash-inner rather
+   than in it — speak the underline instead, so a reader learns the gesture
+   once. The proxy pane's own three switches join this idiom from proxy.css,
+   which a public build drops; these rules stay, because the dashboards they
+   dress do. */
+.dash-inner .db-switch,
+.db-switch.wb-subpages {
+  border: none;
+  border-radius: 0;
+  gap: 14px;
+  background: transparent;
+}
+
+.dash-inner .db-switch button,
+.db-switch.wb-subpages button {
+  position: relative;
+  border: 0;
+  border-radius: 0;
+  padding: 2px 1px 6px;
+  background: transparent;
+  font: var(--dash-label);
+  letter-spacing: 0.04em;
+  color: var(--text-4);
+  cursor: pointer;
+}
+
+.dash-inner .db-switch button.active,
+.db-switch.wb-subpages button.active {
+  background: transparent;
+  color: var(--text-1);
+}
+
+/* the shared tab dash, on the accent every other strip uses */
+.dash-inner .db-switch button.active::after,
+.db-switch.wb-subpages button.active::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--accent);
+}
+
 .db-switch button:hover {
   color: var(--text-2);
 }

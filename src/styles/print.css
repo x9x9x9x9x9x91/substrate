@@ -563,6 +563,47 @@
     font-weight: var(--fw-medium);
   }
 
+  /* a page the author laid out in columns keeps its columns on paper, and it
+     keeps the editor's all-or-nothing rule with them: side by side when every
+     column clears the minimum, one stack in written order when they do not.
+     The printed measure is fixed and narrower than a pane's, so the per-column
+     minimum is smaller — but a phone reading a published note gets the stack,
+     not a ragged part-row. `--columns` is the count, carried inline from
+     print.ts; the basis calc, and why the multiplier has to be this large, are
+     explained in codemirror.css.
+
+     150px is the row's per-column share and the column gap comes out of it, so
+     three columns go abreast once the row reaches 450px and each cell is then
+     about 129px (450 less two 32px gaps, split three ways). */
+  #print-surface .print-columns {
+    display: flex;
+    flex-wrap: wrap;
+    /* the ROW gap is what separates stacked columns: every cell's first and
+       last child has its margin zeroed, so without it the columns of a stacked
+       row read as one unbroken run of prose */
+    gap: 16px 32px;
+    /* the row is one block among the page's blocks — without this it butts
+       straight against the paragraph below the closing marker */
+    margin: 1em 0;
+    /* a row of columns is tall: let it break across pages rather than leaving
+       a half-empty sheet */
+    break-inside: auto;
+  }
+
+  #print-surface .print-column {
+    flex-grow: 1;
+    flex-basis: calc((var(--columns, 1) * 150px - 100%) * 99999);
+    min-width: 0;
+  }
+
+  #print-surface .print-column > *:first-child {
+    margin-top: 0;
+  }
+
+  #print-surface .print-column > *:last-child {
+    margin-bottom: 0;
+  }
+
   #print-surface .print-missing,
   #print-surface .print-embed {
     color: #6e6e6e;

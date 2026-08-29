@@ -11,7 +11,6 @@ import {
   partitionDbEntries,
   pinsInSidebarOrder,
   saveViewHint,
-  scratchNotes,
 } from "./views.ts";
 import { shiftDate, todayIso } from "./dates.ts";
 
@@ -253,19 +252,6 @@ test("isVoiceNote: the `voice` type, case-folded, filed or not (SUB-827)", () =>
   assert.ok(isVoiceNote(note("V", { Type: " Voice " })));
   assert.ok(!isVoiceNote(note("V", { type: "release" })));
   assert.ok(!isVoiceNote(note("V")));
-});
-
-test("scratchNotes: untyped only, newest edit first", () => {
-  const mix = [
-    { ...note("Old scratch"), updated_ms: 10 },
-    { ...note("A release", { type: "release" }), updated_ms: 30 },
-    { ...note("New scratch"), updated_ms: 20 },
-    { ...note("A dashboard", { type: "dashboard" }), updated_ms: 40 },
-  ];
-  assert.deepEqual(
-    scratchNotes(mix).map((n) => n.title),
-    ["New scratch", "Old scratch"]
-  );
 });
 
 test("partitionDbEntries: notes of used types collapse, the rest stays loose (SUB-87)", () => {

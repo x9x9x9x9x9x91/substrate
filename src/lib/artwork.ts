@@ -26,6 +26,19 @@ export function isAudioEmbed(name: string): boolean {
   return AUDIO_EXT_RE.test(name.trim());
 }
 
+// the canonical inline-document set. PDF is the only document format the app
+// can render with nothing but what it ships — the page renderer is bundled, so
+// it works with no network — so it is the one extension that earns a viewer;
+// every other document type keeps the file chip and opens in its OS-default
+// app. Like the audio set, this only picks the affordance: intake still
+// accepts any file type.
+export const PDF_EXT_RE = /\.pdf$/i;
+
+/** Targets with a PDF extension render as pages, not as a file chip. */
+export function isPdfEmbed(name: string): boolean {
+  return PDF_EXT_RE.test(name.trim());
+}
+
 /** A value that is wholly wrapped in `![[...]]` / `[[...]]` unwraps to the
  * embed target; anything else passes through (trimmed). */
 export function unwrapEmbed(v: string): string {

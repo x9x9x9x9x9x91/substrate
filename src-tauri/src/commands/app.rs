@@ -1,7 +1,7 @@
 //! Vault root, first-run onboarding and app relaunch.
 
 use crate::appcfg;
-use crate::{AppState, OnboardingState, SnapDirty};
+use crate::{AppState, OnboardingState, SnapDirty, VaultReady};
 use tauri::{Emitter, Manager, State};
 
 #[tauri::command]
@@ -74,20 +74,30 @@ pub(crate) struct OnboardingStatus {
     /// `VAULT_DIR` is set, so it outranks any stored choice — Settings says so
     /// rather than letting a switch look like it silently failed
     env_pinned: bool,
+    /// the vault index is up, so every vault command can answer. `false` says
+    /// the scan is still running and `vault:ready` is coming — the frontend
+    /// holds its boot frame until then rather than drawing an empty vault.
+    vault_ready: bool,
 }
 
+/// Answered from the onboarding state ALONE — deliberately not from the
+/// engine. This is the first call the frontend makes, and the whole point of
+/// the deferred launch scan (lib.rs) is that it lands while the vault index is
+/// still being built; taking the engine lock here would park it behind the
+/// scan again and put the blank window back.
 #[tauri::command]
 pub(crate) fn onboarding_status(
     app: tauri::AppHandle,
     onboarding: State<OnboardingState>,
-    state: State<AppState>,
+    ready: State<VaultReady>,
 ) -> OnboardingStatus {
     OnboardingStatus {
         first_run: *onboarding.pending.lock().unwrap(),
-        root: state.0.lock().unwrap().root.display().to_string(),
+        root: onboarding.root.display().to_string(),
         suggested: default_vault_root(&app).display().to_string(),
         config_path: onboarding.config_dir.join(appcfg::CONFIG_FILE).display().to_string(),
         env_pinned: std::env::var("VAULT_DIR").is_ok_and(|v| !v.trim().is_empty()),
+        vault_ready: ready.is_ready(),
     }
 }
 

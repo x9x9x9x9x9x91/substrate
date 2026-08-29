@@ -8,8 +8,15 @@ import { errText } from "../lib/errtext";
 /* The session undo stack lives here, in one reducer, because ⌘Z is
    global: whichever surface made the edit, the keystroke arrives at the
    document. The pure moves are in lib/undo.ts; this is only their dispatch. */
+/** What a ⌘Z press resolves to once its turn comes: the entry to run, plus
+    the staled one the keystroke walked past to reach it (§3.3), if any. */
+export type UndoRun = { entry: UndoEntry | null; skipped?: UndoEntry };
+
 export type UndoAction =
-  | { t: "push"; entry: Omit<UndoEntry, "id"> }
+  /** `id` is optional on the way in and always set by the time the reducer
+      sees it — the dispatcher mints one first, because this action is applied
+      to two places and a self-minting push would give them different ids. */
+  | { t: "push"; entry: Omit<UndoEntry, "id"> & { id?: number } }
   | { t: "invalidateAll" }
   | { t: "invalidate"; paths: string[] }
   | { t: "markStale"; id: number }
@@ -53,10 +60,28 @@ export function useUndoStack(
   refresh: (ownWrite?: boolean, paths?: string[] | null) => void,
   showToast: (msg: string, action?: ToastAction) => void
 ) {
-  const [undoState, undoDispatch] = useReducer(undoReducer, undoStack.emptyUndo);
-  const undoStateRef = useRef(undoState);
-  undoStateRef.current = undoState;
-  const undoBusy = useRef(false);
+  const [undoState, reduce] = useReducer(undoReducer, undoStack.emptyUndo);
+
+  /* The stack as the RUNNER sees it, which is not the stack the last render
+     saw. `advance` only commits on React's own schedule — a macrotask away —
+     while a queued ⌘Z picks its entry on the microtask right after the write
+     it waited for lands. A ref assigned during render is still pre-advance at
+     that moment, so a double-tap would pick, and run, the entry it just undid:
+     the second run refuses with `conflict:` and the catch stales the whole
+     stack. So every action lands here first, synchronously, and goes to the
+     reducer after; both apply the same actions in the same order, and the ref
+     is never written from render, where a half-flushed batch could rewind it. */
+  const undoStateRef = useRef(undoStack.emptyUndo);
+  const undoDispatch = useCallback((a: UndoAction) => {
+    // mint the id before the split: `push` mints its own when the entry
+    // carries none, and the two copies would each get a different one
+    const act: UndoAction =
+      a.t === "push" && a.entry.id === undefined
+        ? { t: "push", entry: { ...a.entry, id: undoStack.nextUndoId() } }
+        : a;
+    undoStateRef.current = undoReducer(undoStateRef.current, act);
+    reduce(act);
+  }, []);
 
   /* `skipped` is the entry the keystroke walked past — the whole entry, not
      its label, because the notice has to name the RIGHT cause: an entry goes
@@ -69,12 +94,13 @@ export function useUndoStack(
      by "Undid …" the moment the write landed. Read the two together and the
      surprise is explained in the same breath as the action: the newest edit
      could not be taken back, so an older one was. */
-  const runUndoEntry = useCallback(
-    async (entry: UndoEntry | null, dir: -1 | 1, skipped?: UndoEntry) => {
-      if (!entry || undoBusy.current) return;
+  const runOne = useCallback(
+    async (picked: UndoRun | null, dir: -1 | 1) => {
+      const entry = picked?.entry ?? null;
+      const skipped = picked?.skipped;
+      if (!entry) return;
       const run = dir === -1 ? entry.undo : entry.redo;
       if (!run) return;
-      undoBusy.current = true;
       try {
         await run();
         undoDispatch({ t: "advance", id: entry.id, dir });
@@ -99,23 +125,41 @@ export function useUndoStack(
           undoDispatch({ t: "markStale", id: entry.id });
           showToast(`Undo failed: ${msg}`);
         }
-      } finally {
-        undoBusy.current = false;
       }
     },
-    [refresh, showToast]
+    [refresh, showToast, undoDispatch]
+  );
+
+  /* One request at a time, in the order the keystrokes arrived. */
+  const chain = useRef<Promise<void>>(Promise.resolve());
+  const runUndoEntry = useCallback(
+    (select: () => UndoRun | null, dir: -1 | 1): Promise<void> => {
+      /* Queued, not dropped. A burst of ⌘Z — key repeat, or two chords inside
+         one frame — used to lose every press that arrived while a write was
+         in flight, because the cursor only moves once the write lands. So a
+         request waits its turn and picks its entry when that turn comes: the
+         second press of a double-tap undoes the entry BELOW the first, rather
+         than re-running the same one or vanishing. */
+      const turn = chain.current.then(() => runOne(select(), dir));
+      chain.current = turn.catch(() => {});
+      return turn;
+    },
+    [runOne]
   );
 
   const undoApi = useMemo<UndoApi>(
     () => ({
       record: (entry) => undoDispatch({ t: "push", entry }),
       // the toast's Undo button and ⌘Z run the identical entry, not two
-      // lookalike closures that could drift apart
+      // lookalike closures that could drift apart — and once the keystroke has
+      // taken that entry back, the button on the toast still on screen finds
+      // nothing to run rather than reverting it a second time
       runById: (id) => {
-        void runUndoEntry(undoStack.byId(undoStateRef.current, id), -1);
+        void runUndoEntry(() => ({ entry: undoStack.pendingById(undoStateRef.current, id) }), -1);
       },
+      evictScope: (scope) => undoDispatch({ t: "evictScope", scope }),
     }),
-    [runUndoEntry]
+    [runUndoEntry, undoDispatch]
   );
 
   return { undoState, undoDispatch, undoStateRef, runUndoEntry, undoApi };

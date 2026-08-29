@@ -23,16 +23,16 @@ async function seedBody(page: Page, body: string) {
   await page.evaluate(() => window.__mockEmit("vault:changed"));
 }
 
-test("audio embed renders the player, pdf embed a file chip (SUB-202)", async ({ page }) => {
+test("audio embed renders the player, a document embed a file chip (SUB-202)", async ({ page }) => {
   await boot(page);
-  await seedBody(page, "embeds\n\n![[old-bounce.wav]]\n\n![[some.pdf]]\n");
+  await seedBody(page, "embeds\n\n![[old-bounce.wav]]\n\n![[some.docx]]\n");
   await expect(page.locator(".cm-audio")).toBeVisible();
   await expect(page.locator(".cm-audio-name")).toHaveText("old-bounce.wav");
   const chip = page.locator(".cm-filechip");
   await expect(chip).toBeVisible();
-  await expect(chip.locator(".cm-filechip-name")).toHaveText("some.pdf");
+  await expect(chip.locator(".cm-filechip-name")).toHaveText("some.docx");
   // the size fills in once vault_asset_info lands (mock: 8 + name.length)
-  await expect(chip.locator(".cm-filechip-size")).toHaveText("16 B");
+  await expect(chip.locator(".cm-filechip-size")).toHaveText("17 B");
 });
 
 test("heic embed renders inline as an image, not a chip (SUB-281)", async ({ page }) => {
@@ -47,40 +47,45 @@ test("heic embed renders inline as an image, not a chip (SUB-281)", async ({ pag
 
 test("clicking the chip opens the file externally (SUB-202)", async ({ page }) => {
   await boot(page);
-  await seedBody(page, "chip\n\n![[some.pdf]]\n");
+  await seedBody(page, "chip\n\n![[some.docx]]\n");
   const chip = page.locator(".cm-filechip");
   await expect(chip).toBeVisible();
   const opened = page.waitForEvent("console", (msg) => msg.text().includes("[mock] open"));
   await chip.click();
-  expect((await opened).text()).toContain(".assets/some.pdf");
+  expect((await opened).text()).toContain(".assets/some.docx");
 });
 
 test("a missing target renders the missing-file state (SUB-202)", async ({ page }) => {
   await boot(page);
-  await seedBody(page, "gone\n\n![[gone.pdf]]\n");
+  await seedBody(page, "gone\n\n![[gone.docx]]\n");
   const missing = page.locator(".cm-embed-missing");
   await expect(missing).toBeVisible();
-  await expect(missing).toContainText("missing file · gone.pdf");
+  await expect(missing).toContainText("missing file · gone.docx");
 });
 
 test("pasting a non-media file attaches it and renders a chip (SUB-202)", async ({ page }) => {
   await boot(page);
-  // The cursor goes on the note's FIRST line, not the geometric centre of
-  // `.cm-content`: the centre is whatever line the current body size happens
-  // to put there, so a type-scale change silently moves it onto a blank line
-  // or into a rendered widget and the paste lands somewhere the assertion
-  // below cannot see.
-  await page.locator(".cm-line").first().click();
+  // The cursor goes on the FIRST CHARACTER of the note's first line: an
+  // element click lands on the element's centre, and the centre of a wrapped
+  // line maps to whatever character the current type scale puts there — at
+  // one size that is mid-word (the pasted embed gets its own line, caret
+  // moves past it, the chip renders), at another it is the end of the line
+  // (no trailing newline, the caret stays on the embed's line, and the
+  // editor correctly keeps the source revealed). Pinning the click to the
+  // line's first character is size-independent.
+  await page.locator(".cm-line").first().click({ position: { x: 1, y: 4 } });
   // synthetic paste carrying a real File — the intake gate must accept any
   // file type now, not just image/audio MIME (dispatch stays fully in-page:
   // drop/paste simulation through Playwright events is flaky)
   await page.evaluate(() => {
     const dt = new DataTransfer();
-    dt.items.add(new File(["%PDF-1.4 e2e"], "e2e-pasted.pdf", { type: "application/pdf" }));
+    dt.items.add(new File(["e2e document"], "e2e-pasted.docx", {
+      type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    }));
     const ev = new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true });
     document.querySelector(".cm-content")!.dispatchEvent(ev);
   });
   const chip = page.locator(".cm-filechip");
   await expect(chip).toBeVisible();
-  await expect(chip.locator(".cm-filechip-name")).toHaveText("e2e-pasted.pdf");
+  await expect(chip.locator(".cm-filechip-name")).toHaveText("e2e-pasted.docx");
 });

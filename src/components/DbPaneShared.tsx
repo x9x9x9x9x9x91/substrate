@@ -12,7 +12,7 @@ import { coverSource } from "../lib/assets";
 import { optionColor, OptionDot, type AnchorRect } from "./SelectMenu";
 import TypeIcon from "./TypeIcon";
 import { resolveIcon } from "../lib/dbicons";
-import { BoardIcon, ChevronIcon, ColumnsIcon, GalleryIcon, HelpIcon, ListIcon, NoteIcon, SortIcon, TableIcon, XIcon } from "./Icons";
+import { BoardIcon, CalendarIcon, ChevronIcon, ColumnsIcon, GalleryIcon, HelpIcon, ListIcon, NoteIcon, SortIcon, TableIcon, XIcon } from "./Icons";
 import type { SubSummary } from "../lib/subitems";
 import { QUERY_SYNTAX, QUERY_SYNTAX_FOOT } from "../lib/query";
 import { MAX_SORT_KEYS } from "../lib/dbsort";
@@ -794,6 +794,7 @@ export const LAYOUT_ICON: Record<DbLayout, React.ReactNode> = {
   table: <TableIcon />,
   board: <BoardIcon />,
   gallery: <GalleryIcon />,
+  calendar: <CalendarIcon />,
 };
 
 /* Windowing knobs: tables bigger than WIN_MIN paint only the scroll

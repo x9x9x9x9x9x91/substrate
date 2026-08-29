@@ -164,12 +164,8 @@ fn observe(engine: &mut Engine, folder: &str, op: &Value) -> Result<Value, Strin
             Ok(json!({ "results": results }))
         }
         "list" => {
-            let mut paths: Vec<String> = engine
-                .list()
-                .into_iter()
-                .map(|m| m.path)
-                .filter(|p| in_scope(folder, p))
-                .collect();
+            let mut paths: Vec<String> =
+                engine.list().into_iter().map(|m| m.path).filter(|p| in_scope(folder, p)).collect();
             paths.sort();
             Ok(json!({ "paths": paths }))
         }

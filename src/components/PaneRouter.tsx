@@ -141,6 +141,7 @@ export interface PaneRouterProps
   trashNote: CalendarProps["onTrashNote"];
   renameNote: NonNullable<StackProps["onRenameNote"]>;
   openJournal: CalendarProps["onOpenJournal"];
+  upcomingDock: CalendarProps["upcomingDock"];
 
   /* ----- the three database mounts ----- */
   dbPaneCtx: DbPaneCtx;
@@ -218,6 +219,8 @@ export interface PaneRouterProps
      builds it with, and it arrives empty in the shared build. */
   ledgerListProps: Record<string, ReadonlySet<string>>;
   listFolderIcon: ListProps["folderIcon"];
+  listSort: ListProps["sort"];
+  onListSort: ListProps["onSort"];
   newInFolder: ListProps["onNewHere"];
   createHere: ListProps["onNewNote"];
   tagFolders: ListProps["tagFolders"];
@@ -345,6 +348,7 @@ export default function PaneRouter(props: PaneRouterProps) {
     trashNote,
     renameNote,
     openJournal,
+    upcomingDock,
     dbPaneCtx,
     mountPrefChange,
     openMountRow,
@@ -372,6 +376,8 @@ export default function PaneRouter(props: PaneRouterProps) {
     titleFocusRef,
     setReceipts,
     viewRows,
+    listSort,
+    onListSort,
     onListOpenDb,
     onListSelect,
     renaming,
@@ -543,6 +549,7 @@ export default function PaneRouter(props: PaneRouterProps) {
             onToast={showToast}
             onRenameNote={renameNote}
             onOpenJournal={openJournal}
+            upcomingDock={upcomingDock}
           />
           </Suspense>
         </div>
@@ -693,6 +700,8 @@ export default function PaneRouter(props: PaneRouterProps) {
           onActivate={onListActivate}
           {...ledgerListProps}
           folderIcon={listFolderIcon}
+          sort={listSort}
+          onSort={onListSort}
           onNewHere={newInFolder}
           onNewNote={createHere}
           tagFolders={tagFolders}

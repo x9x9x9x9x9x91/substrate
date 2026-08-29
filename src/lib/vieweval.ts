@@ -324,7 +324,13 @@ export interface EvaluateOptions {
  *  spread: a pin is a capture, so the database's CURATION — its hidden sets
  *  and its dragged column order — must not reach it, while the presentation
  *  keys nobody captures per pin (footer aggregations, column widths, wrap,
- *  the grid override) do follow the database. Spreading the whole pref
+ *  the grid override) do follow the database. The calendar's date binding is
+ *  captured: a pin saved while the calendar was bound to one date prop
+ *  reopens on that prop, so two pins on one database can show two different
+ *  bindings — and a pin that carries none (an older pin, or a database with
+ *  no date props when it was saved) still inherits the database's, rather
+ *  than rebinding to whichever date prop comes first.
+ *  Spreading the whole pref
  *  would quietly hand a pin the column order of whoever last dragged a
  *  header. This is the one spelling of that composition: the pane calls it
  *  too, so pin mode on screen and pin mode headless cannot disagree. */
@@ -333,6 +339,7 @@ export function savedViewPref(view: SavedView, dbPref?: ViewPref): ViewPref {
     view: view.view ?? dbPref?.view ?? "table",
     group_by: view.group_by ?? dbPref?.group_by,
     table_group_by: view.table_group_by ?? dbPref?.table_group_by,
+    cal_date: view.cal_date ?? dbPref?.cal_date,
     aggregations: dbPref?.aggregations,
     sorts: view.sorts ?? (view.sort ? [view.sort] : []),
     widths: dbPref?.widths,

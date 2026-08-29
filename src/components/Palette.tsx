@@ -198,6 +198,11 @@ interface PaletteProps {
       dies after 4s, and the keystroke was the only way back after that. */
   undoCommand: { label: string; run: () => void } | null;
   redoCommand: { label: string; run: () => void } | null;
+  /** open the undo stack as a list — the reading surface behind ⌘Z */
+  onOpenUndoHistory: () => void;
+  /** the stack holds at least one entry on the undo side, stale or not —
+      wider than `undoCommand`, which needs a RUNNABLE top */
+  hasUndoHistory: boolean;
   onClose: () => void;
   onOpenNote: (path: string) => void;
   onSetView: (v: View) => void;
@@ -332,6 +337,8 @@ export default function Palette({
   onPrint,
   undoCommand,
   redoCommand,
+  onOpenUndoHistory,
+  hasUndoHistory,
   onClose,
   onOpenNote,
   onSetView,
@@ -1105,6 +1112,22 @@ export default function Palette({
               },
             ]
           : []),
+        // …and the list behind them, for when what ⌘Z would take back is no
+        // longer obvious. Gated on the stack holding anything at all, not on
+        // a runnable top: a stack whose entries have ALL gone stale is
+        // exactly the state where reading the stale marks helps most, and
+        // the keystroke's row is rightly gone in it.
+        ...(hasUndoHistory
+          ? [
+              {
+                id: "cmd:undo-history",
+                label: "Undo history",
+                icon: <UndoIcon />,
+                section: "Commands",
+                run: onOpenUndoHistory,
+              },
+            ]
+          : []),
         ...(redoCommand
           ? [
               {
@@ -1419,6 +1442,7 @@ export default function Palette({
     onOpenDb,
     onOpenJournal,
     onOpenTimeTravel,
+    onOpenUndoHistory,
     onOpenShortcuts,
     onAssignKeys,
     onCreate,

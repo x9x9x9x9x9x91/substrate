@@ -55,7 +55,10 @@ pub enum RegisterFail {
     /// errors carry the code reads it from here rather than out of the
     /// message, because a lease conflict is a 409 status and not the digits
     /// `409` somewhere in a sentence.
-    Unreachable { detail: String, status: Option<u16> },
+    Unreachable {
+        detail: String,
+        status: Option<u16>,
+    },
     Refused(String),
 }
 

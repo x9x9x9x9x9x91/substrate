@@ -30,6 +30,7 @@ import { CheckIcon } from "./Icons";
 import { useUndo } from "../lib/undoContext";
 import {
   missingTerminalFonts,
+  parseUpcomingDock,
   SETTINGS_PATH,
   terminalActionsToText,
   textToTerminalActions,
@@ -70,9 +71,11 @@ import type { OnboardingStatus } from "../lib/onboarding";
 import { HOSTED_HANDOFF_RELAY_URL } from "../lib/handoff";
 import McpSettings from "./McpSettings";
 import CalendarSettings from "./CalendarSettings";
+import { DEFAULT_AGENDA_PLACEMENT, type AgendaPlacement } from "../lib/calagenda";
 import { visibleSettingsTabs, type SettingsTabId } from "../lib/settingsTabs";
 import { errText } from "../lib/errtext";
 import ImportSettings from "./ImportSettings";
+import SyncFoldersSettings from "./SyncFoldersSettings";
 
 const Onboarding = lazy(() => import("./Onboarding"));
 
@@ -266,6 +269,11 @@ interface SettingsPaneProps {
   /** Ask the release feed, once, on this click — the same check the app runs
       on its own, so a find lands in the standing Install offer. */
   onCheckUpdates: () => Promise<UpdateCheck>;
+  /** the calendar's `upcoming-dock`, held by App because the calendar reads
+      it too — the Calendar section moves it optimistically so the pane behind
+      this sheet flips on the click rather than on the watcher echo */
+  upcomingDock: AgendaPlacement;
+  setUpcomingDock: (next: AgendaPlacement) => void;
 }
 
 interface Field {
@@ -852,6 +860,8 @@ export default function SettingsPane({
   onRejectVaultSeal,
   onRemoveVaultSeal,
   onCheckUpdates,
+  upcomingDock,
+  setUpcomingDock,
 }: SettingsPaneProps) {
   const undo = useUndo();
   const [values, setValues] = useState<Record<string, string> | null>(null);
@@ -1058,6 +1068,43 @@ export default function SettingsPane({
         .catch((e) => onToast(`couldn't save ${key} (${errText(e)})`));
     },
     [values, onSettingsChanged, onToast, reconcileSettings, undo]
+  );
+
+  /** The Calendar section's one switch. Its key is not in `FIELDS` — the
+      value renders a calendar rather than a form row, so App holds it — but
+      the write is the same one every other switch makes: `upcoming-dock` into
+      Settings.md, undoable, with the note as the source of truth. The local
+      move first is what keeps the pane behind the sheet in step; a refused
+      write settles the app back on what the note says rather than leaving it
+      showing a rail the note never got — re-read, not the value this click
+      captured, because another window may have written its own answer in the
+      time the rejected write took, and restoring the captured one would put
+      the app back behind the file. */
+  const flipUpcomingDock = useCallback(
+    (next: AgendaPlacement) => {
+      const prior = upcomingDock;
+      setUpcomingDock(next);
+      setPropUndoable({
+        path: SETTINGS_PATH,
+        key: "upcoming-dock",
+        value: next,
+        record: undo.record,
+        onApplied: reconcileSettings,
+      })
+        .then(() => void onSettingsChanged())
+        .catch(async (e) => {
+          onToast(`couldn't save upcoming-dock (${errText(e)})`);
+          try {
+            const c = await vaultRead(SETTINGS_PATH);
+            setUpcomingDock(parseUpcomingDock(c.props) ?? DEFAULT_AGENDA_PLACEMENT);
+          } catch {
+            // the note is unreadable too — the value this click started from
+            // is the best answer left
+            setUpcomingDock(prior);
+          }
+        });
+    },
+    [upcomingDock, setUpcomingDock, onSettingsChanged, onToast, reconcileSettings, undo]
   );
 
   /** choices write on the click — there is no blur to wait for. Select fields
@@ -1612,7 +1659,9 @@ export default function SettingsPane({
           {tab === "general" && <AboutRow onCheckUpdates={onCheckUpdates} />}
           {/* a plain layout preference, so it sits with the other
               preferences rather than below the consequential switches */}
-          {tab === "appearance" && <CalendarSettings />}
+          {tab === "appearance" && (
+            <CalendarSettings dock={upcomingDock} onDock={flipUpcomingDock} />
+          )}
           {tab === "sharing" && (
             <>
               {/* the standing grants below the switches that govern them: a
@@ -1623,6 +1672,10 @@ export default function SettingsPane({
           {tab === "vault" && (
             <>
               <ImportSettings onToast={onToast} />
+              {/* what the vault syncs, before who else can read it: a folder
+                  left out of sync is a fact about this vault on every device,
+                  and it renders away in a vault that has no folders yet */}
+              <SyncFoldersSettings onToast={onToast} />
               {/* only when this vault has rules: the enable switch is a
                   consequential one, and it should not be the first thing
                   someone opening this tab trips over */}

@@ -1,9 +1,24 @@
 import { Facet } from "@codemirror/state";
 import { EditorView, WidgetType } from "@codemirror/view";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { assetBlobUrl, audioSource, loadPeaks, PEAKS_AUTO_MAX_BYTES, type AudioSource } from "./assets.ts";
-import { isImageName } from "./artwork.ts";
-import { embedSizeStyle, wikiLinkDisplay, type EmbedSize } from "./wikilinks.ts";
+import {
+  assetBlobUrl,
+  audioSource,
+  loadPeaks,
+  pdfSource,
+  PEAKS_AUTO_MAX_BYTES,
+  type AudioSource,
+} from "./assets.ts";
+import { isAudioEmbed as isAudioName, isImageName, isPdfEmbed as isPdfName } from "./artwork.ts";
+import { onVaultLeft } from "./vaultcaches.ts";
+import { parseColumnRegions, type ColumnPart } from "./columns.ts";
+import {
+  embedSize,
+  embedSizeStyle,
+  embedTarget,
+  wikiLinkDisplay,
+  type EmbedSize,
+} from "./wikilinks.ts";
 import {
   formatAnnotationTime,
   formatAudioAnnotation,
@@ -11,7 +26,11 @@ import {
   resolveAudioAnnotationTarget,
   type AudioAnnotation,
 } from "./audio-annotations.ts";
+import { dashFenceHint } from "./dashfencehint.ts";
 import { formatFileSize } from "./display.ts";
+import { renderInlineMd, renderLinearMd, renderMdBlock, type PrintOptions } from "./print.ts";
+import { scanMdBlocks, type MdBlock } from "./mdblocks.ts";
+import { parseCalloutStyle } from "./styletokens.ts";
 import { fileOpen, historyFreshness, vaultAssetInfo, vaultRoot } from "./ipc.ts";
 import { fillAges } from "./agefill.ts";
 import {
@@ -757,31 +776,12 @@ export class ViewWidget extends WidgetType {
   }
 }
 
-/** Render (or re-render) the table into an existing widget node. Returns false
- * when the node can't be reused — the caller then lets CodeMirror rebuild. */
-function paintViewWidget(wrap: HTMLElement, view: EditorView, inner: string): boolean {
-  const state = viewState(wrap);
-  if (!state) return false;
-  const handlers = view.state.facet(embedHandlers);
-  const result = handlers.query?.(parseViewSpec(inner)) ?? { error: "Views unavailable" };
-  state.result = result;
-
-  // clear everything but the React island — it holds the open editor
-  for (const child of [...wrap.children]) {
-    if (child !== state.hostEl) child.remove();
-  }
-
-  if ("error" in result) {
-    const card = document.createElement("div");
-    card.className = "embed-view-err";
-    card.textContent = result.error;
-    wrap.insertBefore(card, state.hostEl);
-    // an error card has no cells; anything open belongs to a table that is
-    // no longer there
-    closeCellEditor(state);
-    return true;
-  }
-
+/** A rendered ```view fence, in three pieces. They are split out because two
+ * surfaces paint the same table from the same `EmbedResult`: the live embed
+ * below, which wires clicks and cell editors onto them, and a column cell,
+ * which mounts them and stops there. One builder means a column's table can
+ * never drift into looking like a different table from the one beside it. */
+function buildViewHead(result: Extract<EmbedResult, { dbType: string }>): HTMLElement {
   const head = document.createElement("div");
   head.className = "embed-view-head";
   // a saved-sourced embed carries the pin's identity: its name
@@ -802,8 +802,15 @@ function paintViewWidget(wrap: HTMLElement, view: EditorView, inner: string): bo
   open.textContent = "›";
   open.setAttribute("aria-hidden", "true");
   head.append(name, count, open);
-  wrap.insertBefore(head, state.hostEl);
+  return head;
+}
 
+/** The grid. `editing` marks the one cell with an open editor over it — null
+ * from a surface that has none, which is every surface but the live embed. */
+function buildViewTable(
+  result: Extract<EmbedResult, { dbType: string }>,
+  editing: { path: string; column: string } | null
+): HTMLTableElement {
   const table = document.createElement("table");
   table.className = "embed-view-table";
   const thead = document.createElement("thead");
@@ -848,11 +855,7 @@ function paintViewWidget(wrap: HTMLElement, view: EditorView, inner: string): bo
         td.textContent = row.cells[i];
       }
       if (!viewCellEditable(result, column, model)) td.classList.add("embed-view-cell-inert");
-      if (
-        state.editing &&
-        state.editing.path === row.path &&
-        state.editing.column === column
-      ) {
+      if (editing && editing.path === row.path && editing.column === column) {
         td.classList.add("editing");
       }
       tr.appendChild(td);
@@ -860,25 +863,61 @@ function paintViewWidget(wrap: HTMLElement, view: EditorView, inner: string): bo
     tbody.appendChild(tr);
   }
   table.appendChild(tbody);
-  wrap.insertBefore(table, state.hostEl);
-  fillAges(table, result, historyFreshness);
+  return table;
+}
 
+/** The line under the grid: nothing matched, or rows were left out and why.
+ * Null when the table shows everything it found. */
+function buildViewMore(result: Extract<EmbedResult, { dbType: string }>): HTMLElement | null {
   if (result.rows.length === 0) {
     const empty = document.createElement("div");
     empty.className = "embed-view-more";
     empty.textContent = "No matching rows";
-    wrap.insertBefore(empty, state.hostEl);
-  } else if (result.cut) {
-    // an author's `limit:` and the surface's cap are different facts:
-    // "… 18 more" under a `limit: 5` reads as a cap we imposed. Say which.
-    const more = document.createElement("div");
-    more.className = "embed-view-more";
-    more.textContent =
-      result.cut.kind === "limit"
-        ? `${result.rows.length} of ${result.total} — this fence's limit`
-        : `… ${result.total - result.rows.length} more`;
-    wrap.insertBefore(more, state.hostEl);
+    return empty;
   }
+  if (!result.cut) return null;
+  // an author's `limit:` and the surface's cap are different facts:
+  // "… 18 more" under a `limit: 5` reads as a cap we imposed. Say which.
+  const more = document.createElement("div");
+  more.className = "embed-view-more";
+  more.textContent =
+    result.cut.kind === "limit"
+      ? `${result.rows.length} of ${result.total} — this fence's limit`
+      : `… ${result.total - result.rows.length} more`;
+  return more;
+}
+
+/** Render (or re-render) the table into an existing widget node. Returns false
+ * when the node can't be reused — the caller then lets CodeMirror rebuild. */
+function paintViewWidget(wrap: HTMLElement, view: EditorView, inner: string): boolean {
+  const state = viewState(wrap);
+  if (!state) return false;
+  const handlers = view.state.facet(embedHandlers);
+  const result = handlers.query?.(parseViewSpec(inner)) ?? { error: "Views unavailable" };
+  state.result = result;
+
+  // clear everything but the React island — it holds the open editor
+  for (const child of [...wrap.children]) {
+    if (child !== state.hostEl) child.remove();
+  }
+
+  if ("error" in result) {
+    const card = document.createElement("div");
+    card.className = "embed-view-err";
+    card.textContent = result.error;
+    wrap.insertBefore(card, state.hostEl);
+    // an error card has no cells; anything open belongs to a table that is
+    // no longer there
+    closeCellEditor(state);
+    return true;
+  }
+
+  wrap.insertBefore(buildViewHead(result), state.hostEl);
+  const table = buildViewTable(result, state.editing);
+  wrap.insertBefore(table, state.hostEl);
+  fillAges(table, result, historyFreshness);
+  const more = buildViewMore(result);
+  if (more) wrap.insertBefore(more, state.hostEl);
 
   // "+ New" sits below the cap line on purpose: the cap hides rows,
   // it never means the table is closed to new ones
@@ -1089,11 +1128,12 @@ function liveProps(state: ViewWidgetState, path: string): Record<string, unknown
 }
 
 // embed routing by extension: audio renders the player, image the
-// inline <img>, any other extension a file chip. The intake lanes accept any
-// file type — these sets only pick the widget, they no longer gate intake.
-// The audio set itself lives in artwork.ts (database file props
-// classify through it too); re-exported so editor imports stay put.
-export { isAudioEmbed } from "./artwork.ts";
+// inline <img>, pdf the page viewer, any other extension a file chip. The
+// intake lanes accept any file type — these sets only pick the widget, they
+// no longer gate intake. The audio and pdf sets live in artwork.ts (database
+// file props classify through the audio one too); re-exported so editor
+// imports stay put.
+export { isAudioEmbed, isPdfEmbed } from "./artwork.ts";
 
 /** Embed targets with an image extension render inline, not as a file chip.
  * One set for editor embeds and gallery covers alike (artwork.ts). */
@@ -1887,6 +1927,278 @@ export class FileWidget extends WidgetType {
   }
 }
 
+/* Which page of each document the reader had open. CodeMirror tears widget
+   DOM down whenever the caret enters the line, so without this the viewer
+   would snap back to page 1 on every keystroke near the embed. Keyed by embed
+   name rather than by file version: the same document re-imported is still the
+   thing the reader was reading, and `clampPage` handles a shorter one. */
+const pdfPages = new Map<string, number>();
+
+/* One entry is a name and a number, but a long session opening document after
+   document would keep every one of them forever. Bound it: the oldest place a
+   reader has not returned to is the cheapest thing to forget, and forgetting
+   it costs that viewer its first page, not its document. */
+const MAX_REMEMBERED_PAGES = 64;
+function rememberPage(name: string, page: number) {
+  // delete before set so the key moves to the back of the insertion order —
+  // otherwise the oldest key is the first one ever written, not the one the
+  // reader has stayed away from longest
+  pdfPages.delete(name);
+  pdfPages.set(name, page);
+  while (pdfPages.size > MAX_REMEMBERED_PAGES) {
+    const oldest = pdfPages.keys().next();
+    if (oldest.done) break;
+    pdfPages.delete(oldest.value);
+  }
+}
+
+/* A vault switch leaves these page numbers pointing into documents nobody is
+   reading any more; the next vault's `report.pdf` is a different document and
+   deserves to open at its first page. */
+onVaultLeft(() => pdfPages.clear());
+
+/* How to stop a viewer that CodeMirror is taking away, keyed by the DOM it
+   built. The widget instance the editor hands to `destroy` is not always the
+   one whose `toDOM` made that element — equal widgets are interchangeable —
+   so the teardown belongs to the element, not to the instance. */
+const pdfTeardowns = new WeakMap<HTMLElement, () => void>();
+
+/** Embeds naming a PDF render their pages inline — the one document format
+ * the app can draw with nothing but what it ships. Paging lives in the widget;
+ * the parsed document is cached across rebuilds by `pdfdoc.ts`, so a caret
+ * moving in and out of the line does not re-parse the file. Everything else
+ * that is neither audio nor image stays a `FileWidget` chip. */
+export class PdfWidget extends WidgetType {
+  /** the file could not be read or parsed — the next vault epoch retries */
+  failed = false;
+
+  constructor(
+    readonly name: string,
+    readonly epoch: number,
+    /** the `|300`-style width the author asked for, honoured the way images
+     * honour it — an embed that silently dropped it would read as a bug */
+    readonly size: EmbedSize | null = null
+  ) {
+    super();
+  }
+
+  eq(other: PdfWidget) {
+    if (other.name !== this.name) return false;
+    if (other.size?.width !== this.size?.width) return false;
+    if (other.size?.height !== this.size?.height) return false;
+    return !(this.failed || other.failed) || this.epoch === other.epoch;
+  }
+
+  toDOM(view: EditorView) {
+    const wrap = document.createElement("span");
+    wrap.className = "cm-embed-pdf";
+    wrap.tabIndex = 0;
+    const embedName = this.name;
+    const asked = this.size;
+
+    const frame = document.createElement("span");
+    frame.className = "cm-pdf-frame";
+    Object.assign(frame.style, embedSizeStyle(asked));
+    const canvas = document.createElement("canvas");
+    canvas.className = "cm-pdf-canvas";
+    frame.appendChild(canvas);
+
+    const bar = document.createElement("span");
+    bar.className = "cm-pdf-bar";
+    const prev = document.createElement("button");
+    prev.type = "button";
+    prev.tabIndex = -1;
+    prev.className = "cm-pdf-step";
+    prev.textContent = "‹";
+    prev.title = "Previous page";
+    const next = document.createElement("button");
+    next.type = "button";
+    next.tabIndex = -1;
+    next.className = "cm-pdf-step";
+    next.textContent = "›";
+    next.title = "Next page";
+    const count = document.createElement("span");
+    count.className = "cm-pdf-count";
+    const nameEl = document.createElement("span");
+    nameEl.className = "cm-pdf-name";
+    nameEl.textContent = embedName.split("/").pop() || embedName;
+    nameEl.title = embedName;
+    const openBtn = document.createElement("button");
+    openBtn.type = "button";
+    openBtn.tabIndex = -1;
+    openBtn.className = "cm-pdf-open";
+    openBtn.textContent = "Open";
+    openBtn.title = "Open in the default app";
+    bar.append(prev, count, next, nameEl, openBtn);
+    wrap.append(frame, bar);
+
+    const fail = (state: string, noun: string) => {
+      this.failed = true;
+      wrap.className = "cm-embed-missing cm-pdf-missing";
+      wrap.tabIndex = -1;
+      wrap.replaceChildren();
+      wrap.textContent = `${state} · ${embedName}`;
+      view.requestMeasure();
+      if (state.startsWith("missing")) applyMissingKind(wrap, view, embedName, noun);
+    };
+
+    const open = () => {
+      // bare names live in .assets/ (same resolution as the file chip);
+      // link-in-place path embeds open the path itself (Rust expands ~)
+      const target = /^(\/|~\/)/.test(embedName)
+        ? Promise.resolve(embedName)
+        : vaultRoot().then((root) => `${root}/.assets/${embedName}`);
+      target.then((p) => fileOpen(p)).catch((e) => console.warn("file open unavailable:", e));
+    };
+
+    /* A render in flight when the reader pages again would land after the one
+       they asked for, so each paint checks it is still the current one — and
+       stops the one it supersedes, so an abandoned page is not still being
+       drawn onto the canvas the new one is painting. */
+    let generation = 0;
+    let inFlight: { cancel(): void } | null = null;
+    let releaseDoc: (() => void) | null = null;
+    let total = 0;
+    let page = pdfPages.get(embedName) ?? 1;
+
+    const paint = async () => {
+      const mine = ++generation;
+      inFlight?.cancel();
+      inFlight = null;
+      try {
+        const [
+          { pdfDocument, renderPdfPage },
+          { clampPage, pdfBandHeight, pdfDisplayWidth, pdfFitHeight, pdfPageLabel },
+          src,
+        ] = await Promise.all([
+          import("./pdfdoc.ts"),
+          import("./pdfembed.ts"),
+          pdfSource(embedName),
+        ]);
+        /* Held from the moment it is asked for, not from when it arrives: a
+           note with more embeds than the cache keeps would otherwise have one
+           viewer's document taken apart while another's render was still in
+           the middle of it. */
+        const handle = pdfDocument(src);
+        /* Everything above is awaited, and CodeMirror can take the line away
+           inside that window — in which case the teardown has already run and
+           found nothing to release. Let this hold go here rather than park it
+           in a closure nothing will reach again: a hold nobody releases keeps
+           the cache from ever taking that document apart, for the session. */
+        if (mine !== generation) {
+          handle.release();
+          return;
+        }
+        releaseDoc?.();
+        releaseDoc = handle.release;
+        const doc = await handle.doc;
+        if (mine !== generation || !wrap.isConnected) return;
+        total = doc.numPages;
+        page = clampPage(page, total);
+        rememberPage(embedName, page);
+        count.textContent = pdfPageLabel(page, total);
+        prev.disabled = page <= 1;
+        next.disabled = page >= total;
+        // the line the embed sits on is what offers the width: the wrap itself
+        // is an inline-block with nothing in it yet and measures zero
+        const available = wrap.parentElement?.clientWidth || wrap.clientWidth;
+        const width = pdfDisplayWidth(available, asked);
+        // an unsized page shrinks to stand within the reading band, a named
+        // `300x200` box is a box the whole page fits into, and a bare width is
+        // honoured however tall it stands the page
+        const render = renderPdfPage(
+          doc,
+          page,
+          canvas,
+          width,
+          pdfFitHeight(asked, pdfBandHeight(window.innerHeight))
+        );
+        inFlight = render;
+        await render.done;
+        if (mine !== generation) return;
+        inFlight = null;
+        view.requestMeasure();
+      } catch (e) {
+        // a render the reader outran, or one CodeMirror took the DOM from, is
+        // not a fault of the file — only the current paint may fail the embed
+        if (mine !== generation || !wrap.isConnected) return;
+        // a name with no file behind it is the missing idiom (which may really
+        // be "not on this device"); a file that will not parse is its own state.
+        // A vault switch can briefly land here on a healthy embed: leaving the
+        // old vault takes its parsed documents apart, so a render still in
+        // flight rejects and the question below is asked of the new vault,
+        // where the name is not. It is one frame before the editor rebuilds
+        // for the new note, and the alternative — leaving those documents held
+        // until every viewer notices — is the leak this cache exists to avoid.
+        vaultAssetInfo(embedName).then(
+          () => fail("unreadable pdf", "pdf"),
+          () => fail("missing pdf", "pdf")
+        );
+        console.warn("pdf embed unavailable:", embedName, e);
+      }
+    };
+
+    const repaint = () => {
+      void paint();
+    };
+
+    /* CodeMirror drops the whole element when the caret enters the line. Bump
+       the generation so a landing render finds itself stale, and stop the one
+       still drawing rather than let it finish onto a canvas nobody can see. */
+    pdfTeardowns.set(wrap, () => {
+      generation++;
+      inFlight?.cancel();
+      inFlight = null;
+      releaseDoc?.();
+      releaseDoc = null;
+    });
+
+    const step = (delta: number) => {
+      const want = page + delta;
+      if (want < 1 || (total > 0 && want > total)) return;
+      page = want;
+      rememberPage(embedName, page);
+      repaint();
+    };
+
+    prev.addEventListener("click", () => step(-1));
+    next.addEventListener("click", () => step(1));
+    openBtn.addEventListener("click", open);
+    wrap.addEventListener("mousedown", (e) => {
+      // keep the caret where it is; the viewer takes focus explicitly
+      if (e.target === wrap || e.target === frame || e.target === canvas) {
+        e.preventDefault();
+        wrap.focus({ preventScroll: true });
+      }
+    });
+    wrap.addEventListener("keydown", (e) => {
+      const back = e.key === "ArrowLeft" || e.key === "PageUp";
+      const fwd = e.key === "ArrowRight" || e.key === "PageDown";
+      if (!back && !fwd && e.key !== "Enter") return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.key === "Enter") open();
+      else step(back ? -1 : 1);
+    });
+
+    repaint();
+    return wrap;
+  }
+
+  /** The editor is taking this viewer's DOM away — stop whatever it is
+   * drawing. Without this a reader scrolling a note of scans leaves a render
+   * per embed running to completion onto a detached canvas. */
+  destroy(dom: HTMLElement) {
+    pdfTeardowns.get(dom)?.();
+    pdfTeardowns.delete(dom);
+  }
+
+  // events inside the viewer belong to the viewer — the caret never moves
+  ignoreEvent() {
+    return true;
+  }
+}
+
 export class ImageWidget extends WidgetType {
   /** blob fetch failed — the next vault epoch rebuilds this image */
   failed = false;
@@ -1969,5 +2281,535 @@ export class DashFenceHintWidget extends WidgetType {
 
   ignoreEvent() {
     return false; // clicks land in the editor, on the line the hint sits under
+  }
+}
+
+/** A page's `<!-- columns -->` region, rendered side by side. The whole region
+ * — markers and all — is one block widget, so the columns are a real grid
+ * rather than lines pretending to be one, and a cursor entering the region
+ * reveals the plain markdown underneath it exactly as a table does.
+ *
+ * The contents render block by block. Most blocks go through `renderMdBlock`,
+ * the same small markdown → HTML pass the print and publish surfaces use, so a
+ * heading inside a column is the heading those surfaces would print — and then
+ * wikilinks and markdown links become the `.cm-wikilink` / `.cm-mdlink` marks
+ * the editor already routes clicks for, and image embeds load through
+ * `assetBlobUrl` like `ImageWidget` does, with the vault epoch rebuilding the
+ * ones that failed.
+ *
+ * Four blocks stay LIVE instead of riding the print pass, so a column shows
+ * what the same markdown shows outside one:
+ *
+ * - a task box is a real toggle. The box carries its line offset inside the
+ *   region, and a click resolves the widget's document position at click time
+ *   (`posAtDOM`, the same move `CheckboxWidget` makes) — identity stays
+ *   position-free, so typing above the region never rebuilds it;
+ * - a ```view fence draws through the app's own `ViewWidget`;
+ * - an audio / PDF / other file embed mounts the app's own player or chip.
+ *   Playback and the remembered PDF page live in module-level registries, so
+ *   the rebuild a toggle causes never interrupts either. Audio inside a column
+ *   is the seek-only inline form — an annotations fence does not bind to it;
+ * - a callout renders as a callout: kind glyph, quiet frame, accent honored.
+ *
+ * The dashboard fences (```chart, ```progress, ```heatmap and the rest) stay
+ * source boxes, and get the same quiet "draws on a dashboard note" line they
+ * get outside a column. That is not a shortfall in the cell — it is the app's
+ * rule that those fences draw where a dashboard renders them, and a column
+ * that drew one would be more capable than the paragraph beside it.
+ *
+ * The reveal is on any selection touching the region, not just a click, so a
+ * drag that starts above the columns and runs into them swaps the grid for its
+ * source mid-drag and the text moves under the pointer. That is the price of
+ * one rule for entering a region — the same one tables pay — and it is the
+ * right price: selecting text you can see is worth more than a tidy drag
+ * across a rendering you cannot edit. Clicks on the live controls are the one
+ * exception (`ignoreEvent`): they belong to the control, and the region stays
+ * rendered while a task is ticked or a player is scrubbed. */
+export class ColumnsWidget extends WidgetType {
+  /** a blob fetch failed — the next vault epoch rebuilds this region */
+  failed = false;
+
+  /** whether the region holds a mount the vault epoch must reach: a ```view
+      fence (its ROWS track the vault) or a non-image file embed (its failure
+      state does — a missing .wav heals on the epoch that brings the file).
+      The epoch then joins the identity, and `updateDOM` below turns the
+      resulting rebuild into an in-place repaint. The fence test mirrors what
+      the renderer mounts: `scanMdBlocks` opens a fence only on three
+      backticks at line start, the info string's first word is matched
+      case-folded, and a longer word (```viewport) is a different language.
+      One knowing looseness: a "```view" line or an embed QUOTED inside a
+      fence still matches — that errs toward a no-op repaint, never toward
+      stale rows or a permanently missing player. */
+  readonly liveData: boolean;
+
+  constructor(
+    /** the region's raw markdown, markers included: its identity */
+    readonly source: string,
+    readonly epoch: number,
+    /** is the note this region sits in a dashboard's own source? Decides
+     * whether a chart fence in here gets the "draws on a dashboard" line,
+     * exactly as it decides that for the fences outside the region. Part of
+     * the identity because a note's `type:` is edited while the buffer stays
+     * mounted, and the line has to appear and disappear with it. */
+    readonly dashboardNote = false
+  ) {
+    super();
+    this.liveData = /^```view(\s|$)/im.test(source) || hasFileEmbed(source);
+  }
+
+  eq(other: ColumnsWidget) {
+    if (other.source !== this.source) return false;
+    if (other.dashboardNote !== this.dashboardNote) return false;
+    if ((this.liveData || other.liveData) && other.epoch !== this.epoch) return false;
+    return !(this.failed || other.failed) || this.epoch === other.epoch;
+  }
+
+  toDOM(view: EditorView) {
+    const wrap = document.createElement("div");
+    wrap.className = "cm-columns";
+    const mounts: ColumnMount[] = [];
+    (wrap as unknown as Record<symbol, ColumnMount[]>)[COLUMN_MOUNTS] = mounts;
+    const [region] = parseColumnRegions(this.source);
+    const cells = region?.columns ?? [];
+    // all or nothing: the row goes side by side only when EVERY column clears
+    // the readable minimum, and otherwise becomes one stack. How many columns
+    // there are is the one thing CSS cannot count for itself, so it is handed
+    // over here and the stylesheet does the comparing.
+    wrap.style.setProperty("--columns", String(Math.max(cells.length, 1)));
+    for (const column of cells) {
+      const cell = document.createElement("div");
+      cell.className = "cm-column";
+      renderLiveColumn(cell, column, view, this, mounts);
+      relinkColumn(cell);
+      loadColumnImages(cell, wrap, view, this);
+      wrap.appendChild(cell);
+    }
+    return wrap;
+  }
+
+  /** CodeMirror's same-constructor reuse pass: an epoch-only change keeps the
+   * region's DOM and forwards the bump to the live mounts. A column-mounted
+   * view repaints in place — which is what carries an open cell editor, half-
+   * typed value and all, across an unrelated vault change (ViewWidget's own
+   * invariant, and it must not stop holding inside a column). A mount that
+   * failed its load is rebuilt ALONE, so playback in a healthy player one
+   * line up is never interrupted by a missing file below it. A source change,
+   * or a failed image (loaded by this widget, not a mount), still forces the
+   * full rebuild. */
+  updateDOM(dom: HTMLElement, view: EditorView, from: ColumnsWidget) {
+    // the image-failure check reads the DOM, not `from`: a blob rejection can
+    // land after an earlier repaint already handed this DOM to a newer widget,
+    // and a flag on that discarded instance would never be seen again
+    if (from.source !== this.source || from.dashboardNote !== this.dashboardNote) return false;
+    if (from.failed || this.failed) return false;
+    if (dom.hasAttribute(COLUMN_IMG_FAILED_ATTR)) return false;
+    const mounts = (dom as unknown as Record<symbol, ColumnMount[] | undefined>)[COLUMN_MOUNTS];
+    if (!mounts) return false;
+    for (const mount of mounts) {
+      if (mount.widget instanceof ViewWidget) {
+        const next = new ViewWidget(mount.widget.inner, this.epoch);
+        if (!next.updateDOM(mount.dom, view, mount.widget)) return false;
+        mount.widget = next;
+      } else if (embedMountFailed(mount.widget)) {
+        const next = rebuildEmbedMount(mount.widget, this.epoch);
+        if (!next) return false;
+        const nextDom = next.toDOM(view);
+        nextDom.setAttribute("data-live-mount", "");
+        mount.widget.destroy(mount.dom);
+        mount.dom.replaceWith(nextDom);
+        mount.dom = nextDom;
+        mount.widget = next;
+      }
+    }
+    return true;
+  }
+
+  destroy(dom: HTMLElement) {
+    const mounts = (dom as unknown as Record<symbol, ColumnMount[] | undefined>)[COLUMN_MOUNTS];
+    for (const m of mounts ?? []) m.widget.destroy(m.dom);
+  }
+
+  ignoreEvent(event: Event) {
+    // events inside a live control belong to that control; anywhere else they
+    // land in the editor and the click reveals the source, as it always has
+    const target = event.target;
+    return target instanceof Element && target.closest(LIVE_CONTROL_SELECTOR) !== null;
+  }
+}
+
+/** A live widget mounted inside a column cell, remembered so the region's own
+    destroy can forward to it — CodeMirror only ever sees the outer widget. */
+interface ColumnMount {
+  widget: WidgetType;
+  dom: HTMLElement;
+}
+
+const COLUMN_MOUNTS = Symbol("columnMounts");
+
+/** Set on the region's root when an image blob fetch failed — the full-
+    rebuild signal `updateDOM` honors. An attribute rather than a symbol so
+    the rejection callback needs no reference to whichever widget currently
+    owns the DOM. */
+const COLUMN_IMG_FAILED_ATTR = "data-column-img-failed";
+
+/** Whether the region text carries a non-image `![[...]]` embed — the mounts
+    whose failure state must ride the vault epoch (class comment). Quoted and
+    fenced embeds match too; the cost of that looseness is a no-op repaint. */
+function hasFileEmbed(source: string): boolean {
+  const re = /!\[\[([^[\]]+)\]\]/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(source))) {
+    if (!isImageEmbed(embedTarget(m[1]))) return true;
+  }
+  return false;
+}
+
+/** The file-embed mounts whose widgets record a failed load. */
+function embedMountFailed(widget: WidgetType): boolean {
+  return (
+    (widget instanceof AudioWidget || widget instanceof PdfWidget || widget instanceof FileWidget) &&
+    widget.failed
+  );
+}
+
+/** A fresh widget for a failed embed mount, at the new epoch — the same
+    constructor call `liveInline` made, re-read from the failed instance. */
+function rebuildEmbedMount(widget: WidgetType, epoch: number): WidgetType | null {
+  if (widget instanceof AudioWidget) return new AudioWidget(widget.name, epoch);
+  if (widget instanceof PdfWidget) return new PdfWidget(widget.name, epoch, widget.size);
+  if (widget instanceof FileWidget) return new FileWidget(widget.name, epoch, widget.locale);
+  return null;
+}
+
+/** What counts as a live control for {@link ColumnsWidget.ignoreEvent}. A
+    missing-file chip is deliberately absent: it has nothing to operate, so a
+    click on one falls through and reveals the source like any other text. */
+const LIVE_CONTROL_SELECTOR =
+  "input.cm-task-toggle, .embed-view, .cm-audio, .cm-embed-pdf, .cm-filechip";
+
+/** The inline options every static chunk of a cell renders with: the href
+    carries the link's raw inner text through, which is what the follower
+    parses an anchor and an alias off. */
+const CELL_PRINT_OPTS: PrintOptions = { linkHref: (inner) => inner };
+
+/** Render one column's blocks into its cell — the print pass for everything
+    static, the app's own widgets for the four live slots (class comment). */
+function renderLiveColumn(
+  cell: HTMLElement,
+  column: ColumnPart,
+  view: EditorView,
+  widget: ColumnsWidget,
+  mounts: ColumnMount[]
+) {
+  const blocks = scanMdBlocks(column.text, { splitListsOnMarkerFlip: true });
+  for (const block of blocks) {
+    if (block.kind === "fence") {
+      if (block.lang.toLowerCase() === "view") {
+        mountLive(cell, mounts, new ViewWidget(block.inner, widget.epoch), view);
+        continue;
+      }
+      cell.insertAdjacentHTML(
+        "beforeend",
+        renderMdBlock(block, () => BLANK_PIXEL, CELL_PRINT_OPTS)
+      );
+      // a dashboard fence keeps its source box and gets the same quiet
+      // "draws on a dashboard note" line it gets outside the region — unless
+      // this note IS a dashboard's source, where the line would be noise
+      if (!widget.dashboardNote) {
+        const hint = dashFenceHint(block.lang, block.tail);
+        if (hint !== null) cell.appendChild(new DashFenceHintWidget(hint).toDOM());
+      }
+      continue;
+    }
+    if (block.kind === "list") {
+      cell.appendChild(liveList(block, column, view, widget, mounts));
+      continue;
+    }
+    if (block.kind === "quote") {
+      const callouts = liveCallouts(block.inner);
+      if (callouts) {
+        cell.appendChild(callouts);
+        continue;
+      }
+    }
+    if (block.kind === "para") {
+      const p = document.createElement("p");
+      block.lines.forEach((line, i) => {
+        if (i) p.appendChild(document.createElement("br"));
+        liveInline(p, line, view, widget, mounts);
+      });
+      cell.appendChild(p);
+      continue;
+    }
+    if (block.kind === "heading") {
+      // an embed in a heading is live outside a region (the embed decorator
+      // reads every line), so it mounts here too
+      const h = document.createElement(`h${block.level}`);
+      liveInline(h, block.text, view, widget, mounts);
+      cell.appendChild(h);
+      continue;
+    }
+    // every asset starts on a blank pixel and is swapped in by
+    // loadColumnImages; the resolver is synchronous and the vault's bytes
+    // are not
+    cell.insertAdjacentHTML("beforeend", renderMdBlock(block, () => BLANK_PIXEL, CELL_PRINT_OPTS));
+  }
+}
+
+/** Instantiate one of the app's own widgets inside a cell. The mount marker
+    keeps the relink/image passes out of the widget's interior, and the mounts
+    list is what the region's destroy forwards through. */
+function mountLive(parent: HTMLElement, mounts: ColumnMount[], widget: WidgetType, view: EditorView) {
+  const dom = widget.toDOM(view);
+  dom.setAttribute("data-live-mount", "");
+  mounts.push({ widget, dom });
+  parent.appendChild(dom);
+}
+
+/** A list block with REAL task toggles: same classes the print pass emits
+    (`print-task` / `done`), a live `.cm-task-toggle` box where print draws a
+    mark. `data-line` is the item's line offset from the region's first line —
+    the write-back address {@link toggleColumnTask} resolves at click time.
+
+    The box is live only when TASK_RE agrees with the scanner about the source
+    line: the two grammars differ at the margin (the scanner's indent class is
+    wider), and a control whose click would silently no-op is worse than the
+    printed mark it replaces — so a line only one grammar calls a task keeps
+    the mark, exactly what it gets outside a region. */
+function liveList(
+  block: Extract<MdBlock, { kind: "list" }>,
+  column: ColumnPart,
+  view: EditorView,
+  widget: ColumnsWidget,
+  mounts: ColumnMount[]
+): HTMLElement {
+  const lines = column.text.split("\n");
+  const listEl = document.createElement(block.ordered ? "ol" : "ul");
+  for (const item of block.items) {
+    const li = document.createElement("li");
+    if (item.done !== null) {
+      li.className = `print-task${item.done ? " done" : ""}`;
+      if (TASK_RE.test(lines[item.line] ?? "")) {
+        const box = document.createElement("input");
+        box.type = "checkbox";
+        box.className = "cm-task-toggle";
+        box.checked = item.done;
+        box.setAttribute("aria-label", "Toggle task");
+        box.dataset.line = String(column.startLine + item.line);
+        // toggle in place without moving the cursor into the region — a caret
+        // in there would stand the whole widget down
+        box.addEventListener("mousedown", (e) => e.preventDefault());
+        box.addEventListener("click", (e) => {
+          e.preventDefault();
+          toggleColumnTask(view, box);
+        });
+        li.appendChild(box);
+      } else {
+        const mark = document.createElement("span");
+        mark.className = "print-box";
+        mark.textContent = item.done ? "✓" : "";
+        li.appendChild(mark);
+      }
+    }
+    liveInline(li, item.text, view, widget, mounts);
+    listEl.appendChild(li);
+  }
+  return listEl;
+}
+
+/** Flip the `[ ]` under a column task box. The box knows its line OFFSET
+    within the region; where the region itself sits is read from the DOM at
+    click time (`posAtDOM`), the same way `CheckboxWidget` finds its line — so
+    the widget's identity never carries a document position. The offset is
+    computed from the same source string the toggle edits (the widget rebuilds
+    on every region edit), so the guard below is belt only. */
+function toggleColumnTask(view: EditorView, box: HTMLInputElement) {
+  const offset = Number(box.dataset.line);
+  if (!Number.isFinite(offset)) return;
+  const regionFirst = view.state.doc.lineAt(view.posAtDOM(box));
+  const number = regionFirst.number + offset;
+  if (number > view.state.doc.lines) return;
+  const line = view.state.doc.line(number);
+  const m = TASK_RE.exec(line.text);
+  if (!m) return;
+  const at = line.from + m[1].length;
+  view.dispatch({
+    changes: { from: at, to: at + 1, insert: m[2] === " " ? "x" : " " },
+  });
+}
+
+/** One inline run: static text through the print pass, non-image embeds as
+    the app's own players. Code spans are split out first so `` `![[x.wav]]` ``
+    stays the literal it is everywhere else; image embeds stay in the static
+    text and ride the blank-pixel/`loadColumnImages` path. One knowing loss:
+    emphasis opened before an embed and closed after it renders as its literal
+    markers, because the run is cut at the mount. */
+function liveInline(
+  parent: HTMLElement,
+  text: string,
+  view: EditorView,
+  widget: ColumnsWidget,
+  mounts: ColumnMount[]
+) {
+  for (const seg of text.split(/(`[^`]*`)/)) {
+    if (seg.startsWith("`") && seg.endsWith("`") && seg.length > 1) {
+      parent.insertAdjacentHTML("beforeend", renderInlineMd(seg, () => BLANK_PIXEL, CELL_PRINT_OPTS));
+      continue;
+    }
+    const embedRe = /!\[\[([^[\]]+)\]\]/g;
+    let cursor = 0;
+    let m: RegExpExecArray | null;
+    while ((m = embedRe.exec(seg))) {
+      const target = embedTarget(m[1]);
+      if (isImageEmbed(target)) continue;
+      if (m.index > cursor) {
+        parent.insertAdjacentHTML(
+          "beforeend",
+          renderInlineMd(seg.slice(cursor, m.index), () => BLANK_PIXEL, CELL_PRINT_OPTS)
+        );
+      }
+      // the same dispatch the editor makes for a bare embed line — audio in
+      // its inline, seek-only form (no annotation fence binds in here)
+      const live = isAudioName(target)
+        ? new AudioWidget(target, widget.epoch)
+        : isPdfName(target)
+          ? new PdfWidget(target, widget.epoch, embedSize(m[1]))
+          : new FileWidget(target, widget.epoch, view.state.facet(calcConfig).locale);
+      mountLive(parent, mounts, live, view);
+      cursor = m.index + m[0].length;
+    }
+    if (cursor < seg.length) {
+      parent.insertAdjacentHTML(
+        "beforeend",
+        renderInlineMd(seg.slice(cursor), () => BLANK_PIXEL, CELL_PRINT_OPTS)
+      );
+    }
+  }
+}
+
+/** The callout grammar as it reaches a cell: a quote block's inner text with
+    one `> ` level stripped — the strip keeps at most one space, so leftover
+    indentation (`>   [!note]`) is still this line's own and the leading \s*
+    accepts it, matching what CALLOUT_HEADER_RE (Editor.tsx) and the hub
+    parser accept on the unstripped line. */
+const CELL_CALLOUT_RE = /^\s*\[!(note|warn|idea)(?:\|([^\]]*))?\]\s*(.*)$/i;
+
+/** A quote block whose first line is a callout header, rendered as callouts —
+    one box per header line, the way the editor and the hub board both read a
+    run of headers. Returns null for a plain quote, which then renders through
+    the print pass like any other static block. */
+function liveCallouts(inner: string): DocumentFragment | null {
+  const lines = inner.split("\n");
+  if (!CELL_CALLOUT_RE.test(lines[0])) return null;
+  const frag = document.createDocumentFragment();
+  let i = 0;
+  while (i < lines.length) {
+    const header = CELL_CALLOUT_RE.exec(lines[i]);
+    i++;
+    if (!header) continue;
+    const body: string[] = [];
+    while (i < lines.length && !CELL_CALLOUT_RE.test(lines[i])) body.push(lines[i++]);
+    frag.appendChild(calloutBox(header, body.join("\n")));
+  }
+  return frag;
+}
+
+/** One rendered callout: the editor's glyph (kind hue), the author's accent
+    on the left rule (mood), the body through the print pass. */
+function calloutBox(header: RegExpExecArray, body: string): HTMLElement {
+  const kind = header[1].toLowerCase();
+  const accent = parseCalloutStyle(header[2]).accent;
+  const box = document.createElement("div");
+  // the KIND lives on the glyph (hue + label), the box itself is one class —
+  // a kind-suffixed box class would be a name no stylesheet defines
+  box.className = "cm-colcallout";
+  if (accent) box.setAttribute("data-accent", accent);
+  const head = document.createElement("div");
+  head.className = "cm-colcallout-head";
+  const glyph = document.createElement("span");
+  glyph.className = `cm-callout-glyph cm-callout-glyph-${kind}`;
+  const mark = kind === "warn" ? "!" : kind === "idea" ? "◇" : "i";
+  glyph.textContent = `${mark} ${kind}`;
+  glyph.setAttribute("aria-label", `${kind} callout`);
+  head.appendChild(glyph);
+  if (header[3]) {
+    head.insertAdjacentHTML("beforeend", renderInlineMd(header[3], () => BLANK_PIXEL, CELL_PRINT_OPTS));
+  }
+  box.appendChild(head);
+  if (body.trim()) {
+    const bodyEl = document.createElement("div");
+    bodyEl.className = "cm-colcallout-body";
+    // the LINEAR pass, never renderPrintBody: markers inside a quote are
+    // quoted material, not a region — the same call print's own quote branch
+    // makes, so the two surfaces agree about what the callout says
+    bodyEl.innerHTML = renderLinearMd(body, () => BLANK_PIXEL, CELL_PRINT_OPTS);
+    box.appendChild(bodyEl);
+  }
+  return box;
+}
+
+/** A 1×1 transparent GIF: the `src` every column image is born with, so an
+    unresolved embed is blank rather than a broken-image glyph. */
+const BLANK_PIXEL =
+  "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+
+/** Turn the print renderer's anchors into the editor's own link marks, so a
+    link inside a column follows on the same click that follows one outside. */
+function relinkColumn(cell: HTMLElement) {
+  for (const anchor of Array.from(cell.querySelectorAll("a.print-link"))) {
+    if (anchor.closest("[data-live-mount]")) continue; // a mounted widget's interior is its own
+    swapLink(anchor, "cm-wikilink", "data-link", anchor.getAttribute("href") ?? "");
+  }
+  // whatever anchors are left came from `[text](url)`
+  for (const anchor of Array.from(cell.querySelectorAll("a[href]"))) {
+    if (anchor.closest("[data-live-mount]")) continue;
+    swapLink(anchor, "cm-mdlink", "data-href", anchor.getAttribute("href") ?? "");
+  }
+}
+
+/** Replace an anchor with a link mark, MOVING its children rather than copying
+    their text: a label is ordinary markdown, so `[**Master** notes](…)` keeps
+    its bold inside the mark the way the same label does outside a column. */
+function swapLink(anchor: Element, className: string, attr: string, value: string) {
+  const mark = document.createElement("span");
+  mark.className = className;
+  mark.setAttribute(attr, value);
+  while (anchor.firstChild) mark.appendChild(anchor.firstChild);
+  anchor.replaceWith(mark);
+}
+
+/** Swap each image's blank pixel for the vault's bytes. `alt` carries the
+    asset name the note asked for — the HTML parser has already unescaped it,
+    so it is the raw filename `assetBlobUrl` looks up. */
+function loadColumnImages(
+  cell: HTMLElement,
+  wrap: HTMLElement,
+  view: EditorView,
+  widget: ColumnsWidget
+) {
+  for (const img of Array.from(cell.querySelectorAll("img"))) {
+    if (img.closest("[data-live-mount]")) continue; // a mounted widget loads its own assets
+    const name = img.alt;
+    if (!name) continue;
+    assetBlobUrl(name).then(
+      (url) => {
+        img.src = url;
+        img.onload = () => view.requestMeasure();
+      },
+      () => {
+        // recorded on BOTH the widget and the DOM. The widget flag flips eq;
+        // the DOM flag is what updateDOM reads, because a rejection can land
+        // AFTER an in-place repaint has handed this DOM to a newer widget —
+        // a flag on this (then discarded) instance would strand the image as
+        // permanently missing, while the DOM stays with the region for life.
+        widget.failed = true;
+        wrap.setAttribute(COLUMN_IMG_FAILED_ATTR, "");
+        const missing = document.createElement("span");
+        missing.className = "print-missing";
+        missing.textContent = `missing image · ${name}`;
+        img.replaceWith(missing);
+        view.requestMeasure();
+      }
+    );
   }
 }

@@ -5,16 +5,16 @@ import { openDb } from "./nav";
 // props + Name + the ＋ column) the first column pins to the pane's left
 // edge under horizontal scroll and carries its freeze cue only while
 // scrolled; a narrow table never flips the gate. With grid lines on
-// (the default) the first column always shows the SOFT grid hairline — the
-// freeze cue is the STRONGER --border token layered over it when scrolled,
-// so the two states stay distinguishable by weight. Runs against the
+// (the default) the first column always shows the SOFT lattice line — the
+// freeze cue is the STRONGER --line-panel twin when scrolled, so the two
+// states stay distinguishable by weight. Runs against the
 // deterministic mock backend (fresh page = fresh vault).
 
-// the grid hairline (--grid-line) vs the freeze cue (--border) —
+// the grid hairline (--line-panel-soft) vs the freeze cue (--line-panel) —
 // asserted by computed value so a token swap that erases the distinction
 // fails here
-const GRID_EDGE = "rgba(255, 255, 255, 0.04) -1px 0px 0px 0px inset";
-const FREEZE_EDGE = "rgba(255, 255, 255, 0.09) -1px 0px 0px 0px inset";
+const GRID_EDGE = "rgb(30, 30, 31) -1px 0px 0px 0px inset";
+const FREEZE_EDGE = "rgb(38, 38, 38) -1px 0px 0px 0px inset";
 
 async function openDbFresh(page: Page, name: string) {
   await page.goto("/");

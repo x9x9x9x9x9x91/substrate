@@ -52,10 +52,10 @@ use unicase::UniCase;
 use walkdir::WalkDir;
 
 use super::blob::{self, BlobTransport, Enrollment, MasterKey, SpaceIntent, SpaceSecret};
-use zeroize::Zeroizing;
 use super::SyncReport;
 use crate::history::{History, SENTINEL};
 use crate::vault::SCOPE_MARKER;
+use zeroize::Zeroizing;
 
 /// The manifest at a space root: the in-repo statement of which space this
 /// checkout is. It travels with the history, so a directory found on disk
@@ -2767,15 +2767,17 @@ mod tests {
             member: "",
             root: space_root.as_path(),
         };
-        let error =
-            create_from_folder(&vault_root, &history, &plan, &secret(), &transport, || ())
-                .unwrap_err();
+        let error = create_from_folder(&vault_root, &history, &plan, &secret(), &transport, || ())
+            .unwrap_err();
         fs::remove_file(vault_root.join(".git/index.lock")).unwrap();
 
         assert!(error.contains("back in this vault"), "{error}");
         let vault_now = contents(&vault_root);
         assert_eq!(
-            vault_now.get("Trip/Plan.md").map(String::as_str).map(|body| body.contains("meet at six")),
+            vault_now
+                .get("Trip/Plan.md")
+                .map(String::as_str)
+                .map(|body| body.contains("meet at six")),
             Some(true),
             "{vault_now:?}"
         );
@@ -2786,10 +2788,7 @@ mod tests {
             !vault_root.join("Trip").join(ASSETS_DIR).exists(),
             "the undo planted the vault's assets inside the folder it put back"
         );
-        assert!(
-            vault_now.keys().all(|path| !path.starts_with("Trip/.assets")),
-            "{vault_now:?}"
-        );
+        assert!(vault_now.keys().all(|path| !path.starts_with("Trip/.assets")), "{vault_now:?}");
         // And the vault still has every original, untouched by any of it.
         for name in ["cover.png", "diagram.png", "private.png"] {
             assert!(vault_root.join(ASSETS_DIR).join(name).is_file(), "the vault lost {name}");
@@ -3399,10 +3398,8 @@ mod tests {
 
         // The space took the dated photo and nothing else — the guard that
         // still holds is the one on separators, not on dots.
-        let assets: Vec<String> = contents(&space_root)
-            .into_keys()
-            .filter(|path| path.starts_with(".assets/"))
-            .collect();
+        let assets: Vec<String> =
+            contents(&space_root).into_keys().filter(|path| path.starts_with(".assets/")).collect();
         assert_eq!(assets, vec![".assets/cover.png", ".assets/photo..2024.png"], "{assets:?}");
     }
 
@@ -3438,18 +3435,16 @@ mod tests {
             create_from_folder(&vault_root, &history, &plan, &secret, &transport, || ()).unwrap();
 
         assert_eq!(made.left_behind.len(), 2, "{:?}", made.left_behind);
-        let folder = made
-            .left_behind
-            .iter()
-            .find(|why| why.contains("gallery"))
-            .unwrap_or_else(|| panic!("nothing was said about the folder: {:?}", made.left_behind));
+        let folder =
+            made.left_behind.iter().find(|why| why.contains("gallery")).unwrap_or_else(|| {
+                panic!("nothing was said about the folder: {:?}", made.left_behind)
+            });
         assert!(folder.contains("folder rather than a file"), "{folder}");
         assert!(folder.contains("stayed in the vault"), "{folder}");
-        let note = made
-            .left_behind
-            .iter()
-            .find(|why| why.contains("Bytes.md"))
-            .unwrap_or_else(|| panic!("nothing was said about the note: {:?}", made.left_behind));
+        let note =
+            made.left_behind.iter().find(|why| why.contains("Bytes.md")).unwrap_or_else(|| {
+                panic!("nothing was said about the note: {:?}", made.left_behind)
+            });
         assert!(note.contains("stayed in the vault"), "{note}");
 
         // Neither of them stopped the share, and the note itself travelled.
@@ -3516,5 +3511,123 @@ mod tests {
 
     fn secret() -> SpaceSecret {
         SpaceSecret::generate()
+    }
+
+    /// A space is not a vault, and the no-sync folder list must not reach it.
+    ///
+    /// A space has no `.vault/` to read a list from, so the vault's DEFAULT
+    /// would apply to it — and a space's own `Files/` would then be treated as a
+    /// folder nobody syncs. Its deletions would be "protected" and dropped from
+    /// the index instead of applied, and the next `snapshot_as` would commit the
+    /// files straight back and push them to every member: a deletion that will
+    /// not stay deleted, in the one repository whose whole purpose is that
+    /// everything in it travels.
+    #[test]
+    fn a_space_never_reads_a_no_sync_folder_list() {
+        let scratch = TempDir::new().unwrap();
+        let server = serve(&scratch.path().join("server-storage"));
+        let (id, token) = mint_space(&server);
+        let transport = HttpBlobStore::for_space(&server.base_url(), &id, &token).unwrap();
+        let secret = SpaceSecret::generate();
+        let (vault_root, history) = a_vault(scratch.path());
+        // the folder the vault's own default names, inside the shared folder
+        write_note(&vault_root, "Trip/Files/receipt.pdf", "a receipt\n");
+        history.snapshot("with attachments").unwrap();
+
+        let space_root = scratch.path().join("spaces").join("Trip");
+        let plan = SpacePlan {
+            id: &id,
+            name: "Trip",
+            folder: "Trip",
+            member: "",
+            root: space_root.as_path(),
+        };
+        let made =
+            create_from_folder(&vault_root, &history, &plan, &secret, &transport, || ()).unwrap();
+
+        let joiner = HttpBlobStore::for_space(&server.base_url(), &id, &token).unwrap();
+        let joined_root = scratch.path().join("elsewhere").join("Trip");
+        join(&vault_root, &joined_root, &id, &secret, &joiner, || ()).unwrap();
+        assert!(joined_root.join("Files/receipt.pdf").is_file(), "the join did not land");
+
+        // The publisher deletes it and pushes.
+        fs::remove_file(space_root.join("Files/receipt.pdf")).unwrap();
+        git(&space_root, &["add", "-A"]);
+        git(&space_root, &["commit", "-m", "drop the receipt"]);
+        blob::push(&space_root, &made.key, &transport, || ()).unwrap();
+
+        let pulling = HttpBlobStore::for_space(&server.base_url(), &id, &token).unwrap();
+        blob::pull_space(&joined_root, &made.key, &pulling, || ()).unwrap();
+        assert!(
+            !joined_root.join("Files/receipt.pdf").exists(),
+            "a space's deletion is an ordinary deletion — no folder list applies to it"
+        );
+        // and it stays deleted: nothing was left in the working tree for a
+        // later snapshot to commit back
+        let index = String::from_utf8(git(&joined_root, &["status", "--porcelain"])).unwrap();
+        assert_eq!(index.trim(), "", "the space's tree is dirty after the deletion: {index}");
+    }
+
+    /// Finishing a conflicted merge in a SPACE must not write the vault's
+    /// ignore rules into it.
+    ///
+    /// The vault flavour excludes `.assets/`; the space flavour deliberately
+    /// does not, because a space exists to carry the images its notes embed. A
+    /// resolve that wrote the vault's flavour here would make every member's
+    /// next snapshot drop the assets out of the folder they are sharing — and
+    /// would add the vault's `Files/` default on top.
+    #[test]
+    fn a_space_resolve_keeps_the_spaces_own_ignore_rules() {
+        let scratch = TempDir::new().unwrap();
+        let server = serve(&scratch.path().join("server-storage"));
+        let (id, token) = mint_space(&server);
+        let transport = HttpBlobStore::for_space(&server.base_url(), &id, &token).unwrap();
+        let secret = SpaceSecret::generate();
+        let (vault_root, history) = a_vault(scratch.path());
+
+        let space_root = scratch.path().join("spaces").join("Trip");
+        let plan = SpacePlan {
+            id: &id,
+            name: "Trip",
+            folder: "Trip",
+            member: "",
+            root: space_root.as_path(),
+        };
+        let made =
+            create_from_folder(&vault_root, &history, &plan, &secret, &transport, || ()).unwrap();
+
+        let joiner = HttpBlobStore::for_space(&server.base_url(), &id, &token).unwrap();
+        let joined_root = scratch.path().join("elsewhere").join("Trip");
+        join(&vault_root, &joined_root, &id, &secret, &joiner, || ()).unwrap();
+
+        // Both sides edit the same note, so the joiner's pull parks a conflict.
+        write_note(&space_root, "Plan.md", "SPACE-PLAINTEXT-MARKER: meet at seven\n");
+        git(&space_root, &["add", "-A"]);
+        git(&space_root, &["commit", "-m", "seven"]);
+        blob::push(&space_root, &made.key, &transport, || ()).unwrap();
+
+        write_note(&joined_root, "Plan.md", "SPACE-PLAINTEXT-MARKER: meet at eight\n");
+        git(&joined_root, &["add", "-A"]);
+        git(&joined_root, &["commit", "-m", "eight"]);
+        let pulling = HttpBlobStore::for_space(&server.base_url(), &id, &token).unwrap();
+        let report = blob::pull_space(&joined_root, &made.key, &pulling, || ()).unwrap();
+        assert!(!report.conflicted.is_empty(), "precondition: the pull parked a conflict");
+
+        crate::gitsync::sync_resolve_set(&joined_root, "Plan.md", "mine").unwrap();
+        crate::gitsync::sync_resolve_finish_gated_in(
+            &joined_root,
+            crate::gitsync::ConflictRepo::Space { name: "Trip" },
+            || (),
+        )
+        .unwrap();
+
+        let rules = fs::read_to_string(joined_root.join(".git/info/exclude")).unwrap();
+        assert_eq!(
+            rules,
+            crate::history::SPACE_EXCLUDE_CONTENT,
+            "a space's resolve rewrote its ignore rules in the vault's flavour"
+        );
+        assert!(!rules.contains(".assets/"), "a space stopped carrying its own assets");
+        assert!(!rules.contains("/Files/"), "the vault's folder default reached a space");
     }
 }

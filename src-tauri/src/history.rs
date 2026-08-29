@@ -94,7 +94,9 @@ pub(crate) const SPACE_EXCLUDE_CONTENT: &str = ".trash/\n.DS_Store\n";
 /// marker when the sentinel is gone (`exclude_is_ours`), so it must stay a
 /// superset of both current constants (asserted in
 /// `exclude_vocabulary_covers_the_constant`).
-/// Anything else in `.git/info/exclude` means a human wrote it.
+/// Anything else in the file's FIXED part means a human wrote it — the vault's
+/// own no-sync folders are a list, not a vocabulary, and live below the marker
+/// this check stops reading at (`syncfolders::EXCLUDE_MARKER`).
 pub(crate) const EXCLUDE_LINES_EVER_OURS: &[&str] = &[
     ".assets/",
     ".trash/",
@@ -128,14 +130,38 @@ pub(crate) const EXCLUDE_LINES_EVER_OURS: &[&str] = &[
 /// Deliberately NOT part of the marker: the local `user.name`/`user.email`,
 /// which a user can set to anything (the hijack shape in
 /// `mixed_authorship_repo_stays_foreign` sets them to Substrate's own).
+///
+/// **The file has two parts, and only the first one is a vocabulary.** A
+/// vault's no-sync folders are appended below `syncfolders::EXCLUDE_MARKER`
+/// (`syncfolders::exclude_text`), and those lines are folder names — there is
+/// no fixed set they could be checked against. So the check reads the fixed
+/// part, above the marker, and stops there. The anchor stays where it was, and
+/// that is what keeps this honest in both directions: a foreign line in the
+/// fixed part still reads as a human's, and a file that OPENS with the marker
+/// has no `.trash/` above it and is therefore not ours either. What the split
+/// does concede is a line a human writes below our marker — which is the
+/// narrowest place to concede anything, since the marker is a sentence this app
+/// wrote about its own file.
 pub(crate) fn exclude_is_ours(root: &Path) -> bool {
     let Ok(text) = std::fs::read_to_string(root.join(".git/info/exclude")) else {
         return false;
     };
-    let lines: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    let fixed = text.split(crate::syncfolders::EXCLUDE_MARKER).next().unwrap_or_default();
+    let lines: Vec<&str> = fixed.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
     lines.contains(&".trash/")
         && lines.contains(&".DS_Store")
         && lines.iter().all(|l| EXCLUDE_LINES_EVER_OURS.contains(l))
+}
+
+/// The exclude file a VAULT gets: the fixed list plus today's no-sync folders.
+///
+/// Recomputed on every open rather than written once, for the same reason the
+/// space flavour is: the folder list changes — a toggle here, a pull carrying
+/// another device's toggle — and a stale exclude file is what turns a
+/// no-sync folder back into untracked churn that every snapshot sees and no
+/// snapshot can clear.
+pub(crate) fn vault_exclude_text(root: &Path) -> String {
+    crate::syncfolders::exclude_text(EXCLUDE_CONTENT, &crate::syncfolders::read_excluded(root))
 }
 
 /// Read-op error in foreign mode — the log belongs to the user, not to us.
@@ -170,6 +196,13 @@ pub struct History {
     /// false = foreign repo (pre-existing, no sentinel): nothing under its
     /// `.git` is ever read or written.
     enabled: bool,
+    /// This repository is a shared space rather than the user's vault, so the
+    /// no-sync folder list does not apply to it: a space has no `.vault/` to
+    /// read one from, and its members are sharing a folder precisely so that
+    /// everything in it travels. Carried on the handle rather than re-derived,
+    /// because a snapshot has no other way to tell the two apart and writing a
+    /// vault's exclusions into a space would stop it committing its own assets.
+    space: bool,
 }
 
 /// Resolve a numstat/name-status path that may carry rename notation
@@ -195,8 +228,9 @@ fn resolve_rename(p: &str) -> String {
 impl History {
     #[cfg(mobile)]
     pub fn new(root: PathBuf) -> Result<Self, String> {
-        let enabled = crate::gitsync::history_prepare(&root, EXCLUDE_CONTENT)?;
-        Ok(History { root, enabled })
+        let exclude = vault_exclude_text(&root);
+        let enabled = crate::gitsync::history_prepare(&root, &exclude)?;
+        Ok(History { root, enabled, space: false })
     }
 
     /// The mobile half of `new_space` below, which owns the reasoning. It
@@ -208,12 +242,13 @@ impl History {
     #[cfg(mobile)]
     pub fn new_space(root: PathBuf) -> Result<Self, String> {
         let enabled = crate::gitsync::history_prepare(&root, SPACE_EXCLUDE_CONTENT)?;
-        Ok(History { root, enabled })
+        Ok(History { root, enabled, space: true })
     }
 
     #[cfg(not(mobile))]
     pub fn new(root: PathBuf) -> Result<Self, String> {
-        Self::opened(root, EXCLUDE_CONTENT)
+        let exclude = vault_exclude_text(&root);
+        Self::opened(root, &exclude, false)
     }
 
     /// The same repository, made and re-opened as a SPACE's rather than a
@@ -226,14 +261,14 @@ impl History {
     /// back and stop the space committing its own images from that moment on.
     #[cfg(not(mobile))]
     pub fn new_space(root: PathBuf) -> Result<Self, String> {
-        Self::opened(root, SPACE_EXCLUDE_CONTENT)
+        Self::opened(root, SPACE_EXCLUDE_CONTENT, true)
     }
 
     #[cfg(not(mobile))]
-    fn opened(root: PathBuf, exclude: &str) -> Result<Self, String> {
+    fn opened(root: PathBuf, exclude: &str, space: bool) -> Result<Self, String> {
         let git_dir = root.join(".git");
         let owned = if !git_dir.exists() {
-            let h = History { root: root.clone(), enabled: true };
+            let h = History { root: root.clone(), enabled: true, space };
             h.git(&["init", "-q", "-b", "main"])?;
             true
         } else if !git_dir.is_dir() {
@@ -250,7 +285,7 @@ impl History {
             // disable version history forever)
             exclude_is_ours(&root) || Self::all_commits_substrate_authored(&root)?
         };
-        let h = History { root, enabled: owned };
+        let h = History { root, enabled: owned, space };
         if owned {
             fs::write(h.root.join(SENTINEL), "1\n").map_err(|e| e.to_string())?;
             h.git(&["config", "user.name", "Substrate"])?;
@@ -281,7 +316,7 @@ impl History {
     /// the repo is the user's, hands off.
     #[cfg(not(mobile))]
     fn all_commits_substrate_authored(root: &Path) -> Result<bool, String> {
-        let probe = History { root: root.to_path_buf(), enabled: false };
+        let probe = History { root: root.to_path_buf(), enabled: false, space: false };
         let commits = probe.git(&["rev-list", "--all"])?;
         if commits.trim().is_empty() {
             return Ok(true); // nothing committed yet — nothing to protect
@@ -488,22 +523,120 @@ impl History {
         if !self.enabled || self.defer_first_snapshot() {
             return Ok(false);
         }
-        crate::gitsync::history_snapshot(&self.root, label)
+        // the same order the desktop half runs in, and for the same reasons:
+        // the exclusions have to be current before libgit2 decides what an
+        // `add_all` may take, and the ghost index has to be written before the
+        // snapshot asks whether anything changed
+        self.refresh_exclusions()?;
+        let excluded =
+            if self.space { Vec::new() } else { crate::syncfolders::read_excluded(&self.root) };
+        if !self.space {
+            crate::syncfolders::refresh_index(&self.root, &excluded);
+        }
+        crate::gitsync::history_snapshot_excluding(&self.root, label, &excluded)
     }
 
     /// Stage everything and commit if anything changed. Returns whether a
     /// commit was created. Foreign repo: never stages, never commits.
+    ///
+    /// "Everything" stops at the vault's no-sync folders, and three steps in
+    /// this order are what stop it:
+    ///
+    /// * **the exclusions, refreshed first, and fatally.** `git add -A .` skips
+    ///   an ignored untracked file on its own, so the exclude file is the whole
+    ///   mechanism for anything not yet tracked — and refreshing it here rather
+    ///   than only at open is what keeps a config edited by hand, or landed by a
+    ///   pull, from being one snapshot behind. There is no second belt to fall
+    ///   back on: `git add` refuses a `:(exclude)` pathspec naming an ignored
+    ///   path outright, so a snapshot cannot fence the folders a second way.
+    ///   A failed write therefore fails the snapshot rather than quietly
+    ///   uploading the folder.
+    /// * **the staging, then the untracking — in that order.** An ignore rule
+    ///   has no effect on a path already in the index, so without
+    ///   `git rm --cached` a folder the user has just excluded would go on being
+    ///   committed forever. Removing AFTER staging rather than before is what
+    ///   makes the two independent: the removal is the last word on those paths
+    ///   whatever `add -A` decided about them, so the fencing does not rest on
+    ///   the exclude file having been written. Its staged deletions are what the
+    ///   status check below then sees, which is what makes the transition a
+    ///   commit — the one other devices read as "stop syncing this".
     #[cfg(not(mobile))]
     pub fn snapshot(&self, label: &str) -> Result<bool, String> {
         if !self.enabled || self.defer_first_snapshot() {
             return Ok(false);
         }
+        self.refresh_exclusions()?;
+        let excluded = self.excluded_folders();
+        // before the staging, not after it: a folder gaining files is a change
+        // only the ghost index can carry, so refreshing it downstream of the
+        // "did anything change?" question would leave the other devices' view
+        // of the folder frozen until something else in the vault moved
+        self.refresh_ghost_index(&excluded);
         self.git(&["add", "-A", "."])?;
+        self.untrack_excluded(&excluded)?;
         if self.git(&["status", "--porcelain"])?.trim().is_empty() {
             return Ok(false);
         }
         self.git(&["commit", "-q", "-m", label])?;
         Ok(true)
+    }
+
+    /// This vault's no-sync folders, or none at all for a space.
+    #[cfg(not(mobile))]
+    fn excluded_folders(&self) -> Vec<String> {
+        if self.space {
+            return Vec::new();
+        }
+        crate::syncfolders::read_excluded(&self.root)
+    }
+
+    /// Drop anything under an excluded folder out of the index.
+    ///
+    /// `--ignore-unmatch` is what makes this cost nothing on the ordinary
+    /// snapshot: a folder that was never tracked, or is not on this device at
+    /// all, matches nothing and stages nothing, so the transition commit happens
+    /// once and never repeats.
+    #[cfg(not(mobile))]
+    fn untrack_excluded(&self, excluded: &[String]) -> Result<(), String> {
+        for folder in excluded {
+            self.git_env(
+                &["rm", "-r", "--cached", "-q", "--ignore-unmatch", "--", folder],
+                &[("GIT_LITERAL_PATHSPECS", "1")],
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Refresh `.vault/files-index.json` so the devices without these folders
+    /// can still see what is in them. Writes nothing when nothing changed, so
+    /// an ordinary snapshot pays a directory walk and no commit; the caller's
+    /// `git add -A .` picks the file up when there was something to write.
+    #[cfg(not(mobile))]
+    fn refresh_ghost_index(&self, excluded: &[String]) {
+        if self.space {
+            return;
+        }
+        crate::syncfolders::refresh_index(&self.root, excluded);
+    }
+
+    /// Put `.git/info/exclude`'s marked section back in step with the config —
+    /// the app-open write repeated for a config that changed while the vault
+    /// stayed open (a folder toggled here, or a pull carrying one).
+    #[cfg(not(mobile))]
+    pub fn refresh_exclusions(&self) -> Result<(), String> {
+        if !self.enabled || self.space {
+            return Ok(());
+        }
+        crate::syncfolders::refresh_repo_exclusions(&self.root, EXCLUDE_CONTENT)
+    }
+
+    /// Mobile writes the same file through libgit2's side of `history_prepare`.
+    #[cfg(mobile)]
+    pub fn refresh_exclusions(&self) -> Result<(), String> {
+        if !self.enabled || self.space {
+            return Ok(());
+        }
+        crate::syncfolders::refresh_repo_exclusions(&self.root, EXCLUDE_CONTENT)
     }
 
     /// [`snapshot`](Self::snapshot) with the author line carrying a name the
@@ -569,6 +702,22 @@ impl History {
             return Ok(false);
         }
         let literal = [("GIT_LITERAL_PATHSPECS", "1")];
+        // Excluded paths leave the batch rather than failing it. `git add` with
+        // an explicit pathspec is FATAL on an ignored path — it will not skip
+        // one the way `add -A .` does — so a single note under a no-sync folder
+        // in a reflex run or a bulk sweep would take every other path in the
+        // same call down with it, and both callers swallow the error. `-f` would
+        // silence it by force-adding the very content the exclusion is about,
+        // which is the one answer that is wrong. Dropping them keeps the rest of
+        // the batch committing and leaves the excluded ones where they belong:
+        // on disk, out of history.
+        let excluded = self.excluded_folders();
+        let rels: Vec<String> = rels
+            .iter()
+            .filter(|rel| !crate::syncfolders::is_excluded(rel, &excluded))
+            .cloned()
+            .collect();
+        let rels = &rels;
         let on_disk = |rel: &String| self.root.join(rel).exists();
         // a path that is gone can still be worth staging — a trashed note, a
         // template the rename moved away — but only if git already tracks it
@@ -629,6 +778,20 @@ impl History {
         if !self.enabled {
             return Ok(false);
         }
+        // Same fatal-pathspec hazard `snapshot_paths` fences, and the same
+        // answer: a write the door made under a no-sync folder is a file on
+        // disk that history was never going to carry, so it leaves the commit
+        // rather than failing it.
+        let excluded = self.excluded_folders();
+        let rels: Vec<&str> = rels
+            .iter()
+            .copied()
+            .filter(|rel| !crate::syncfolders::is_excluded(rel, &excluded))
+            .collect();
+        if rels.is_empty() {
+            return Ok(false);
+        }
+        let rels = &rels;
         let mut add = vec!["add", "--"];
         add.extend(rels);
         let literal = [("GIT_LITERAL_PATHSPECS", "1")];
@@ -1913,15 +2076,228 @@ mod tests {
         fs::write(&exclude, EXCLUDE_CONTENT).unwrap();
         History::new_space(dir.clone()).unwrap();
         assert_eq!(fs::read_to_string(&exclude).unwrap(), SPACE_EXCLUDE_CONTENT);
-        // While a vault opened as a vault is unchanged by any of this.
+        // While a vault opened as a vault gets the vault flavour, plus the
+        // marked section naming the folders it does not sync.
         let vault_dir = user_repo("vaultopen");
         History::new(vault_dir.clone()).unwrap();
         assert_eq!(
             fs::read_to_string(vault_dir.join(".git/info/exclude")).unwrap(),
-            EXCLUDE_CONTENT
+            crate::syncfolders::exclude_text(
+                EXCLUDE_CONTENT,
+                &crate::syncfolders::default_excluded()
+            )
         );
         let _ = fs::remove_dir_all(&dir);
         let _ = fs::remove_dir_all(&vault_dir);
+    }
+
+    /// The ownership check reads the file in two parts, and the split has to
+    /// hold in both directions: our own folder list below the marker must not
+    /// disown the vault, and a human's line above it must still be a human's.
+    #[test]
+    fn the_marked_section_is_ours_and_everything_above_it_is_still_judged() {
+        let dir = user_repo("markedexclude");
+        user_git(&dir, &["init", "-q", "-b", "main"]);
+        let exclude = dir.join(".git/info/exclude");
+        let folders = vec!["Files".to_string(), "Music/Stems".to_string()];
+
+        fs::write(&exclude, crate::syncfolders::exclude_text(EXCLUDE_CONTENT, &folders)).unwrap();
+        assert!(exclude_is_ours(&dir), "our own no-sync folders are not a foreign line");
+
+        // a foreign line in the FIXED part still disowns the repo, marker or no
+        fs::write(
+            &exclude,
+            crate::syncfolders::exclude_text(
+                &format!("{EXCLUDE_CONTENT}node_modules/\n"),
+                &folders,
+            ),
+        )
+        .unwrap();
+        assert!(!exclude_is_ours(&dir), "a human's line above the marker is still a human's");
+
+        // and a file that OPENS with the marker has no anchor above it, so
+        // pasting the marker at the top cannot launder a stranger's repo
+        fs::write(&exclude, format!("{}\n/Files/\n", crate::syncfolders::EXCLUDE_MARKER)).unwrap();
+        assert!(!exclude_is_ours(&dir), "the marker alone is not an ownership claim");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// The default is for a folder nobody has decided about — never for one the
+    /// vault is already syncing.
+    ///
+    /// A vault that has been carrying `Files/` since before this feature existed
+    /// has no config file, so the default would name the folder, the first
+    /// snapshot after the update would commit its deletion, and every other
+    /// device would drop real attachments on the next pull. Nobody asked for
+    /// that, and nothing on screen would have said it was about to happen.
+    #[test]
+    fn a_default_never_unsyncs_a_folder_the_vault_already_carries() {
+        let dir = user_repo("defaulttracked");
+        let h = History::new(dir.clone()).unwrap();
+        fs::create_dir_all(dir.join("Files")).unwrap();
+        fs::write(dir.join("note.md"), "kept\n").unwrap();
+        fs::write(dir.join("Files/receipt.pdf"), "a receipt\n").unwrap();
+        // No config file anywhere, and the ignore rules of a build that had
+        // never heard of no-sync folders: this is the pre-update vault, and its
+        // attachments folder is committed like everything else.
+        assert!(!dir.join(crate::syncfolders::CONFIG_REL_PATH).exists());
+        fs::write(dir.join(".git/info/exclude"), EXCLUDE_CONTENT).unwrap();
+        h.git(&["add", "-A", "."]).unwrap();
+        h.git(&["commit", "-q", "-m", "before the update"]).unwrap();
+        assert!(h.git(&["ls-files"]).unwrap().contains("Files/receipt.pdf"));
+
+        // The update arrives. The default names `Files`, and it must not apply.
+        assert!(
+            crate::syncfolders::read_excluded(&dir).is_empty(),
+            "the default claimed a folder this vault was already syncing"
+        );
+        h.refresh_exclusions().unwrap();
+        fs::write(dir.join("Files/second.pdf"), "another\n").unwrap();
+        assert!(h.snapshot("after the update").unwrap());
+        let tracked = h.git(&["ls-files"]).unwrap();
+        assert!(tracked.contains("Files/receipt.pdf"), "the update unsynced a folder silently");
+        assert!(tracked.contains("Files/second.pdf"), "and stopped carrying new ones");
+
+        // A fresh vault, which never tracked the folder, still gets the default.
+        let fresh = user_repo("defaultfresh");
+        let fresh_history = History::new(fresh.clone()).unwrap();
+        fs::write(fresh.join("note.md"), "hello\n").unwrap();
+        fresh_history.snapshot("first").unwrap();
+        assert_eq!(crate::syncfolders::read_excluded(&fresh), vec!["Files".to_string()]);
+    }
+
+    /// One excluded path must not take a whole batch down with it.
+    ///
+    /// `git add` with an explicit pathspec is FATAL on an ignored path rather
+    /// than skipping it, and both callers of this — the reflex runner and the
+    /// schema sweep — swallow the error, so the whole batch would silently stop
+    /// committing because one note lives under a no-sync folder.
+    #[test]
+    fn a_batch_still_commits_the_rest_when_one_path_is_excluded() {
+        let dir = user_repo("batchexclude");
+        let h = History::new(dir.clone()).unwrap();
+        fs::create_dir_all(dir.join("Music")).unwrap();
+        fs::write(dir.join("note.md"), "one\n").unwrap();
+        crate::syncfolders::write_excluded(&dir, &["Music".to_string()]).unwrap();
+        h.refresh_exclusions().unwrap();
+        h.snapshot("first").unwrap();
+
+        fs::write(dir.join("note.md"), "edited\n").unwrap();
+        fs::write(dir.join("Music/loop.wav"), "audio\n").unwrap();
+        let staged = h
+            .snapshot_paths(&["note.md".to_string(), "Music/loop.wav".to_string()], "a batch")
+            .unwrap();
+        assert!(staged, "the excluded path failed the whole batch");
+        let tracked = h.git(&["ls-files"]).unwrap();
+        assert!(tracked.contains("note.md"));
+        assert!(!tracked.contains("Music/loop.wav"), "and the excluded one stayed out");
+        assert_eq!(h.git(&["show", "-s", "--format=%s", "HEAD"]).unwrap().trim(), "a batch");
+
+        // a batch that is ONLY excluded paths commits nothing, and says so
+        fs::write(dir.join("Music/second.wav"), "more\n").unwrap();
+        assert!(!h.snapshot_paths(&["Music/second.wav".to_string()], "nothing to do").unwrap());
+    }
+
+    /// The ignore file is the whole of the exclusion for anything not yet
+    /// tracked, and there is no second belt — `git add` refuses a `:(exclude)`
+    /// pathspec naming an ignored path — so a snapshot that could not write it
+    /// has to fail rather than quietly stage the folder.
+    #[test]
+    #[cfg(unix)]
+    fn a_snapshot_refuses_to_run_when_the_ignore_rules_cannot_be_written() {
+        let dir = user_repo("excludefail");
+        let h = History::new(dir.clone()).unwrap();
+        fs::write(dir.join("note.md"), "one\n").unwrap();
+        crate::syncfolders::write_excluded(&dir, &["Music".to_string()]).unwrap();
+        h.snapshot("first").unwrap();
+
+        // `.git/info` cannot be a directory, so the rules cannot be written
+        fs::remove_dir_all(dir.join(".git/info")).unwrap();
+        fs::write(dir.join(".git/info"), "not a directory\n").unwrap();
+        fs::write(dir.join("note.md"), "edited\n").unwrap();
+        let error = h.snapshot("second").unwrap_err();
+        assert!(error.contains("ignore rules"), "{error}");
+    }
+
+    /// Excluding a folder has to do two things in the same snapshot: stop
+    /// committing what is in it, and let go of what it was already committing.
+    #[test]
+    fn a_snapshot_drops_an_excluded_folder_and_untracks_what_it_had() {
+        let dir = user_repo("snapexclude");
+        let h = History::new(dir.clone()).unwrap();
+        fs::create_dir_all(dir.join("Music/Stems")).unwrap();
+        fs::write(dir.join("note.md"), "kept\n").unwrap();
+        fs::write(dir.join("Music/Stems/loop.wav"), "audio\n").unwrap();
+        // an explicit empty list: nothing is excluded yet, so both are committed
+        crate::syncfolders::write_excluded(&dir, &[]).unwrap();
+        assert!(h.snapshot("first").unwrap());
+        let tracked = h.git(&["ls-files"]).unwrap();
+        assert!(tracked.contains("Music/Stems/loop.wav"), "precondition: the folder synced");
+
+        // now exclude it, the way the toggle does
+        crate::syncfolders::write_excluded(&dir, &["Music/Stems".to_string()]).unwrap();
+        h.refresh_exclusions().unwrap();
+        assert!(h.snapshot("stop syncing Music/Stems").unwrap(), "the transition is a commit");
+        let tracked = h.git(&["ls-files"]).unwrap();
+        assert!(!tracked.contains("Music/Stems/loop.wav"), "and the folder is untracked");
+        assert!(tracked.contains("note.md"), "while the rest of the vault is untouched");
+        // the bytes are still there — exclusion is not deletion
+        assert_eq!(fs::read_to_string(dir.join("Music/Stems/loop.wav")).unwrap(), "audio\n");
+
+        // a new file in the folder is never committed and never left behind as
+        // permanent dirt — the only thing that moves is the ghost index, which
+        // is how the other devices learn the folder gained something
+        fs::write(dir.join("Music/Stems/second.wav"), "more\n").unwrap();
+        assert!(h.snapshot("more stems").unwrap(), "the listing is worth a commit");
+        assert!(h.git(&["status", "--porcelain"]).unwrap().trim().is_empty(), "and no dirt");
+        assert!(!h.git(&["ls-files"]).unwrap().contains("second.wav"), "but not the file");
+        assert_eq!(crate::syncfolders::read_index(&dir).folders["Music/Stems"].entries.len(), 2);
+        // …and with nothing new, nothing happens at all
+        assert!(!h.snapshot("idle").unwrap(), "an unchanged excluded folder makes no churn");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// The ghost index is how the OTHER devices see a folder they do not have,
+    /// so it has to ride the same snapshot the exclusion does.
+    #[test]
+    fn a_snapshot_records_what_the_excluded_folder_holds() {
+        let dir = user_repo("snapghost");
+        let h = History::new(dir.clone()).unwrap();
+        fs::create_dir_all(dir.join("Files/Guides")).unwrap();
+        fs::write(dir.join("Files/Guides/x.pdf"), "pdf").unwrap();
+        fs::write(dir.join("note.md"), "kept\n").unwrap();
+        assert!(h.snapshot("first").unwrap());
+
+        let listed = h.git(&["ls-files"]).unwrap();
+        assert!(listed.contains(crate::syncfolders::INDEX_REL_PATH), "the ghost index is tracked");
+        assert!(!listed.contains("Files/Guides/x.pdf"), "the file itself is not");
+        let index = crate::syncfolders::read_index(&dir);
+        assert_eq!(index.folders["Files"].entries[0].path, "Guides/x.pdf");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A space is not a vault: it has no folder list, and writing a vault's
+    /// exclusions into one would stop it committing the assets its notes embed.
+    #[test]
+    fn a_space_never_reads_the_vaults_no_sync_folders() {
+        let dir = user_repo("spacenofolders");
+        let space = History::new_space(dir.clone()).unwrap();
+        // even with a config sitting in it, which a shared folder could carry
+        fs::create_dir_all(dir.join(".vault")).unwrap();
+        crate::syncfolders::write_excluded(&dir, &["Files".to_string()]).unwrap();
+        fs::create_dir_all(dir.join("Files")).unwrap();
+        fs::write(dir.join("Files/cover.png"), "png").unwrap();
+        assert!(space.snapshot("shared").unwrap());
+        assert!(
+            space.git(&["ls-files"]).unwrap().contains("Files/cover.png"),
+            "a space commits everything in it"
+        );
+        assert_eq!(
+            fs::read_to_string(dir.join(".git/info/exclude")).unwrap(),
+            SPACE_EXCLUDE_CONTENT,
+            "and its exclusions stay a space's"
+        );
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

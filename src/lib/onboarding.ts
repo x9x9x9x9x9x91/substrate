@@ -15,6 +15,11 @@ export interface OnboardingStatus {
   /** VAULT_DIR is set and outranks the stored choice — switching won't stick
       until it's unset, so the UI says so instead of looking broken */
   env_pinned: boolean;
+  /** the vault index is up and every vault command can answer. `false` means
+      the backend answered this status before its scan finished — it will send
+      `vault:ready` when the index lands. Absent from an older backend that
+      always scanned before answering anything, which is the same as `true`. */
+  vault_ready?: boolean;
 }
 
 /** A candidate folder as the backend sees it. */
@@ -32,16 +37,29 @@ export interface VaultCandidate {
   has_marker: boolean;
 }
 
-/** What the app shows at boot. `unknown` covers the pre-status frame so the
-    app never flashes onboarding at a returning user before status lands. */
+/** What the app shows at boot. `unknown` covers every frame before one of
+    the two real screens can be shown honestly — the pre-status wait, and the
+    wait for the vault index behind it — so the app never flashes onboarding
+    at a returning user, and never shows an empty notes list as if it were the
+    vault. The boot frame is painted there; it is not a blank window. */
 export type BootScreen = "unknown" | "app" | "onboarding";
 
-export function bootScreen(status: OnboardingStatus | null, failed = false): BootScreen {
+/** `ready` is the vault index being up. It defaults to true because a
+    backend that scans before it answers anything has nothing left to wait
+    for — only a backend that defers its scan can pass `false`, and it lifts
+    that with a `vault:ready` event. Onboarding does not wait on it: a machine
+    with no vault has no index to build. */
+export function bootScreen(
+  status: OnboardingStatus | null,
+  failed = false,
+  ready = true
+): BootScreen {
   // a status call that errored must not strand the user on a blank screen:
   // the app itself surfaces backend failures already (boot-error bar)
   if (failed) return "app";
   if (!status) return "unknown";
-  return status.first_run ? "onboarding" : "app";
+  if (status.first_run) return "onboarding";
+  return ready ? "app" : "unknown";
 }
 
 /** The three things a chosen folder can be, and the verb each one earns. */

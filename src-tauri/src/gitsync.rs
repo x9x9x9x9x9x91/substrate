@@ -19,14 +19,13 @@ use crate::history::{exclude_is_ours, DiffLine, EXCLUDE_CONTENT, FOREIGN_MSG, SE
 use git2::build::CheckoutBuilder;
 use git2::{
     Cred, FetchOptions, Index, IndexAddOption, IndexEntry, Oid, PushOptions, RemoteCallbacks,
-    Repository,
-    RepositoryInitOptions, Signature, StatusOptions,
+    Repository, RepositoryInitOptions, Signature, StatusOptions,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 pub(crate) const REMOTE: &str = "substrate";
@@ -328,9 +327,7 @@ impl CredentialStore for FileCredentialStore<'_> {
                 return match fs::remove_file(self.path) {
                     Ok(()) => Ok(()),
                     Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-                    Err(error) => {
-                        Err(format!("could not delete vault sync credentials: {error}"))
-                    }
+                    Err(error) => Err(format!("could not delete vault sync credentials: {error}")),
                 }
             }
         };
@@ -513,13 +510,39 @@ pub(crate) fn history_prepare(root: &Path, exclude: &str) -> Result<bool, String
 // dead on desktop by design — see the `#![allow(dead_code)]` note in githist.rs
 #[allow(dead_code)]
 pub(crate) fn history_snapshot(root: &Path, label: &str) -> Result<bool, String> {
+    history_snapshot_excluding(root, label, &[])
+}
+
+/// [`history_snapshot`] with the vault's no-sync folders kept out of the tree —
+/// mobile's half of the desktop fencing in `History::snapshot`.
+///
+/// `add_all` already skips IGNORED untracked files, and the folders are in
+/// `.git/info/exclude` by the time this runs, so new files never arrive. What
+/// libgit2 will not do on its own is let go of a path it is already tracking,
+/// which is the whole of the exclusion transition — hence the explicit removal,
+/// after staging rather than before, so `update_all` cannot put the entries
+/// back in the same breath.
+// dead on desktop by design — see the `#![allow(dead_code)]` note in githist.rs
+#[allow(dead_code)]
+pub(crate) fn history_snapshot_excluding(
+    root: &Path,
+    label: &str,
+    excluded: &[String],
+) -> Result<bool, String> {
     let repo = owned_repo(root)?;
     let mut index = repo.index().map_err(|e| format!("could not open vault history index: {e}"))?;
     index
         .add_all(["*"], IndexAddOption::DEFAULT, None)
         .and_then(|_| index.update_all(["*"], None))
-        .and_then(|_| index.write())
         .map_err(|e| format!("could not stage vault snapshot: {e}"))?;
+    for folder in excluded {
+        index
+            .remove_dir(Path::new(folder), 0)
+            .or_else(|_| index.remove_path(Path::new(folder)))
+            .or_else(|_| Ok::<(), git2::Error>(()))
+            .map_err(|e| format!("could not stage vault snapshot: {e}"))?;
+    }
+    index.write().map_err(|e| format!("could not stage vault snapshot: {e}"))?;
     let tree_oid =
         index.write_tree().map_err(|e| format!("could not write vault snapshot tree: {e}"))?;
     let parent = repo.head().ok().and_then(|head| head.peel_to_commit().ok());
@@ -1468,11 +1491,9 @@ pub fn sync_push_gated<G>(
         Ok((_, None)) | Err(_) => true,
     };
     if left_this_history || (history_rewritten(&repo) && !rewritten_at_entry) {
-        return Err(
-            "vault sync push stopped: this vault's history changed while the push was in \
+        return Err("vault sync push stopped: this vault's history changed while the push was in \
              flight; the remote has what was sent — push again to send the rest"
-                .into(),
-        );
+            .into());
     }
     // The remote now holds this vault's history, rewritten or not — the
     // rewrite marker's job is done.
@@ -1785,7 +1806,25 @@ fn pull_local_phase(
     remote_oid: Oid,
     kind: RepoKind,
 ) -> Result<SyncReport, String> {
-    let report = pull_local_phase_inner(repo, fetched_branch, remote_oid)?;
+    let report = pull_local_phase_inner(repo, fetched_branch, remote_oid, kind)?;
+    // The pull may have brought another device's no-sync folder list, and the
+    // exclusions the app writes are what keep those folders from reading as
+    // untracked churn in every check the rest of the app makes. A space has no
+    // such list — and a vault's exclusions written into one would stop it
+    // committing its own assets — so only the vault kind refreshes.
+    if kind == RepoKind::Vault {
+        if let Some(workdir) = repo.workdir() {
+            // Logged, not fatal: the pull has already landed on disk, and
+            // failing it here would leave the caller believing a merge that
+            // happened did not. The next snapshot refreshes the same file and
+            // does fail loudly if it still cannot be written.
+            if let Err(error) =
+                crate::syncfolders::refresh_repo_exclusions(workdir, EXCLUDE_CONTENT)
+            {
+                applog!("vault sync could not refresh the no-sync ignore rules: {error}");
+            }
+        }
+    }
     // Only on a landing: a parked conflicted merge has checked nothing out, so
     // there is no settled tree to reason about yet — the backfill runs on the
     // pull that finally lands.
@@ -1825,10 +1864,277 @@ fn apply_backfill(repo: &Repository, mut report: SyncReport, kind: RepoKind) -> 
     report
 }
 
+/// The no-sync folders a pull has to honour: the ones this vault already knows
+/// about, and the ones the history arriving in this pull declares.
+///
+/// The union, and not just the local list, because of the order the two travel
+/// in. Device A excludes a folder and snapshots; that snapshot carries BOTH the
+/// new config and the deletions the exclusion caused. Device B fetches them
+/// together, so at the moment its checkout would delete its own copies its local
+/// config still says the folder syncs. Reading the incoming config is what lets
+/// B act on a decision it has not yet adopted.
+/// A SPACE has no such list and must never be given one. Its members share a
+/// folder precisely so that everything in it travels, and it has no `.vault/`
+/// to read a config from — so the default would apply, a space's own `Files/`
+/// would read as excluded, its deletions would be "protected" and untracked,
+/// and the next `snapshot_as` would commit them straight back and push the
+/// folder to every member. The kind is the caller's answer, never the working
+/// tree's, for the same reason `backfill_missing_app_files_with` takes one.
+///
+/// `trees` is every tree whose opinion this checkout has to honour, which is
+/// more than the one being checked out. A conflicted pull can end with the
+/// user choosing THEIR OWN config over the remote's, and the resolved tree then
+/// says the folder still syncs while the same pull carries the deletions the
+/// other device's exclusion caused — so the remote head goes in alongside the
+/// target, and the union is what protects the files.
+fn excluded_for_pull(repo: &Repository, kind: RepoKind, trees: &[&git2::Tree<'_>]) -> Vec<String> {
+    if kind == RepoKind::Space {
+        return Vec::new();
+    }
+    let Some(workdir) = repo.workdir() else {
+        return Vec::new();
+    };
+    let mut folders = crate::syncfolders::read_excluded(workdir);
+    for tree in trees {
+        if let Ok(entry) = tree.get_path(Path::new(crate::syncfolders::CONFIG_REL_PATH)) {
+            if let Ok(blob) = repo.find_blob(entry.id()) {
+                folders.extend(crate::syncfolders::parse_excluded(&String::from_utf8_lossy(
+                    blob.content(),
+                )));
+            }
+        }
+    }
+    folders.sort();
+    folders.dedup();
+    folders
+}
+
+/// Everything one pull's checkout must be kept away from.
+///
+/// Two different hazards, in opposite directions, and they are fenced the same
+/// way but finished differently — see [`untrack_protected`] and
+/// [`keep_local_copies`].
+#[derive(Debug, Default)]
+pub(crate) struct PullFence {
+    /// Tracked files the incoming history DELETES under a folder that no longer
+    /// syncs. The bytes stay; the index lets go of them.
+    deleted: Vec<PathBuf>,
+    /// Files the incoming history ADDS at a path this device already has its own
+    /// copy of, under a folder that is coming back INTO sync. The local bytes
+    /// win and become an ordinary unsnapshotted change.
+    kept: Vec<PathBuf>,
+}
+
+impl PullFence {
+    fn is_empty(&self) -> bool {
+        self.deleted.is_empty() && self.kept.is_empty()
+    }
+
+    /// Every path the checkout may not touch, in one list.
+    fn all(&self) -> Vec<PathBuf> {
+        self.deleted.iter().chain(&self.kept).cloned().collect()
+    }
+}
+
+/// Working-tree files this pull would delete that it must not: the ones under a
+/// folder nobody syncs any more.
+///
+/// This is the dangerous half of the whole feature. Excluding a folder on one
+/// device is recorded as a deletion, and a deletion is what every other device
+/// pulls — so the plain checkout would erase real files on machines whose owner
+/// only ever said "stop syncing this", never "delete this". The answer is to
+/// stop tracking them locally and leave the bytes alone, which is what the
+/// caller does with this list.
+/// The other direction is the one that can actually lose bytes. Letting a
+/// folder back IN arrives here as ADDITIONS, and the puller may already hold
+/// its own copies at those paths — never synced, still ignored at the moment
+/// the checkout runs, and therefore invisible to the clean-tree check that
+/// guards everything else. A plain checkout writes the incoming version over
+/// them without a word. So an addition landing on a file this device already
+/// has is fenced too: the local bytes stay, [`keep_local_copies`] stages them,
+/// and the difference surfaces as an ordinary change the user can see and the
+/// next snapshot carries. Nothing is silently replaced, which is what the
+/// settings panel promises.
+fn fence_for_pull(
+    repo: &Repository,
+    kind: RepoKind,
+    local_oid: Oid,
+    target: &git2::Tree<'_>,
+    also: &[&git2::Tree<'_>],
+) -> Result<PullFence, String> {
+    let mut fence = PullFence::default();
+    let Some(workdir) = repo.workdir() else {
+        return Ok(fence);
+    };
+    let mut trees: Vec<&git2::Tree<'_>> = vec![target];
+    trees.extend(also);
+    let folders = excluded_for_pull(repo, kind, &trees);
+    // What is excluded HERE, before this pull's config is adopted: the only
+    // list that can tell an addition landing on an ignored local copy from an
+    // ordinary one.
+    let local_folders = if kind == RepoKind::Space {
+        Vec::new()
+    } else {
+        crate::syncfolders::read_excluded(workdir)
+    };
+    if folders.is_empty() && local_folders.is_empty() {
+        return Ok(fence);
+    }
+    let local_tree = repo
+        .find_commit(local_oid)
+        .and_then(|commit| commit.tree())
+        .map_err(|e| format!("vault sync could not read the local tree: {e}"))?;
+    let diff = repo
+        .diff_tree_to_tree(Some(&local_tree), Some(target), None)
+        .map_err(|e| format!("vault sync could not compare the incoming history: {e}"))?;
+    for delta in diff.deltas() {
+        let (file, list, folders) = match delta.status() {
+            git2::Delta::Deleted => (delta.old_file(), &mut fence.deleted, &folders),
+            git2::Delta::Added => (delta.new_file(), &mut fence.kept, &local_folders),
+            _ => continue,
+        };
+        let Some(path) = file.path() else {
+            continue;
+        };
+        // The predicate reads a lossy spelling because a folder name in the
+        // config is text; the path kept is the real one, bytes and all, so a
+        // filename this platform's encoding cannot render still matches itself
+        // when it reaches the checkout's pathspec list.
+        let rel = path.to_string_lossy().replace('\\', "/");
+        // Only what is actually here: a device that never had the folder has
+        // nothing to protect and wants the change applied normally.
+        // `symlink_metadata` rather than `exists()`, which follows links — a
+        // dangling symlink is a file the user arranged, and reading it as
+        // absent is how it would be the one thing this fence let through.
+        if crate::syncfolders::is_excluded(&rel, folders)
+            && fs::symlink_metadata(workdir.join(path)).is_ok()
+        {
+            list.push(path.to_path_buf());
+        }
+    }
+    Ok(fence)
+}
+
+/// Fence a checkout off the protected paths by naming every OTHER path it may
+/// touch.
+///
+/// libgit2 has no way to exclude a path from a checkout, and its checkout
+/// baseline is always HEAD — but it does take a pathspec list, and the pull
+/// already guarantees a clean working tree, so the difference between the local
+/// tree and the incoming one is the complete account of what has to change on
+/// disk. Naming that set minus the protected paths is therefore exactly the
+/// checkout that would have happened, with the deletions left out.
+///
+/// `disable_pathspec_match` makes each entry an exact path rather than a glob,
+/// so a note whose name contains `[` or `*` is checked out as itself.
+fn fence_checkout(
+    repo: &Repository,
+    checkout: &mut CheckoutBuilder<'_>,
+    local_oid: Oid,
+    target: &git2::Tree<'_>,
+    fence: &PullFence,
+) -> Result<(), String> {
+    if fence.is_empty() {
+        return Ok(());
+    }
+    checkout.disable_pathspec_match(true);
+    for path in fence_paths(repo, local_oid, target, &fence.all())? {
+        // The raw path, not a string: `IntoCString` takes `&Path` byte for byte
+        // on this platform, and under `disable_pathspec_match` an entry has to
+        // equal the path exactly. A lossy spelling would match nothing, so the
+        // file's update would be skipped, the tree would be dirty, and the next
+        // snapshot would push that skip back out as a revert.
+        checkout.path(path.as_path());
+    }
+    Ok(())
+}
+
+/// The exact paths a fenced checkout may touch: everything the incoming change
+/// covers, minus what is fenced off.
+///
+/// Split out from the builder because the guarantee below is not observable
+/// through `CheckoutBuilder` — it has no way to read its own pathspec list back
+/// — and it is the one this whole mechanism inverts on if it ever fails.
+fn fence_paths(
+    repo: &Repository,
+    local_oid: Oid,
+    target: &git2::Tree<'_>,
+    fenced: &[PathBuf],
+) -> Result<Vec<PathBuf>, String> {
+    let local_tree = repo
+        .find_commit(local_oid)
+        .and_then(|commit| commit.tree())
+        .map_err(|e| format!("vault sync could not read the local tree: {e}"))?;
+    let diff = repo
+        .diff_tree_to_tree(Some(&local_tree), Some(target), None)
+        .map_err(|e| format!("vault sync could not compare the incoming history: {e}"))?;
+    let mut allowed: BTreeSet<PathBuf> = BTreeSet::new();
+    for delta in diff.deltas() {
+        for file in [delta.old_file(), delta.new_file()] {
+            if let Some(path) = file.path() {
+                allowed.insert(path.to_path_buf());
+            }
+        }
+    }
+    for path in fenced {
+        allowed.remove(path);
+    }
+    // An empty pathspec list is not "check nothing out" — libgit2 reads it as
+    // NO FILTER, which is the full checkout this function exists to prevent, and
+    // it would delete every fenced file. So when the fenced paths were the whole
+    // of the change, the list gets one inert entry instead: the config file,
+    // whose incoming content is what this device is adopting anyway. Pinned by
+    // `a_fence_over_the_whole_change_still_names_a_path`.
+    if allowed.is_empty() {
+        allowed.insert(PathBuf::from(crate::syncfolders::CONFIG_REL_PATH));
+    }
+    Ok(allowed.into_iter().collect())
+}
+
+/// Let go of the protected paths without touching the bytes: they are no longer
+/// in any tree, so leaving them in the index would show the whole folder as a
+/// staged addition and make the tree permanently dirty. Out of the index and
+/// still on disk is the state the exclusion is asking for.
+fn untrack_protected(repo: &Repository, fence: &PullFence) -> Result<(), String> {
+    if fence.deleted.is_empty() {
+        return Ok(());
+    }
+    let mut index =
+        repo.index().map_err(|e| format!("vault sync could not open the vault index: {e}"))?;
+    for rel in &fence.deleted {
+        let _ = index.remove_path(rel);
+    }
+    index.write().map_err(|e| format!("vault sync could not update the vault index: {e}"))
+}
+
+/// Stage the copies this device kept, so a re-include that collided with local
+/// work reads as a plain edit.
+///
+/// The opposite move to [`untrack_protected`]: these paths ARE in the tree the
+/// pull just adopted, and the checkout skipped them, so the index still carries
+/// the incoming version while the disk carries the user's. Staging what is on
+/// disk is what turns that into the ordinary "you changed this file" the rest of
+/// the app already knows how to show — and what makes the next snapshot commit
+/// the user's bytes rather than quietly restoring the other device's.
+fn keep_local_copies(repo: &Repository, fence: &PullFence) -> Result<(), String> {
+    if fence.kept.is_empty() {
+        return Ok(());
+    }
+    let mut index =
+        repo.index().map_err(|e| format!("vault sync could not open the vault index: {e}"))?;
+    for rel in &fence.kept {
+        index
+            .add_path(rel)
+            .map_err(|e| format!("vault sync could not keep this device's copy: {e}"))?;
+    }
+    index.write().map_err(|e| format!("vault sync could not update the vault index: {e}"))
+}
+
 fn pull_local_phase_inner(
     repo: &Repository,
     fetched_branch: &str,
     remote_oid: Oid,
+    kind: RepoKind,
 ) -> Result<SyncReport, String> {
     ensure_clean_for_pull(repo)?;
     let (branch, local_oid) = current_branch_state(repo)?;
@@ -1914,6 +2220,9 @@ fn pull_local_phase_inner(
         let remote_commit = repo
             .find_commit(remote_oid)
             .map_err(|e| format!("vault sync remote commit unavailable: {e}"))?;
+        let remote_tree =
+            remote_commit.tree().map_err(|e| format!("vault sync remote tree unavailable: {e}"))?;
+        let fence = fence_for_pull(repo, kind, local_oid, &remote_tree, &[])?;
         #[cfg(test)]
         run_finish_race_hook();
         // A snapshot landing since `local_oid` was read is not an ancestor of
@@ -1924,14 +2233,16 @@ fn pull_local_phase_inner(
         }
         #[cfg(test)]
         run_post_check_race_hook();
-        repo.checkout_tree(
-            remote_commit.as_object(),
-            Some(CheckoutBuilder::new().safe().recreate_missing(true)),
-        )
-        .map_err(|e| format!("vault sync fast-forward checkout failed: {e}"))?;
+        let mut checkout = CheckoutBuilder::new();
+        checkout.safe().recreate_missing(true);
+        fence_checkout(repo, &mut checkout, local_oid, &remote_tree, &fence)?;
+        repo.checkout_tree(remote_commit.as_object(), Some(&mut checkout))
+            .map_err(|e| format!("vault sync fast-forward checkout failed: {e}"))?;
         repo.find_reference(&format!("refs/heads/{branch}"))
             .and_then(|mut r| r.set_target(remote_oid, "vault sync fast-forward"))
             .map_err(|e| format!("vault sync fast-forward ref update failed: {e}"))?;
+        untrack_protected(repo, &fence)?;
+        keep_local_copies(repo, &fence)?;
         clear_pending_merge(repo)?;
         let changed = changed_between(repo, Some(local_oid), remote_oid);
         return Ok(report_changed(0, pulled, Vec::new(), remote_oid, changed));
@@ -2000,13 +2311,24 @@ fn pull_local_phase_inner(
     }
     #[cfg(test)]
     run_post_check_race_hook();
+    // The remote head goes in alongside the merged tree: an auto-merge can
+    // still take this device's config over the other's, and the exclusion has
+    // to be honoured either way.
+    let remote_tree =
+        remote_commit.tree().map_err(|e| format!("vault sync remote tree unavailable: {e}"))?;
+    let fence = fence_for_pull(repo, kind, local_oid, &tree, &[&remote_tree])?;
+    let mut checkout = CheckoutBuilder::new();
+    checkout.force().recreate_missing(true);
+    fence_checkout(repo, &mut checkout, local_oid, &tree, &fence)?;
     let merge_oid = commit_and_checkout(
         repo,
         "vault sync merge",
         &tree,
         &[&local_commit, &remote_commit],
-        CheckoutBuilder::new().force().recreate_missing(true),
+        &mut checkout,
     )?;
+    untrack_protected(repo, &fence)?;
+    keep_local_copies(repo, &fence)?;
     // Only once the merge is really on disk: a failed checkout must leave any
     // parked conflict exactly as it was.
     clear_pending_merge(repo)?;
@@ -2120,6 +2442,15 @@ pub(crate) enum ConflictRepo<'a> {
 }
 
 impl ConflictRepo<'_> {
+    /// Which kind of repository this is, for the machinery that treats the two
+    /// differently — the no-sync folder list and the ignore-file flavour.
+    fn repo_kind(self) -> RepoKind {
+        match self {
+            ConflictRepo::Vault => RepoKind::Vault,
+            ConflictRepo::Space { .. } => RepoKind::Space,
+        }
+    }
+
     /// What a refusal calls the repository it is about.
     fn subject(self) -> String {
         match self {
@@ -2309,12 +2640,8 @@ pub(crate) fn sync_resolve_finish_gated_in<G>(
     if !state.active {
         return Err(which.nothing_to_resolve());
     }
-    let undecided: Vec<String> = state
-        .files
-        .iter()
-        .filter(|f| f.resolution.is_none())
-        .map(|f| f.path.clone())
-        .collect();
+    let undecided: Vec<String> =
+        state.files.iter().filter(|f| f.resolution.is_none()).map(|f| f.path.clone()).collect();
     if !undecided.is_empty() {
         return Err(format!(
             "{} conflicted file(s) still need a choice before the merge can finish: {}",
@@ -2413,17 +2740,48 @@ pub(crate) fn sync_resolve_finish_gated_in<G>(
     }
     #[cfg(test)]
     run_pre_checkout_race_hook();
+    // The same protection the pull's own arms carry: a resolution can be the
+    // moment another device's folder exclusion finally lands, and the files it
+    // deletes are files this device was only ever asked to stop syncing.
+    //
+    // The remote head is named alongside the resolved tree because this is the
+    // one path where the two can disagree on purpose: the config file itself can
+    // be what conflicted, and a user who resolved it in favour of their own copy
+    // has a tree that says the folder still syncs while this very pull carries
+    // the deletions the other device's exclusion caused.
+    let remote_tree =
+        remote_commit.tree().map_err(|e| format!("{} remote tree unavailable", which.subject()))?;
+    let fence = fence_for_pull(&repo, which.repo_kind(), local_oid, &tree, &[&remote_tree])?;
+    let mut checkout = CheckoutBuilder::new();
+    // No `remove_untracked`: every path the merge decides to delete is
+    // tracked in the baseline this checkout forces away from, so the
+    // deletions land regardless, and the flag's only remaining reach was an
+    // untracked file that appeared past the walk above.
+    checkout.force().recreate_missing(true);
+    fence_checkout(&repo, &mut checkout, local_oid, &tree, &fence)?;
     let merge_oid = commit_and_checkout(
         &repo,
         &message,
         &tree,
         &[&local_commit, &remote_commit],
-        // No `remove_untracked`: every path the merge decides to delete is
-        // tracked in the baseline this checkout forces away from, so the
-        // deletions land regardless, and the flag's only remaining reach was an
-        // untracked file that appeared past the walk above.
-        CheckoutBuilder::new().force().recreate_missing(true),
+        &mut checkout,
     )?;
+    untrack_protected(&repo, &fence)?;
+    keep_local_copies(&repo, &fence)?;
+    // Vault only, and with the vault's own flavour. A space's exclude file is
+    // `SPACE_EXCLUDE_CONTENT` — deliberately WITHOUT `.assets/`, because a space
+    // exists to carry the assets its notes embed — so writing the vault flavour
+    // into one would make every member's next snapshot drop the images out of
+    // the folder they are sharing. It has no folder list to refresh either.
+    if which.repo_kind() == RepoKind::Vault {
+        if let Some(workdir) = repo.workdir() {
+            if let Err(error) =
+                crate::syncfolders::refresh_repo_exclusions(workdir, EXCLUDE_CONTENT)
+            {
+                applog!("vault sync could not refresh the no-sync ignore rules: {error}");
+            }
+        }
+    }
     clear_pending_merge(&repo)?;
 
     let pulled = exclusive_commit_count(&repo, remote_oid, Some(local_oid))?;
@@ -3794,7 +4152,8 @@ mod tests {
     }
 
     fn configure(root: &Path, credentials: &Path, remote: &Path) {
-        sync_set_remote(root, credentials, &remote_url(remote), "local-test-token", None, None).unwrap();
+        sync_set_remote(root, credentials, &remote_url(remote), "local-test-token", None, None)
+            .unwrap();
     }
 
     /// The hosted way out of the post-rewrite pause, through the app's own
@@ -4175,7 +4534,10 @@ mod tests {
         fs::remove_file(b.join("Local.md")).unwrap();
         history_b.purge_files(&["Local.md"]).unwrap();
         assert!(hosted_sync_blocked_by_rewrite(&b), "the purge on B did not register");
-        assert!(hosted_sync_replaced_store(&b).is_none(), "B was paused by something other than a pull");
+        assert!(
+            hosted_sync_replaced_store(&b).is_none(),
+            "B was paused by something other than a pull"
+        );
 
         // Only now does A publish its own rewrite over the store.
         fs::remove_file(a.join("Secret.md")).unwrap();
@@ -4273,11 +4635,14 @@ mod tests {
         let head_a = Repository::open(&a).unwrap().head().unwrap().target().unwrap();
 
         let mut objects_before = 0usize;
-        repo_b.odb().unwrap().foreach(|_| {
-            objects_before += 1;
-            true
-        })
-        .unwrap();
+        repo_b
+            .odb()
+            .unwrap()
+            .foreach(|_| {
+                objects_before += 1;
+                true
+            })
+            .unwrap();
         let refused = sync_replace_hosted_gated(&b, &credentials_b, || ()).unwrap_err();
         assert!(refused.contains("Vault sync pane"), "the refusal named no way out: {refused}");
         assert!(
@@ -4293,11 +4658,14 @@ mod tests {
             "the refusing replace imported the store's history"
         );
         let mut objects_after = 0usize;
-        repo_b.odb().unwrap().foreach(|_| {
-            objects_after += 1;
-            true
-        })
-        .unwrap();
+        repo_b
+            .odb()
+            .unwrap()
+            .foreach(|_| {
+                objects_after += 1;
+                true
+            })
+            .unwrap();
         assert_eq!(objects_before, objects_after, "the refusing replace imported objects");
         sync_pull_with_snapshot(&a, &credentials_a, || Ok(()), || ()).unwrap();
         assert!(!a.join("Secret.md").exists(), "the refused replace carried the purged note back");
@@ -4505,8 +4873,7 @@ mod tests {
             .unwrap_err();
         assert!(!sync_configured(&a));
         // …and a right one enrolls and configures.
-        sync_set_remote(&a, &credentials_a, &url, "test-token-0123456789", None, PHRASE)
-            .unwrap();
+        sync_set_remote(&a, &credentials_a, &url, "test-token-0123456789", None, PHRASE).unwrap();
         assert!(sync_configured(&a));
         assert_eq!(sync_push_gated(&a, &credentials_a, || ()).unwrap().pushed, 1);
 
@@ -4516,10 +4883,8 @@ mod tests {
         let credentials_b = scratch.path().join("creds-b.json");
         fs::create_dir_all(&b).unwrap();
         let _history_b = owned(&b);
-        sync_set_remote(&b, &credentials_b, &url, "test-token-0123456789", None, PHRASE)
-            .unwrap();
-        let pulled =
-            sync_pull_with_snapshot(&b, &credentials_b, || Ok(()), || ()).unwrap();
+        sync_set_remote(&b, &credentials_b, &url, "test-token-0123456789", None, PHRASE).unwrap();
+        let pulled = sync_pull_with_snapshot(&b, &credentials_b, || Ok(()), || ()).unwrap();
         assert_eq!(pulled.pulled, 1);
         assert_eq!(fs::read_to_string(b.join("Welcome.md")).unwrap(), "hosted hello\n");
 
@@ -4528,9 +4893,8 @@ mod tests {
         let credentials_c = scratch.path().join("creds-c.json");
         fs::create_dir_all(&c).unwrap();
         let _history_c = owned(&c);
-        let error =
-            sync_set_remote(&c, &credentials_c, &url, "test-token-0123456789", None, WRONG)
-                .unwrap_err();
+        let error = sync_set_remote(&c, &credentials_c, &url, "test-token-0123456789", None, WRONG)
+            .unwrap_err();
         assert!(error.contains("passphrase is wrong — mistyped"), "{error}");
 
         // Both credential slots live side by side in the file store.
@@ -4757,10 +5121,7 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.contains("redacted"), "{error}");
-        assert_eq!(
-            owned_repo(&root).unwrap().find_remote(REMOTE).unwrap().url().unwrap(),
-            stored
-        );
+        assert_eq!(owned_repo(&root).unwrap().find_remote(REMOTE).unwrap().url().unwrap(), stored);
     }
 
     /// The plaintext-HTTP exception is for the local machine only; hosts that
@@ -4943,10 +5304,7 @@ mod tests {
         fs::write(&path, br#"{"token":"legacy-token"}"#).unwrap();
         let store = FileCredentialStore { path: &path };
         assert_eq!(store.load_token("/tmp/plain").unwrap().as_deref(), Some("legacy-token"));
-        assert_eq!(
-            store.load_token("/tmp/notes #1").unwrap().as_deref(),
-            Some("legacy-token")
-        );
+        assert_eq!(store.load_token("/tmp/notes #1").unwrap().as_deref(), Some("legacy-token"));
         assert_eq!(store.load_token("#hosted-master-key:/tmp/notes #1").unwrap(), None);
     }
 
@@ -5146,6 +5504,331 @@ mod tests {
             fs::create_dir_all(parent).unwrap();
         }
         fs::write(full, body).unwrap();
+    }
+
+    /// The libgit2 snapshot — the one the phone takes — has to fence a no-sync
+    /// folder the same way the desktop's git CLI does.
+    ///
+    /// It is exercised directly rather than through `History::snapshot`, whose
+    /// mobile arm is the only caller and does not compile on this host. Without
+    /// this the mobile half of the feature would be covered by a `cargo check`
+    /// and nothing else: the iOS gate compiles the library and never runs it, so
+    /// "it builds for the phone" would have been the whole of the evidence.
+    #[test]
+    fn the_mobile_snapshot_fences_a_no_sync_folder_too() {
+        let scratch = TempDir::new().unwrap();
+        let root = scratch.path().join("vault");
+        fs::create_dir_all(&root).unwrap();
+        let history = owned(&root);
+        crate::syncfolders::write_excluded(&root, &[]).unwrap();
+        write_note(&root, "note.md", "kept\n");
+        write_note(&root, "Music/loop.wav", "audio\n");
+        assert!(history_snapshot_excluding(&root, "everything", &[]).unwrap());
+        assert!(
+            tracked(&root).contains(&"Music/loop.wav".to_string()),
+            "precondition: the folder was syncing"
+        );
+
+        // now exclude it, exactly as the mobile snapshot arm does
+        let excluded = vec!["Music".to_string()];
+        crate::syncfolders::write_excluded(&root, &excluded).unwrap();
+        history.refresh_exclusions().unwrap();
+        assert!(history_snapshot_excluding(&root, "stop syncing Music", &excluded).unwrap());
+        let listed = tracked(&root);
+        assert!(!listed.contains(&"Music/loop.wav".to_string()), "the folder is untracked");
+        assert!(listed.contains(&"note.md".to_string()), "the rest of the vault is not");
+        assert_eq!(
+            fs::read_to_string(root.join("Music/loop.wav")).unwrap(),
+            "audio\n",
+            "and the bytes stay — excluding is not deleting"
+        );
+
+        // a new file in it is neither committed nor left as permanent dirt
+        write_note(&root, "Music/second.wav", "more\n");
+        assert!(!history_snapshot_excluding(&root, "idle", &excluded).unwrap());
+        assert!(!tracked(&root).contains(&"Music/second.wav".to_string()));
+        assert_clean(&root);
+    }
+
+    /// The transition the whole no-sync-folder feature has to survive: one
+    /// device stops syncing a folder that is already on both, and the other
+    /// device pulls the deletions that decision recorded.
+    ///
+    /// The wrong outcome here is silent data loss on a machine whose owner
+    /// never asked for a deletion — they asked one device to stop uploading a
+    /// folder. So B keeps every byte, stops tracking them, and ends with a
+    /// clean tree rather than a folder's worth of permanent untracked dirt.
+    #[test]
+    fn excluding_a_folder_on_one_device_does_not_delete_it_on_the_other() {
+        let pair = paired_vaults(&[("note.md", "shared\n")]);
+        // both devices sync everything to begin with
+        crate::syncfolders::write_excluded(&pair.a, &[]).unwrap();
+        write_note(&pair.a, "Music/loop.wav", "audio\n");
+        write_note(&pair.a, "Music/Stems/take.wav", "stem\n");
+        pair.history_a.refresh_exclusions().unwrap();
+        pair.history_a.snapshot("music").unwrap();
+        sync_push(&pair.a, &pair.credentials_a).unwrap();
+        sync_pull(&pair.b, &pair.credentials_b).unwrap();
+        assert_eq!(fs::read_to_string(pair.b.join("Music/loop.wav")).unwrap(), "audio\n");
+        assert!(
+            tracked(&pair.b).contains(&"Music/Stems/take.wav".to_string()),
+            "precondition: the folder syncs on both devices"
+        );
+
+        // device A stops syncing it — the snapshot records deletions
+        crate::syncfolders::write_excluded(&pair.a, &["Music".to_string()]).unwrap();
+        pair.history_a.refresh_exclusions().unwrap();
+        pair.history_a.snapshot("stop syncing Music").unwrap();
+        assert!(!tracked(&pair.a).contains(&"Music/loop.wav".to_string()));
+        assert!(pair.a.join("Music/loop.wav").is_file(), "and A keeps its own copy");
+        sync_push(&pair.a, &pair.credentials_a).unwrap();
+
+        // device B pulls them
+        sync_pull(&pair.b, &pair.credentials_b).unwrap();
+        assert_eq!(
+            fs::read_to_string(pair.b.join("Music/loop.wav")).unwrap(),
+            "audio\n",
+            "a pull must never delete a file under a folder nobody syncs any more"
+        );
+        assert_eq!(fs::read_to_string(pair.b.join("Music/Stems/take.wav")).unwrap(), "stem\n");
+        let tracked_b = tracked(&pair.b);
+        assert!(!tracked_b.contains(&"Music/loop.wav".to_string()), "it is untracked instead");
+        assert!(!tracked_b.contains(&"Music/Stems/take.wav".to_string()));
+        assert!(tracked_b.contains(&"note.md".to_string()), "and the rest of the pull landed");
+        // the leftovers are ignored, not dirt — otherwise every later snapshot
+        // would try to put the folder back and every sync would refuse
+        assert_clean(&pair.b);
+        // …and B, holding an identical copy, has nothing to say about it: the
+        // listing A already wrote describes B's disk too, so the ghost index
+        // does not ping-pong between two devices that agree
+        assert!(!pair.history_b.snapshot("idle").unwrap(), "and there is nothing to commit");
+
+        // a file added on B afterwards stays B's alone — only the listing
+        // travels, so the other devices learn it exists without receiving it
+        write_note(&pair.b, "Music/local.wav", "mine\n");
+        assert!(pair.history_b.snapshot("b has more").unwrap());
+        assert!(!tracked(&pair.b).contains(&"Music/local.wav".to_string()));
+        assert_clean(&pair.b);
+        sync_push(&pair.b, &pair.credentials_b).unwrap();
+        sync_pull(&pair.a, &pair.credentials_a).unwrap();
+        assert!(!pair.a.join("Music/local.wav").exists(), "the file itself does not travel");
+        assert_eq!(
+            crate::syncfolders::read_index(&pair.a).folders["Music"].entries.len(),
+            3,
+            "but A can see that it is over there"
+        );
+    }
+
+    /// The same protection, in the arm where the pull has to merge rather than
+    /// fast-forward: B has its own unrelated work when A's exclusion arrives.
+    #[test]
+    fn a_merging_pull_also_keeps_the_excluded_folders_files() {
+        let pair = paired_vaults(&[("note.md", "shared\n")]);
+        crate::syncfolders::write_excluded(&pair.a, &[]).unwrap();
+        write_note(&pair.a, "Music/loop.wav", "audio\n");
+        pair.history_a.refresh_exclusions().unwrap();
+        pair.history_a.snapshot("music").unwrap();
+        sync_push(&pair.a, &pair.credentials_a).unwrap();
+        sync_pull(&pair.b, &pair.credentials_b).unwrap();
+
+        // B writes something of its own, so the pull below is a real merge
+        write_note(&pair.b, "b-only.md", "mine\n");
+        pair.history_b.snapshot("b works").unwrap();
+
+        crate::syncfolders::write_excluded(&pair.a, &["Music".to_string()]).unwrap();
+        pair.history_a.refresh_exclusions().unwrap();
+        pair.history_a.snapshot("stop syncing Music").unwrap();
+        sync_push(&pair.a, &pair.credentials_a).unwrap();
+
+        let report = sync_pull(&pair.b, &pair.credentials_b).unwrap();
+        assert!(report.conflicted.is_empty(), "unrelated work does not conflict");
+        assert_eq!(fs::read_to_string(pair.b.join("Music/loop.wav")).unwrap(), "audio\n");
+        assert!(!tracked(&pair.b).contains(&"Music/loop.wav".to_string()));
+        assert_eq!(fs::read_to_string(pair.b.join("b-only.md")).unwrap(), "mine\n");
+        assert_clean(&pair.b);
+    }
+
+    /// A deletion under a folder NOBODY excluded is still a deletion. The
+    /// protection has to be narrow, or it becomes a vault that never forgets a
+    /// file.
+    #[test]
+    fn an_ordinary_deletion_still_deletes() {
+        let pair = paired_vaults(&[("note.md", "shared\n"), ("Music/loop.wav", "audio\n")]);
+        crate::syncfolders::write_excluded(&pair.a, &[]).unwrap();
+        pair.history_a.refresh_exclusions().unwrap();
+        pair.history_a.snapshot("no exclusions").unwrap();
+        sync_push(&pair.a, &pair.credentials_a).unwrap();
+        sync_pull(&pair.b, &pair.credentials_b).unwrap();
+        assert!(pair.b.join("Music/loop.wav").is_file());
+
+        fs::remove_file(pair.a.join("Music/loop.wav")).unwrap();
+        pair.history_a.snapshot("delete the loop").unwrap();
+        sync_push(&pair.a, &pair.credentials_a).unwrap();
+        sync_pull(&pair.b, &pair.credentials_b).unwrap();
+        assert!(!pair.b.join("Music/loop.wav").exists(), "a real deletion still lands");
+        assert_clean(&pair.b);
+    }
+
+    /// The config file is itself syncable, so it is itself conflictable — and
+    /// a user who keeps their own copy has a resolved tree that says the folder
+    /// still syncs, in the very pull that carries the other device's deletions.
+    /// Reading only the worktree and the resolved tree would apply them.
+    #[test]
+    fn keeping_my_own_folder_list_still_honours_the_other_devices_exclusion() {
+        let pair = paired_vaults(&[("note.md", "shared\n")]);
+        crate::syncfolders::write_excluded(&pair.a, &[]).unwrap();
+        write_note(&pair.a, "Music/loop.wav", "audio\n");
+        pair.history_a.refresh_exclusions().unwrap();
+        pair.history_a.snapshot("music").unwrap();
+        sync_push(&pair.a, &pair.credentials_a).unwrap();
+        sync_pull(&pair.b, &pair.credentials_b).unwrap();
+        assert!(pair.b.join("Music/loop.wav").is_file(), "precondition: B has the folder");
+
+        // Both devices edit the SAME config file, so the pull below conflicts
+        // on it: A excludes Music, B excludes something else entirely.
+        crate::syncfolders::write_excluded(&pair.a, &["Music".to_string()]).unwrap();
+        pair.history_a.refresh_exclusions().unwrap();
+        pair.history_a.snapshot("stop syncing Music").unwrap();
+        sync_push(&pair.a, &pair.credentials_a).unwrap();
+
+        crate::syncfolders::write_excluded(&pair.b, &["Sketches".to_string()]).unwrap();
+        pair.history_b.refresh_exclusions().unwrap();
+        pair.history_b.snapshot("b has its own idea").unwrap();
+
+        let report = sync_pull(&pair.b, &pair.credentials_b).unwrap();
+        assert!(
+            report.conflicted.iter().any(|p| p == crate::syncfolders::CONFIG_REL_PATH),
+            "precondition: the folder list is what conflicted — {:?}",
+            report.conflicted
+        );
+
+        // B keeps its own list. The resolved tree therefore says Music syncs.
+        sync_resolve_set(&pair.b, crate::syncfolders::CONFIG_REL_PATH, "mine").unwrap();
+        sync_resolve_finish(&pair.b).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(pair.b.join("Music/loop.wav")).unwrap(),
+            "audio\n",
+            "the other device's exclusion still travelled in this pull, and its \
+             deletions must not land as real ones just because the list lost the merge"
+        );
+    }
+
+    /// Letting a folder back IN is the only direction that can overwrite. The
+    /// additions arrive at paths this device may already hold its own copies of
+    /// — never synced, still ignored, and therefore invisible to the clean-tree
+    /// check that guards every other write.
+    #[test]
+    fn a_re_include_never_overwrites_this_devices_own_copy() {
+        let pair = paired_vaults(&[("note.md", "shared\n")]);
+        // Both devices agree the folder does not sync, so the divergence below
+        // is about the files and not about the list.
+        crate::syncfolders::write_excluded(&pair.a, &["Music".to_string()]).unwrap();
+        pair.history_a.refresh_exclusions().unwrap();
+        pair.history_a.snapshot("stop syncing Music").unwrap();
+        sync_push(&pair.a, &pair.credentials_a).unwrap();
+        sync_pull(&pair.b, &pair.credentials_b).unwrap();
+
+        // …and each has its own copy at the same path. Neither has ever synced.
+        write_note(&pair.a, "Music/take.wav", "a's take\n");
+        write_note(&pair.b, "Music/take.wav", "b's take, hours of work\n");
+        pair.history_a.snapshot("a works").unwrap();
+        assert!(!tracked(&pair.a).contains(&"Music/take.wav".to_string()));
+        // B does not snapshot: its copy is ignored, so its tree is clean
+        // without one, and the two devices' listings of the same folder would
+        // otherwise collide in the ghost index — the divergent-copy limitation
+        // this feature documents, and not what this test is about.
+        assert!(!tracked(&pair.b).contains(&"Music/take.wav".to_string()));
+
+        // A lets the folder back in, which uploads A's copy as an addition.
+        crate::syncfolders::write_excluded(&pair.a, &[]).unwrap();
+        pair.history_a.refresh_exclusions().unwrap();
+        pair.history_a.snapshot("sync Music again").unwrap();
+        assert!(tracked(&pair.a).contains(&"Music/take.wav".to_string()));
+        sync_push(&pair.a, &pair.credentials_a).unwrap();
+
+        let report = sync_pull(&pair.b, &pair.credentials_b).unwrap();
+        assert!(report.conflicted.is_empty(), "{:?}", report.conflicted);
+        assert_eq!(
+            fs::read_to_string(pair.b.join("Music/take.wav")).unwrap(),
+            "b's take, hours of work\n",
+            "a re-include must never write another device's copy over this one's"
+        );
+        // and the divergence is visible rather than swallowed: B's copy is
+        // staged as an ordinary change, so the next snapshot carries it out
+        assert!(pair.history_b.snapshot("b keeps its take").unwrap());
+        sync_push(&pair.b, &pair.credentials_b).unwrap();
+        sync_pull(&pair.a, &pair.credentials_a).unwrap();
+        assert_eq!(
+            fs::read_to_string(pair.a.join("Music/take.wav")).unwrap(),
+            "b's take, hours of work\n",
+            "and B's copy reaches the other device as an edit"
+        );
+    }
+
+    /// The kind decides, and the working tree never does.
+    ///
+    /// A space must not consult a folder list even when one is sitting in its
+    /// working tree, for the same reason `backfill_missing_app_files_with` takes
+    /// its kind from the caller: what a pulled tree contains is the untrusted
+    /// side's choice, and a space that read a list would treat its own files as
+    /// no-sync — protecting deletions instead of applying them and pushing them
+    /// back to every member on the next snapshot.
+    #[test]
+    fn a_space_pull_never_consults_a_folder_list() {
+        let pair = paired_vaults(&[("note.md", "shared\n")]);
+        crate::syncfolders::write_excluded(&pair.a, &["Files".to_string()]).unwrap();
+        write_note(&pair.a, "Files/receipt.pdf", "a receipt\n");
+        pair.history_a.refresh_exclusions().unwrap();
+        pair.history_a.snapshot("a list and a folder").unwrap();
+
+        let repo = Repository::open(&pair.a).unwrap();
+        let tree = repo.head().unwrap().peel_to_commit().unwrap().tree().unwrap();
+        assert_eq!(
+            excluded_for_pull(&repo, RepoKind::Vault, &[&tree]),
+            vec!["Files".to_string()],
+            "precondition: this working tree really does name a no-sync folder"
+        );
+        assert!(
+            excluded_for_pull(&repo, RepoKind::Space, &[&tree]).is_empty(),
+            "a space read a no-sync folder list out of its own working tree"
+        );
+    }
+
+    /// The empty-pathspec trap, pinned directly.
+    ///
+    /// libgit2 reads an empty pathspec list as NO FILTER — the full checkout,
+    /// which would delete every fenced file — so a fence covering the whole
+    /// change has to name something anyway. Unreachable today (a fence is built
+    /// from paths that exist on disk, and the config file is always in the
+    /// diff), and asserted here so a change that makes it reachable trips an
+    /// alarm instead of quietly deleting a folder.
+    #[test]
+    fn a_fence_over_the_whole_change_still_names_a_path() {
+        let pair = paired_vaults(&[("note.md", "shared\n")]);
+        write_note(&pair.a, "Music/loop.wav", "audio\n");
+        pair.history_a.snapshot("music").unwrap();
+        let repo = Repository::open(&pair.a).unwrap();
+        let head = repo.head().unwrap().peel_to_commit().unwrap();
+        let parent = head.parent(0).unwrap();
+        let target = head.tree().unwrap();
+
+        let everything: Vec<PathBuf> = fence_paths(&repo, parent.id(), &target, &[]).unwrap();
+        assert!(everything.contains(&PathBuf::from("Music/loop.wav")));
+
+        let fenced = fence_paths(&repo, parent.id(), &target, &everything).unwrap();
+        assert_eq!(
+            fenced,
+            vec![PathBuf::from(crate::syncfolders::CONFIG_REL_PATH)],
+            "a fence that removed every path must still hand libgit2 a filter"
+        );
+        assert!(!fenced.is_empty(), "an empty list is libgit2's 'check everything out'");
+    }
+
+    fn tracked(root: &Path) -> Vec<String> {
+        let repo = Repository::open(root).unwrap();
+        let index = repo.index().unwrap();
+        index.iter().map(|e| String::from_utf8_lossy(&e.path).into_owned()).collect()
     }
 
     impl Pair {
@@ -5742,13 +6425,9 @@ mod tests {
     #[test]
     fn a_space_with_nothing_parked_is_told_so_in_its_own_name() {
         let pair = paired_vaults(&[("Note.md", "shared\n")]);
-        let error = sync_resolve_set_in(
-            &pair.b,
-            ConflictRepo::Space { name: "Trip" },
-            "Note.md",
-            "mine",
-        )
-        .unwrap_err();
+        let error =
+            sync_resolve_set_in(&pair.b, ConflictRepo::Space { name: "Trip" }, "Note.md", "mine")
+                .unwrap_err();
         assert_eq!(error, "the space “Trip” has no conflicted pull to resolve");
         assert_eq!(
             sync_resolve_set(&pair.b, "Note.md", "mine").unwrap_err(),
@@ -6902,9 +7581,16 @@ mod tests {
         // whitespace-only counts as absent, invalid PEM is refused
         sync_set_remote(&root, &credentials, &remote_url(&bare), "t", Some("  \n"), None).unwrap();
         assert!(pinned_cert(&root).is_none());
-        assert!(sync_set_remote(&root, &credentials, &remote_url(&bare), "t", Some("not pem"), None)
-            .unwrap_err()
-            .contains("PEM CERTIFICATE"));
+        assert!(sync_set_remote(
+            &root,
+            &credentials,
+            &remote_url(&bare),
+            "t",
+            Some("not pem"),
+            None
+        )
+        .unwrap_err()
+        .contains("PEM CERTIFICATE"));
     }
 
     #[test]
@@ -6933,7 +7619,8 @@ mod tests {
         Repository::init_bare(&bare).unwrap();
 
         assert_eq!(
-            sync_set_remote(&root, &credentials, &remote_url(&bare), "secret", None, None).unwrap_err(),
+            sync_set_remote(&root, &credentials, &remote_url(&bare), "secret", None, None)
+                .unwrap_err(),
             FOREIGN_MSG
         );
         assert_eq!(sync_push(&root, &credentials).unwrap_err(), FOREIGN_MSG);
@@ -7358,9 +8045,7 @@ mod tests {
             engine
                 .set_view_pref(
                     "trips", "table", None, None, None, None, None, None, None, None, None, None,
-                    None,
-                    None,
-                    None,
+                    None, None, None, None,
                 )
                 .unwrap();
         }
@@ -7429,9 +8114,7 @@ mod tests {
             engine
                 .set_view_pref(
                     "trips", "table", None, None, None, None, None, None, None, None, None, None,
-                    None,
-                    None,
-                    None,
+                    None, None, None, None,
                 )
                 .unwrap();
         }
@@ -7599,9 +8282,7 @@ mod tests {
             engine
                 .set_view_pref(
                     "trips", "table", None, None, None, None, None, None, None, None, None, None,
-                    None,
-                    None,
-                    None,
+                    None, None, None, None,
                 )
                 .unwrap();
         }
@@ -8114,7 +8795,9 @@ mod autosync_peer {
     ///
     /// Actions, all against `SUBSTRATE_PEER_VAULT`:
     /// - `join`    prepare the vault, save the hosted remote, pull once
-    /// - `push`    write `SUBSTRATE_PEER_PATH` with `SUBSTRATE_PEER_BODY`, snapshot, push
+    /// - `push`    write `SUBSTRATE_PEER_PATH` with `SUBSTRATE_PEER_BODY`, snapshot,
+    ///             push, re-applying the body over the remote's new tip and
+    ///             retrying if the other device pushed in the meantime
     /// - `pull`    pull once
     /// - `read`    print the current bytes of `SUBSTRATE_PEER_PATH`
     ///
@@ -8128,16 +8811,39 @@ mod autosync_peer {
             println!("PEER SKIP no SUBSTRATE_PEER_ACTION");
             return;
         };
-        let root = PathBuf::from(std::env::var("SUBSTRATE_PEER_VAULT").unwrap());
+        let asked = PathBuf::from(std::env::var("SUBSTRATE_PEER_VAULT").unwrap());
+        // Resolved before the fence is read, not after: `/tmp/…` is a spelling,
+        // not a location, and a symlink planted at a predictable scratch path
+        // would otherwise let this fence pass while every write landed
+        // somewhere else. Resolving also means the writes below go to the real
+        // directory, so the check and the work cannot disagree.
+        let root = asked.canonicalize().unwrap_or_else(|err| {
+            panic!("the peer vault must exist before it is used: {} ({err})", asked.display())
+        });
         assert!(
             root.starts_with("/tmp/") || root.starts_with("/private/tmp/"),
-            "the peer vault must be a throwaway under /tmp, got {}",
-            root.display()
+            "the peer vault must be a throwaway under /tmp, got {} (asked for {})",
+            root.display(),
+            asked.display()
         );
         let creds = PathBuf::from(std::env::var("SUBSTRATE_PEER_CREDS").unwrap());
 
+        // A rejected sync is a result the harness has to be able to read, so
+        // every failure below prints its own `PEER <ACTION> failed` line before
+        // it takes the process down. An unwrap here surfaces as a panic
+        // pointing at a line number, which tells the run nothing about which
+        // step of which action gave up or why.
+        let failed = |what: &str, why: String| -> ! {
+            println!("PEER {what} failed reason={why}");
+            panic!("the second device could not {}: {why}", what.to_lowercase());
+        };
+
         if action == "join" {
-            assert!(history_prepare(&root, EXCLUDE_CONTENT).unwrap());
+            match history_prepare(&root, EXCLUDE_CONTENT) {
+                Ok(true) => {}
+                Ok(false) => failed("JOIN", "the peer vault could not be prepared".into()),
+                Err(err) => failed("JOIN", err),
+            }
             let setup = sync_set_remote(
                 &root,
                 &creds,
@@ -8146,7 +8852,7 @@ mod autosync_peer {
                 None,
                 std::env::var("SUBSTRATE_PEER_PASSPHRASE").ok().as_deref(),
             )
-            .unwrap();
+            .unwrap_or_else(|err| failed("JOIN", err));
             // an empty store has nothing to pull yet — that is the state the
             // first device joins into, not a failure of the join
             match sync_pull(&root, &creds) {
@@ -8164,16 +8870,51 @@ mod autosync_peer {
         match action.as_str() {
             "push" => {
                 let path = root.join(std::env::var("SUBSTRATE_PEER_PATH").unwrap());
-                if let Some(parent) = path.parent() {
-                    fs::create_dir_all(parent).unwrap();
+                let body = std::env::var("SUBSTRATE_PEER_BODY").unwrap();
+                // The app on the other device pushes on a debounce of its own,
+                // so the remote can move between this device's last pull and
+                // its push. That is the ordinary two-device race rather than a
+                // failure of the proof: take the remote's new tip, put this
+                // device's body back on top of it, and push again. The body is
+                // written on every attempt because the merge may have replaced
+                // or conflicted the file, and it is this device's version that
+                // has to reach the remote — a retry that skipped the rewrite
+                // would push the other device's line and lose the divergence
+                // the run exists to observe.
+                const ATTEMPTS: u32 = 5;
+                for attempt in 1..=ATTEMPTS {
+                    if let Some(parent) = path.parent() {
+                        fs::create_dir_all(parent)
+                            .unwrap_or_else(|err| failed("PUSH", format!("{err}")));
+                    }
+                    fs::write(&path, &body).unwrap_or_else(|err| failed("PUSH", format!("{err}")));
+                    if let Err(err) = history_snapshot(&root, "snapshot (auto-sync harness peer)") {
+                        failed("PUSH", err);
+                    }
+                    match sync_push(&root, &creds) {
+                        Ok(report) => {
+                            println!(
+                                "PEER PUSH ok pushed={} head={} attempt={attempt}",
+                                report.pushed, report.head
+                            );
+                            return;
+                        }
+                        Err(err) if err.contains("the remote moved") && attempt < ATTEMPTS => {
+                            println!("PEER PUSH retry attempt={attempt} reason={err}");
+                            if let Err(err) = sync_pull(&root, &creds) {
+                                failed(
+                                    "PUSH",
+                                    format!("the merge after a moved remote failed: {err}"),
+                                );
+                            }
+                        }
+                        Err(err) => failed("PUSH", err),
+                    }
                 }
-                fs::write(&path, std::env::var("SUBSTRATE_PEER_BODY").unwrap()).unwrap();
-                history_snapshot(&root, "snapshot (auto-sync harness peer)").unwrap();
-                let report = sync_push(&root, &creds).unwrap();
-                println!("PEER PUSH ok pushed={} head={}", report.pushed, report.head);
+                failed("PUSH", format!("the remote moved on every one of {ATTEMPTS} attempts"));
             }
             "pull" => {
-                let report = sync_pull(&root, &creds).unwrap();
+                let report = sync_pull(&root, &creds).unwrap_or_else(|err| failed("PULL", err));
                 println!(
                     "PEER PULL ok pulled={} head={} changed={:?} conflicted={:?}",
                     report.pulled, report.head, report.changed, report.conflicted

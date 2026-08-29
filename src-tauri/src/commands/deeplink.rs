@@ -32,22 +32,10 @@ pub(crate) fn deeplink_take_pending(
     queued
         .into_iter()
         .map(|item| match item {
-            Err(msg) => Resolved {
-                path: None,
-                view: None,
-                error: Some(msg),
-            },
-            Ok(Pending::View(name)) => Resolved {
-                path: None,
-                view: Some(name),
-                error: None,
-            },
+            Err(msg) => Resolved { path: None, view: None, error: Some(msg) },
+            Ok(Pending::View(name)) => Resolved { path: None, view: Some(name), error: None },
             Ok(Pending::Note(rel)) => match engine.meta(&rel) {
-                Some(_) => Resolved {
-                    path: Some(rel),
-                    view: None,
-                    error: None,
-                },
+                Some(_) => Resolved { path: Some(rel), view: None, error: None },
                 None => Resolved {
                     path: None,
                     view: None,

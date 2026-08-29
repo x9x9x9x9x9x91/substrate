@@ -612,6 +612,15 @@ date,topic,title,source,url,blurb,why,fb
 Unknown `topic` values render with a neutral chip, so the curator is free to
 invent slugs. A non-`http(s)` or empty `url` renders the title unlinked.
 
+**The topic chips are a setting.** Clicking them narrows the stream and writes
+`feed-topics` in `Settings.md` (a list of slugs; empty or unset = the whole
+stream), through the same undoable path the ⌘, rows use — so ⌘Z takes a topic
+back, an agent can set the filter by editing the note, and the selection
+follows you to another machine. A slug the selection names but today's stream
+doesn't have still gets a chip, so a filter that came from another machine and
+now matches nothing can be switched off rather than only edited out of the
+note by hand. Vault-format §12 has the key.
+
 **Plugging in a curator.** The head carries a **refresh button** once a
 `feed-curator` command is configured — the pane's own "plug in a curator" card
 writes it, or set the key in `Settings.md` (⌘, → Terminal → Feed curator does the same):

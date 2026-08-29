@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { isTauri, listen } from "../lib/tauri";
-import { deeplinkTakePending } from "../lib/ipc";
+import { deeplinkTakePending, openTargetsTakePending } from "../lib/ipc";
 import { hotkeyRejectedMessage, type HotkeyRejection } from "../lib/hotkey";
 import { dropClaimedNear } from "../lib/dragdrop";
 import { basename } from "../lib/files";
@@ -46,6 +46,7 @@ export function useVaultEvents(opts: {
   undoDispatch: (a: UndoAction) => void;
   setChangedPaths: (paths: string[] | null) => void;
   setVaultEpoch: (fn: (n: number) => number) => void;
+  setBootFailed: (failed: boolean) => void;
   lastOwnRefreshRef: React.RefObject<number>;
 }) {
   const {
@@ -56,6 +57,7 @@ export function useVaultEvents(opts: {
     undoDispatch,
     setChangedPaths,
     setVaultEpoch,
+    setBootFailed,
     lastOwnRefreshRef,
   } = opts;
   // the degraded-watcher toast fires once per app run, not per event
@@ -332,11 +334,33 @@ export function useVaultEvents(opts: {
     };
   }, [showToast]);
 
+  // The launch's index build unwound. It marks the vault ready anyway — a
+  // boot frame that never lifts is worse — so without this the app comes up
+  // looking normal on top of a vault whose locks are poisoned, and says
+  // nothing until the first read fails. The bar says it once, up front.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    listen("vault:boot-failed", () => setBootFailed(true)).then((un) => {
+      if (cancelled) un();
+      else unlisten = un;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [setBootFailed]);
+
   // a due-date notification click or a tray agenda item opens the note
   const openNoteRef = useRef<(path: string) => void>(() => {});
-  // declared up here with its sibling because two effects reach for it: the
-  // palette's `app:open-view` below, and the deeplink drain that follows this
+  // declared up here with its siblings because more than one effect reaches
+  // for them: the palette's `app:open-view` and the sheet-row listener below,
+  // and the two drains that follow this
   const openViewRef = useRef<(view: View) => void>(() => {});
+  /** a sheet cell's notification click opens the note AND asks for the row.
+      Its own event rather than a widened `app:open-note` payload: that one is
+      a bare path string and the tray agenda emits it too. */
+  const openSheetRowRef = useRef<(target: SheetRowTarget) => void>(() => {});
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     let cancelled = false;
@@ -347,6 +371,39 @@ export function useVaultEvents(opts: {
     return () => {
       cancelled = true;
       unlisten?.();
+    };
+  }, []);
+
+  // Destinations that arrived before this component existed. `App` does not
+  // mount while the boot frame is up, so a tray agenda click, a palette row
+  // or a due-date notification during the launch scan fired into no listener
+  // and opened nothing. Rust queues those and this drain collects them — the
+  // drain is also what tells Rust the window can receive, so everything after
+  // it comes through the listeners around it as it always did.
+  //
+  // Under React StrictMode the dev build mounts twice, and the first mount's
+  // drain empties the queue for good: a destination staged before launch is
+  // dropped in dev and delivered in the shipped app. Accepted rather than
+  // worked around, exactly as the deeplink drain below accepts it — the
+  // alternative is a queue Rust hands back twice, which would double every
+  // destination in the build that matters.
+  useEffect(() => {
+    let cancelled = false;
+    void openTargetsTakePending()
+      .then((items) => {
+        if (cancelled) return;
+        for (const item of items) {
+          if (item.note) openNoteRef.current(item.note);
+          else if (item.sheet) openSheetRowRef.current(item.sheet);
+          else if (item.view !== null && item.view !== undefined) {
+            const view = parseEverywhereView(item.view);
+            if (view) openViewRef.current(view);
+          }
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
     };
   }, []);
 
@@ -390,10 +447,6 @@ export function useVaultEvents(opts: {
     };
   }, [showToast]);
 
-  // a sheet cell's notification click opens the note AND asks for the row
-  //. Its own event rather than a widened `app:open-note` payload:
-  // that one is a bare path string and the tray agenda emits it too.
-  const openSheetRowRef = useRef<(target: SheetRowTarget) => void>(() => {});
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     let cancelled = false;

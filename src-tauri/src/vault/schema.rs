@@ -384,7 +384,15 @@ impl Engine {
     /// Hand-edited empty icons (`"icon": {}`) read as no icon; a blank
     /// `home` reads as no home.
     pub fn schema(&self) -> SchemaConfig {
-        let raw = fs::read_to_string(self.root.join(SCHEMA_REL_PATH)).unwrap_or_default();
+        Engine::schema_at(&self.root)
+    }
+
+    /// The schema of the vault at `root`, without an engine. The read-side
+    /// snapshot builds its relation table from this: the schema lives in a
+    /// file rather than in the note index, so reading it needs a path and
+    /// nothing else.
+    pub fn schema_at(root: &Path) -> SchemaConfig {
+        let raw = fs::read_to_string(root.join(SCHEMA_REL_PATH)).unwrap_or_default();
         let mut map: SchemaConfig = serde_json::from_str(&raw).unwrap_or_default();
         for ts in map.values_mut() {
             if ts.icon.as_ref().map(DbIcon::is_empty).unwrap_or(false) {
@@ -930,7 +938,10 @@ impl Engine {
             );
         }
         let mut map = self.schema();
-        map.insert(name.to_string(), TypeSchema { icon: None, home: None, parent: None, props: entry });
+        map.insert(
+            name.to_string(),
+            TypeSchema { icon: None, home: None, parent: None, props: entry },
+        );
         self.write_schema(&map)?;
         Ok(map)
     }
@@ -1621,7 +1632,17 @@ mod tests {
         // and the shapes nothing can read stay unread
         // a multibyte last character is rejected, never split through
         let unreadable = [
-            "", "d", "90", "90 d", "-5d", "0d", "1000d", "90 days", "fortnightly", "90€", "90д",
+            "",
+            "d",
+            "90",
+            "90 d",
+            "-5d",
+            "0d",
+            "1000d",
+            "90 days",
+            "fortnightly",
+            "90€",
+            "90д",
             "🙂",
         ];
         for bad in unreadable {
@@ -1946,6 +1967,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .unwrap();
         assert_eq!(views.keys().collect::<Vec<_>>(), [&"Ledger"]);
@@ -2097,8 +2119,7 @@ mod tests {
         .unwrap();
         e.set_view_pref(
             "books", "table", None, None, None, None, None, None, None, None, None, None, None,
-            None,
-            None,
+            None, None, None,
         )
         .unwrap();
         e.set_sidebar_order(&SidebarOrder {
@@ -2400,6 +2421,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
 
@@ -2492,6 +2514,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
 
@@ -2537,6 +2560,7 @@ mod tests {
             None,
             Some(vec!["Herbert".into(), String::new()]),
             Some(vec!["Herbert".into()]),
+            None,
         )
         .unwrap();
 
@@ -2602,6 +2626,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
 
@@ -2639,6 +2664,7 @@ mod tests {
             view: Some("table".into()),
             group_by: None,
             table_group_by: Some(key.into()),
+            cal_date: Some(key.into()),
             columns: Some(vec![key.into(), "note".into()]),
         }
     }
@@ -2654,6 +2680,7 @@ mod tests {
             view: None,
             group_by: None,
             table_group_by: None,
+            cal_date: None,
             columns: None,
         }
     }
@@ -3074,11 +3101,13 @@ mod tests {
         assert_eq!(mine.sorts.as_ref().unwrap()[1].key, "title", "other keys untouched");
         assert_eq!(mine.sorts.as_ref().unwrap()[0].dir, -1, "direction kept");
         assert_eq!(mine.table_group_by.as_deref(), Some("cost"));
+        assert_eq!(mine.cal_date.as_deref(), Some("cost"), "a pin's date binding follows");
 
         let other = views.iter().find(|v| v.id == "other").unwrap();
         assert_eq!(other.columns.as_deref(), Some(&["price".to_string(), "note".to_string()][..]));
         assert_eq!(other.sort.as_ref().unwrap().key, "price");
         assert_eq!(other.table_group_by.as_deref(), Some("price"), "other db untouched");
+        assert_eq!(other.cal_date.as_deref(), Some("price"), "other db untouched");
 
         // renaming onto a column the view already renders keeps one entry —
         // the never-clobber rule the value rewrite and aggregations use
@@ -3113,6 +3142,7 @@ mod tests {
         );
         assert_eq!(mine.sort.as_ref().unwrap().dir, 1, "surviving direction is preserved");
         assert!(mine.table_group_by.is_none(), "grouping on the cleared key drops");
+        assert!(mine.cal_date.is_none(), "a date binding on the cleared key drops");
         assert_eq!(mine.view.as_deref(), Some("table"), "layout untouched");
 
         let other = views.iter().find(|v| v.id == "other").unwrap();
@@ -3166,6 +3196,7 @@ mod tests {
             "books",
             "board",
             Some("author"),
+            None,
             None,
             None,
             None,
@@ -3302,6 +3333,7 @@ mod tests {
             None,
             None,
             Some(aggs),
+            None,
             None,
             None,
             None,
@@ -4828,8 +4860,7 @@ mod tests {
         // the rest of the vault is unaffected
         e.set_view_pref(
             "books", "board", None, None, None, None, None, None, None, None, None, None, None,
-            None,
-            None,
+            None, None, None,
         )
         .unwrap();
         assert_eq!(e.views()["books"].view, "board");
@@ -5388,6 +5419,7 @@ mod tests {
             "board",
             Some("author"),
             Some("author"),
+            None,
             None,
             None,
             None,

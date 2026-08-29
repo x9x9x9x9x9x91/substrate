@@ -72,6 +72,7 @@ const props = {
   onTrashNote: () => {},
   onRenameNote: async () => {},
   onOpenJournal: () => {},
+  upcomingDock: "bottom" as const,
 };
 
 /** the fixture's chip on a given day of the month grid */
@@ -205,6 +206,7 @@ const LiveCalendar = () => {
     onTrashNote: () => {},
     onRenameNote: async () => {},
     onOpenJournal: () => {},
+    upcomingDock: "bottom" as const,
   });
 };
 

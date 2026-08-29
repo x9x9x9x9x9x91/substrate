@@ -5,7 +5,12 @@
    keys are frontend-owned — the
    PTY spawn call passes them down, so the Rust side never parses them. */
 
+import { readListSort, type ListSort } from "./listsort.ts";
 import { foldedPropKey } from "./types.ts";
+import {
+  DEFAULT_AGENDA_PLACEMENT,
+  type AgendaPlacement,
+} from "./calagenda.ts";
 import {
   DEFAULT_TERMINAL_DOCK,
   DEFAULT_TERMINAL_HEIGHT,
@@ -262,6 +267,47 @@ export function parseModHud(props: Record<string, unknown>): boolean {
   return !(v === false || (typeof v === "string" && v.trim().toLowerCase() === "false"));
 }
 
+/** `upcoming-dock` — which edge the calendar's Upcoming panel docks to.
+
+    Same two words and the same reading as `terminal-dock`: only the exact
+    word `right` docks it beside the last weekday column, and an unset key, a
+    typo or a non-string all read as `bottom` — the shape the panel has always
+    had, so a junk value costs nothing.
+
+    Null, rather than the default, when the key is absent: the panel's
+    placement used to live in this machine's browser store, and the boot read
+    honours that older choice while nothing has written the note (see
+    `legacyStoredPlacement`). Every other reader wants
+    `?? DEFAULT_AGENDA_PLACEMENT`. */
+export function parseUpcomingDock(
+  props: Record<string, unknown>,
+): AgendaPlacement | null {
+  const key = foldedPropKey(props, "upcoming-dock");
+  if (!(key in props)) return null;
+  const v = props[key];
+  const s = typeof v === "string" ? v.trim().toLowerCase() : "";
+  return s === "right" ? "right" : DEFAULT_AGENDA_PLACEMENT;
+}
+
+/** `note-sort` — how the Scratch list, the Notes list and every folder list
+    are ordered: a field and a direction in one value (`updated desc`,
+    `name asc`). Default last-edited newest-first.
+
+    Junk in either half degrades to that half's default rather than to
+    nothing, so a hand-written `note-sort: name` is A–Z. A database pane's
+    own remembered sort outranks this — that is the view's answer about one
+    database, this is the vault's answer about plain lists.
+
+    `null` is the key being ABSENT, which is a different thing from a stated
+    `updated desc`: the Journal keeps its dateline order only while the vault
+    has said nothing, and a value comparison cannot tell an explicit pick of
+    the default apart from never having picked. */
+export function parseNoteSort(props: Record<string, unknown>): ListSort | null {
+  const key = foldedPropKey(props, "note-sort");
+  if (!(key in props)) return null;
+  return readListSort(props[key]);
+}
+
 /** `db-grid` — vertical column rules in database tables. Default
     ON, same rule as `drop-hint`: only an explicit `false` turns the grid off
     globally. A database's own ViewPref `grid` overrides this either way. */
@@ -301,6 +347,45 @@ export function parseAutoSync(props: Record<string, unknown>): boolean {
 export function parseFeedCurator(props: Record<string, unknown>): string {
   const v = props[foldedPropKey(props, "feed-curator")];
   return typeof v === "string" ? v.trim() : "";
+}
+
+/** `feed-topics` — the topic chips the feed dashboard is filtering on:
+    the slugs the reader said they care about, lowercased, in the order they
+    were picked. An empty list is "no filter" — the whole stream — which is
+    also what a present-but-unreadable value reads as, since the honest answer
+    to a junk filter is to hide nothing.
+
+    A stated preference rather than arrangement, which is why it is in this
+    note at all: "these are the topics I care about" is a fact about the
+    person and follows them to a second machine, where "this panel is 168px
+    tall" does not. A bare string reads as a one-topic list, because a
+    hand-edited note is allowed to say `feed-topics: plugins`.
+
+    Null, rather than the empty list, when the key is absent: the filter used
+    to live in this machine's browser store, and the boot read honours that
+    older selection while nothing has written the note (see
+    `legacyStoredTopics`). Every other reader wants `?? []`. */
+export function parseFeedTopics(props: Record<string, unknown>): string[] | null {
+  const key = foldedPropKey(props, "feed-topics");
+  if (!(key in props)) return null;
+  const raw = props[key];
+  const items = Array.isArray(raw) ? raw : typeof raw === "string" ? [raw] : [];
+  return normalizeFeedTopics(items);
+}
+
+/** Slugs in, clean slugs out: strings only, trimmed, lowercased, empties
+    dropped, first spelling of a duplicate kept. Shared by the note read, the
+    browser-store read and the chip write, so all three agree on what a topic
+    selection looks like — the chips compare against `feedTopics`, which
+    lowercases the same way. */
+export function normalizeFeedTopics(items: readonly unknown[]): string[] {
+  const out: string[] = [];
+  for (const item of items) {
+    if (typeof item !== "string") continue;
+    const t = item.trim().toLowerCase();
+    if (t !== "" && !out.includes(t)) out.push(t);
+  }
+  return out;
 }
 
 /** The vault-root files the app itself owns (Settings.md joined): the seeded

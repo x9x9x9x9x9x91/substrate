@@ -806,6 +806,103 @@
   cursor: default;
 }
 
+/* inline PDF: the page itself carries the weight, so the frame is a hairline
+   and the controls sit under it in the same quiet register as the file chip */
+.cm-embed-pdf {
+  display: inline-block;
+  max-width: 100%;
+  padding: 2px 0;
+  outline: none;
+}
+
+.cm-pdf-frame {
+  display: block;
+  max-width: 100%;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-3);
+  overflow: hidden;
+  /* the page is white-on-dark by nature — a light slab under a rendering
+     canvas keeps a part-transparent page from reading as a hole */
+  background: #fff;
+}
+
+.cm-embed-pdf:focus .cm-pdf-frame {
+  border-color: var(--border-strong);
+  box-shadow: 0 0 0 1px var(--border-soft);
+}
+
+.cm-pdf-canvas {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.cm-pdf-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px 0;
+  color: var(--text-3);
+  font-size: var(--fs-3);
+}
+
+.cm-pdf-step {
+  flex: none;
+  min-width: 20px;
+  padding: 0 4px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--r-2);
+  color: var(--text-2);
+  cursor: pointer;
+  line-height: 1.5;
+}
+
+.cm-pdf-step:hover:not(:disabled) {
+  border-color: var(--border-soft);
+}
+
+.cm-pdf-step:disabled {
+  color: var(--text-3);
+  opacity: 0.4;
+  cursor: default;
+}
+
+.cm-pdf-count {
+  flex: none;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-2);
+}
+
+.cm-pdf-name {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cm-pdf-open {
+  flex: none;
+  padding: 0 6px;
+  background: none;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-2);
+  color: var(--text-2);
+  font-size: var(--fs-2);
+  cursor: pointer;
+  line-height: 1.6;
+}
+
+.cm-pdf-open:hover {
+  border-color: var(--border);
+}
+
+.cm-pdf-missing {
+  display: inline-block;
+  cursor: default;
+}
+
 .backlinks {
   margin-top: 56px;
   border-top: 1px solid var(--border-soft);
@@ -877,4 +974,293 @@
   font-family: var(--mono);
   font-size: var(--fs-2);
   color: var(--text-2);
+}
+
+/* ── rendered `<!-- columns -->` regions ───────────────────────
+   All or nothing. A row that fits what it can and wraps the rest reads as a lie
+   at narrow widths: a third column dropped under the first looks like that
+   column's continuation, not its own. So the row has exactly two states — every
+   column side by side, or every column stacked in written order — and the
+   switch is the whole row's, not each cell's.
+
+   `--columns` is the column count, set on the widget by editor-widgets.ts —
+   the one thing CSS cannot count for itself. Times 160px it gives the width the
+   whole row needs. Under that the basis calc goes hugely positive and clamps to
+   the full measure, so every cell takes a line of its own; over it the calc goes
+   negative, clamps to zero, and the cells share the row evenly. No media query,
+   so it answers to the PANE's width rather than the window's.
+
+   The multiplier is what makes that a switch rather than a ramp. Between the two
+   states the calc passes through basis values where SOME cells still share a
+   line — the ragged row this rule exists to refuse — and the band of container
+   widths landing there is about the row's width over the multiplier. At 999 that
+   band was wide enough to hold layout units: sweeping 470–492px at Blink's
+   1/64px step put six of them in a partial row at ~479.8px, which is a flash
+   while a divider is dragged and a stuck ragged row if the pane comes to rest
+   on one. 99999 shrinks the band to about 0.005px, under one layout unit, and
+   the same sweep at 2, 3 and 4 columns finds no width in between. It is a band
+   narrower than the grid rather than a true step function: the exact fix is a
+   container query, which cannot read `--columns` in its condition and so would
+   need a breakpoint spelled out per column count on each of the three sheets.
+
+   160px is the ROW's per-column share, not the cell's — the column gap comes out
+   of it. Three columns go side by side once the row reaches 480px, and the cells
+   are then about 139px each (480 less two 32px gaps, split three ways). The
+   number is set by the surface rather than by taste: the note pane holds prose
+   to a readable measure of about 490px however wide the window gets, so three
+   columns is the most a page can put side by side. Two columns clear it in a
+   half-width pane; a pane narrower than that stacks. */
+.cm-columns {
+  display: flex;
+  flex-wrap: wrap;
+  /* the row gap carries the separation in the stacked state: a cell's first
+     child has its top margin zeroed, so nothing else would */
+  gap: 16px 32px;
+  padding: 4px 0 10px;
+}
+
+.cm-column {
+  flex-grow: 1;
+  flex-basis: calc((var(--columns, 1) * 160px - 100%) * 99999);
+  min-width: 0; /* a long word or a wide table shrinks the cell, never the row */
+  /* the editor content around this widget is pre-wrap, so the newlines
+     between rendered blocks would print as blank lines inside every column */
+  white-space: normal;
+  font-size: var(--fs-5);
+  line-height: 1.65;
+  color: var(--text-1);
+}
+
+.cm-column > *:first-child {
+  margin-top: 0;
+}
+
+.cm-column > *:last-child {
+  margin-bottom: 0;
+}
+
+/* the editor's own heading scale (the markdown highlight style in Editor.tsx),
+   so a heading reads the same size inside a column as it does above one */
+.cm-column h1,
+.cm-column h2,
+.cm-column h3,
+.cm-column h4,
+.cm-column h5,
+.cm-column h6 {
+  margin: 1.1em 0 0.35em;
+  font-weight: var(--fw-strong);
+  line-height: 1.3;
+}
+
+.cm-column h1 {
+  font-size: 1.5em;
+  letter-spacing: -0.012em;
+}
+
+.cm-column h2 {
+  font-size: 1.28em;
+  letter-spacing: -0.008em;
+}
+
+.cm-column h3 {
+  font-size: 1.12em;
+}
+
+/* a markdown link inside a column is rendered HTML, not a highlighted token,
+   so it needs the colour the syntax highlighting gives it everywhere else */
+.cm-column .cm-mdlink {
+  color: var(--link);
+  cursor: pointer;
+}
+
+.cm-column .cm-mdlink:hover {
+  text-decoration: underline;
+}
+
+.cm-column p {
+  margin: 0.55em 0;
+}
+
+.cm-column ul,
+.cm-column ol {
+  margin: 0.55em 0;
+  padding-left: 1.3em;
+}
+
+.cm-column li {
+  margin: 0.15em 0;
+}
+
+.cm-column li.print-task {
+  list-style: none;
+  margin-left: -1.3em;
+}
+
+/* A task at a column's top level is a REAL `.cm-task-toggle` control now —
+   the widget renders the box itself and writes the flip back to the source
+   line, so it rightly wears the live checkbox's costume (above) and the done
+   line fades below exactly as it did when the mark was ink.
+
+   The printed mark survives in one place: a task inside a QUOTE or a callout
+   body, which still renders through the print pass. There it stays ink — an
+   outline, a tick, no accent fill — because there it is still a picture.
+
+   Ink, though, has to be ink. Drawn in `--border` this box was about 1.2:1
+   against the pane and an unchecked one read as nothing at all — which loses
+   the "there is a task here" signal the mark exists to carry. The two inks
+   keep the printed sheet's relationship instead: the outline is the dimmer
+   one and the glyph is the stronger, both plainly visible, neither as loud
+   as body text. */
+.cm-column .print-box {
+  display: inline-block;
+  width: 0.95em;
+  height: 0.95em;
+  margin-right: 0.45em;
+  border: 1px solid var(--text-3);
+  border-radius: 2px;
+  font-size: 0.78em;
+  line-height: 0.9em;
+  text-align: center;
+  vertical-align: -0.05em;
+  color: var(--text-2);
+  cursor: default;
+}
+
+.cm-column .print-task.done {
+  color: var(--text-3);
+}
+
+.cm-column .print-task.done .print-box {
+  color: var(--text-3);
+}
+
+/* the live box, sized against the column's smaller type — the 14px editor
+   box reads oversized at --fs-5, and the -2px baseline shift that centers it
+   on an editor line floats it here */
+.cm-column .cm-task-toggle {
+  width: 13px;
+  height: 13px;
+  vertical-align: -1.5px;
+}
+
+/* A callout inside a rendered column: the same quiet frame the callout wears
+   while it is written (`.cm-callout-line` above), collapsed onto one box —
+   glyph carries the KIND hue, `data-accent` puts the author's mood on the
+   left rule via the tokens.css roster map, body stays the print rendering. */
+.cm-column .cm-colcallout {
+  margin: 0.7em 0;
+  padding: 6px 12px 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-2);
+  color: var(--text-2);
+}
+
+.cm-column .cm-colcallout[data-accent] {
+  border-left-color: var(--accent-tint);
+}
+
+.cm-column .cm-colcallout-head {
+  font-size: var(--fs-4);
+}
+
+.cm-column .cm-colcallout-body > *:first-child {
+  margin-top: 0.35em;
+}
+
+.cm-column .cm-colcallout-body > *:last-child {
+  margin-bottom: 0;
+}
+
+/* live embeds mounted in a cell answer to the cell's measure — their own
+   sheets already cap at 100% / 560px, this only keeps a wide drawn view from
+   bursting the grid */
+/* the widget is a block; inside a column it is one of the column's own
+   blocks — held to the cell's width and given the same rhythm as a
+   paragraph or a table there */
+.cm-column .embed-view {
+  max-width: 100%;
+  margin: 0.7em 0;
+}
+
+.cm-column blockquote {
+  margin: 0.7em 0;
+  padding-left: 12px;
+  border-left: 2.5px solid var(--border-strong);
+  color: var(--text-2);
+  font-style: italic;
+}
+
+.cm-column hr {
+  margin: 1.2em 0;
+  border: none;
+  border-top: 1px solid var(--border-soft);
+}
+
+/* the same quiet card the rendered tables wear, at column measure */
+.cm-column table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-3);
+  margin: 0.7em 0;
+  font-size: var(--fs-4);
+  line-height: 1.5;
+}
+
+.cm-column th,
+.cm-column td {
+  padding: 5px 10px;
+  text-align: left;
+}
+
+.cm-column th {
+  font-size: var(--fs-3);
+  font-weight: var(--fw-strong);
+  color: var(--text-2);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.cm-column td {
+  border-top: 1px solid var(--border-soft);
+}
+
+.cm-column pre {
+  margin: 0.7em 0;
+  padding: 8px 10px;
+  border-radius: var(--r-2);
+  background: var(--surface-faint);
+  overflow-x: auto;
+  font-family: var(--mono);
+  font-size: var(--fs-3);
+}
+
+.cm-column code {
+  font-family: var(--mono);
+  font-size: 0.88em;
+}
+
+.cm-column img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--r-2);
+}
+
+.cm-column .print-embed,
+.cm-column .print-missing {
+  color: var(--text-3);
+  font-size: var(--fs-3);
+  font-style: italic;
+}
+
+/* an audio player or a file chip mounted in a cell keeps its own type scale —
+   the column's smaller body size would shrink the transport controls, and a
+   player that reads as a footnote is a player nobody aims at */
+.cm-column .cm-audio,
+.cm-column .cm-filechip {
+  font-size: var(--fs-4);
+}
+
+.cm-column .cm-audio {
+  margin: 0.5em 0;
 }

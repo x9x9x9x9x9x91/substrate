@@ -4,7 +4,10 @@ import { EditorState } from "@codemirror/state";
 import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { languages } from "@codemirror/language-data";
+import { parseColumnRegions } from "./columns.ts";
 import {
+  columnsCommand,
+  columnsWrapRefusal,
   fenceDbType,
   fenceExit,
   fenceInner,
@@ -113,6 +116,7 @@ test("slashOptions: everything on a bare slash, fuzzy-narrowed after", () => {
       "calendar",
       "cards",
       "chart",
+      "columns",
       "csv",
       "date",
       "formulas",
@@ -178,6 +182,63 @@ test("/table scaffolds a real table with the cursor in the first header cell", (
   const lines = table.insert.split("\n");
   assert.equal(lines.length, 3);
   assert.equal(lines[0].split("|").length, lines[1].split("|").length);
+});
+
+/* The one command whose insert is not fixed: with nothing picked it is the
+   empty two-column skeleton, and with a selection the picked text becomes the
+   left column rather than being spent on opening the menu. Both shapes have to
+   parse as a real region — an insert the parser reads as literal marker lines
+   would leave the author looking at their own comment syntax. */
+test("/columns inserts a two-column region, empty or wrapped around a selection", () => {
+  const empty = slashCommands().find((c) => c.name === "columns")!;
+  const [region] = parseColumnRegions(empty.insert);
+  assert.ok(region, "the skeleton parses as a region");
+  assert.equal(region.columns.length, 2, "two columns");
+  assert.equal(region.columns[0].text.trim(), "");
+  assert.equal(region.columns[1].text.trim(), "");
+  // the cursor opens the first column: the empty line under the opener, which
+  // is where the next thing typed belongs
+  assert.equal(empty.insert.slice(0, empty.cursor), "<!-- columns -->\n");
+
+  // with a selection, the picked text IS the first column, verbatim
+  const wrapped = columnsCommand("## Left\n- one");
+  const [made] = parseColumnRegions(wrapped.insert);
+  assert.ok(made, "the wrap parses as a region too");
+  assert.equal(made.columns.length, 2);
+  assert.equal(made.columns[0].text, "## Left\n- one");
+  assert.equal(made.columns[1].text.trim(), "", "and the second is the empty half");
+  // and the cursor opens THAT half — the one still to be written
+  assert.equal(
+    wrapped.insert.slice(0, wrapped.cursor),
+    "<!-- columns -->\n## Left\n- one\n<!-- col -->\n"
+  );
+  assert.equal(wrapped.insert.slice(wrapped.cursor), "\n<!-- /columns -->");
+});
+
+test("columnsWrapRefusal: ordinary text wraps, half a structure refuses", () => {
+  // the common case says nothing at all
+  assert.equal(columnsWrapRefusal("## Left\n- one\n- two"), null);
+  assert.equal(columnsWrapRefusal(""), null);
+  // a whole fenced block is ordinary text as far as the wrap is concerned
+  assert.equal(columnsWrapRefusal("before\n```js\nlet a = 1;\n```\nafter"), null);
+
+  // a pick that starts inside a region would put a `<!-- columns -->` inside
+  // another one, which parses as neither
+  for (const marker of ["<!-- columns -->", "<!-- col -->", "<!-- /columns -->"]) {
+    const refusal = columnsWrapRefusal(`text\n${marker}\nmore`);
+    assert.ok(refusal, `${marker} refuses`);
+    assert.match(refusal!, /column/i);
+  }
+
+  // and a pick that stops inside a fence takes the opener without its closer,
+  // so the markers after it land INSIDE the code block
+  const cut = columnsWrapRefusal("```js\nlet a = 1;");
+  assert.ok(cut, "an unbalanced fence refuses");
+  assert.match(cut!, /code block/i);
+  // the tilde spelling and a longer run count the same
+  assert.ok(columnsWrapRefusal("~~~~\nraw"));
+  // a closer of a different flavour does not close it
+  assert.ok(columnsWrapRefusal("```js\nlet a = 1;\n~~~"));
 });
 
 test("fence scaffolds: well-formed fences, cursor on the first value, fenceExit walks out", () => {

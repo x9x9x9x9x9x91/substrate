@@ -193,8 +193,7 @@ pub(crate) struct VolumeKind {
 }
 
 /// Filesystem types that are somebody else's disk, not one of yours.
-const NETWORK_FSTYPES: [&str; 7] =
-    ["smbfs", "afpfs", "nfs", "webdav", "autofs", "cifs", "ftp"];
+const NETWORK_FSTYPES: [&str; 7] = ["smbfs", "afpfs", "nfs", "webdav", "autofs", "cifs", "ftp"];
 
 /// Whether a mounted filesystem is the kind of thing the shelf is for.
 ///
@@ -616,9 +615,10 @@ impl Engine {
     pub fn adopt_volume(&mut self, vol: &Volume) -> Result<String, String> {
         let now = chrono::Local::now().to_rfc3339();
         let mut mounts = self.mounts();
-        if let Some(m) = mounts.iter_mut().find(|m| {
-            m.volume.as_ref().map(|v| v.id.as_str() == vol.id.as_str()).unwrap_or(false)
-        }) {
+        if let Some(m) = mounts
+            .iter_mut()
+            .find(|m| m.volume.as_ref().map(|v| v.id.as_str() == vol.id.as_str()).unwrap_or(false))
+        {
             let id = m.id.clone();
             let mark = m.volume.get_or_insert_with(Default::default);
             mark.label = vol.label.clone();
@@ -722,7 +722,11 @@ impl Engine {
     ///
     /// Every hit carries its catalog's `scanned` stamp, so an answer from a
     /// year-old catalog can never be shown as if it were checked today.
-    pub fn search_drives(&self, query: &str, bindings: &BTreeMap<String, PathBuf>) -> Vec<DriveHit> {
+    pub fn search_drives(
+        &self,
+        query: &str,
+        bindings: &BTreeMap<String, PathBuf>,
+    ) -> Vec<DriveHit> {
         let needle = query.trim().to_lowercase();
         if needle.is_empty() {
             return Vec::new();

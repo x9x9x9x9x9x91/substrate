@@ -1148,6 +1148,7 @@ mod tests {
             Some(vec!["Dolomites.md".to_string(), "Kyoto.md".to_string()]),
             None,
             None,
+            None,
         )
         .unwrap();
 
@@ -1198,6 +1199,7 @@ mod tests {
             None,
             None,
             Some(vec!["Releases/Note.md".to_string()]),
+            None,
             None,
             None,
         )

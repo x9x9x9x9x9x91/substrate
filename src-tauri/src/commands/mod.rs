@@ -12,8 +12,8 @@ pub(crate) mod calendarfeeds;
 pub(crate) mod context;
 pub(crate) mod cookbook;
 pub(crate) mod curator;
-pub(crate) mod drives;
 pub(crate) mod deeplink;
+pub(crate) mod drives;
 pub(crate) mod files;
 pub(crate) mod fx;
 pub(crate) mod history;
@@ -32,6 +32,7 @@ pub(crate) mod schema;
 pub(crate) mod search;
 pub(crate) mod share;
 pub(crate) mod sharetoken;
+pub(crate) mod syncfolders;
 pub(crate) mod tags;
 pub(crate) mod trash;
 pub(crate) mod vaultsync;
@@ -94,7 +95,6 @@ pub(crate) fn finish_inherited_seal<T>(
     }
     operation
 }
-
 
 /// Select only source paths whose stable within-folder suffix appears among
 /// the converted destination paths. Mixed sealed/plaintext folder moves then

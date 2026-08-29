@@ -142,6 +142,33 @@ test("a fence opener with a spaced info string still shields its body (SUB-898)"
   if (md.kind === "markdown") assert.ok(md.text.includes("> [!note] not a callout"));
 });
 
+test("a longer fence run closes, and a tilde fence shields too", () => {
+  // a four-backtick fence is how a note shows a three-backtick sample. The
+  // inner ``` must not end it, and the ```` line must — otherwise the board
+  // stays inside code for the rest of the page and every section below the
+  // sample disappears.
+  const body = [
+    "````md",
+    "```",
+    "> [!note] shown, not parsed",
+    "```",
+    "````",
+    "",
+    "~~~text",
+    "> [!warn] also shown",
+    "~~~",
+    "",
+    "## After",
+    "> [!idea] real",
+  ].join("\n");
+  const blocks = parseHub(body);
+  assert.deepEqual(kinds(blocks), ["markdown", "section", "cards"]);
+  const cards = blocks[2];
+  if (cards.kind !== "cards") assert.fail("want cards");
+  assert.equal(cards.callouts.length, 1, "only the callout outside every fence");
+  assert.equal(cards.callouts[0].kind, "idea");
+});
+
 test("CRLF bodies parse like LF bodies", () => {
   const lf = parseHub("## Sec\n\n> [!note] A\n> x\n\npara\n");
   const crlf = parseHub("## Sec\r\n\r\n> [!note] A\r\n> x\r\n\r\npara\r\n");

@@ -160,6 +160,17 @@ li.print-task { list-style: none; margin-left: -1.4em; }
 .print-task.done .print-box { background: ${accent}; border-color: ${accent}; color: #fff; }
 .print-link { color: ${accent}; }
 .print-embed, .print-missing { color: #6e6e6e; font-style: italic; }
+/* all or nothing, the same rule the app and the print sheet keep: side by side
+   when every column clears the minimum, one stack when they do not. The row gap
+   is what separates the stacked columns — cell margins are zeroed. 13rem is the
+   row's per-column share and the 2rem column gap comes out of it: three columns
+   go abreast at a 39rem row, each cell then about 11.7rem. The multiplier keeps
+   the switch narrower than a layout unit — see codemirror.css. */
+.print-columns { display: flex; flex-wrap: wrap; gap: 1rem 2rem; margin: 1em 0; }
+.print-column { flex-grow: 1; flex-basis: calc((var(--columns, 1) * 13rem - 100%) * 99999);
+  min-width: 0; }
+.print-column > *:first-child { margin-top: 0; }
+.print-column > *:last-child { margin-bottom: 0; }
 `;
 }
 

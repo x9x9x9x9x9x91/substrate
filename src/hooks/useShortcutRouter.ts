@@ -1,5 +1,5 @@
 import { useLayoutEffect } from "react";
-import { isTyping } from "../lib/dom";
+import { inAppUndoForm, isTyping } from "../lib/dom";
 import { menuUp } from "../lib/menusurfaces";
 import { matchShortcut, pinIndexForKey, type ShortcutCtx } from "../lib/shortcuts";
 import { playerStep } from "../components/MiniPlayer";
@@ -256,6 +256,7 @@ export function useShortcutRouter(opts: {
         shortcutsOpen,
         settingsOpen,
         typing: isTyping(e.target),
+        undoForm: inAppUndoForm(e.target),
         selectedMeta,
         dbNote,
         daily: selectedMeta ? dailyDateOf(selectedMeta.path) : null,

@@ -35,9 +35,9 @@ count, is the contract.
 
 | Command | lib.rs | Engine | What changes on disk | Invertible — what to capture | Covered today |
 |---|---|---|---|---|---|
-| `vault_write_body` | `:136` | `write_body` `vault/mod.rs:1152` | Whole body replaced; frontmatter preserved byte-verbatim | ✅ prior body. **The only guarded writer** — `expected: Option<&str>` body compare at `vault/mod.rs:1191-1195` | CodeMirror history (`Editor.tsx:1093`), food stack (`FoodDashboard.tsx:225`) |
-| `vault_fm_write` | `:125` | `fm_write` `vault/mod.rs:1111` | Whole **frontmatter block** replaced; body preserved | ✅ prior raw FM string + a no-FM-at-all sentinel | ❌ none |
-| `vault_set_prop` | `:152` | `set_prop_value` `vault/mod.rs:1273` | One FM key set/removed; whole prop map re-serialized (BTreeMap order, YAML reflowed) | ✅ `Option<Value>` prior — `None` *is* the absence sentinel and is directly the inverse argument | Calendar drag + board drag only (§1.8) |
+| `vault_write_body` | `:136` | `write_body` `vault/mod.rs:1152` | Whole body replaced; frontmatter preserved byte-verbatim | ✅ prior body. **The only guarded writer** — `expected: Option<&str>` body compare at `vault/mod.rs:1191-1195` | CodeMirror history (`Editor.tsx:1093`); pane body actions via `bodyEditUndoable` (`undobody.ts`) — the food board's rows are `pane:food` entries on the shared stack |
+| `vault_fm_write` | `:125` | `fm_write` `vault/mod.rs:1111` | Whole **frontmatter block** replaced; body preserved | ✅ prior raw FM string + a no-FM-at-all sentinel | ✅ `fmWriteUndoable` (`undofm.ts`) — repair dialog and workbook page writes, with an explicit no-frontmatter sentinel |
+| `vault_set_prop` | `:152` | `set_prop_value` `vault/mod.rs:1273` | One FM key set/removed; whole prop map re-serialized (BTreeMap order, YAML reflowed) | ✅ `Option<Value>` prior — `None` *is* the absence sentinel and is directly the inverse argument | ✅ every user-facing site via `setPropUndoable` (`undoprops.ts`); the direct callers left are seeds, import stamps and the scripted-kind API (§1.2) |
 | `url_capture` | `:200` | `create_reference` `vault/mod.rs:1456` | Creates `Inbox/<slug>.md`, then **asynchronously** may rename + write body (`spawn_url_enrichment`, `commands/notes.rs:122`) | 🟡 sync part inverts by trashing; the async tail lands after the undo record is taken | ❌ none |
 | `history_restore` | `:1310` | `write_raw` `vault/mod.rs:1207` | Whole file (FM included) overwritten from git, then snapshotted | ✅ the pre-restore commit id — the inverse is another restore. **No guard**: `write_raw` has no `expected` | n/a (additive by design) |
 | `mount_annotate` | `commands/mounts.rs:151` | `mount_annotate` `vault/mounts.rs:514` | Sets one prop on a mount row's sidecar, **creating** the note on first annotation | ✅ same shape as `vault_set_prop` (prior `Option<Value>`); the create case inverts by trashing | ❌ none |
@@ -45,25 +45,46 @@ count, is the contract.
 
 ### 1.2 Property edits
 
-`vault_set_prop` is the single property writer. Nine call sites, two of which
-have undo:
+`vault_set_prop` is the single property writer, and every site where a person
+sets a property now goes through `setPropUndoable` / `bulkSetPropUndoable`
+(`undoprops.ts`): the database pane (cells, toggles, the bulk bar), the note
+pane's PropForm, the palette quick-set, Today's "schedule for", settings, the
+calendar's drag and its status/repeat/skip/until menus, the sidebar menus, the
+reading shelf's read/queued flags, the feed's curator field and the tasks
+board's layout and ordering switches.
 
-| Call site | file:line | Undo today |
+A view flip is undoable everywhere, the tasks board included. It was held off
+the stack there on the reasoning that a layout choice is not content — but the
+database panes record theirs (§1.5), so the same gesture meant opposite things
+depending on which pane you were standing in, and a person who flipped a layout
+by accident had no way back in one place and one ⌘Z in the other. The board's
+flips are ordinary guarded prop writes now: the inverse writes the prior
+layout only while the board still holds what the flip wrote, and a layout
+changed elsewhere since refuses with the disk-conflict message rather than
+overwriting it.
+
+The direct `vaultSetProp` callers that remain are deliberate, and each carries
+its reason in the code. One of them is not a way around the recorder at all —
+it is the writer `setPropUndoable` was handed — and the column says which:
+
+| Direct caller | file:line | Why it calls the command directly |
 |---|---|---|
-| Calendar drag / peek date move | `CalendarPane.tsx:279` | ✅ toast (`:285`) |
-| Board column drag | `DatabasePane.tsx:1405` via `writeCell` `:1204` | ✅ toast (`:1403`) |
-| Table cell commit | `DatabasePane.tsx:1220` | ❌ |
-| List/relation/multi toggle | `DatabasePane.tsx:1233`, `:1381` | ❌ |
-| **Bulk bar, N notes at once** | `DatabasePane.tsx:1328`, `:1349` | ❌ |
-| PropForm (note pane) | `NotePane.tsx:619` | ❌ |
-| Palette quick-set | `Palette.tsx:252` | ❌ |
-| Today "schedule for" | `TodayPane.tsx:205` | ❌ |
-| Settings | `SettingsPane.tsx:134`, `:147` | ❌ |
-| Calendar status/repeat/skip/until | `CalendarPane.tsx:318`, `:346`, `:358`, `:367-369`, `:374`, `:1018` | ❌ |
+| Tasks board's view/sort writer | `TasksDashboard.tsx:269` | not a plain caller: it is the `PropWriter` `setPropUndoable` writes the flip AND its inverse through, so the pane's one-at-a-time chain still holds and the switch adopts whichever direction ran |
+| Tasks board new-task seeds | `TasksDashboard.tsx:487-490` | part of the create App already recorded — stacking them would make ⌘Z peel seeds off a note |
+| Import run's `created` stamp | `importrun.ts:242` | repairs the date the create just wrote; not an action the user took |
+| Note-copy initial props | `noteactions.ts:50` | the copy's own seed props, part of the create |
+| Scripted-kind `setProp` | `CustomKindPane.tsx:883` | the kind API's guarded door — kinds publish their own undo through `ctx.setUndo` |
 
-`bulkWriteLive` (`DatabasePane.tsx:1328`) fans one `vaultSetProp` per selected
-path with no batching and no undo. It is the single most destructive everyday
-action in the app.
+`rg -n 'vaultSetProp\(' src --glob '!**/undoprops.ts' --glob '!**/ipc.ts' --glob '!**/*.test.ts'`
+is the check that keeps this table honest — the three excluded files are the
+recorder, the command binding and the tests, none of which is a direct caller.
+What is left is one hit per row above, the new-task seeds being four lines of
+one row and the tasks board's view/sort writer being the undoable path's own
+writer rather than a way around it.
+
+`bulkWriteLive` (`DatabasePane.tsx`) fans one write per selected path. It was
+the single most destructive everyday action in the app; it now records one
+entry covering all N notes.
 
 `vault_note_add_tags` is the one other frontmatter writer — a case-folded
 union on `tags:`, reached by dropping a note on a tag folder
@@ -90,6 +111,14 @@ drop still lands, but that one action is not undoable.
 
 ### 1.4 Schema
 
+The four single-prop commands — `vault_schema_set`, `vault_schema_set_icon`,
+`vault_schema_home_set`, `vault_create_type` — are undoable today through
+`src/lib/undodb.ts`, `vault_create_type` on the New-database path only (the
+row below says why the CSV import stays off the stack). The `notify` caveat below is honoured explicitly: the
+inverse passes `Some(old_notify)` and the old lead time (`Some(0)` when the
+prop had none), because leaving either out means "keep what's there" and the
+inverse would silently preserve the value it was meant to take back.
+
 All four bulk commands carry a doc-comment telling the caller to take a
 `history_snapshot` first (`commands/schema.rs:145`, `:159`, `:172`, `:186`) — the codebase
 already concedes these are not row-invertible.
@@ -99,7 +128,7 @@ already concedes these are not row-invertible.
 | `vault_schema_set` | `:608` | One prop's schema in `.vault/schema.json` | ✅ prior `PropSchema` + type-entry-existed flag. **Caveat**: `notify` is `unwrap_or(keep)` and `notify_before` is `.or(keep_before)` (`vault/schema.rs`) — the inverse must pass `Some(old_notify)` and the old lead time explicitly, `Some(0)` where it was off |
 | `vault_schema_set_icon` | `:630` | Type icon | ✅ prior `DbIcon`; build from the *stored* value (emoji beats glyph, orphan tint drops) |
 | `vault_schema_home_set` | `:650` | Type home folder | ✅ prior `Option<String>`; the uniqueness check can make the inverse *fail* |
-| `vault_create_type` | `:664` | New type entry | ✅ remove the entry |
+| `vault_create_type` | `:664` | New type entry | ✅ remove the entry — from the New-database dialog only (`useDbAdmin.ts:143`). The CSV import (`:181`) records nothing: it creates the type and then one note per row, and the inverse refuses a database that holds notes, so an entry there would be dead the moment it was pushed |
 | `vault_rename_type` | `:678` | Rewrites `type:` on every note of the type + relation targets + views key + `$sidebar` + template file + `folders.json` + the mount of that name (§8 vault-format) | ❌ count-only return (`BulkSweep`) |
 | `vault_delete_type` | `:692` | Strips `type:` from N notes **or trashes them all**; deletes the template file | ❌ N unreturned trash ids, template bytes gone |
 | `vault_rename_prop` | `:705` | Renames a FM key across every note of the type; `skipped` notes already had the new key | ❌ `BulkSweep{notes,skipped}` only |
@@ -115,15 +144,19 @@ revert. Recovery is still the pre-sweep snapshot, not a reverse sweep.
 
 ### 1.5 View-config
 
-Every one is a whole-object replace and therefore trivially invertible.
+Every one is a whole-object replace and therefore trivially invertible. All
+five are undoable today through `src/lib/undoviews.ts`, which captures the
+whole prior object (never a patch) and guards each inverse on the object the
+action wrote. The one hole is an object that did not exist yet — see the
+`vault_views_set` row.
 
 | Command | lib.rs | Capture | Covered |
 |---|---|---|---|
-| `vault_views_set` | `:456` | prior `ViewPref`. **Replaces every field** — a partial call already silently wipes sorts/widths/wrap | ❌ |
-| `vault_set_sidebar_order` | `:548` | prior `SidebarOrder` | ❌ |
-| `vault_saved_view_set` | `:564` | prior `SavedView` or absent-sentinel | ❌ |
-| `vault_saved_view_delete` | `:575` | the removed `SavedView` **and its index** (re-`set` appends to the end) | ❌ |
-| `vault_folder_icon_set` | `:488` | prior `DbIcon` | ❌ |
+| `vault_views_set` | `:456` | prior `ViewPref`. **Replaces every field** — a partial call already silently wipes sorts/widths/wrap | ✅ `undoviews.ts`, from the second edit on. The FIRST edit on a database with no stored pref records nothing: the command can only replace an entry, never remove one, so "no pref at all" is a state no inverse can write back |
+| `vault_set_sidebar_order` | `:548` | prior `SidebarOrder` | ✅ `undoviews.ts` |
+| `vault_saved_view_set` | `:564` | prior `SavedView` or absent-sentinel | ✅ `undoviews.ts` |
+| `vault_saved_view_delete` | `:575` | the removed `SavedView` **and its index** (re-`set` appends to the end) | ✅ `undoviews.ts` |
+| `vault_folder_icon_set` | `:488` | prior `DbIcon` | ✅ `undoviews.ts` |
 
 ### 1.6 Destructive — permanent
 
@@ -156,7 +189,7 @@ Four mechanisms, two idioms, no shared vocabulary.
 | 1 | Trash toast | **mouse only** — `App.tsx:3028` | closure over `path`, in App's single toast slot `App.tsx:304-309` | 1, **shared with every toast in the app** | **4 s** (`App.tsx:393-397`) | ❌ | whole note via `vaultTrashList` → `vaultTrashRestore` (`App.tsx:1486-1504`) |
 | 2 | Calendar drag | mouse only | local const `prior` (`CalendarPane.tsx:277`) closed over, into the same slot | 1, shared | 4 s | ❌ | **one prop** — `vaultSetProp(path, prop, prior)` (`:285`) |
 | 3 | Board drag | mouse only | local const `cur` (`DatabasePane.tsx:1395`) | 1, shared | 4 s | ❌ | **one prop** — `writeCell(path, groupBy, cur)` (`:1405`) |
-| 4 | Food dashboard | **⌘Z / ⌘⇧Z** — `FoodDashboard.tsx:238-261` | two ref arrays of full note bodies (`:225-226`) | **50** (`:235`) | mounted pane only; dies on unmount | ✅ (`:249-251`) | whole body of one of two notes, **with the conflict guard** (`:257` → `vaultWriteBody` with `expected`) |
+| 4 | Food dashboard — **folded into the app stack** | ⌘Z / ⌘⇧Z, the app's own registry entry | `bodyEditUndoable` records a `pane:food` entry *after* the write lands | the shared 50 | evicted when the board unmounts | ✅ | whole body of one of two notes, **with the conflict guard** (`vaultWriteBody` with `expected`) |
 
 Undo-adjacent but not undo: TrashPane (`TrashPane.tsx:96-119`), HistoryPanel
 (`HistoryPanel.tsx:118-131`), `presweepSnapshot` (`App.tsx:1040-1044` — takes a
@@ -187,12 +220,13 @@ one source of truth so "the sheet cannot drift from the real bindings"
 | Focus | ⌘Z hits |
 |---|---|
 | CodeMirror content | `historyKeymap` (`Editor.tsx:1124`) |
-| Food dashboard (incl. inside `.dash-form`) | `FoodDashboard.tsx:239` |
+| Food dashboard (incl. inside `.dash-form`) | the app stack — the form declares `data-undo-scope="app"` |
 | Any other input/textarea | native browser text undo |
 | **Everywhere else** | **nothing** |
 
-The food dashboard's ⌘Z is therefore completely undiscoverable — it appears in
-neither the cheat sheet nor the hint panel.
+Undo and redo are registry entries now, so the cheat sheet lists them and the
+food board's ⌘Z is the app's ⌘Z rather than a private listener nobody could
+find.
 
 ### 1.9 API gaps that block undo today
 
@@ -382,12 +416,12 @@ and `FoodDashboard.tsx:52-61` add `SELECT`. Any routing that depends on "am I
 typing" is inconsistent by construction until this is one exported helper. That
 consolidation is slice 0 (§6.1).
 
-**The escape hatch stays.** The food dashboard deliberately overrides rule 1
-inside `.dash-form`, because after Enter-to-add the caret sits in a cleared field
-and ⌘Z there means "undo the add" (`FoodDashboard.tsx:241-243`). That is correct
-and generalizes: a form that *commits and clears* on Enter should opt its
-container into app-undo. It becomes a declared attribute
-(`data-undo-scope="app"`) rather than a hard-coded class check.
+**The escape hatch stays, and it is declared.** After Enter-to-add the caret
+sits in a cleared field, and ⌘Z there means "undo the add" — so a form that
+*commits and clears* opts its container in with `data-undo-scope="app"`
+(`inAppUndoForm`, `src/lib/dom.ts`), which the shortcut router reads as
+`ctx.undoForm`. The food board's two quick-add forms carry it; the old
+hard-coded `.dash-form` class check is gone.
 
 **Decided 2026-07-25**: ⌘Z inside a note's **property form** is native
 input undo while a field has focus, app-undo once it blurs — the design's
@@ -568,6 +602,21 @@ as (c) and the next ⌘Z walks past it. Conflicts keep their own message ("chang
 disk"); other failures toast the underlying error. Either way the stack keeps
 moving.
 
+**(d″) An entry undone while a new action was recorded is retired, not left
+runnable.** Running an inverse is a vault write, so the cursor only moves once
+it lands — and a person can record a fresh action inside that window. The push
+moves the cursor above the entry being undone, so it is no longer the one
+`peekUndo` returns, and a cursor move keyed on "the entry ⌘Z would run now"
+would quietly do nothing: both the reducer's stack and the runner's copy would
+keep the undone entry as runnable, and a later ⌘Z would walk back down onto it
+and run the same inverse a second time — a refusal that stales the whole stack
+if the inverse is guarded, the edit undone twice if it isn't. So `advance`
+retires the entry wherever it sits at or below the cursor: it drops out of the
+list, which is where a push arriving a moment later would have put it anyway
+(a push clears the redo side, and after a plain undo that entry IS the redo
+side). ⌘Z then reaches the action recorded during the undo, and the press after
+that reaches the entry below the one that was undone.
+
 This gives the invariant the credo demands:
 
 > **An undo can never overwrite a change the user didn't make.** Either it
@@ -597,11 +646,11 @@ Three consequences worth stating plainly:
    because the alternative is replaying a change-set onto moved offsets.
    **Decided 2026-07-25: the confirm ships as designed.**
 3. **Food dashboard's body-level undo is really an action undo.** Logging a meal
-   is an action whose implementation happens to be a body rewrite. It folds into
-   the app stack in slice 4 (§6.6) — and folding it in *fixes* its known bug: it
-   mutates both stacks before the async write resolves (`FoodDashboard.tsx:252-257`),
-   so a conflict permanently consumes the undo step and leaves a phantom redo.
-   The shared implementation pops only on success.
+   is an action whose implementation happens to be a body rewrite. It is folded
+   into the app stack (`bodyEditUndoable`, `src/lib/undobody.ts`), and folding it
+   in *fixed* its known bug: the private stacks were mutated before the async
+   write resolved, so a conflict permanently consumed the undo step and left a
+   phantom redo. The shared implementation records only after the write lands.
 
 ### 3.5 Sync pull
 
@@ -726,7 +775,9 @@ export function skippedStale(s: UndoState): UndoEntry | null;
 export function staleBecause(entry: UndoEntry): string;
 /** drop entries whose scope is a pane that just unmounted (§2.3) */
 export function evictScope(s: UndoState, scope: UndoScope): UndoState;
-/** commit a successful undo/redo — moves the cursor. Never called on failure. */
+/** commit a successful undo/redo — moves the cursor, or retires the entry
+    outright when a push moved the cursor above it meanwhile (§3.3d″). Never
+    called on failure. */
 export function advance(s: UndoState, id: number, dir: -1 | 1): UndoState;
 ```
 
@@ -764,8 +815,10 @@ Clicking the toast and pressing ⌘Z must be the same operation, so the toast's
 3. `invalidate(["A.md"])` marks only entries whose paths contain `A.md`.
 4. `peekUndo` skips a stale entry and returns the next live one.
 5. `evictScope("pane:food")` drops pane entries and keeps `vault` entries.
-6. advance is a no-op for an id that isn't the current cursor (a rejected undo
+6. advance leaves the stack alone for an id it no longer holds (a rejected undo
    must not move the cursor).
+6a. an action recorded while an inverse is in flight retires the undone entry
+   rather than leaving it runnable (§3.3d″).
 6b. `markStale(id)` marks that one entry and `peekUndo` then returns the next
    live one — a failed inverse must not be re-offered forever (§3.3d′).
 
@@ -852,21 +905,67 @@ stops re-reading the open note on every unrelated vault bump
 
 ### 6.5 Slice 4 — surface and discoverability
 
-- An undo menu (Edit menu + a stack popover) listing the last N actions with
-  their labels and stale marks — this is what makes a 50-deep stack usable and
-  what makes "changed on disk" legible rather than mysterious.
-- Toast Undo buttons become "pop entry #id", not independent closures.
-- **A restore affordance for `presweepSnapshot`** — the snapshot is taken today
-  (`App.tsx:1040-1044`) and no UI offers it. A schema sweep should end with
-  "Renamed 47 notes — Restore from snapshot", and the snapshot's own failure must
-  stop being swallowed by `.catch(console.warn)` (`App.tsx:1042`).
+**The stack popover shipped.** The sidebar's tool row carries an undo glyph
+next to the clock — the session's past beside the vault's — and the palette
+offers the same door as "Undo history". Both open the app's ordinary
+point-anchored menu (`ContextMenu`) over rows built by `src/lib/undomenu.ts`:
+the last twelve actions from the cursor down, newest first, each wearing its
+label, the ⌘Z keycap on the one the keystroke would run, and a stale mark on
+the ones it will walk past. The mark names the recorded cause and keeps the
+two apart — "changed on disk" for somebody else's write, "undo failed" for an
+inverse that threw — because reporting the second as the first sends a reader
+hunting a sync conflict that never happened.
+
+It is a reading surface. Exactly one row acts, and it runs the same undo the
+keystroke does; every other row is inert. Undo-to-here is deliberately not
+built: it would run every inverse between here and there, each able to refuse
+on its own, and half a walk back is a worse place to stand than either end of
+it. The redo side is left out of the list for the same reason the cursor
+exists — those actions have already been taken back, and listing them among
+the ones that haven't is the ambiguity to avoid.
+
+**Every toast Undo button runs a stack entry by id.** A surface mints the id
+before it records (`nextUndoId`), hands the same id to the entry and to the
+toast, and the button calls `undoApi.runById(id)` — never a closure over the
+inverse it happened to have to hand. Two closures over one revert drift: the
+button writes while the entry stays live, and the keystroke afterwards either
+reverts an edit that is already gone or refuses and stales the stack. The
+lookup is cursor-aware (`pendingById`), so a toast still on screen after ⌘Z has
+already taken its action back finds nothing to run rather than reverting it
+twice. A source sweep in the test holds the invariant for sites added later.
+
+**The pre-sweep snapshot is offered, and its failure blocks the sweep.** Every
+bulk schema sweep still opens by committing the vault, and a completed one now
+ends with "Renamed 47 notes — Restore from snapshot": the button opens vault
+time travel, where that commit is the newest point and wears the sweep's own
+label ("before rename database Books"). It is offered only when a snapshot was
+really taken.
+
+The snapshot's two failure modes are no longer one. `history_snapshot`
+resolving false means this vault has no history to snapshot into — a known
+state the sweep proceeds through, appending "no safety snapshot taken" to its
+outcome, as before. A *rejection* means history exists and the commit failed,
+and that used to be caught into the same false: the sweep then rewrote hundreds
+of notes believing it had a parachute it did not have. It stops the sweep now
+(`presweep`, `src/lib/sweep.ts`), before any vault call, with a message naming
+the failure and saying that nothing was changed — the dialogs already show a
+rejection as their persistent inline error, so the count outlives a 4s toast.
 
 ### 6.6 Slice 5 — fold in the food dashboard, view-config, single-prop schema
 
-The food stack becomes `scope: "pane:food"` entries in the shared stack, which
-fixes its pop-before-write bug (§3.4-3). View-config and single-prop schema
-actions are all whole-object replaces (§1.5, §1.4) and are the cheapest entries
-in the design — they land last only because they're the least-felt.
+**Shipped.** The food stack is now `scope: "pane:food"` entries in the shared
+stack, which fixed its pop-before-write bug (§3.4-3): `bodyEditUndoable`
+records only after the write lands, and the board's entries are evicted when it
+unmounts. View-config and single-prop schema actions are whole-object replaces
+(§1.5, §1.4) and land through `undoviews.ts` and `undodb.ts`. Frontmatter
+rewrites (`vault_fm_write`) came with them via `undofm.ts`, capturing the prior
+raw block with a no-frontmatter sentinel.
+
+The tasks board's layout and ordering switches joined them (§1.2). They store
+their choice as a frontmatter prop rather than in `views.json`, so they record
+through `setPropUndoable` instead — but the behaviour a person sees is the one
+the database panes give: one ⌘Z per flip, and a refusal rather than a clobber
+when the board's layout moved elsewhere in between.
 
 Bulk schema sweeps never join (§4).
 

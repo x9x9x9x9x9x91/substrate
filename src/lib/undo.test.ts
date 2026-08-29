@@ -149,16 +149,38 @@ test("5: evictScope drops a pane's entries and keeps vault ones", () => {
   assert.equal(peekUndo(s)?.label, "v2", "the cursor followed the survivors");
 });
 
-test("6: advance is a no-op for an id that isn't the current cursor", () => {
+test("6: advance leaves the stack alone for an id it no longer holds", () => {
   let s = push(push(emptyUndo, entry({ label: "a" })), entry({ label: "b" }));
-  const stale = s.entries[0].id; // "a" — not what ⌘Z would run right now
-  const after = advance(s, stale, -1);
+  const gone = 9999; // an entry evicted while its inverse was in flight
+  const after = advance(s, gone, -1);
   assert.equal(after, s, "same object: nothing moved");
   assert.equal(peekUndo(after)?.label, "b");
 
   // the real cursor entry does move it
   s = advance(s, s.entries[1].id, -1);
   assert.equal(peekUndo(s)?.label, "a");
+});
+
+test("6a: an entry undone while a new action was recorded is retired, not left runnable", () => {
+  let s = push(push(emptyUndo, entry({ label: "a" })), entry({ label: "b" }));
+  const b = peekUndo(s)!;
+
+  // "b"'s inverse is in flight; the user records "c" before it lands
+  s = push(s, entry({ label: "c" }));
+  assert.equal(peekUndo(s)?.label, "c");
+
+  // now b's write lands: it was undone, so it must not stay runnable
+  s = advance(s, b.id, -1);
+  assert.deepEqual(
+    s.entries.map((e) => e.label),
+    ["a", "c"],
+    "the undone entry stayed on the stack"
+  );
+  assert.equal(peekUndo(s)?.label, "c", "the cursor still sits on the action just taken");
+
+  // and ⌘Z walks c → a, never back onto b
+  s = advance(s, peekUndo(s)!.id, -1);
+  assert.equal(peekUndo(s)?.label, "a", "the keystroke below reaches the entry under the undone one");
 });
 
 test("6b: a failed inverse goes stale so ⌘Z walks past it instead of jamming", () => {

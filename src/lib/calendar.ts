@@ -47,6 +47,14 @@ const NOT_DATE = new Set([
   "repeat_skip",
 ]);
 
+/** Whether a prop name can carry scheduling at all. False for the date-shaped
+    props that never mean "when this happens" — `created`, `repeat_until` and
+    the rest — however a schema declares them. Surfaces that offer a date prop
+    to bind to ask this before offering it. */
+export function isSchedulingProp(name: string): boolean {
+  return !NOT_DATE.has(name.toLowerCase());
+}
+
 /* FUNCTIONAL_TYPES (types.ts): app-machinery types' date-shaped props are
    metadata, not scheduling. The schema may still declare a date prop on any
    type — explicit beats heuristic. */

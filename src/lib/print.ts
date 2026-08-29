@@ -6,7 +6,8 @@
     embeds. Fidelity target is a clean printed page, not a spec parser. */
 
 import { isImageName } from "./artwork.ts";
-import { scanMdBlocks } from "./mdblocks.ts";
+import { parseColumnRegions } from "./columns.ts";
+import { scanMdBlocks, type MdBlock } from "./mdblocks.ts";
 import { propStr } from "./types.ts";
 import {
   embedSize,
@@ -103,6 +104,15 @@ function sizeAttr(size: EmbedSize | null): string {
   return parts.length ? ` style="${parts.join(";")}"` : "";
 }
 
+/** Inline markdown → HTML: emphasis, code spans, links and `![[...]]` image
+    embeds. Exported for the editor's column cells, which compose their own
+    block walk (live widgets in some slots) but render inline runs through
+    exactly this pass so a column reads letter-for-letter like the print it
+    used to be. */
+export function renderInlineMd(raw: string, assetSrc: AssetSrc, opts: PrintOptions): string {
+  return inline(raw, assetSrc, opts);
+}
+
 function inline(raw: string, assetSrc: AssetSrc, opts: PrintOptions): string {
   // split out code spans first so no other rule fires inside them
   return raw
@@ -170,38 +180,92 @@ export function renderPrintBody(
   // business: the scanner splits on "\n" only, and the hub hands note bodies
   // over verbatim, so a stray "\r" rides along there rather than being
   // swallowed. Print is the caller that chooses to strip it.
-  const blocks = scanMdBlocks(md.replace(/\r\n/g, "\n"), { splitListsOnMarkerFlip: true });
+  const src = md.replace(/\r\n/g, "\n");
+  const regions = parseColumnRegions(src);
+  if (regions.length === 0) return renderLinearBody(src, assetSrc, opts);
+  // a page laid out in columns keeps its layout when it is printed or
+  // published — the marker comments are the only thing the reader loses, and
+  // they were never text. Each column renders through the same path, so a
+  // heading or a table inside one prints exactly as it would outside.
+  const lines = src.split("\n");
   const out: string[] = [];
-  for (const block of blocks) {
-    if (block.kind === "fence") {
-      // print has no live widgets: every fence, machine or not, prints as the
-      // code box the note's author typed
-      out.push(`<pre><code>${escapeHtml(block.inner)}</code></pre>`);
-    } else if (block.kind === "heading") {
-      out.push(`<h${block.level}>${inline(block.text, assetSrc, opts)}</h${block.level}>`);
-    } else if (block.kind === "hr") {
-      out.push("<hr>");
-    } else if (block.kind === "quote") {
-      out.push(`<blockquote>${renderPrintBody(block.inner, assetSrc, opts)}</blockquote>`);
-    } else if (block.kind === "table") {
-      const th = block.head.map((c) => `<th>${inline(c, assetSrc, opts)}</th>`).join("");
-      const trs = block.rows
-        .map((r) => `<tr>${r.map((c) => `<td>${inline(c, assetSrc, opts)}</td>`).join("")}</tr>`)
-        .join("");
-      out.push(`<table><thead><tr>${th}</tr></thead><tbody>${trs}</tbody></table>`);
-    } else if (block.kind === "list") {
-      const items = block.items
-        .map((item) =>
-          item.done === null
-            ? `<li>${inline(item.text, assetSrc, opts)}</li>`
-            : `<li class="print-task${item.done ? " done" : ""}"><span class="print-box">${item.done ? "✓" : ""}</span>${inline(item.text, assetSrc, opts)}</li>`
-        )
-        .join("");
-      const tag = block.ordered ? "ol" : "ul";
-      out.push(`<${tag}>${items}</${tag}>`);
-    } else {
-      out.push(`<p>${block.lines.map((l) => inline(l, assetSrc, opts)).join("<br>")}</p>`);
-    }
+  let cursor = 0;
+  const linear = (from: number, to: number) => {
+    if (to <= from) return;
+    const chunk = renderLinearBody(lines.slice(from, to).join("\n"), assetSrc, opts);
+    if (chunk) out.push(chunk);
+  };
+  for (const region of regions) {
+    linear(cursor, region.startLine);
+    const cells = region.columns
+      .map((col) => `<div class="print-column">${renderLinearBody(col.text, assetSrc, opts)}</div>`)
+      .join("");
+    // all or nothing, same rule as the editor: the sheet lays the row out side
+    // by side only when every column clears the readable minimum, and stacks
+    // the whole row otherwise. A published note read on a phone gets the stack
+    // rather than a ragged part-row. What travels is the COUNT — each sheet
+    // keeps its own idea of how narrow a column may get.
+    out.push(
+      `<div class="print-columns" style="--columns:${region.columns.length || 1}">${cells}</div>`
+    );
+    cursor = region.endLine + 1;
   }
+  linear(cursor, lines.length);
   return out.join("\n");
+}
+
+/** The linear pass, exported for the editor's column cells: a callout body
+    inside a cell renders through THIS, never through renderPrintBody, for the
+    same reason the quote branch below recurses linearly — markers inside a
+    quote are quoted material, not a region. */
+export function renderLinearMd(md: string, assetSrc: AssetSrc, opts: PrintOptions = {}): string {
+  return renderLinearBody(md.replace(/\r\n/g, "\n"), assetSrc, opts);
+}
+
+/** The block renderer proper — everything that is not a column region. */
+function renderLinearBody(md: string, assetSrc: AssetSrc, opts: PrintOptions): string {
+  const blocks = scanMdBlocks(md, { splitListsOnMarkerFlip: true });
+  return blocks.map((block) => renderMdBlock(block, assetSrc, opts)).join("\n");
+}
+
+/** One scanned block → HTML. Exported for the editor's column cells: they run
+    the same block walk but claim a few slots for live widgets (view fences,
+    task boxes, audio/PDF embeds) and hand every remaining block back to this
+    exact rendering, so the two surfaces cannot drift apart on what a heading
+    or a table looks like. */
+export function renderMdBlock(block: MdBlock, assetSrc: AssetSrc, opts: PrintOptions): string {
+  if (block.kind === "fence") {
+    // print has no live widgets: every fence, machine or not, prints as the
+    // code box the note's author typed
+    return `<pre><code>${escapeHtml(block.inner)}</code></pre>`;
+  } else if (block.kind === "heading") {
+    return `<h${block.level}>${inline(block.text, assetSrc, opts)}</h${block.level}>`;
+  } else if (block.kind === "hr") {
+    return "<hr>";
+  } else if (block.kind === "quote") {
+    // renderLinearBody, NOT renderPrintBody: markers inside a blockquote are
+    // not a region. The editor shows them as the plain comment lines they
+    // are, and two surfaces that disagree about what a note says is worse
+    // than either answer — the quote is quoted material, laid out as it was
+    // written rather than re-laid-out by the sheet reading it.
+    return `<blockquote>${renderLinearBody(block.inner, assetSrc, opts)}</blockquote>`;
+  } else if (block.kind === "table") {
+    const th = block.head.map((c) => `<th>${inline(c, assetSrc, opts)}</th>`).join("");
+    const trs = block.rows
+      .map((r) => `<tr>${r.map((c) => `<td>${inline(c, assetSrc, opts)}</td>`).join("")}</tr>`)
+      .join("");
+    return `<table><thead><tr>${th}</tr></thead><tbody>${trs}</tbody></table>`;
+  } else if (block.kind === "list") {
+    const items = block.items
+      .map((item) =>
+        item.done === null
+          ? `<li>${inline(item.text, assetSrc, opts)}</li>`
+          : `<li class="print-task${item.done ? " done" : ""}"><span class="print-box">${item.done ? "✓" : ""}</span>${inline(item.text, assetSrc, opts)}</li>`
+      )
+      .join("");
+    const tag = block.ordered ? "ol" : "ul";
+    return `<${tag}>${items}</${tag}>`;
+  } else {
+    return `<p>${block.lines.map((l) => inline(l, assetSrc, opts)).join("<br>")}</p>`;
+  }
 }

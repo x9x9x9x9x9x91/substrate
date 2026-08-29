@@ -836,9 +836,7 @@ pub(crate) async fn vault_sync_push(
 /// front of a screen that said what it would do — the auto lane must never be
 /// able to reach it.
 #[tauri::command]
-pub(crate) async fn vault_sync_replace_hosted(
-    app: tauri::AppHandle,
-) -> Result<SyncReport, String> {
+pub(crate) async fn vault_sync_replace_hosted(app: tauri::AppHandle) -> Result<SyncReport, String> {
     blocking(move || {
         let state: State<AppState> = app.state();
         let history: State<HistoryState> = app.state();
@@ -857,11 +855,9 @@ pub(crate) async fn vault_sync_replace_hosted(
             return result;
         }
         let (result, class) = classified_leg(&sync_root(&state), &sync.credentials_path, || {
-            gitsync::sync_replace_hosted_gated(
-                &sync_root(&state),
-                &sync.credentials_path,
-                || state.0.lock().unwrap(),
-            )
+            gitsync::sync_replace_hosted_gated(&sync_root(&state), &sync.credentials_path, || {
+                state.0.lock().unwrap()
+            })
         });
         record_outcome(&sync, &result, false, class);
         record_store_notice(&mut sync.last.lock().unwrap(), &result);
@@ -1110,9 +1106,10 @@ pub(crate) fn vault_sync_resolve_finish(
 #[cfg(test)]
 mod tests {
     use super::{
-        class_for_failure, classified_leg, clear_privacy_into, fold_health, load_health, load_privacy,
-        note_privacy_into, record_outcome_into, record_store_notice, run_privacy_cleanup,
-        store_health, store_privacy, FailureClass, SyncHealth, SyncLeg, SYNC_HEALTH_VERSION,
+        class_for_failure, classified_leg, clear_privacy_into, fold_health, load_health,
+        load_privacy, note_privacy_into, record_outcome_into, record_store_notice,
+        run_privacy_cleanup, store_health, store_privacy, FailureClass, SyncHealth, SyncLeg,
+        SYNC_HEALTH_VERSION,
     };
     use crate::gitsync::SyncReport;
     use crate::history::History;
@@ -1205,8 +1202,8 @@ mod tests {
         while let Some(found) = code[at..].find(marker) {
             let head = at + found;
             let name_start = head + "pub(crate) async fn ".len();
-            let name_end = name_start
-                + code[name_start..].find('(').expect("a fn head with no argument list");
+            let name_end =
+                name_start + code[name_start..].find('(').expect("a fn head with no argument list");
             let name = code[name_start..name_end].trim().to_string();
             let (body_start, body_end) = braced_block(code, name_end);
             if code[body_start..body_end].contains("record_store_notice") {
@@ -1238,8 +1235,7 @@ mod tests {
         let calls = code.matches("record_store_notice(").count()
             - code.matches("fn record_store_notice(").count();
         assert_eq!(
-            calls,
-            2,
+            calls, 2,
             "the store-warning recorder gained a call site: it is the uploading legs' alone, \
              and indirection through a helper is how a pull gets it back"
         );
@@ -1647,7 +1643,8 @@ mod tests {
         assert_eq!(refused.last_push_ok_at, Some(100), "a failure erased the success stamp");
         assert_eq!(refused.last_pull_fail_at, None, "a push stamped the pull leg's failure");
 
-        let pulled = fold_health(Some(refused), SyncLeg::Pull, true, FailureClass::Transport, 0, 300);
+        let pulled =
+            fold_health(Some(refused), SyncLeg::Pull, true, FailureClass::Transport, 0, 300);
         assert_eq!(
             pulled.last_push_fail_at,
             Some(200),
@@ -1704,7 +1701,8 @@ mod tests {
             "a field was added to the record without a look at what it leaks"
         );
 
-        let worked = fold_health(Some(failed), SyncLeg::Pull, true, FailureClass::Local, 0, 1_700_000_100);
+        let worked =
+            fold_health(Some(failed), SyncLeg::Pull, true, FailureClass::Local, 0, 1_700_000_100);
         assert_eq!(
             keys(&worked),
             shared.iter().map(|k| (*k).to_string()).collect::<Vec<_>>(),

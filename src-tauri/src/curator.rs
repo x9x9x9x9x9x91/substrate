@@ -222,7 +222,12 @@ fn refresh_in(reg: &Reg, shell: &str, command: &str, cwd: &Path) -> Result<Curat
     // human on this machine (frontend trust gate). Own process group so
     // cancel/watchdog/quit kill the whole curator tree, not just the shell.
     let mut spawn = Command::new(shell);
-    spawn.arg("-lc").arg(command).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    spawn
+        .arg("-lc")
+        .arg(command)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     // The configured command is the user's own agent CLI, so it must start
     // from the same clean env the terminal HUD's shell gets: an app relaunched
     // from inside an agent session carries that session's config dir, proxy
@@ -238,10 +243,8 @@ fn refresh_in(reg: &Reg, shell: &str, command: &str, cwd: &Path) -> Result<Curat
     if cwd.is_dir() {
         spawn.current_dir(cwd);
     }
-    let mut child = spawn
-        .process_group(0)
-        .spawn()
-        .map_err(|e| format!("couldn't start the curator: {e}"))?;
+    let mut child =
+        spawn.process_group(0).spawn().map_err(|e| format!("couldn't start the curator: {e}"))?;
     let id = format!("c{}", RUN_SEQ.fetch_add(1, Ordering::Relaxed));
     let entry = CuratorRun {
         id: id.clone(),
@@ -492,7 +495,8 @@ mod tests {
     #[test]
     fn failure_keeps_stderr_when_reader_eof_is_delayed_by_a_straggler() {
         let dir = TmpDir::new("fail-straggler");
-        let cmd = dir.script("#!/bin/bash\necho 'buffered failure detail' >&2\nsleep 15 &\nexit 1\n");
+        let cmd =
+            dir.script("#!/bin/bash\necho 'buffered failure detail' >&2\nsleep 15 &\nexit 1\n");
         let reg = Reg::default();
         let run = refresh_in(&reg, SHELL, &cmd, dir.path()).unwrap();
         let done = wait_finished(&reg, &run.id);

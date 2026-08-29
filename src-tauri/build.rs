@@ -31,6 +31,22 @@ fn main() {
             }
         }
     }
+    // The view evaluator the MCP door runs is built into the same staged
+    // directory by `scripts/build-view-engine.ts`, from the same build hooks,
+    // and needs the same seeding for the same reason: `tauri_build::build()`
+    // fails on a resource path that is not there, and a bare `cargo build` or
+    // `cargo test` runs no hook. Outside the marked region below because this
+    // one is not a prune — every build of this app carries the engine, so the
+    // public snapshot seeds it too.
+    {
+        let dir = std::path::PathBuf::from(
+            std::env::var_os("CARGO_MANIFEST_DIR").expect("no cargo manifest dir"),
+        )
+        .join("gen")
+        .join("bundle-resources")
+        .join("viewengine");
+        std::fs::create_dir_all(&dir).expect("could not create staged resource dir");
+    }
 
     tauri_build::build()
 }

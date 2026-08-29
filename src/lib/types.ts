@@ -502,7 +502,7 @@ export interface TrashEntry {
   notes: string[];
 }
 
-export type DbLayout = "list" | "table" | "board" | "gallery";
+export type DbLayout = "list" | "table" | "board" | "gallery" | "calendar";
 
 /** Per-layout column-visibility sets, one optional hidden-prop
     list per consuming layout. A layout with no set of its own falls back to
@@ -523,6 +523,11 @@ export interface ViewPref {
   /** the prop a TABLE groups its section rows by — a separate key
       so a board grouping never re-sections a table and vice versa */
   table_group_by?: string;
+  /** the date prop a CALENDAR places its rows on — its own key for the
+      same reason the table's grouping is: a calendar's date binding must
+      not be re-read as a board's column grouping. Absent = the first date
+      prop the database offers. */
+  cal_date?: string;
   /** table footer calculations, column → aggregation */
   aggregations?: Record<string, AggKind>;
   /** the database's remembered sort — the ordered key list header
@@ -538,8 +543,8 @@ export interface ViewPref {
   /** per-layout hidden-prop sets: the table and the list curate
       column visibility independently — hiding a table column no longer
       rewrites every list row's subtitle, and curating a list no longer
-      strips the table. Board/gallery have no curation UI and never carry a
-      set. */
+      strips the table. Board/gallery/calendar have no curation UI and never
+      carry a set. */
   hidden_per_layout?: HiddenPerLayout;
   /** table column order — the ordered prop keys a header drag
       builds. Keys naming no column are ignored; a prop added after the drag
@@ -605,6 +610,10 @@ export interface SavedView {
   group_by?: string;
   /** table-layout grouping, persisted like the board's group_by */
   table_group_by?: string;
+  /** the date prop a calendar-layout pin places its rows on, captured
+      like the groupings so two pins on one database can show two
+      different bindings; absent falls back to the database's own pref */
+  cal_date?: string;
   /** per-view display columns: the ordered property keys this view
       renders in table/list layouts (the title column always leads). Absent =
       the default `dbColumns` union; keys naming no known column are ignored. */

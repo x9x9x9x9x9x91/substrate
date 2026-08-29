@@ -4,13 +4,22 @@
    in ipcshared.ts. */
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen as tauriListen } from "@tauri-apps/api/event";
-import { noteOwnWrite } from "./ownwrites.ts";
-import { isTauri, templateStem, WATCHED_WRITE_COMMANDS, writtenPathsFor } from "./ipcshared.ts";
+import { noteIndexWrite, noteOwnWrite } from "./ownwrites.ts";
+import {
+  INDEX_WRITE_COMMANDS,
+  isTauri,
+  templateStem,
+  WATCHED_WRITE_COMMANDS,
+  writtenPathsFor,
+} from "./ipcshared.ts";
 /* Module-scope import ON PURPOSE, beyond the two names: loading the shell
    must evaluate the mock backend's side effects (the window.__mock* e2e
    surface) whenever the app runs outside Tauri — src/lib/tauri.test.ts
    imports this file for exactly that, and the e2e suite talks to
-   window.__mock* without importing anything. */
+   window.__mock* without importing anything. It stays plain and stays here:
+   a release build resolves it to mockBackend.stub.ts instead (see the swap
+   plugin in vite.config.ts), so the shipped bundle carries none of it while
+   dev, `node --test` and e2e keep reading the real thing. */
 import { mockInvoke, mockListen } from "./mockBackend.ts";
 
 export { isTauri } from "./ipcshared.ts";
@@ -130,6 +139,10 @@ export const invoke = async <T,>(cmd: string, args?: Record<string, unknown>): P
   if (WATCHED_WRITE_COMMANDS.has(cmd) && !templateStem(args?.path)) {
     noteOwnWrite(writtenPathsFor(cmd, args, result));
     for (const fn of vaultWriteListeners) fn();
+  } else if (INDEX_WRITE_COMMANDS.has(cmd)) {
+    // not our echo to claim, but the note list still has to be told the
+    // index moved — see INDEX_WRITE_COMMANDS
+    noteIndexWrite(writtenPathsFor(cmd, args, result));
   }
   return result;
 };

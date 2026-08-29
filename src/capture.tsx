@@ -5,6 +5,7 @@ import "./styles.css";
 import { invoke } from "./lib/tauri";
 import { resetCaptureBox } from "./lib/captureprefill";
 import { capturePivotPalette, urlCaptureGated } from "./lib/ipc";
+import { whenVaultReady } from "./lib/vaultReady";
 import {
   contextChipIcon,
   contextChipLabel,
@@ -59,6 +60,12 @@ function CaptureApp() {
   const [q, setQ] = useState("");
   // Last save failure — the text stays in the input, Enter retries
   const [error, setError] = useState<string | null>(null);
+  /* A file is in flight. Enter is the only way to file here, and filing now
+     waits for the vault index — a wait that can run to the gate's ceiling on
+     a cold launch. Without this, every Enter pressed during that wait queues
+     its own capture and they all fire together when the index lands: N
+     identical Inbox notes from one piece of typed text. */
+  const [filing, setFiling] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   // false until the backend says it can record, so a build that can't (or a
   // machine with no input) shows no button rather than one that always fails
@@ -288,10 +295,16 @@ function CaptureApp() {
 
   const submit = async () => {
     const title = q.trim();
-    if (!title) return;
+    if (!title || filing) return;
     setError(null);
+    // Both branches below reach the engine, and quick capture is a hidden
+    // window created at startup: a summon during the launch scan would park
+    // the main thread for the rest of it. Wait for the index rather than
+    // freeze the app — the text stays in the box meanwhile.
+    setFiling(true);
     // a pasted link becomes a reference note; the page title arrives in the background
     try {
+      await whenVaultReady();
       if (looksLikeUrl(title)) await urlCaptureGated(title);
       else
         await invoke<NoteMeta>("vault_create", {
@@ -306,12 +319,17 @@ function CaptureApp() {
       // can retry (Enter) or copy it out — the window stays open
       setError(errText(e));
       return;
+    } finally {
+      setFiling(false);
     }
     setQ("");
     void hideWindow(); // files the note and drops any prefill it came from
   };
 
   const foot = { enter: looksLikeUrl(q) ? "capture link" : "file in Inbox", esc: "close" };
+  // the row is the only place a wait on the index is visible: the text sits in
+  // the box unchanged, and without this Enter reads as having done nothing
+  if (filing) foot.enter = "filing…";
   // while a chip is up, the row also has to say how to decline it — an
   // attach-by-default that never mentions the way out is a trap
   const dropHint = chip ? "drop context" : "";

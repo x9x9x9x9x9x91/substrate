@@ -99,30 +99,19 @@ pub fn snapshot(p: &dyn ContextProvider) -> Option<ContextSnapshot> {
     if name.is_empty() || name.eq_ignore_ascii_case(OWN_APP_NAME) {
         return None;
     }
-    let mut snap = ContextSnapshot {
-        app: name.to_string(),
-        ..Default::default()
-    };
+    let mut snap = ContextSnapshot { app: name.to_string(), ..Default::default() };
     if !p.ax_trusted() {
         // No trust, no reads: an app name is the whole snapshot.
         return Some(snap);
     }
     if name.starts_with(ABLETON_PREFIX) {
-        snap.file = p
-            .focused_document(front.pid)
-            .as_deref()
-            .and_then(document_path);
+        snap.file = p.focused_document(front.pid).as_deref().and_then(document_path);
         if snap.file.is_none() {
-            snap.doc = p
-                .focused_title(front.pid)
-                .as_deref()
-                .and_then(ableton_project);
+            snap.doc = p.focused_title(front.pid).as_deref().and_then(ableton_project);
         }
     } else {
-        snap.doc = p
-            .focused_title(front.pid)
-            .map(|t| t.trim().to_string())
-            .filter(|t| !t.is_empty());
+        snap.doc =
+            p.focused_title(front.pid).map(|t| t.trim().to_string()).filter(|t| !t.is_empty());
     }
     Some(snap)
 }
@@ -265,8 +254,8 @@ mod sys {
     //! and four C functions.
 
     use super::{ContextProvider, Frontmost};
-    use objc2::runtime::{AnyClass, AnyObject};
     use objc2::msg_send;
+    use objc2::runtime::{AnyClass, AnyObject};
     use std::ffi::{c_void, CStr, CString};
 
     #[link(name = "ApplicationServices", kind = "framework")]
@@ -461,13 +450,7 @@ mod tests {
 
     impl Fake {
         fn app(name: &str) -> Self {
-            Fake {
-                front: Some(Frontmost {
-                    name: name.into(),
-                    pid: 42,
-                }),
-                ..Default::default()
-            }
+            Fake { front: Some(Frontmost { name: name.into(), pid: 42 }), ..Default::default() }
         }
         fn trusted(mut self) -> Self {
             self.trusted = true;
@@ -508,15 +491,13 @@ mod tests {
         assert_eq!(snap.app, "Safari");
         assert_eq!(snap.doc, None);
         assert_eq!(snap.file, None);
-        assert_eq!(
-            snap.props(),
-            vec![("context-app".to_string(), "Safari".to_string())]
-        );
+        assert_eq!(snap.props(), vec![("context-app".to_string(), "Safari".to_string())]);
     }
 
     #[test]
     fn a_trusted_read_adds_the_window_title() {
-        let snap = snapshot(&Fake::app("Safari").trusted().title("  Hyperdub — Releases  ")).unwrap();
+        let snap =
+            snapshot(&Fake::app("Safari").trusted().title("  Hyperdub — Releases  ")).unwrap();
         assert_eq!(snap.doc.as_deref(), Some("Hyperdub — Releases"));
         assert_eq!(snap.file, None);
     }
@@ -537,20 +518,14 @@ mod tests {
                 .title("My Track [Set 3] - Ableton Live 12 Suite"),
         )
         .unwrap();
-        assert_eq!(
-            snap.file.as_deref(),
-            Some("/Users/a/Music/My Track/My Track.als")
-        );
+        assert_eq!(snap.file.as_deref(), Some("/Users/a/Music/My Track/My Track.als"));
         // the path already says it; the title would only repeat the app name
         assert_eq!(snap.doc, None);
         assert_eq!(
             snap.props(),
             vec![
                 ("context-app".to_string(), "Ableton Live 12 Suite".to_string()),
-                (
-                    "context-file".to_string(),
-                    "/Users/a/Music/My Track/My Track.als".to_string()
-                ),
+                ("context-file".to_string(), "/Users/a/Music/My Track/My Track.als".to_string()),
             ]
         );
     }
@@ -595,10 +570,7 @@ mod tests {
     fn the_flag_off_asks_the_system_nothing() {
         let fake = Fake::app("Ableton Live 12 Suite").trusted().title("My Track");
         let pending = PendingContext::default();
-        pending.set(Some(ContextSnapshot {
-            app: "stale".into(),
-            ..Default::default()
-        }));
+        pending.set(Some(ContextSnapshot { app: "stale".into(), ..Default::default() }));
         arm_for_capture(false, &fake, &pending);
         assert_eq!(fake.asked.get(), 0);
         // …and a snapshot armed while the flag was on does not survive it

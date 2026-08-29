@@ -1,14 +1,17 @@
 import { useEffect, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import { vaultRead } from "../lib/ipc";
+import { vaultRead, vaultSetProp } from "../lib/ipc";
+import { type ListSort } from "../lib/listsort.ts";
 import {
   netAllowed,
   parseAutoSync,
   parseDbGrid,
   parseModHud,
+  parseNoteSort,
   parseShowAppFiles,
   parseTaskStaleChips,
   parseTerminalActions,
+  parseUpcomingDock,
   parseWindowOpacity,
   SETTINGS_PATH,
   type TerminalAction,
@@ -21,12 +24,50 @@ import {
 } from "../lib/appearance";
 import { applyWindowOpacity } from "../lib/vibrancy";
 import {
+  DEFAULT_AGENDA_PLACEMENT,
+  forgetStoredPlacement,
+  legacyStoredPlacement,
+  type AgendaPlacement,
+} from "../lib/calagenda";
+import {
   numberLocaleSetting,
   setNumberLocale,
   systemNumberLocale,
   type NumberLocale,
 } from "../lib/numberLocale";
 import { DEFAULT_DATE_LOCALE, dateLocaleSetting, setDateLocale } from "../lib/dateLocale";
+
+/** whether this window has already tried to move a pre-`upcoming-dock`
+    placement into the note — the settings read re-runs on every vaultEpoch
+    bump, and a vault that refuses the write (sealed, read-only) must not be
+    asked again on each one */
+let upcomingDockMigrated = false;
+
+/** The Upcoming panel's dock, from the note if the note says anything.
+
+    Before this key the placement lived in the browser store, where no file
+    could reach it — the carve-out this settings tier is documented to allow
+    for per-window arrangement, which a stated placement never was. So an
+    older profile's choice is honoured once AND written into Settings.md, so
+    that from then on the file is what says where the panel sits. A refused
+    write costs the migration, never the placement — the store keeps the old
+    field until a write lands, and drops it the moment one does, because a
+    per-machine leftover would otherwise hand this vault's choice to the next
+    vault opened here. */
+function adoptUpcomingDock(props: Record<string, unknown>): AgendaPlacement {
+  const stated = parseUpcomingDock(props);
+  if (stated) return stated;
+  const legacy = legacyStoredPlacement();
+  if (legacy && !upcomingDockMigrated) {
+    upcomingDockMigrated = true;
+    // guarded on "still absent": a window that wrote it first wins, and this
+    // one simply reads the value on its next pass
+    void vaultSetProp(SETTINGS_PATH, "upcoming-dock", legacy, { value: null })
+      .then(forgetStoredPlacement)
+      .catch(() => {});
+  }
+  return legacy ?? DEFAULT_AGENDA_PLACEMENT;
+}
 
 /**
  * Everything the app reads out of Settings.md in one pass: the switches held
@@ -50,6 +91,20 @@ export function useAppSettings(
   // unless this is explicitly true, so a vault reads as the user's content
   // rather than the tooling's
   const [showAppFiles, setShowAppFiles] = useState(false);
+  // `upcoming-dock` in Settings.md — which edge the calendar's Upcoming
+  // panel docks to. Held here rather than read by the calendar itself so the
+  // ⌘, switch can move it optimistically: the pane is mounted behind the
+  // sheet, and waiting for the watcher echo would leave the switch looking
+  // dead for the second the round trip takes.
+  const [upcomingDock, setUpcomingDock] = useState<AgendaPlacement>(DEFAULT_AGENDA_PLACEMENT);
+  // `note-sort` in Settings.md — how the Scratch list, the Notes list and
+  // every folder list are ordered. Held here for the same reason as
+  // `upcoming-dock`: the sort control sits ON the list it reorders, so
+  // waiting for the watcher echo would leave the rows sitting still for the
+  // second the round trip takes.
+  // `null` until the vault states one: the Journal keeps its dateline order
+  // while nothing has been chosen, and only key presence can say that.
+  const [noteSort, setNoteSort] = useState<ListSort | null>(null);
   // `db-grid` in Settings.md — the global default for table grid
   // lines; a database's ViewPref `grid` overrides it either way
   const [dbGrid, setDbGrid] = useState(true);
@@ -93,6 +148,8 @@ export function useAppSettings(
         setTaskStaleChips(parseTaskStaleChips(c.props));
         setAutoSync(parseAutoSync(c.props));
         setShowAppFiles(parseShowAppFiles(c.props));
+        setUpcomingDock(adoptUpcomingDock(c.props));
+        setNoteSort(parseNoteSort(c.props));
         // The appearance dials land on the document element rather
         // than in React state — they are CSS inputs, nothing renders off
         // them. This is also the write that CORRECTS the settings pane's
@@ -144,7 +201,11 @@ export function useAppSettings(
 
   return {
     modHud,
+    upcomingDock,
+    setUpcomingDock,
     showAppFiles,
+    noteSort,
+    setNoteSort,
     dbGrid,
     taskStaleChips,
     autoSync,

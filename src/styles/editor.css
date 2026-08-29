@@ -241,7 +241,9 @@
 .cm-editor .cm-scroller {
   flex: 1;
   font-family: var(--font);
-  font-size: var(--fs-5);
+  /* --fs-reading, not --fs-5: the reading surface keeps its own step
+     (tokens.css, at the ramp) */
+  font-size: var(--fs-reading);
   line-height: 1.75;
   color: var(--text-1);
 }

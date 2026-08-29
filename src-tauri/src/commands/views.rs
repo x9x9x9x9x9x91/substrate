@@ -30,6 +30,7 @@ pub(crate) fn vault_views_set(
     card_order: Option<Vec<String>>,
     group_order: Option<Vec<String>>,
     collapsed_groups: Option<Vec<String>>,
+    cal_date: Option<String>,
 ) -> Result<std::collections::HashMap<String, ViewPref>, String> {
     // .vault/ writes are invisible to the watcher, so mark for snapshot here
     dirty.mark();
@@ -49,6 +50,7 @@ pub(crate) fn vault_views_set(
         card_order,
         group_order,
         collapsed_groups,
+        cal_date.as_deref(),
     )
 }
 

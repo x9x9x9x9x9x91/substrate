@@ -110,6 +110,55 @@ export function splitLead(text: string): { lead: string; rest: string } | null {
 
 export const CHANGELOG: ChangelogRelease[] = [
   {
+    version: "0.30.0",
+    date: "2026-08-29",
+    title: "Columns on the page, history in your hand",
+    items: [
+      {
+        text: "Pages get columns: put notes, images, tasks — anything — side by side. Type the markers or use the new /columns command (it wraps the lines you selected), and the layout follows you to print and PDF. On a narrow pane the columns stack in written order, and the file on disk stays plain markdown any editor can read. On the page itself, what you put inside stays live: saved views draw and refresh their tables, audio gets a real player, file chips open their files — print falls back to the plain printed rendering.",
+        kind: "new",
+        headline: true,
+      },
+      {
+        text: "Undo history you can see: a popover lists your last actions by name, shows which ones went stale because the file changed on disk, and takes back the next live step right there — the same operation ⌘Z runs, provably. Big schema sweeps now end with a restore offer back to their pre-sweep snapshot.",
+        kind: "new",
+        headline: true,
+      },
+      {
+        text: "PDFs embed in notes: drop one in and read its pages where it lands, the way audio already works.",
+        kind: "new",
+      },
+      {
+        text: "Databases gain a calendar layout: a fifth layout beside list, table, board and gallery — the pane's rows drawn on a month grid by the date property you schedule them with.",
+        kind: "new",
+      },
+      {
+        text: "Note lists have a real order and say which: newest-edited first by default (the Journal keeps its dateline), with a sort control on every list header — by edit date, created date, or name, each both ways. The choice is a vault setting and follows you to other machines.",
+        kind: "new",
+      },
+      {
+        text: "Faster where you feel it: launch paints the app's own skeleton immediately instead of a white flash; note lists, backlinks and related stay instant while the vault is busy with a mount scan or a big import; editing a note patches the list in place instead of re-sending your whole vault; and quick capture, the tray agenda and the everywhere palette open lighter.",
+        kind: "improved",
+      },
+      {
+        text: "The news feed's topic filter is now a vault setting: pick your topics once and every machine shows the same feed.",
+        kind: "improved",
+      },
+      {
+        text: "The note column uses the whole pane instead of stopping at a fixed width, the grey cast and enlarged note text 0.29 briefly introduced are rolled back, the Today box suggests your existing open tasks instead of only creating new ones, and table column headers answer a right-click.",
+        kind: "improved",
+      },
+      {
+        text: "Calendar fixes: a pinned calendar view remembers which date field it was showing (two pins on one database can show two different calendars), a row created from the calendar is born on the day you're looking at instead of appearing dateless, and an open multi-day entry shows its highlight again.",
+        kind: "fixed",
+      },
+      {
+        text: "Moving a folder now counts as your own edit everywhere — it syncs promptly and no longer looks like an outside change. And two rare launch-timing hangs are closed for good, with a test guarding the whole class.",
+        kind: "fixed",
+      },
+    ],
+  },
+  {
     version: "0.29.0",
     date: "2026-08-28",
     title: "Other apps' notes move in, and the table pulls its weight",

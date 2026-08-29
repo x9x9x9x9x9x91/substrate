@@ -68,18 +68,21 @@
   position: sticky;
   top: 0;
   z-index: 1;
-  /* the header row sits one step above the rows it labels. The wash rides as
-     a layer over the pane's opaque ground rather than replacing it — the same
-     trick the frozen Name cell uses, and the header has to stay opaque or the
-     rows scroll through it */
-  background: linear-gradient(var(--hover), var(--hover)), var(--bg-panel);
+  /* flush on the pane's own ground — the 0.29 lift wash (--hover layered
+     over the panel) lightened the band under text-3 labels and the owner
+     called the header hard to read from the live app (2026-08-28). The lid
+     cue is the border below, which .db-scrolled-y already strengthens.
+     Opaque, or the rows scroll through it */
+  background: var(--bg-panel);
   text-align: left;
   font: var(--dash-label);
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--text-3);
   padding: 8px 10px;
-  border-bottom: 1px solid var(--border);
+  /* the solid twin, not the alpha token — the header line crosses the grid's
+     verticals and translucent crossings dot (tokens.css, --line-panel) */
+  border-bottom: 1px solid var(--line-panel);
   white-space: nowrap;
   cursor: pointer;
   user-select: none;
@@ -94,7 +97,7 @@
    lid over them. One step on the border it already has — the vertical twin of
    the .db-scrolled-x freeze line, and at scroll 0 nothing changes. */
 .db-scrolled-y .db-table th {
-  border-bottom-color: var(--border-strong);
+  border-bottom-color: var(--line-panel-strong);
   transition: border-bottom-color var(--t) ease-out;
 }
 
@@ -112,7 +115,9 @@
 
 .db-table td {
   padding: 0;
-  border-bottom: 1px solid var(--border-soft);
+  /* solid twin of --border-soft: row lines cross the grid's verticals, and
+     translucent crossings dot (tokens.css, --line-panel-soft) */
+  border-bottom: 1px solid var(--line-panel-soft);
 }
 
 /* Vertical column rules — Notion's grid, for tracking a column down
@@ -121,28 +126,31 @@
    sibling selector, not a per-cell border, so single-cell colSpan rows (group
    headers, window spacers) never catch a rule. The second column is excluded:
    its divider is the frozen Name cell's own box-shadow edge below — a border
-   here too would double that line to 2px at scroll 0. `--grid-line` is
-   fainter than any shared border token: the grid orients, the row
-   hairlines still carry the hierarchy. */
+   here too would double that line to 2px at scroll 0. The rule is the SAME
+   solid weight as the row hairlines, deliberately: a two-weight grid read as
+   ruled rows with fainter columns, and the owner called it back-of-an-era
+   from the live app (2026-08-28) — one even lattice, the Notion grammar.
+   Solid, because translucent crossings dot (tokens.css, --line-panel-soft). */
 .db-grid th + th:not(:nth-child(2)),
 .db-grid td + td:not(:nth-child(2)) {
-  border-left: 1px solid var(--grid-line);
+  border-left: 1px solid var(--line-panel-soft);
 }
 
 /* at scroll 0 the freeze-line box-shadow isn't painted (.db-scrolled-x
    gates it) — the frozen Name cell draws its grid edge itself so the first
    rule doesn't pop in and out with horizontal scroll. `:where` keeps the row
-   exclusions at zero specificity, so the scrolled state's stronger --border
-   freeze line (a .db-scrolled-x rule, two classes) still wins on this edge. */
+   exclusions at zero specificity, so the scrolled state's stronger
+   --line-panel freeze line (a .db-scrolled-x rule, two classes) still wins
+   on this edge. */
 .db-grid th:first-child,
 .db-grid :where(tr:not(.db-group-tr):not(.db-win-spacer)) td:first-child {
-  box-shadow: inset -1px 0 0 var(--grid-line);
+  box-shadow: inset -1px 0 0 var(--line-panel-soft);
 }
 
 .db-grid.db-table td.db-cell.focused:first-child {
   box-shadow:
     inset 0 0 0 1.5px var(--accent),
-    inset -1px 0 0 var(--grid-line);
+    inset -1px 0 0 var(--line-panel-soft);
 }
 
 /* scrolled, the freeze line's stronger token wins on the focused cell too —
@@ -150,7 +158,7 @@
 .db-scrolled-x .db-grid.db-table td.db-cell.focused:first-child {
   box-shadow:
     inset 0 0 0 1.5px var(--accent),
-    inset -1px 0 0 var(--border);
+    inset -1px 0 0 var(--line-panel);
 }
 
 /* The wash eases in on the shared 120ms grammar and snaps back out
@@ -224,13 +232,13 @@
    cell keeps its accent ring painted in front of the hairline. */
 .db-scrolled-x .db-table th:first-child,
 .db-scrolled-x .db-table td:first-child {
-  box-shadow: inset -1px 0 0 var(--border);
+  box-shadow: inset -1px 0 0 var(--line-panel);
 }
 
 .db-scrolled-x .db-table td.db-cell.focused:first-child {
   box-shadow:
     inset 0 0 0 1.5px var(--accent),
-    inset -1px 0 0 var(--border);
+    inset -1px 0 0 var(--line-panel);
 }
 
 /* The left-edge fade can't be a mask — mask-image on .db-body covers

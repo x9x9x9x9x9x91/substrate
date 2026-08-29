@@ -164,3 +164,26 @@ pub(crate) fn snapshot_tree(dir: &Path) -> Vec<(String, Vec<u8>)> {
 pub(crate) fn findings_of(report: &DoctorReport, kind: DoctorKind) -> Vec<&DoctorFinding> {
     report.findings.iter().filter(|f| f.kind == kind).collect()
 }
+
+/// The synthetic 5k-note vault the perf budgets measure over — 5000 typed,
+/// linked, prose-bearing notes across 25 folders, written to a fresh temp
+/// directory and NOT scanned. Both budget tests build their vault here so
+/// "the 5k vault" means one shape: the scan budget and the boot budget are
+/// reading the same tree, and a change to it moves both numbers together.
+///
+/// `name` separates concurrent tests' trees; the caller owns the directory
+/// and removes it.
+pub(crate) fn synthetic_5k_vault(name: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("vault-bench-{}-{}", std::process::id(), name));
+    let _ = fs::remove_dir_all(&dir);
+    for i in 0..5000 {
+        let folder = dir.join(format!("Folder {:02}", i % 25));
+        fs::create_dir_all(&folder).unwrap();
+        let body = format!(
+            "---\ntype: release\nstatus: live\ncat#: SMP-{:04}\n---\nNote {} body with a [[Note {}]] link and some filler text about granular spectral processing to give search something to chew on.\n",
+            i, i, (i + 1) % 5000
+        );
+        fs::write(folder.join(format!("Note {}.md", i)), body).unwrap();
+    }
+    dir
+}

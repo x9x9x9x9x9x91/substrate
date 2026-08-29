@@ -12,7 +12,10 @@
 // walk over mockNotes) find empty collections instead of a missing binding.
 // The one place that would notice is the mock backend, and it cannot run in a
 // packaged app: `isTauri` is true there, so mockDispatch is never called and
-// the `if (!isTauri)` seam block never registers.
+// the `if (!isTauri)` seam block never registers. The same build now swaps the
+// backend out too, and the backend is the seeds' only importer — so in
+// practice a release build leaves this stub unreached, and it stands as the
+// guarantee for the day something else reads the fixtures directly.
 //
 // The types are pulled FROM the real module (`import type`, erased at build),
 // so this file stops compiling the day an export changes shape — and
@@ -30,6 +33,8 @@ export const genUpdated: typeof Seeds.genUpdated = () => now;
 // plain `string`, not `typeof Seeds.PIXEL_PNG`: the real one is a const, so its
 // type is the literal payload and nothing but that payload could satisfy it
 export const PIXEL_PNG: string = "";
+export const MOCK_PDF: string = "";
+export const MOCK_PDF_SHORT: string = "";
 export const mockAssets: typeof Seeds.mockAssets = new Map();
 export const mockAssetMtimes: typeof Seeds.mockAssetMtimes = new Map();
 export const mockLooseFiles: typeof Seeds.mockLooseFiles = new Map();

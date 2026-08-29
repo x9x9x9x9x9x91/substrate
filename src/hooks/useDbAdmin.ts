@@ -6,6 +6,7 @@ import {
   vaultCreateFolder,
   vaultCreateType,
   vaultDeleteType,
+  vaultList,
   vaultRenameProp,
   vaultRenameType,
   vaultSchemaHomeSet,
@@ -20,12 +21,16 @@ import {
   renamePropOutcome,
   schemaOnlyClearOutcome,
   stripPropOutcome,
+  snapshotRestore,
   withSnapshotWarning,
 } from "../lib/sweep";
 import { pickCsvFile } from "../lib/csvpick";
 import type { CsvEntry } from "../lib/csvimport";
 import { parseCsv } from "../lib/sheet";
 import { errText } from "../lib/errtext";
+import { recordCreateTypeUndo } from "../lib/undodb";
+import type { UndoRecorder } from "../lib/undoprops";
+import type { ToastAction } from "./useToast";
 
 /** what the admin lane needs from the rest of App */
 type DbAdminDeps = {
@@ -35,13 +40,17 @@ type DbAdminDeps = {
   setSchema: Dispatch<SetStateAction<SchemaConfig>>;
   setView: Dispatch<SetStateAction<View>>;
   refresh: () => void;
-  showToast: (msg: string) => void;
+  showToast: (msg: string, action?: ToastAction) => void;
   reloadDbMeta: () => void;
   reloadSidebarOrder: () => void;
   presweepSnapshot: (label: string) => Promise<boolean>;
+  /** open the vault history, where the pre-sweep snapshot is the newest point */
+  restoreFromSnapshot: () => void;
   /** the stored (user-authored) casing of a database / property name */
   schemaDbKey: (db: string) => string;
   schemaPropKey: (db: string, prop: string) => string;
+  /** the session undo stack's write end */
+  record: UndoRecorder;
 };
 
 /**
@@ -65,8 +74,10 @@ export function useDbAdmin(deps: DbAdminDeps) {
     reloadDbMeta,
     reloadSidebarOrder,
     presweepSnapshot,
+    restoreFromSnapshot,
     schemaDbKey,
     schemaPropKey,
+    record,
   } = deps;
 
   // Database management: which admin dialog is open (null = none);
@@ -105,9 +116,13 @@ export function useDbAdmin(deps: DbAdminDeps) {
         // A folder's "Open as database…" skips the eponymous-root
         // dance: homeFolder IS the home, it already exists.
         let homeErr: string | null = null;
+        let home: string | null = null;
+        let latest = cfg;
         if (homeFolder) {
           try {
-            setSchema(await vaultSchemaHomeSet(type, homeFolder));
+            latest = await vaultSchemaHomeSet(type, homeFolder);
+            home = homeFolder;
+            setSchema(latest);
             refresh();
           } catch (e) {
             homeErr = errText(e);
@@ -118,17 +133,34 @@ export function useDbAdmin(deps: DbAdminDeps) {
             const existing = folders.find(
               (f) => !f.includes("/") && f.toLowerCase() === label.toLowerCase()
             );
-            const home = existing ?? (await vaultCreateFolder(label));
-            setSchema(await vaultSchemaHomeSet(type, home));
+            home = existing ?? (await vaultCreateFolder(label));
+            latest = await vaultSchemaHomeSet(type, home);
+            setSchema(latest);
             refresh();
           } catch (e) {
             homeErr = errText(e);
           }
         }
+        /* ⌘Z takes the definition back out — the home first, then each
+           property, which retires the type entry once nothing is left. A
+           folder created for the home stays: it is a folder now, and the
+           user may already have put something in it. */
+        recordCreateTypeUndo({
+          db: type,
+          props,
+          home,
+          cfg: latest,
+          countNotes: async () =>
+            (await vaultList()).filter(
+              (n) => foldedPropStr(n.props, "type")?.toLowerCase() === type.toLowerCase()
+            ).length,
+          record,
+          adopt: setSchema,
+        });
         setView({ kind: "db", type });
         showToast(homeErr ?? `Database “${type}” created`);
       }),
-    [showToast, folders, refresh]
+    [showToast, folders, refresh, record]
   );
 
   // CSV import: pick → parse → dialog. The dialog's confirm creates
@@ -203,10 +235,13 @@ export function useDbAdmin(deps: DbAdminDeps) {
               ? { kind: "db", type: newName }
               : v
           );
-          showToast(withSnapshotWarning(renameDbOutcome(dbType, newName, sweep), snapped));
+          showToast(
+            withSnapshotWarning(renameDbOutcome(dbType, newName, sweep), snapped),
+            snapshotRestore(snapped, restoreFromSnapshot)
+          );
         });
       }),
-    [presweepSnapshot, reloadDbMeta, refresh, reloadSidebarOrder, showToast, schemaDbKey]
+    [presweepSnapshot, restoreFromSnapshot, reloadDbMeta, refresh, reloadSidebarOrder, showToast, schemaDbKey]
   );
 
   const deleteDatabase = useCallback(
@@ -234,11 +269,12 @@ export function useDbAdmin(deps: DbAdminDeps) {
               : v
           );
           showToast(
-            withSnapshotWarning(deleteDbOutcome(dbType, trashNotes, sweep), snapped)
+            withSnapshotWarning(deleteDbOutcome(dbType, trashNotes, sweep), snapped),
+            snapshotRestore(snapped, restoreFromSnapshot)
           );
         });
       }),
-    [presweepSnapshot, reloadDbMeta, refresh, reloadSidebarOrder, showToast, schemaDbKey]
+    [presweepSnapshot, restoreFromSnapshot, reloadDbMeta, refresh, reloadSidebarOrder, showToast, schemaDbKey]
   );
 
   const renameProperty = useCallback(
@@ -260,11 +296,12 @@ export function useDbAdmin(deps: DbAdminDeps) {
           }
           setDbDialog(null);
           showToast(
-            withSnapshotWarning(renamePropOutcome(prop, newName, sweep), snapped)
+            withSnapshotWarning(renamePropOutcome(prop, newName, sweep), snapped),
+            snapshotRestore(snapped, restoreFromSnapshot)
           );
         });
       }),
-    [presweepSnapshot, reloadDbMeta, refresh, showToast, schemaDbKey, schemaPropKey]
+    [presweepSnapshot, restoreFromSnapshot, reloadDbMeta, refresh, showToast, schemaDbKey, schemaPropKey]
   );
 
   // remove property = instant schema demote; the value strip is a separate,
@@ -279,6 +316,11 @@ export function useDbAdmin(deps: DbAdminDeps) {
           Object.prototype.hasOwnProperty.call(n.props, foldedPropKey(n.props, prop))
       ).length;
       const wasNumber = byFoldedKey(typeSchemaFor(schema, storedDb), storedProp)?.kind === "number";
+      // Not undoable on purpose: the demotion is the head of a value strip
+      // the user confirms next, and an inverse that put the definition back
+      // while the values were already swept would restore a column that
+      // means something different from the one it replaced. Taking this back
+      // is a snapshot restore (docs/undo.md §4).
       vaultSchemaSet(storedDb, storedProp, [])
         .then((cfg) => {
           setSchema(cfg);
@@ -323,10 +365,13 @@ export function useDbAdmin(deps: DbAdminDeps) {
             );
           }
           setDbDialog(null);
-          showToast(withSnapshotWarning(stripPropOutcome(prop, sweep), snapped));
+          showToast(
+            withSnapshotWarning(stripPropOutcome(prop, sweep), snapped),
+            snapshotRestore(snapped, restoreFromSnapshot)
+          );
         });
       }),
-    [presweepSnapshot, reloadDbMeta, refresh, showToast, schemaDbKey, schemaPropKey]
+    [presweepSnapshot, restoreFromSnapshot, reloadDbMeta, refresh, showToast, schemaDbKey, schemaPropKey]
   );
 
   return {

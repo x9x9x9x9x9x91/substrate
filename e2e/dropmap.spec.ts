@@ -42,7 +42,7 @@ async function dropHeldAt(page: Page, name: string, text: string) {
       )!;
       const box = line.getBoundingClientRect();
       const dt = new DataTransfer();
-      dt.items.add(new File(["%PDF-1.4 e2e"], n, { type: "application/pdf" }));
+      dt.items.add(new File(["e2e document"], n, { type: "application/msword" }));
       const ev = new DragEvent("drop", {
         dataTransfer: dt,
         bubbles: true,
@@ -63,7 +63,7 @@ test("typing elsewhere mid-import still lands the embed at the drop point (SUB-6
   await seedBody(page, ["ALPHA", "BRAVO", "CHARLIE"]);
 
   // drop onto the BRAVO line, with the write parked in flight
-  await dropHeldAt(page, "e2e-mapped.pdf", "BRAVO");
+  await dropHeldAt(page, "e2e-mapped.docx", "BRAVO");
 
   // the user moves to the end of the document and keeps typing — the old
   // behaviour wrote the embed right here, mid-sentence
@@ -75,7 +75,7 @@ test("typing elsewhere mid-import still lands the embed at the drop point (SUB-6
   await expect(page.locator(".cm-filechip")).toHaveCount(1);
 
   const lines = await page.locator(".cm-content .cm-line").allTextContents();
-  const embed = lines.findIndex((l) => l.includes("e2e-mapped.pdf") || l.includes("![["));
+  const embed = lines.findIndex((l) => l.includes("e2e-mapped.docx") || l.includes("![["));
   const bravo = lines.findIndex((l) => l.includes("BRAVO"));
   const charlie = lines.findIndex((l) => l.includes("CHARLIE"));
   expect(embed).toBeGreaterThanOrEqual(0);
@@ -90,7 +90,7 @@ test("typing elsewhere mid-import still lands the embed at the drop point (SUB-6
 test("an import that resolves late does not yank the caret (SUB-664)", async ({ page }) => {
   await boot(page);
   await seedBody(page, ["ALPHA", "BRAVO", "CHARLIE"]);
-  await dropHeldAt(page, "e2e-caret.pdf", "ALPHA");
+  await dropHeldAt(page, "e2e-caret.docx", "ALPHA");
 
   await page.locator(".cm-content").click();
   await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End");
@@ -107,7 +107,7 @@ test("an import that resolves late does not yank the caret (SUB-664)", async ({ 
 test("text inserted BEFORE the drop point shifts the embed with it (SUB-664)", async ({ page }) => {
   await boot(page);
   await seedBody(page, ["ALPHA", "BRAVO", "CHARLIE"]);
-  await dropHeldAt(page, "e2e-shift.pdf", "CHARLIE");
+  await dropHeldAt(page, "e2e-shift.docx", "CHARLIE");
 
   // insert whole lines above the drop point: a raw captured offset would now
   // point into the wrong line entirely
@@ -119,7 +119,7 @@ test("text inserted BEFORE the drop point shifts the embed with it (SUB-664)", a
   await expect(page.locator(".cm-filechip")).toHaveCount(1);
 
   const lines = await page.locator(".cm-content .cm-line").allTextContents();
-  const embed = lines.findIndex((l) => l.includes("e2e-shift.pdf") || l.includes("![["));
+  const embed = lines.findIndex((l) => l.includes("e2e-shift.docx") || l.includes("![["));
   const bravo = lines.findIndex((l) => l.includes("BRAVO"));
   const charlie = lines.findIndex((l) => l.includes("CHARLIE"));
   // still anchored to CHARLIE, having ridden the two inserted lines down
@@ -139,7 +139,7 @@ test("a paste that resolves after typing lands at the caret it was pasted at (SU
   await page.evaluate(() => window.__mockHoldCommand?.("vault_save_asset"));
   await page.evaluate(() => {
     const dt = new DataTransfer();
-    dt.items.add(new File(["%PDF-1.4 e2e"], "e2e-pastemap.pdf", { type: "application/pdf" }));
+    dt.items.add(new File(["e2e document"], "e2e-pastemap.docx", { type: "application/msword" }));
     const ev = new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true });
     document.querySelector(".cm-content")!.dispatchEvent(ev);
   });
@@ -152,7 +152,7 @@ test("a paste that resolves after typing lands at the caret it was pasted at (SU
   await expect(page.locator(".cm-filechip")).toHaveCount(1);
 
   const lines = await page.locator(".cm-content .cm-line").allTextContents();
-  const embed = lines.findIndex((l) => l.includes("e2e-pastemap.pdf") || l.includes("![["));
+  const embed = lines.findIndex((l) => l.includes("e2e-pastemap.docx") || l.includes("![["));
   const charlie = lines.findIndex((l) => l.includes("CHARLIE"));
   // at the top where it was pasted, not down at the typing
   expect(embed).toBeGreaterThanOrEqual(0);

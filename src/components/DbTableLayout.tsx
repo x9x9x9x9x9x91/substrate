@@ -805,8 +805,8 @@ export default function DbTableLayout({
         {colCss && <style>{colCss}</style>}
         <table className={`db-table${gridOn ? " db-grid" : ""}`}>
           <thead
-            // Right-click anywhere on the header row opens the
-            // property-visibility checklist, anchored at the pointer
+            // Right-click on the header row outside a property header opens
+            // the property-visibility checklist, anchored at the pointer
             onContextMenu={(e) => {
               e.preventDefault();
               setPropVisAt({ left: e.clientX, top: e.clientY, bottom: e.clientY });
@@ -836,6 +836,15 @@ export default function DbTableLayout({
                   key={c}
                   className={`${colDrag === c ? "db-th-dragging" : ""}${colDropCls(c)}`.trim() || undefined}
                   {...colDropProps(c)}
+                  // Right-click on a property header opens that column's
+                  // action menu — same menu as the caret, anchored at the
+                  // pointer. The thead-level checklist stays for the rest
+                  // of the row; its icon also lives in the top-right tools.
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setColMenu({ col: c, anchor: { left: e.clientX, top: e.clientY, bottom: e.clientY } });
+                  }}
                 >
                   <button
                     type="button"

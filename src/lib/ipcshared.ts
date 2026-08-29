@@ -58,6 +58,9 @@ export const WATCHED_WRITE_COMMANDS = new Set([
   "vault_move",
   "vault_create_folder",
   "vault_rename_folder",
+  // moves every note in a subtree — ordinary note writes on disk, so the
+  // watcher sees them exactly like the sibling folder ops
+  "vault_move_folder",
   "mount_rescan",
   "mount_annotate",
   "history_restore",
@@ -65,6 +68,32 @@ export const WATCHED_WRITE_COMMANDS = new Set([
   "vault_delete_type",
   "vault_rename_prop",
   "vault_clear_prop",
+]);
+
+/* Commands that change the note index without being one of the watched
+   writes above. The list's own-write ledger has to hear about every one of
+   them, because a refresh patches from that ledger instead of re-listing the
+   vault: if a writer files nothing, a refresh it triggers drains whatever
+   some earlier write left there, patches exactly those rows, and the notes
+   this command actually created or removed are simply absent from the list —
+   with a healthy watcher until its echo arrives, and with a degraded one
+   forever.
+
+   They are kept apart from the watched set rather than folded into it
+   because the watched set also decides echo attribution and drives the
+   auto-sync push; these only owe the list an entry. Most have unnameable
+   reach (`writtenPathsFor` answers null and the refresh re-lists), which is
+   the honest answer for mounting a folder or checking out a sync merge;
+   `cookbook_install` names the files the recipe wrote. */
+export const INDEX_WRITE_COMMANDS = new Set([
+  "cookbook_install",
+  "mount_add",
+  "mount_bind",
+  "mount_remove",
+  // a sync checkout rewrites whatever the remote changed
+  "vault_sync_pull",
+  "vault_sync_adopt_replaced",
+  "vault_sync_resolve_finish",
 ]);
 let mockEchoTimer: number | undefined;
 let mockEchoPaths = new Set<string>();
@@ -171,7 +200,8 @@ export function writtenPathsFor(
       return [metaPath(result)].filter((p): p is string => !!p);
     default:
       // vault_delete_folder, vault_trash_restore_folder, vault_create_folder,
-      // vault_rename_folder, mount_rescan — whole-subtree reach.
+      // vault_rename_folder, vault_move_folder, mount_rescan — whole-subtree
+      // reach.
       // vault_rename_type/_delete_type/_rename_prop/_clear_prop land here too
       // a `BulkSweep` result carries counts, not paths, so the
       // sweep's reach genuinely isn't nameable from the call.

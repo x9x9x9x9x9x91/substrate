@@ -12,14 +12,15 @@ import {
   type TasksSort,
   type TasksView,
 } from "../lib/tasksDashboard";
-import { setPropUndoable } from "../lib/undoprops";
+import { setPropUndoable, type PropWriter } from "../lib/undoprops";
 import { nextUndoId } from "../lib/undo";
 import { useUndo } from "../lib/undoContext";
 import { isComplete, statusSchemaFor } from "../lib/calendar";
 import { byFoldedKey, foldedObjectKey, propSchemaFor } from "../lib/schemalookup";
 import { optionColorVar } from "../lib/dbicons";
 import { shiftDate, todayIso } from "../lib/dates";
-import { vaultSetProp } from "../lib/ipc";
+import { isPickedToday, TODAY_PROP } from "../lib/today";
+import { vaultRead, vaultSetProp } from "../lib/ipc";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
 import DateMenu from "./DateMenu";
 import SelectMenu, { anchorFrom, optionColor, OptionPill, type AnchorRect } from "./SelectMenu";
@@ -112,6 +113,18 @@ function stateColor(overdue: number, dueToday: number, total: number, filtered: 
   // an unmatched filter is not the green of finished work
   return filtered > 0 ? "var(--text-3)" : "var(--ok)";
 }
+
+/** The switch's own words for a layout or an ordering, so an undo toast says
+    "Undid Layout → Board" rather than naming the frontmatter key it wrote. The
+    switches below render from these, so the toast and the button a person
+    clicked can never drift apart. */
+const VIEW_LABELS: Record<TasksView, string> = { list: "List", board: "Board" };
+const SORT_LABELS: Record<TasksSort, string> = {
+  urgency: "Urgency",
+  priority: "Priority",
+  due: "Due",
+  age: "Age",
+};
 
 /** Section dot and count-badge tint — the hue carries the section's meaning
     (red late, amber today, accent for the chosen list); area groups take the
@@ -208,8 +221,8 @@ export default function TasksDashboard({
     priority: string | null;
     anchor: AnchorRect;
   } | null>(null);
-  // the card whose move menu is open, and where it was summoned
-  const [moveMenu, setMoveMenu] = useState<{
+  // the row or card whose menu is open, and where it was summoned
+  const [rowMenu, setRowMenu] = useState<{
     path: string;
     title: string;
     area: string;
@@ -239,10 +252,47 @@ export default function TasksDashboard({
       frontmatter read-modify-write, so two clicks inside one round-trip would
       each read the pre-click file and the second would drop the first's prop. */
   const writeChain = useRef<Promise<unknown>>(Promise.resolve());
-  const queueWrite = (key: string, value: string | null) => {
+
+  /** Every write of a view/sort prop — the flip, its ⌘Z and its ⇧⌘Z — goes
+      through here, so the switch follows whichever direction ran: an inverse
+      writes the prior value through this same writer and the pane adopts what
+      landed rather than waiting for the note to come back around.
+
+      The switch never advertises a layout the note does not hold, in either
+      direction. A write that lands is adopted after it lands, never before.
+      A write the guard refuses — somebody moved the layout elsewhere — leaves
+      the value it asked for unwritten, so the pane re-reads the note and
+      adopts what is actually there instead of sitting on the value it was
+      showing: the ⌘Z that refused would otherwise leave the switch reading
+      Board while the note says list, and nothing re-reads until the next
+      mutation. The original failure is what leaves here; the re-read is
+      best-effort beside it. */
+  const flipWriter = (adopt: (raw: string | null) => void): PropWriter => (
+    path,
+    key,
+    value,
+    guard
+  ) => {
     const next = writeChain.current
       .catch(() => {})
-      .then(() => vaultSetProp(meta.path, propKey(key), value));
+      .then(() => vaultSetProp(path, key, value, guard))
+      .then(
+        (res) => {
+          adopt(typeof value === "string" ? value : null);
+          return res;
+        },
+        async (err: unknown) => {
+          // an absent key IS a value here (the default layout), so only a
+          // failed re-read leaves the switch where it was
+          await vaultRead(path)
+            .then((m) => {
+              const stored = byFoldedKey(m.props, key);
+              adopt(typeof stored === "string" ? stored : null);
+            })
+            .catch(() => {});
+          throw err;
+        }
+      );
     writeChain.current = next.catch(() => {});
     return next;
   };
@@ -251,14 +301,24 @@ export default function TasksDashboard({
       frontmatter prop on the dashboard note. A default value clears the prop
       instead of writing it, so untouched boards keep clean frontmatter. A
       failed write puts the switch back where it was — an optimistic flip that
-      outlives the write it stood for is the pane lying about disk. Not
-      undoable on purpose — ⌘Z is for content, and popping a view flip off
-      the stack between two prop edits would read as data loss. */
+      outlives the write it stood for is the pane lying about disk.
+
+      The flip is undoable, like every other view flip in the app: it records
+      through `setPropUndoable`, so one ⌘Z puts the layout back and the inverse
+      is guarded on the value this flip wrote — a board whose layout moved
+      elsewhere since refuses rather than clobbers. */
   const pickView = (v: TasksView) => {
     if (v === view) return;
     const prior = view;
     setView(v);
-    queueWrite("view", v === "list" ? null : v)
+    setPropUndoable({
+      path: meta.path,
+      key: propKey("view"),
+      value: v === "list" ? null : v,
+      record: undo.record,
+      label: `Layout → ${VIEW_LABELS[v]}`,
+      write: flipWriter((raw) => setView(parseTasksView(raw))),
+    })
       .then(onMutated)
       .catch((err) => {
         setView(prior);
@@ -269,7 +329,14 @@ export default function TasksDashboard({
     if (s === sort) return;
     const prior = sort;
     setSort(s);
-    queueWrite("sort", s === "urgency" ? null : s)
+    setPropUndoable({
+      path: meta.path,
+      key: propKey("sort"),
+      value: s === "urgency" ? null : s,
+      record: undo.record,
+      label: `Order rows by → ${SORT_LABELS[s]}`,
+      write: flipWriter((raw) => setSort(parseTasksSort(raw))),
+    })
       .then(onMutated)
       .catch((err) => {
         setSort(prior);
@@ -375,6 +442,32 @@ export default function TasksDashboard({
       onSelect: () => moveToArea(row, col.area),
     }));
 
+  /** Pick for today: the Today pane's one verb, reachable from the board a
+      task is actually triaged on. It writes the very prop that pane writes,
+      so a row picked here lands in its Picked lane with everything else —
+      no second notion of "today" and no copy of the task. A row already
+      picked says so and stays inert rather than writing the same day twice. */
+  const pickForToday = (row: { path: string; title: string }) =>
+    write(row.path, TODAY_PROP, todayIso(), `Picked for today — ${row.title}`);
+
+  /** The row menu, one shape in both views. Pick leads — it is the verb a
+      reader comes to the board for — and the board's own area moves follow it
+      behind a hairline. The areas are the model's, not the kanban's: they are
+      grouped the same way whichever view is drawn, so a list row gets the
+      same re-area the card has always had. */
+  const rowMenuItems = (row: { path: string; title: string; area: string }): MenuItem[] => {
+    const picked = notes.some((n) => n.path === row.path && isPickedToday(n, todayIso()));
+    return [
+      {
+        label: "Pick for today",
+        disabled: picked,
+        hint: picked ? "picked" : undefined,
+        onSelect: () => pickForToday(row),
+      },
+      ...moveItems(row).map((it, i) => (i === 0 ? { ...it, separatorAbove: true } : it)),
+    ];
+  };
+
   const wake = (row: TasksDashboardRow) =>
     write(row.path, "snoozed_until", null, `Awake — ${row.title}`);
 
@@ -476,6 +569,39 @@ export default function TasksDashboard({
         key={row.path}
         data-task-path={row.path}
         title={rowTitle(row, now)}
+        // the same labelled group the card is: a name to announce, and the
+        // shortcut that summons the row menu said out loud rather than left
+        // for the reader to discover
+        role="group"
+        aria-label={row.title}
+        aria-keyshortcuts="Shift+F10"
+        // Right-click and the ContextMenu key open the same menu the kanban
+        // card carries — the list was the one task surface with no way to
+        // reach a row's verbs without hunting for its button.
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setRowMenu({
+            path: row.path,
+            title: row.title,
+            area: row.area,
+            x: e.clientX,
+            y: e.clientY,
+          });
+        }}
+        onKeyDown={(e) => {
+          if (e.key !== "ContextMenu" && !(e.shiftKey && e.key === "F10")) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const rect = e.currentTarget.getBoundingClientRect();
+          setRowMenu({
+            path: row.path,
+            title: row.title,
+            area: row.area,
+            x: rect.left + 12,
+            y: rect.top + 12,
+          });
+        }}
       >
         <button
           type="button"
@@ -611,7 +737,7 @@ export default function TasksDashboard({
         aria-label={row.title}
         aria-keyshortcuts="Shift+F10"
         draggable
-        // Right-click, the ContextMenu key and Shift+F10 all open the move
+        // Right-click, the ContextMenu key and Shift+F10 all open the row
         // menu — the DbBoardLayout card idiom. The handler sits on the card,
         // not on a focusable card wrapper: every card already holds real tab
         // stops (checkbox, title, verbs), so the key event reaches here by
@@ -619,7 +745,7 @@ export default function TasksDashboard({
         onContextMenu={(e) => {
           e.preventDefault();
           e.stopPropagation();
-          setMoveMenu({
+          setRowMenu({
             path: row.path,
             title: row.title,
             area: row.area,
@@ -632,7 +758,7 @@ export default function TasksDashboard({
           e.preventDefault();
           e.stopPropagation();
           const rect = e.currentTarget.getBoundingClientRect();
-          setMoveMenu({
+          setRowMenu({
             path: row.path,
             title: row.title,
             area: row.area,
@@ -762,14 +888,7 @@ export default function TasksDashboard({
               {/* sort first, view second: reading order matches the cascade —
                   the ordering feeds whichever layout renders it */}
               <SwitchGroup className="tasks-sort" label="Order rows by" title="Order rows by">
-                {(
-                  [
-                    ["urgency", "Urgency"],
-                    ["priority", "Priority"],
-                    ["due", "Due"],
-                    ["age", "Age"],
-                  ] as const
-                ).map(([value, label]) => (
+                {(Object.entries(SORT_LABELS) as [TasksSort, string][]).map(([value, label]) => (
                   <button
                     type="button"
                     key={value}
@@ -782,12 +901,7 @@ export default function TasksDashboard({
                 ))}
               </SwitchGroup>
               <SwitchGroup className="tasks-view" label="Layout" title="Layout">
-                {(
-                  [
-                    ["list", "List"],
-                    ["board", "Board"],
-                  ] as const
-                ).map(([value, label]) => (
+                {(Object.entries(VIEW_LABELS) as [TasksView, string][]).map(([value, label]) => (
                   <button
                     type="button"
                     key={value}
@@ -939,12 +1053,12 @@ export default function TasksDashboard({
           </section>
         )}
 
-        {moveMenu && (
+        {rowMenu && (
           <ContextMenu
-            x={moveMenu.x}
-            y={moveMenu.y}
-            items={moveItems(moveMenu)}
-            onClose={() => setMoveMenu(null)}
+            x={rowMenu.x}
+            y={rowMenu.y}
+            items={rowMenuItems(rowMenu)}
+            onClose={() => setRowMenu(null)}
           />
         )}
 

@@ -41,6 +41,8 @@ import type {
   VaultSyncStatus,
   ViewsConfig,
 } from "./types.ts";
+// type-only, so the cycle back through `tauri.ts` is erased at build time
+import type { OpenTarget } from "./ipc.ts";
 import { foldedPropKey } from "./types.ts";
 import { stripMachineFences } from "./fences.ts";
 import { foldDiacritics, foldWithMap } from "./fold.ts";
@@ -88,6 +90,12 @@ declare global {
   interface Window {
     /** command names the mock should reject with `mock failure: <cmd>` */
     __mockFail?: Set<string>;
+    /** command names the mock should never answer at all — the promise stays
+        pending for the life of the page. Distinct from `__mockFail` on
+        purpose: a rejection is a settled answer and every caller already has
+        a catch path, while a call that simply never comes back is the
+        failure a blocked main thread actually produces. */
+    __mockHang?: Set<string>;
     /** fire the mock event registry — the vault:changed lane */
     __mockEmit?: (event: string, payload?: unknown) => void;
     /** mutate a mock note's body out-of-band, like an external editor */
@@ -180,6 +188,12 @@ declare global {
     /** bulk-seed `count` loose notes into `folder` — the only way to reach a
         list long enough for ListPane to window */
     __mockSeedNotes?: (folder: string, count: number) => void;
+    /** seed a folder whose three orders all differ — last edited, created and
+        name each put a different note on top, so a spec can tell the sort
+        actually changed rather than the list happening to look right. Two of
+        the notes share a timestamp and carry no `created:`, which is the pair
+        that pins the tiebreak and the undated-last rule. */
+    __mockSeedSortable?: (folder: string) => void;
     /** seed `count` notes that all match `token`, optionally typed and
         deliberately ranked below the untyped ones — the only way to
         push a filtered match past the engine's result cap */
@@ -201,14 +215,43 @@ declare global {
     __mockPendingSeeds?: Array<
       | { notes: { folder: string; count: number } }
       | { matching: Parameters<NonNullable<Window["__mockSeedMatching"]>>[0] }
+      | { sortable: { folder: string } }
     >;
     /** stage the no-vault first-run state — the mock vault always exists,
         so this is the only way to reach the onboarding screen.
         Boot resolution happens on mount, so a spec staging first-run must
         set this flag from addInitScript, before the module loads; the
         setter is for flipping it afterwards. */
+    /** answer `history_snapshot` with false — the vault has no history to
+        commit into (a foreign folder, git off). Distinct from `__mockFail`
+        on the same command, which is history existing and the commit
+        failing: the first proceeds with a warning, the second stops the
+        sweep. */
+    __mockNoVaultHistory?: boolean;
     __mockFirstRun?: boolean;
     __mockSetFirstRun?: (on: boolean) => void;
+    /** hold `onboarding_status` open for this many ms — the real backend's
+        pre-status wait, which the mock otherwise answers instantly. Read at
+        module load, so a spec staging it must set it from addInitScript: the
+        boot gate fires its status call on mount and there is no later moment
+        to slow it down. */
+    __mockBootDelay?: number;
+    /** answer `onboarding_status` with `vault_ready: false` and send
+        `vault:ready` this many ms later — the deferred vault scan, where the
+        backend knows there is a vault but its index is not up yet. Same
+        load-time seam as `__mockBootDelay`, for the same reason. */
+    __mockBootScanMs?: number;
+    /** the same not-ready state, flipped after load — for tests that never
+        had a load-time moment. Unlike `__mockBootScanMs` nothing lifts it on
+        a timer: the caller sends `vault:ready` when it wants the index up.
+        `null` drops the field from the answer entirely, which is what an
+        older backend that always scanned before answering looks like. */
+    __mockSetVaultReady?: (on: boolean | null) => void;
+    /** stage a destination the way the tray agenda, the everywhere palette or
+        a due-date notification does when the main window cannot receive yet:
+        it sits in the queue until the window's first drain. Same drain-once
+        semantics as Rust — a second drain finds nothing. */
+    __mockQueueOpenTarget?: (target: OpenTarget) => void;
     /** stage a machine with no device key: sealing reports
         `device_unlock: false` and the Touch ID lane refuses, so a spec can
         reach the vault-password fallback the real app falls back to */
@@ -345,6 +388,18 @@ declare global {
 let mockVaultRoot = "/Users/demo/Vault (mock)";
 let mockFirstRun =
   typeof window !== "undefined" && (window as Window).__mockFirstRun === true;
+/* the two boot waits, staged at load: how long status takes to answer, and
+   how long the vault index takes to come up behind it. Zero for every spec
+   that has not asked — the boot gate must stay instant everywhere else. */
+const mockBootDelay =
+  (typeof window !== "undefined" && (window as Window).__mockBootDelay) || 0;
+const mockBootScanMs =
+  (typeof window !== "undefined" && (window as Window).__mockBootScanMs) || 0;
+let mockVaultReady: boolean | null = mockBootScanMs === 0;
+/** destinations staged for the main window's first drain — empty unless a
+    test put one there, since the browser mock has no tray, no notifications
+    and no second window to queue one. */
+let mockOpenTargets: OpenTarget[] = [];
 let mockRelaunched = false;
 let mockAgentCommand: string | null = null;
 let mockSealedPassword: string | null = null;
@@ -472,7 +527,13 @@ function mockFmDiagnosis(fm: string): MockFmFault | null {
     const t = line.trim();
     if (!t || t.startsWith("#")) continue;
     if (/^\s/.test(line)) continue; // indented lines belong to values
-    if (t === "-" || t.startsWith("- ")) return "not a property map";
+    // a column-0 dash before any key is a sequence document — not a map. After
+    // one it is that key's block list, which YAML reads as a map value and the
+    // engine's own serializer writes (`tags:` then `- keep`), so it is healthy.
+    if (t === "-" || t.startsWith("- ")) {
+      if (seen.size === 0) return "not a property map";
+      continue;
+    }
     const i = line.indexOf(":");
     if (i <= 0) return "not valid YAML";
     const key = mockUnquoteKey(line.slice(0, i).trim());
@@ -518,6 +579,16 @@ function mockFmProps(fm: string): Record<string, unknown> {
     const key = line.slice(0, c).trim();
     const inline = line.slice(c + 1).trim();
     if (inline) {
+      // a flow sequence — `tags: []`, `topics: [scene, ai]`. The engine's YAML
+      // reads these as lists, and `[]` in particular is the only way a note
+      // can hold an empty list at all (set_prop removes a key written as one),
+      // so a hand-written empty list has to survive the mock's reindex as one.
+      const flow = inline.match(/^\[(.*)\]$/s);
+      if (flow) {
+        const inner = flow[1].trim();
+        out[key] = inner === "" ? [] : inner.split(",").map((x) => mockFmScalar(x));
+        continue;
+      }
       out[key] = mockFmScalar(inline);
       continue;
     }
@@ -575,7 +646,13 @@ function mockFmSerialize(props: Record<string, unknown>): string | undefined {
           .join("\n")
       : `- ${x}`;
   const lines = Object.entries(props).map(([k, v]) =>
-    Array.isArray(v) ? `${k}:\n${v.map(item).join("\n")}` : `${k}: ${v}`
+    // an empty list has no dash lines to write, so `k:` alone would reindex as
+    // an untyped blank — the flow form keeps it a list
+    Array.isArray(v)
+      ? v.length === 0
+        ? `${k}: []`
+        : `${k}:\n${v.map(item).join("\n")}`
+      : `${k}: ${v}`
   );
   return lines.length ? `${lines.join("\n")}\n` : undefined;
 }
@@ -924,6 +1001,28 @@ const mockReflexes: { hasFile: boolean; enabled: boolean; paused: boolean; fileP
   paused: false,
   filePaused: false,
 };
+
+/** The vault's folders and whether each syncs. `Files` starts excluded, which
+    is the default a real vault has before anyone touches the setting, and
+    `Samples` carries an oversize file so the refusal path is reachable in the
+    mock lane without staging 64 MiB anywhere. */
+const mockSyncFolders: {
+  path: string;
+  excluded: boolean;
+  files: number;
+  bytes: number;
+  oversize: { path: string; size: number }[];
+}[] = [
+  { path: "Files", excluded: true, files: 12, bytes: 4 * 1024 * 1024, oversize: [] },
+  {
+    path: "Samples",
+    excluded: true,
+    files: 340,
+    bytes: 3 * 1024 * 1024 * 1024,
+    oversize: [{ path: "Samples/orchestra.wav", size: 96 * 1024 * 1024 }],
+  },
+  { path: "Notes", excluded: false, files: 48, bytes: 320 * 1024, oversize: [] },
+];
 
 /** Keep mock pins in the same state Engine::remap_saved_view_prop writes.
     Database and property identities are case-folded; query operator keys are
@@ -1836,10 +1935,16 @@ const mockSettings: { props: Record<string, unknown>; body: string; updated_ms: 
   // CHOSE a dialect: a vault with no key follows the machine's own locale, so
   // without this every asserted `1.234,56` in the suite would read whichever
   // country the rig — or a developer's laptop — is set to.
+  // `feed-topics` is seeded PRESENT AND EMPTY: the feed dashboard's chips
+  // write this key, and an empty list is "no filter", so the seeded stream
+  // still renders whole while a spec can read the key the chips write and set
+  // its own selection through `__mockEditProp`. Absent would be a different
+  // fixture — the one where a pre-`feed-topics` browser store migrates in.
   props: {
     "capture-hotkey": "alt+space",
     "close-to-tray": "false",
     "number-locale": "de-DE",
+    "feed-topics": [],
   },
   body: "Substrate settings — edit and save; changes apply within a second (⌘, opens the settings form).\n",
   // stable like the other seeds (a Date.now() here would float the row to the
@@ -2499,6 +2604,8 @@ const mockHoldReleases = new Map<string, () => void>();
    an optimistic paint can be asserted while the write is still in flight and
    the write still lands by itself. Empty by default — no spec, no cost. */
 const mockLatency = new Map<string, number>();
+// the staged pre-status wait rides the same gate a slow disk does
+if (mockBootDelay > 0) mockLatency.set("onboarding_status", mockBootDelay);
 /* one-shot refusals, per command, counted down as calls are made.
    __mockFail is a STANDING set: with three writes to the same cell in flight
    it refuses all three, which can't express "the slow first write comes back
@@ -2622,9 +2729,11 @@ export function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise
   // the trace hook; including FX lets privacy regressions prove call counts,
   // and the two hand-off commands let a spec prove a row action reached the OS
   // seam — the opening itself happens outside the app, where nothing can look.
+  // The two index reads are here for the opposite reason: a spec proves an
+  // edit does NOT re-list the vault, which only a call count can show.
   if (
     mockCmdTrace &&
-    (/^vault_(write_body|rename|create|read)$/.test(cmd) ||
+    (/^vault_(write_body|rename|create|read|list|metas)$/.test(cmd) ||
       cmd === "fx_rates" ||
       cmd === "url_capture" ||
       cmd === "file_open" ||
@@ -2734,6 +2843,8 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
   // surfaces (boot-error bar, save-failed pill, capture error) that an
   // always-succeeding mock leaves untestable
   if (window.__mockFail?.has(cmd)) throw new Error(`mock failure: ${cmd}`);
+  // never settles — the shape of a command queued behind a blocked main thread
+  if (window.__mockHang?.has(cmd)) return new Promise<never>(() => {});
   const find = () => mockNotes.find((n) => n.path === args?.path);
   switch (cmd) {
     case "vault_root":
@@ -2742,6 +2853,14 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
     /* first-run onboarding. The mock vault always exists, so the
        no-vault state is staged by the spec through __mockSetFirstRun. */
     case "onboarding_status":
+      // a staged deferred scan lands the way the backend's does: the status
+      // answers not-ready, and the event arrives on its own afterwards
+      if (!mockVaultReady && mockBootScanMs > 0) {
+        window.setTimeout(() => {
+          mockVaultReady = true;
+          window.__mockEmit?.("vault:ready", null);
+        }, mockBootScanMs);
+      }
       return {
         first_run: mockFirstRun,
         root: mockVaultRoot,
@@ -2749,6 +2868,8 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         config_path:
           "/Users/demo/Library/Application Support/substrate/config.json",
         env_pinned: false,
+        // `null` means an older backend: no such field at all, not `false`
+        ...(mockVaultReady === null ? {} : { vault_ready: mockVaultReady }),
       };
     case "vault_inspect": {
       const path = String(args?.path ?? "");
@@ -2868,9 +2989,21 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
     case "vault_list":
       // Settings.md is indexed like the real engine indexes it —
       // the App-side app-file filter is what conceals it by default
+      // engine parity: newest first, ties by path (Engine::list)
       return [...mockNotes.map(meta), mockSettingsMeta()].sort(
-        (a, b) => b.updated_ms - a.updated_ms
+        (a, b) =>
+          b.updated_ms - a.updated_ms || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)
       );
+    case "vault_metas": {
+      // the rows vault_list would carry for exactly these paths, positional
+      // and in the order asked; null is the note the vault no longer has
+      const asked = Array.isArray(args?.paths) ? (args.paths as string[]) : [];
+      return asked.map((path) => {
+        if (path === "Settings.md") return mockSettingsMeta();
+        const n = mockNotes.find((x) => x.path === path);
+        return n ? meta(n) : null;
+      });
+    }
     case "vault_sealed_configured":
       return mockSealedPassword !== null;
     case "vault_seal_scopes":
@@ -3340,6 +3473,47 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
           : [],
         invalid: [],
       };
+    // The no-sync folder list is a pure vault decision, so the mock lane drives
+    // it for real: the toggle moves the same state the list arm reports back.
+    // `Files` ships excluded, which is the default a real vault starts from.
+    case "sync_folders_list":
+      return mockSyncFolders.map((f) => ({
+        path: f.path,
+        excluded: f.excluded,
+        onDisk: true,
+        knownFiles: f.excluded ? f.files : 0,
+        knownUpdated: f.excluded ? 1767225600000 : 0,
+        knownCapped: false,
+      }));
+    case "sync_folders_index":
+      return {
+        version: 1,
+        folders: Object.fromEntries(
+          mockSyncFolders
+            .filter((f) => f.excluded)
+            .map((f) => [
+              f.path,
+              {
+                updated: 1767225600000,
+                entries: Array.from({ length: Math.min(f.files, 3) }, (_, i) => ({
+                  path: `sample-${i + 1}.bin`,
+                  size: Math.round(f.bytes / f.files),
+                  mtime: 1767225600000,
+                })),
+              },
+            ])
+        ),
+      };
+    case "sync_folders_set": {
+      const folder = mockSyncFolders.find((f) => f.path === args?.folder);
+      if (!folder) throw new Error(`no such folder: ${String(args?.folder)}`);
+      const scan = { files: folder.files, totalBytes: folder.bytes, oversize: folder.oversize, unreadable: [], limitBytes: 64 * 1024 * 1024 };
+      if (!args?.excluded && folder.oversize.length > 0) {
+        return { applied: false, scan };
+      }
+      folder.excluded = Boolean(args?.excluded);
+      return { applied: true, scan: args?.excluded ? null : scan };
+    }
     case "recall_status":
       return {
         enabled: mockRecall.enabled,
@@ -5358,7 +5532,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       // the mock's per-note snaps can't model a vault-wide pre-sweep commit —
       // true = "a restore point exists", the healthy-vault answer (the engine
       // only returns false when history is disabled outright)
-      return true;
+      return (window as Window).__mockNoVaultHistory !== true;
     case "path_exists": {
       const p = String(args?.path ?? "");
       // links into the mounted folder exist iff its "disk" still holds the file
@@ -5498,6 +5672,8 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         view: args?.view as ViewsConfig[string]["view"],
         group_by: ((args?.groupBy ?? args?.group_by) as string | null) ?? undefined,
         table_group_by: ((args?.tableGroupBy ?? args?.table_group_by) as string | null) ?? undefined,
+        // the calendar's date binding — its own key, never the board's
+        cal_date: ((args?.calDate ?? args?.cal_date) as string | null) ?? undefined,
         aggregations:
           (args?.aggregations as ViewsConfig[string]["aggregations"] | null) ?? undefined,
         sorts: sorts?.length ? sorts : undefined,
@@ -5889,6 +6065,15 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
     // the queue is always empty and the prefill always absent.
     case "deeplink_take_pending":
       return [];
+    // …and nothing queues a tray/palette/notification destination before the
+    // app mounts here either, for the same reason: those doors are the
+    // packaged app's. A test can stage one with __mockQueueOpenTarget; the
+    // drain empties the queue exactly as Rust's does.
+    case "open_targets_take_pending": {
+      const queued = mockOpenTargets;
+      mockOpenTargets = [];
+      return queued;
+    }
     case "deeplink_capture_prefill":
       return null;
     case "deeplink_clear_capture_prefill":
@@ -6261,6 +6446,10 @@ if (!isTauri) {
   };
   window.__mockStoredSyncRemoteUrl = () => mockSyncRemote.url;
   window.__mockPropOf = (path, key) => {
+    // Settings.md lives outside mockNotes, and is readable here for the same
+    // reason __mockEditProp writes it: a spec proving a switch landed in the
+    // settings file is asking about the file, not about component state
+    if (path === "Settings.md") return mockSettings.props[key];
     const n = mockNotes.find((m) => m.path === path);
     if (!n) throw new Error(`__mockPropOf: no mock note at ${path}`);
     return n.props[key];
@@ -6354,6 +6543,33 @@ if (!isTauri) {
       });
     }
   };
+  // A folder built so no two of the three orders agree: `Zebra` was edited
+  // last, `Alder` was created first and sorts first by name, and the two
+  // `Tie` notes share a millisecond with no `created:` of their own — the
+  // pair that shows the path tiebreak settling them and shows undated notes
+  // staying at the bottom whichever way the dated ones run.
+  window.__mockSeedSortable = (folder) => {
+    const tie = now - 90_000;
+    const seeds: { stem: string; updated_ms: number; created?: string }[] = [
+      { stem: "Zebra", updated_ms: now - 1_000, created: day(-2) },
+      { stem: "Mallow", updated_ms: now - 30_000, created: day(-30) },
+      { stem: "Alder", updated_ms: now - 60_000, created: day(-90) },
+      { stem: "Tie Beta", updated_ms: tie },
+      { stem: "Tie Alpha", updated_ms: tie },
+    ];
+    for (const seed of seeds) {
+      mockNotes.push({
+        path: `${folder}/${seed.stem}.md`,
+        stem: seed.stem,
+        title: seed.stem,
+        folder,
+        props: seed.created ? { created: seed.created } : {},
+        updated_ms: seed.updated_ms,
+        excerpt: "",
+        body: "",
+      });
+    }
+  };
   // A cap-sized match set. `where` decides the rank — a title hit
   // sorts ahead of every body-only one, so seeding the untyped bulk into
   // titles and the typed few into late body text puts the typed notes outside
@@ -6382,6 +6598,7 @@ if (!isTauri) {
   // them into mockNotes before any command is served.
   for (const staged of window.__mockPendingSeeds ?? []) {
     if ("matching" in staged) window.__mockSeedMatching(staged.matching);
+    else if ("sortable" in staged) window.__mockSeedSortable(staged.sortable.folder);
     else window.__mockSeedNotes(staged.notes.folder, staged.notes.count);
   }
   delete window.__mockPendingSeeds;
@@ -6389,6 +6606,15 @@ if (!isTauri) {
   // with neither VAULT_DIR, a stored choice, nor ~/Vault
   window.__mockSetFirstRun = (on) => {
     mockFirstRun = on;
+  };
+  // Stage the index still being built, for a test that has no load-time
+  // moment to set `__mockBootScanMs` from. Flipping it back to ready is the
+  // `vault:ready` emit the caller sends itself.
+  window.__mockQueueOpenTarget = (target) => {
+    mockOpenTargets.push(target);
+  };
+  window.__mockSetVaultReady = (on) => {
+    mockVaultReady = on;
   };
   window.__mockRelaunched = () => mockRelaunched;
   window.__mockAgentCommand = () => mockAgentCommand;

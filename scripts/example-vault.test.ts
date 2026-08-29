@@ -15,7 +15,7 @@ import {
 } from "../src/lib/heatmap.ts";
 import { parseTimelineConfig, timelineData } from "../src/lib/timeline.ts";
 import { parseHub } from "../src/lib/hub.ts";
-import { parseViewSpec } from "../src/lib/embeds.ts";
+import { KNOWN_KEYS, parseViewSpec } from "../src/lib/embeds.ts";
 import { collectCardsFences, parseBind, parseCardsBlock } from "../src/lib/metriccards.ts";
 import { parseProgressBlocks } from "../src/lib/progress.ts";
 import { parseFoodRows } from "../src/lib/food.ts";
@@ -196,6 +196,155 @@ test("the seed's documented view example parses to the keys it claims (SUB-474)"
   assert.ok(m, "the documented view example went missing");
   const spec = parseViewSpec(m[1].replace(/^ {4}/gm, ""));
   assert.deepEqual(spec, { type: "trip", query: "status:planned", view: "table" });
+});
+
+// The lockstep contract next door (vault/seed.rs) guarantees the seed's BYTES
+// travel with their revision history — not that what they say is still true.
+// The view fence is the door's most-used primitive, and its key list had
+// drifted three keys behind the parser: an agent reading only this file could
+// not discover `sort`, `limit` or `columns` at all. Same shape as the
+// PRIVATE_KINDS pin in publish.test.ts: read the constant, not a hand-copy,
+// and check BOTH directions so neither a key added to the parser nor a key
+// invented in the prose can pass.
+test("the seeded agent door documents exactly the view-fence keys the parser accepts", () => {
+  const seed = readFileSync(
+    fileURLToPath(new URL("../src-tauri/src/seed/AGENTS.md", import.meta.url)),
+    "utf8"
+  );
+  // The key documentation is the bullet run between the worked example and the
+  // paragraph about unknown keys. Bounding it keeps unrelated backticked prose
+  // elsewhere in the door out of the comparison.
+  const section = /\(close fence\)\n([\s\S]*?)\nAn unknown key/.exec(seed);
+  assert.ok(section, "the view-fence key documentation went missing");
+  const documented = [...section[1].matchAll(/^- `([a-z]+)` — /gm)].map((b) => b[1]);
+  assert.deepEqual(
+    new Set(documented),
+    new Set(KNOWN_KEYS),
+    "the seed's view-fence key bullets have drifted from KNOWN_KEYS in src/lib/embeds.ts"
+  );
+  assert.equal(documented.length, new Set(documented).size, "a key is documented twice");
+
+  // The roster sentence restates the list in one place an agent can scan, so
+  // it has to agree with the bullets rather than becoming a third opinion.
+  const roster = /whole vocabulary: ([^.]+)\./.exec(section[1]);
+  assert.ok(roster, "the view-fence key roster sentence went missing");
+  assert.deepEqual(
+    new Set([...roster[1].matchAll(/`([a-z]+)`/g)].map((k) => k[1])),
+    new Set(KNOWN_KEYS),
+    "the seed's view-fence key roster has drifted from its own bullets"
+  );
+});
+
+/** Every `.rs` file under src-tauri/src, so a constant can be resolved to its
+    literal wherever it was declared. */
+function rustSources(dir: string, out: string[] = []): string[] {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const at = join(dir, entry.name);
+    if (entry.isDirectory()) rustSources(at, out);
+    else if (entry.name.endsWith(".rs")) out.push(at);
+  }
+  return out;
+}
+
+/** The `.vault/` filenames the watcher surfaces live, read off `config_path`
+    in src-tauri/src/vault/watch.rs — the function that decides it — rather
+    than off any hand-written list beside it. Each arm names a constant
+    declared elsewhere, so the constant is resolved to its string too. */
+function watchedConfigFiles(): string[] {
+  const watchRs = fileURLToPath(new URL("../src-tauri/src/vault/watch.rs", import.meta.url));
+  const src = readFileSync(watchRs, "utf8");
+  const body = /pub fn config_path\([^)]*\) -> bool \{([\s\S]*?)\n\}/.exec(src);
+  assert.ok(body, "config_path went missing from watch.rs");
+  const arms = [...body[1].matchAll(/Path::new\(([A-Za-z_][A-Za-z0-9_:]*)\)/g)].map((m) => m[1]);
+  assert.ok(arms.length > 0, "config_path stopped comparing against named constants");
+
+  const files = rustSources(fileURLToPath(new URL("../src-tauri/src", import.meta.url)));
+  return arms.map((arm) => {
+    const parts = arm.split("::");
+    const name = parts[parts.length - 1];
+    const qualifier = parts.length > 1 ? parts[parts.length - 2] : null;
+    const decl = new RegExp(`const ${name}: &(?:'static )?str = "([^"]+)"`);
+    const hits: string[] = [];
+    for (const at of files) {
+      const text = readFileSync(at, "utf8");
+      const m = decl.exec(text);
+      if (!m) continue;
+      // `REL_PATH` and `CONFIG_REL_PATH` are declared in several places; the
+      // qualifier the arm spells picks the one it meant — a type's impl block,
+      // or the module the path names.
+      if (
+        qualifier &&
+        qualifier !== "crate" &&
+        !new RegExp(`impl ${qualifier}\\b`).test(text) &&
+        !at.includes(`${qualifier}.rs`) &&
+        !at.includes(`${qualifier}/`)
+      ) {
+        continue;
+      }
+      hits.push(m[1]);
+    }
+    assert.equal(hits.length, 1, `${arm} resolved to ${hits.length} declarations, not one`);
+    return hits[0];
+  });
+}
+
+const COUNT_WORDS = [
+  "zero", "one", "two", "three", "four", "five", "six", "seven", "eight",
+  "nine", "ten", "eleven", "twelve",
+];
+
+// The seed hand-copies the live-watched `.vault/` filenames out of the
+// watcher, and states two set sizes in words. Neither is derived from
+// anything at build time, so a config file added to (or dropped from) the
+// watcher, or a view-fence key added to the parser, leaves the door
+// confidently wrong — the same drift the view-fence key pin above closes,
+// on the two claims that pin does not reach.
+test("the seeded agent door names exactly the config files the watcher watches", () => {
+  const seed = readFileSync(
+    fileURLToPath(new URL("../src-tauri/src/seed/AGENTS.md", import.meta.url)),
+    "utf8"
+  );
+  const watched = watchedConfigFiles().map((rel) => basename(rel));
+
+  const sentence = /\b(\w+) of them are the live-watched exception([\s\S]*?)An external edit/.exec(
+    seed
+  );
+  assert.ok(sentence, "the live-watched config list went missing from the seed");
+  const named = [...sentence[2].matchAll(/`([^`]+\.json)`/g)].map((m) => m[1]);
+  assert.deepEqual(
+    new Set(named),
+    new Set(watched),
+    "the seed's live-watched file list has drifted from config_path in src-tauri/src/vault/watch.rs"
+  );
+  assert.equal(named.length, new Set(named).size, "a config file is named twice");
+
+  // "Seven of them", and the "for the seven above" that refers back to it
+  assert.equal(
+    sentence[1].toLowerCase(),
+    COUNT_WORDS[watched.length],
+    "the seed counts the live-watched files in words, and the count has drifted"
+  );
+  const backref = /for the (\w+)\nabove a torn read/.exec(seed);
+  assert.ok(backref, "the atomic-write paragraph's back-reference went missing");
+  assert.equal(
+    backref[1].toLowerCase(),
+    COUNT_WORDS[watched.length],
+    "the atomic-write paragraph counts a different number of watched files"
+  );
+});
+
+test("the seeded agent door counts the view-fence keys it lists", () => {
+  const seed = readFileSync(
+    fileURLToPath(new URL("../src-tauri/src/seed/AGENTS.md", import.meta.url)),
+    "utf8"
+  );
+  const roster = /Those (\w+) keys are the whole vocabulary/.exec(seed);
+  assert.ok(roster, "the view-fence key roster sentence went missing");
+  assert.equal(
+    roster[1].toLowerCase(),
+    COUNT_WORDS[KNOWN_KEYS.length],
+    "the seed's spelled-out key count has drifted from KNOWN_KEYS in src/lib/embeds.ts"
+  );
 });
 
 // BUILT_IN_KINDS rather than a hand-copied set: the copy had

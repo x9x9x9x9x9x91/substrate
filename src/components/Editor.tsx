@@ -22,7 +22,7 @@ import {
   keymap,
   placeholder as cmPlaceholder,
 } from "@codemirror/view";
-import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
+import { defaultKeymap, history, historyKeymap, redo, undo } from "@codemirror/commands";
 import { openSearchPanel, search, searchKeymap } from "@codemirror/search";
 import {
   autocompletion,
@@ -83,6 +83,8 @@ import { inlineTagMatches, tagOptions, tagQuery } from "../lib/tags";
 import {
   type SavedViewPin,
   type ViewValueSlot,
+  columnsCommand,
+  columnsWrapRefusal,
   fenceDbType,
   fenceExit,
   fenceInner,
@@ -104,18 +106,21 @@ import {
   AudioWidget,
   CalcResultWidget,
   CheckboxWidget,
+  ColumnsWidget,
   DashFenceHintWidget,
   FOLLOW_EVENT,
   TABLE_MENU_EVENT,
   FileWidget,
   ImageWidget,
   LiveValueWidget,
+  PdfWidget,
   TableWidget,
   ViewWidget,
   calcConfig,
   embedHandlers,
   isAudioEmbed,
   isImageEmbed,
+  isPdfEmbed,
   liveValuesConfig,
   startTableCellEdit,
   tableHitAtDom,
@@ -123,6 +128,7 @@ import {
   type TableMenuRequest,
 } from "../lib/editor-widgets";
 import { setEditorFocus } from "../lib/editorfocus";
+import { parseColumnRegions } from "../lib/columns";
 import { dashFenceHint } from "../lib/dashfencehint";
 import { evalCalcDoc, fencedLines, isCalcLine } from "../lib/calc";
 import {
@@ -752,6 +758,68 @@ const viewRender = StateField.define<BlockRender>({
   provide: (f) => EditorView.decorations.from(f, (v) => v.deco),
 });
 
+/** A `<!-- columns -->` region renders side by side. Like tables and ```view
+ * embeds it is a block widget from a StateField, with the same
+ * cursor-inside-reveals-source rule — so a page laid out in columns is edited
+ * by putting the caret in it, and what appears is the plain markdown that was
+ * always on disk (`columns.ts`).
+ *
+ * The regions come off the document text rather than the syntax tree: the
+ * markers are HTML comments, which lezer hands back as HTMLBlock nodes with no
+ * relation to each other, and the pairing is this module's rule, not
+ * markdown's. */
+function computeColumnDecorations(state: EditorState): BlockRender {
+  const focused = state.field(editorHasFocus);
+  const active = activeLines(state);
+  const epoch = state.field(vaultEpochField);
+  const dashboardNote = state.field(dashboardNoteField);
+  const deco: Range<Decoration>[] = [];
+  const regions: [number, number][] = [];
+  for (const region of parseColumnRegions(state.doc.toString())) {
+    // parseColumnRegions counts lines from 0, CodeMirror from 1
+    const first = state.doc.line(region.startLine + 1);
+    const last = state.doc.line(region.endLine + 1);
+    regions.push([first.from, last.to]);
+    if (tableIsEditing(focused, active, first.number, last.number)) continue;
+    deco.push(
+      Decoration.replace({
+        widget: new ColumnsWidget(state.sliceDoc(first.from, last.to), epoch, dashboardNote),
+        block: true,
+      }).range(first.from, last.to)
+    );
+  }
+  return { deco: Decoration.set(deco, true), regions };
+}
+
+const columnsRender = StateField.define<BlockRender>({
+  create: computeColumnDecorations,
+  update: (prev, tr) => {
+    // a chart fence INSIDE a region gets the same "draws on a dashboard" line
+    // as one outside it, so the region rebuilds when that answer changes —
+    // the flag rides the widget's identity and nothing else would notice
+    if (tr.startState.field(dashboardNoteField) !== tr.state.field(dashboardNoteField)) {
+      return computeColumnDecorations(tr.state);
+    }
+    return blockFieldUpdate(prev, tr, true, computeColumnDecorations);
+  },
+  provide: (f) => EditorView.decorations.from(f, (v) => v.deco),
+});
+
+/** The character spans a rendered column region currently covers. Everything
+ * inside one is drawn by the widget, so the inline decorators skip it: a
+ * heading or a link in there is the widget's to render, and a second
+ * decoration over a replaced range renders as neither. */
+function columnWidgetSpans(state: EditorState): [number, number][] {
+  const field = state.field(columnsRender, false);
+  if (!field) return [];
+  const spans: [number, number][] = [];
+  const iter = field.deco.iter();
+  for (; iter.value; iter.next()) {
+    if (iter.to > iter.from && iter.value.spec?.widget) spans.push([iter.from, iter.to]);
+  }
+  return spans;
+}
+
 /** Whether this buffer is a dashboard note's own source. A ```chart in a
  * dashboard note is already drawing one pane away, so the hint below would be
  * telling its author something they plainly know; in every other note the
@@ -883,6 +951,7 @@ function blockWidgetLines(state: EditorState): { first: number; last: number }[]
     tableRender,
     viewRender,
     audioAnnotationRender,
+    columnsRender,
   ];
   for (const field of fields) {
     const rendered = state.field(field, false);
@@ -951,8 +1020,11 @@ function addCalloutDecorations(
     start--;
   }
   if (start <= doneThrough) start = doneThrough + 1;
+  // a callout inside a rendered column region is the widget's to draw
+  const columnSpans = columnWidgetSpans(state);
   for (let number = start; number <= toLine; number++) {
     const first = state.doc.line(number);
+    if (columnSpans.some(([a, b]) => first.from >= a && first.to <= b)) continue;
     const header = CALLOUT_HEADER_RE.exec(first.text);
     if (!header || !isBlockquoteLine(state, first.from)) continue;
     const kind = header[2].toLowerCase() as CalloutKind;
@@ -1341,6 +1413,12 @@ function buildDecorations(view: EditorView): DecorationSet {
       if (iter.to > iter.from && iter.value.spec?.widget) covered.push([iter.from, iter.to]);
     }
   }
+  // a rendered column region is drawn whole by its widget — nothing inside it
+  // is this pass's to decorate
+  const columnSpans = columnWidgetSpans(state);
+  covered.push(...columnSpans);
+  const inColumnWidget = (from: number, to: number) =>
+    columnSpans.some(([a, b]) => from >= a && to <= b);
   const inCovered = (from: number, to: number) =>
     covered.some(([a, b]) => from >= a && to <= b);
   const inAudioRegion = (from: number, to: number) =>
@@ -1374,6 +1452,7 @@ function buildDecorations(view: EditorView): DecorationSet {
       from,
       to,
       enter(node) {
+        if (inColumnWidget(node.from, node.to)) return false;
         if (
           node.name === "InlineCode" ||
           node.name === "FencedCode" ||
@@ -1477,7 +1556,9 @@ function buildDecorations(view: EditorView): DecorationSet {
         ? new AudioWidget(target, epoch)
         : isImageEmbed(target)
           ? new ImageWidget(target, epoch, embedSize(m[1]))
-          : new FileWidget(target, epoch, state.facet(calcConfig).locale);
+          : isPdfEmbed(target)
+            ? new PdfWidget(target, epoch, embedSize(m[1]))
+            : new FileWidget(target, epoch, state.facet(calcConfig).locale);
       const sourceLine = state.doc.lineAt(start);
       const standalone = sourceLine.text.trim() === m[0];
       if (isAudioEmbed(target)) {
@@ -1913,6 +1994,163 @@ function tagCompletions(universeRef: React.MutableRefObject<TagCount[] | undefin
   };
 }
 
+/** The text a line-opening `/` was typed OVER, for as long as that `/…` token
+    is still open.
+
+    Typing any character with a selection replaces it — that is CodeMirror's
+    rule and every other command keeps it, so `/table` over a picked paragraph
+    still costs you the paragraph (⌘Z has it). But "put THIS in a column" is a
+    thing people reach for constantly, and the only gesture that expresses it
+    is picking the text first. So the replaced text is remembered here and
+    `/columns` is the one command that asks for it back.
+
+    Kept alive only while the token it belongs to is: the `/` still sits at the
+    recorded position, and every later change lands strictly after it — which
+    is the letters of the command name and nothing else. Anything wider (an
+    edit above, a second selection, a paste) drops it and the command falls
+    back to the plain skeleton. */
+interface SlashReplaced {
+  text: string;
+  /** document position of the `/` this text was traded for */
+  from: number;
+}
+
+/** The palette closed without accepting anything (Escape, a click away, a
+    source that stopped matching) — so the trade is off and the stash goes
+    with it. Without this a `/columns` typed minutes later, on a different
+    line, could give back a paragraph the author had long walked away from. */
+const clearSlashReplaced = StateEffect.define<null>();
+
+const slashReplacedField = StateField.define<SlashReplaced | null>({
+  create: () => null,
+  update(prev, tr) {
+    if (tr.effects.some((e) => e.is(clearSlashReplaced))) return null;
+    if (!tr.docChanged) {
+      // the caret leaving the line the `/` is on ends the trade too: whatever
+      // the palette does next, it is not standing where this text was taken
+      if (prev && tr.selection && !onSlashLine(tr.state, prev)) return null;
+      return prev;
+    }
+    const born: SlashReplaced[] = [];
+    let count = 0;
+    let touchedBefore = false;
+    tr.changes.iterChanges((fromA, toA, fromB, _toB, inserted) => {
+      count++;
+      if (toA > fromA && inserted.toString() === "/") {
+        born.push({ text: tr.startState.doc.sliceString(fromA, toA), from: fromB });
+      }
+      if (prev && fromA <= prev.from) touchedBefore = true;
+    });
+    if (count === 1 && born.length === 1) return born[0];
+    if (!prev || touchedBefore) return null;
+    return prev;
+  },
+});
+
+/** Is the caret still on the line the `/` was typed on? */
+function onSlashLine(state: EditorState, replaced: SlashReplaced): boolean {
+  if (replaced.from > state.doc.length) return false;
+  const line = state.doc.lineAt(replaced.from);
+  const head = state.selection.main.head;
+  return head >= line.from && head <= line.to;
+}
+
+/** Watches the palette close. A completion that ended without a document
+    change was dismissed rather than accepted, and the stash is spent either
+    way — the accept has already read it by the time this lands. */
+const slashStashSweeper = ViewPlugin.fromClass(
+  class {
+    update(u: ViewUpdate) {
+      if (u.docChanged) return;
+      if (completionStatus(u.startState) === null || completionStatus(u.state) !== null) return;
+      if (u.state.field(slashReplacedField, false) == null) return;
+      // a view plugin may not dispatch inside its own update
+      queueMicrotask(() => u.view.dispatch({ effects: clearSlashReplaced.of(null) }));
+    }
+  }
+);
+
+/** The text `/columns` should wrap, when the palette is standing at `from` and
+    something was traded for the `/` that opened it. Empty otherwise. */
+function slashSelectionAt(state: EditorState, from: number): string {
+  const replaced = state.field(slashReplacedField, false);
+  if (!replaced || replaced.from !== from) return "";
+  return state.doc.sliceString(from, from + 1) === "/" ? replaced.text : "";
+}
+
+/** How many history entries the `/…` token is allowed to have become before
+    the fold below gives up. A pause longer than the history's grouping delay
+    splits the typing in two, and a slow typist can split it again — but the
+    token is nine characters, so a handful is the whole range. */
+const SLASH_UNDO_STEPS = 6;
+
+/** Take the `/…` token back out of the document AND out of the history, so the
+    accept that follows is a single entry: the first ⌘Z gives back the picked
+    text and the selection that picked it, rather than the lone `/` it was
+    traded for.
+
+    Bounded and checked, because how many entries the typing became is the
+    typist's business. Either the document comes back exactly as it was before
+    the `/` — same text either side of it, the picked text in between — or
+    every undo taken is redone and the accept goes back to being its own step,
+    which is what it always was. */
+function foldSlashTyping(view: EditorView, from: number, to: number, wrapped: string): boolean {
+  const head = view.state.doc.sliceString(0, from);
+  const tail = view.state.doc.sliceString(to);
+  const want = head + wrapped + tail;
+  for (let taken = 1; taken <= SLASH_UNDO_STEPS; taken++) {
+    if (!undo(view)) {
+      for (let i = 1; i < taken; i++) redo(view);
+      return false;
+    }
+    if (view.state.doc.toString() === want) return true;
+  }
+  for (let i = 0; i < SLASH_UNDO_STEPS; i++) redo(view);
+  return false;
+}
+
+/** `/columns` accepted.
+ *
+ * The wrap is snapped to WHOLE LINES. A drag that stopped mid-line is the
+ * commonest way anyone picks a paragraph, and wrapping it literally leaves the
+ * rest of that line stranded after the close marker, where it parses as no
+ * region at all — so the pick is taken to the end of its last line, which is
+ * the only place a marker can go.
+ *
+ * Some text cannot be wrapped at all (`columnsWrapRefusal`), and then the
+ * command REFUSES: it says so on the toast and leaves the document alone.
+ * Silently inserting a region that means something else would be the worse
+ * half of that bargain — the author can widen the pick and ask again. */
+function acceptColumns(
+  view: EditorView,
+  from: number,
+  to: number,
+  onToast?: (msg: string) => void
+) {
+  const picked = slashSelectionAt(view.state, from);
+  // no trade, no snap: with nothing picked, whatever sits after the caret on
+  // this line is text the author never offered
+  const end = picked ? view.state.doc.lineAt(to).to : to;
+  const wrapped = picked ? picked + view.state.doc.sliceString(to, end) : "";
+  const refusal = wrapped ? columnsWrapRefusal(wrapped) : null;
+  if (refusal) {
+    // the pick is given back with the news: the `/` was traded for it, and a
+    // command that cannot run has no claim on the text that opened it
+    foldSlashTyping(view, from, end, wrapped);
+    onToast?.(refusal);
+    return;
+  }
+  const chosen = columnsCommand(wrapped);
+  // one undo step for the whole gesture; if the token cannot be folded back
+  // out, the wrap still happens — it just costs the second ⌘Z it always did
+  const folded = wrapped ? foldSlashTyping(view, from, end, wrapped) : false;
+  view.dispatch({
+    changes: { from, to: folded ? from + wrapped.length : end, insert: chosen.insert },
+    selection: { anchor: from + chosen.cursor },
+    userEvent: "input.complete",
+  });
+}
+
 /** `/` slash menu: a line-initial `/` opens the insertion palette —
     /view, /date, /task, /asset. Same autocompletion extension as the [[ popup,
     so Esc, arrows and Enter behave identically and there's no custom widget.
@@ -1922,7 +2160,7 @@ function tagCompletions(universeRef: React.MutableRefObject<TagCount[] | undefin
     indented block or an inline span a leading `/` is literal — a path, a
     regex, a shell command — and popping the palette there is exactly the case
     where accepting it (Enter meaning "newline") corrupts what was typed. */
-function slashCompletions() {
+function slashCompletions(onToast?: { current: ((msg: string) => void) | undefined }) {
   return (context: CompletionContext): CompletionResult | null => {
     const before = context.state.sliceDoc(Math.max(0, context.pos - 250), context.pos);
     const query = slashQuery(before);
@@ -1937,9 +2175,18 @@ function slashCompletions() {
         label: `/${command.name}`,
         detail: command.detail,
         apply: (view, _completion, from, to) => {
+          // `/columns` is the one command that takes back what the `/` was
+          // typed over — the picked text becomes the left column rather than
+          // being spent on opening the menu, which is a wrap with rules of its
+          // own (whole lines, one undo step, and a refusal it has to voice)
+          if (command.name === "columns") {
+            acceptColumns(view, from, to, onToast?.current);
+            return;
+          }
+          const chosen = command;
           view.dispatch({
-            changes: { from, to, insert: command.insert },
-            selection: { anchor: from + command.cursor },
+            changes: { from, to, insert: chosen.insert },
+            selection: { anchor: from + chosen.cursor },
             userEvent: "input.complete",
           });
           // Three commands land the cursor where a NAME goes, and a name
@@ -2825,6 +3072,8 @@ export default function Editor({
           ),
           ...historyKeymap,
         ]),
+        slashReplacedField,
+        slashStashSweeper,
         search({ top: true }),
         // an empty ghost daily must say it's writable — the cue vanishes on
         // the first keystroke
@@ -2843,7 +3092,7 @@ export default function Editor({
           addToOptions: [ACCENT_SWATCH],
           override: [
             wikiLinkCompletions(noteTitlesRef, linkedNoteBodyRef),
-            slashCompletions(),
+            slashCompletions(onToastRef),
             liveBindCompletions(sheetTitlesRef, sheetMembersRef),
             viewTypeCompletions(dbTypesRef),
             viewFenceCompletions({
@@ -2890,6 +3139,7 @@ export default function Editor({
         dashFenceHintRender,
         viewRender,
         audioAnnotationRender,
+        columnsRender,
         flashLine,
         EditorView.contentAttributes.of({ "aria-label": "Note body" }),
         EditorView.lineWrapping,

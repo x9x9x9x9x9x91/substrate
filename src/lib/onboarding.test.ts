@@ -33,8 +33,23 @@ test("boot shows nothing until status lands — no onboarding flash for returnin
   assert.equal(bootScreen(status(true)), "onboarding");
 });
 
+test("a deferred vault scan holds the boot frame, not an empty notes list", () => {
+  // the backend answered before its index was up: showing the app here would
+  // present an empty vault as if it were the user's
+  assert.equal(bootScreen(status(false), false, false), "unknown");
+  // …and the `vault:ready` event lifts it
+  assert.equal(bootScreen(status(false), false, true), "app");
+  // onboarding never waits on an index — there is no vault to index
+  assert.equal(bootScreen(status(true), false, false), "onboarding");
+  // a backend that scans before answering passes nothing: still the app
+  assert.equal(bootScreen(status(false)), "app");
+});
+
 test("a failed status call falls back to the app, never a blank screen", () => {
   assert.equal(bootScreen(null, true), "app");
+  // and it outranks a not-ready index too: a backend that cannot answer
+  // status will never send `vault:ready` either
+  assert.equal(bootScreen(null, true, false), "app");
   // even a first_run status loses to the failure flag — the app's own
   // boot-error bar is the right surface for a broken backend
   assert.equal(bootScreen(status(true), true), "app");

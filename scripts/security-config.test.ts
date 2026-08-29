@@ -40,8 +40,17 @@ test("shipped csp exists and keeps script-src locked down", () => {
   const script = directive(sec.csp, "script-src");
   assert.ok(script, "csp has no script-src");
   assert.ok(script.includes("'self'"), "script-src lost 'self'");
+  /* `'wasm-unsafe-eval'` is the one relaxation the shipped policy carries, and
+     it is not an eval: it permits compiling WebAssembly and nothing else — no
+     `eval`, no `new Function`, no string-to-script path of any kind. The PDF
+     page renderer's image and colour decoders are wasm modules the app ships
+     and instantiates from a buffer, which Chromium-family webviews gate on
+     this directive; without it a scanned or ICC-tagged document silently
+     loses its colour management (see docs/security-config.md). Strip the one
+     allowed token before checking, so the real prohibitions still bite. */
+  const bare = script.split("'wasm-unsafe-eval'").join("");
   assert.ok(
-    !script.includes("unsafe-inline") && !script.includes("unsafe-eval"),
+    !bare.includes("unsafe-inline") && !bare.includes("unsafe-eval"),
     `script-src must never relax to inline/eval in the SHIPPED policy: ${script}`
   );
 });
@@ -66,7 +75,14 @@ test("script-src and connect-src are EXACT lists, not merely non-empty", () => {
   // directive — a stray `blob:`, `data:`, `https:` or `*` — is exactly how
   // that code would reach something it wasn't given. Growing either list is a
   // deliberate edit here, in the same commit.
-  assert.deepEqual(sources(sec.csp!, "script-src"), ["'self'", ...KIND_SOURCES]);
+  // `'wasm-unsafe-eval'` is an execution keyword, not an origin — it widens
+  // nothing about WHERE code may come from. It is pinned here all the same, so
+  // adding a second keyword stays a deliberate edit in this file.
+  assert.deepEqual(sources(sec.csp!, "script-src"), [
+    "'self'",
+    "'wasm-unsafe-eval'",
+    ...KIND_SOURCES,
+  ]);
   assert.deepEqual(sources(sec.csp!, "connect-src"), [
     "'self'",
     ...KIND_SOURCES,

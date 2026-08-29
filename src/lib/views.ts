@@ -41,12 +41,6 @@ export function isVoiceNote(n: NoteMeta): boolean {
   return foldedPropStr(n.props, "type")?.trim().toLowerCase() === VOICE_TYPE;
 }
 
-/** The Scratch view's row set: every scratch note, newest edit first — the
-    Apple Notes model, so the daily surface needs no filing decisions. */
-export function scratchNotes(notes: NoteMeta[]): NoteMeta[] {
-  return notes.filter(isScratchNote).sort((a, b) => b.updated_ms - a.updated_ms);
-}
-
 /** A ⌘N-created scratch note that was never touched — default
     "Untitled" stem (dedupe suffix included), empty body, and only the
     engine's create-time `created` prop. These abandon themselves on leave

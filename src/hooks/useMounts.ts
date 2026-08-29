@@ -17,20 +17,23 @@ import {
   scanStatLine,
 } from "../lib/mounts";
 import type { PropWriter } from "../lib/undoprops";
-import { withSnapshotWarning } from "../lib/sweep";
+import { snapshotRestore, withSnapshotWarning } from "../lib/sweep";
 import type { DriveInfo, MountInfo, MountRow, MountScanStats, PropValue, View } from "../lib/types";
 import { errText } from "../lib/errtext";
+import type { ToastAction } from "./useToast";
 
 /** what a mount needs from the rest of App to do its work */
 type MountsDeps = {
   vaultEpoch: number;
   view: View;
   setView: Dispatch<SetStateAction<View>>;
-  showToast: (msg: string) => void;
+  showToast: (msg: string, action?: ToastAction) => void;
   refresh: () => void;
   /** re-read the .vault JSONs — a mount IS a database, so unmounting moves them */
   reloadDbMeta: () => void;
   presweepSnapshot: (label: string) => Promise<boolean>;
+  /** open the vault history, where the pre-sweep snapshot is the newest point */
+  restoreFromSnapshot: () => void;
 };
 
 /**
@@ -44,7 +47,8 @@ type MountsDeps = {
  * to a mount without any of them knowing what a mount is.
  */
 export function useMounts(deps: MountsDeps) {
-  const { vaultEpoch, view, setView, showToast, refresh, reloadDbMeta, presweepSnapshot } = deps;
+  const { vaultEpoch, view, setView, showToast, refresh, reloadDbMeta, presweepSnapshot, restoreFromSnapshot } =
+    deps;
 
   // "Mount a folder…": the dialog's open state
   const [mountDialog, setMountDialog] = useState(false);
@@ -183,10 +187,12 @@ export function useMounts(deps: MountsDeps) {
             ? `Unmounted “${mount.name}” and moved its notes to Trash`
             : `Unmounted “${mount.name}” — its notes stay in the vault`,
           snapped
-        )
+        ),
+        // only the cleanup variant swept anything, so only it has a snapshot
+        cleanup ? snapshotRestore(snapped, restoreFromSnapshot) : undefined
       );
     },
-    [presweepSnapshot, reloadMounts, reloadDbMeta, refresh, showToast]
+    [presweepSnapshot, restoreFromSnapshot, reloadMounts, reloadDbMeta, refresh, showToast]
   );
 
   const unmount = useCallback(

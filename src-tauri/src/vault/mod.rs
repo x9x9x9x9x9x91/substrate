@@ -446,6 +446,115 @@ fn strip_machine_fences(body: &str) -> String {
         .into_owned()
 }
 
+/// Whether a line is one of the three column-layout markers
+/// (`<!-- columns -->`, `<!-- col -->`, `<!-- /columns -->`, whitespace and
+/// case as the author wrote them). Lockstep twin: the three regexes in
+/// src/lib/columns.ts, which is what actually lays the page out — this side
+/// only has to recognize them, so that no surface built out of raw body text
+/// shows an author the plumbing.
+///
+/// Exactly three spellings, which is why the slash is not optional in front of
+/// both words: `<!-- /col -->` closes nothing over there, so a line saying it
+/// is prose, and stripping it here would blank a line out of an excerpt that
+/// the author can still see in their editor.
+///
+/// The two sides answer parity/lockstep/column-markers.json, and a test on
+/// each side replays it — the drift this comment used to only ask for.
+fn column_marker_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)^[ \t]*<!--[ \t]*(?:columns|col|/columns)[ \t]*-->[ \t]*\r?$").unwrap()
+    })
+}
+
+fn is_column_marker(line: &str) -> bool {
+    column_marker_re().is_match(line)
+}
+
+/// `body` with every column marker line blanked, newline for newline — the
+/// same bargain `strip_machine_fences` makes, and for the same reason: search
+/// line numbers keep mapping to the raw body the editor reveals. A marker is
+/// layout, so a snippet that printed one would be showing the reader a piece
+/// of machinery instead of their note.
+///
+/// Fence-aware, because the layout parser is: a marker inside a code fence is
+/// a code sample of the syntax, and a note ABOUT columns must stay findable by
+/// the markers it documents.
+fn strip_column_markers(body: &str) -> String {
+    let mut out = String::with_capacity(body.len());
+    let mut fence: Option<String> = None;
+    for (i, line) in body.split('\n').enumerate() {
+        if i > 0 {
+            out.push('\n');
+        }
+        let bare = line.trim_end_matches('\r');
+        match &fence {
+            Some(run) => {
+                if closes_fence(bare, run) {
+                    fence = None;
+                }
+                out.push_str(line);
+            }
+            None => {
+                if let Some(run) = opening_fence(bare) {
+                    fence = Some(run);
+                    out.push_str(line);
+                } else if !is_column_marker(line) {
+                    out.push_str(line);
+                }
+            }
+        }
+    }
+    out
+}
+
+/// The run of backticks or tildes opening a fence on this line, or None.
+/// CommonMark: up to three spaces of indent, three or more of one character,
+/// and a backtick opener's info string may not contain a backtick.
+/// Lockstep twin: `fenceOpening` in src/lib/fences.ts.
+fn opening_fence(line: &str) -> Option<String> {
+    let trimmed = line
+        .strip_prefix("   ")
+        .or_else(|| line.strip_prefix("  "))
+        .or_else(|| line.strip_prefix(' '))
+        .unwrap_or(line);
+    if trimmed.starts_with(' ') {
+        return None;
+    }
+    let marker = trimmed.chars().next().filter(|c| *c == '`' || *c == '~')?;
+    let run: String = trimmed.chars().take_while(|c| *c == marker).collect();
+    if run.chars().count() < 3 {
+        return None;
+    }
+    let info = &trimmed[run.len()..];
+    if marker == '`' && info.contains('`') {
+        return None;
+    }
+    Some(run)
+}
+
+/// Whether this line closes the fence `run` opened: same character, at least
+/// as long, and no info string. Lockstep twin: `fenceCloses` in fences.ts.
+fn closes_fence(line: &str, run: &str) -> bool {
+    let Some(found) = opening_fence_run(line) else { return false };
+    found.starts_with(&run[..1]) && found.len() >= run.len() && {
+        let trimmed = line.trim_start();
+        trimmed[found.len()..].trim().is_empty()
+    }
+}
+
+/// The leading fence run on a line, ignoring the info-string rule — a closer
+/// has no info string, so the rule cannot apply to it.
+fn opening_fence_run(line: &str) -> Option<String> {
+    let trimmed = line.trim_start_matches(' ');
+    if line.len() - trimmed.len() > 3 {
+        return None;
+    }
+    let marker = trimmed.chars().next().filter(|c| *c == '`' || *c == '~')?;
+    let run: String = trimmed.chars().take_while(|c| *c == marker).collect();
+    (run.chars().count() >= 3).then_some(run)
+}
+
 /// The frontmatter prop VALUES a note is searchable by — scalars (strings,
 /// numbers, bools) and their lists, space-joined. Keys stay out (they are the
 /// filter syntax's vocabulary, not content), as does `type` (the database name
@@ -695,6 +804,11 @@ pub struct Engine {
     /// vault from re-reading every picture in it to hash them. Interior
     /// mutability because the scan itself only reads the engine.
     image_memo: std::cell::RefCell<ocr::ImageMemo>,
+    /// The read side: the published copy of the index and the revision
+    /// counter that dates it, both bumped by every change to `notes`/`links`.
+    /// Shared rather than owned so a reader can answer from the publication
+    /// without taking the engine lock at all.
+    published: std::sync::Arc<readindex::Publication>,
     /// Test-only count of note-file writes through the create/prop-edit
     /// paths folder sync uses — lets sync tests assert write coalescing
     /// Always 0 in non-test builds.
@@ -955,6 +1069,12 @@ pub(super) fn folded_btree_key<'a, T>(
 
 fn make_excerpt(body: &str) -> String {
     for line in body.lines() {
+        // a note that opens with a column region would otherwise carry
+        // `<!-- columns -->` as its one-line summary in every list that shows
+        // one — the plumbing where the note's first sentence belongs
+        if is_column_marker(line) {
+            continue;
+        }
         let t =
             line.trim_start_matches(['#', '>', '-', '*', ' ']).replace("[[", "").replace("]]", "");
         let t = t.trim();
@@ -1729,7 +1849,24 @@ impl Settings {
 
 impl Engine {
     pub fn new(root: PathBuf) -> Self {
-        Self::build(root, true)
+        Self::build(root, true, true)
+    }
+
+    /// The same engine, handed back before its index exists.
+    ///
+    /// `build`'s scan is the whole-vault walk — every note read, parsed and
+    /// written into FTS — and running it inline is what kept the launch window
+    /// empty until it finished (lib.rs's boot thread). Scaffolding still
+    /// happens here, because it is bounded work on a handful of known files;
+    /// only the walk is deferred.
+    ///
+    /// The engine handed back is CONSISTENT but EMPTY: every query answers as
+    /// if the vault had no notes. The caller owes it one `rescan()` before
+    /// anything is allowed to read it, and owes its readers a way to wait —
+    /// launch does both, holding the engine lock across the scan so no command
+    /// can observe the empty index at all.
+    pub fn new_deferred_scan(root: PathBuf) -> Self {
+        Self::build(root, true, false)
     }
 
     /// The engine for a first run, before the user has picked a vault. Its
@@ -1739,7 +1876,7 @@ impl Engine {
     /// Writing them there left a hidden half-vault in Application Support
     /// that outlived the app itself, while the log said `vault: none`.
     pub fn new_unconfigured(root: PathBuf) -> Self {
-        Self::build(root, false)
+        Self::build(root, false, true)
     }
 
     /// Point the engine at this machine's config dir, which is where anything
@@ -1748,14 +1885,16 @@ impl Engine {
     /// index, and therefore everything that syncs, is identical either way.
     pub fn with_local_dir(mut self, dir: PathBuf) -> Self {
         self.local_dir = Some(dir);
-        // `build` already ran the rescan that indexes mounts, and at that point
-        // the engine did not yet know where this machine keeps document text —
-        // so those rows went in by name alone. Redo them now they have bodies.
+        // A scanned engine already indexed its mounts in `build`, and at that
+        // point it did not yet know where this machine keeps document text — so
+        // those rows went in by name alone. Redo them now they have bodies. On a
+        // deferred-scan engine there is no index yet and this is a no-op; its
+        // own `rescan()` runs `index_mounts` with the local dir already set.
         self.index_mounts();
         self
     }
 
-    fn build(root: PathBuf, scaffold: bool) -> Self {
+    fn build(root: PathBuf, scaffold: bool, scan: bool) -> Self {
         let fresh = !root.exists();
         if scaffold {
             fs::create_dir_all(root.join("Inbox")).ok();
@@ -1875,14 +2014,18 @@ impl Engine {
             seal_failures: Vec::new(),
             seal_conversions: Vec::new(),
             image_memo: Default::default(),
+            published: Default::default(),
             #[cfg(test)]
             note_writes: 0,
         };
-        e.rescan();
+        if scan {
+            e.rescan();
+        }
         e
     }
 
     pub fn rescan(&mut self) {
+        self.bump_revision();
         self.notes.clear();
         self.links.clear();
         if self.fts {
@@ -1893,7 +2036,7 @@ impl Engine {
             self.db.execute_batch("BEGIN").ok();
         }
         for path in entries {
-            self.index_file(&path);
+            self.index_walked(&path);
         }
         if self.fts {
             self.db.execute_batch("COMMIT").ok();
@@ -1967,6 +2110,11 @@ impl Engine {
                 touched.extend(self.reindex_dir_detailed(path));
             } else if is_regular_file(path) {
                 if path.extension().map(|x| x.eq_ignore_ascii_case("md")).unwrap_or(false) {
+                    // Announce the spelling the row is keyed under, not the
+                    // one the event arrived with: a client patching its list
+                    // from `metas` gets `None` for a key the index never had
+                    // and drops the note from the list until a full re-list.
+                    let rel = self.keyed_rel(&rel);
                     let known = self.notes.contains_key(&rel);
                     self.reindex_one(&rel);
                     // a file the index still refuses after a reindex (poisoned
@@ -2053,6 +2201,7 @@ impl Engine {
     /// line later, so the authorization must survive it — every write to an
     /// unlocked sealed note goes through here.
     fn deindex_note(&mut self, rel: &str) {
+        self.bump_revision();
         if self.notes.remove(rel).is_none() {
             return;
         }
@@ -2070,6 +2219,27 @@ impl Engine {
             self.remove_note(rel);
         }
         doomed
+    }
+
+    /// The path as the filesystem actually spells it, when the only
+    /// difference is letter case. `rel` is the index key, and a caller that
+    /// reaches a note by a different casing — a wikilink target, an IPC path
+    /// argument — opens the same file on a case-insensitive volume. Keyed by
+    /// the spelling it asked for, that one file gets a second row: same
+    /// title, same excerpt, same date, sitting next to the first. Only a pure
+    /// case difference is adopted. A symlink resolves to a genuinely
+    /// different path and keeps the name it was reached by, which is the
+    /// shortcut its author made.
+    fn on_disk_case(&self, path: &Path) -> PathBuf {
+        let Ok(real) = path.canonicalize() else { return path.to_path_buf() };
+        if real == path {
+            return real;
+        }
+        if real.to_string_lossy().to_lowercase() == path.to_string_lossy().to_lowercase() {
+            real
+        } else {
+            path.to_path_buf()
+        }
     }
 
     fn rel(&self, path: &Path) -> String {
@@ -2135,8 +2305,31 @@ impl Engine {
     /// wearing a name inside it. A symlink that stays under the root is
     /// somebody's own shortcut and still indexes; only the ones that leave
     /// are refused.
-    fn index_file(&mut self, path: &Path) {
+    ///
+    /// Returns the rel the row is keyed under — the disk's spelling, which is
+    /// not always the one the caller asked for. Every door that writes and
+    /// then reads its row back reads under THIS, or a note created into
+    /// `inbox` on a volume that spells the folder `Inbox` indexes fine and
+    /// then reports "create failed".
+    fn index_file(&mut self, path: &Path) -> String {
+        self.bump_revision();
+        let path = &self.on_disk_case(path);
         let rel = self.rel(path);
+        self.index_at(path, rel.clone());
+        rel
+    }
+
+    /// Index a path the directory walk produced. Those are built from the
+    /// canonical root plus the names readdir handed back, so they are already
+    /// spelled the way the disk spells them — asking `on_disk_case` here
+    /// would buy one `realpath` per note in the vault for an answer the walk
+    /// already gave.
+    fn index_walked(&mut self, path: &Path) {
+        let rel = self.rel(path);
+        self.index_at(path, rel);
+    }
+
+    fn index_at(&mut self, path: &Path, rel: String) {
         if hidden_rel(&rel) {
             return;
         }
@@ -2217,11 +2410,13 @@ impl Engine {
                 "INSERT INTO notes_fts(path, title, body, props) VALUES(?1, ?2, ?3, ?4)",
             ) {
                 // machine-fence bodies (```view/```chart/```csv/```formulas)
-                // are config/data, not searchable prose
+                // are config/data, not searchable prose; column markers are
+                // layout, and a snippet that printed one would be showing the
+                // reader plumbing rather than their note
                 stmt.execute(rusqlite::params![
                     rel,
                     title,
-                    strip_machine_fences(body),
+                    strip_column_markers(&strip_machine_fences(body)),
                     props_search_text(&props)
                 ])
                 .ok();
@@ -2348,19 +2543,105 @@ impl Engine {
         }
     }
 
-    fn reindex_one(&mut self, rel: &str) {
-        self.deindex_note(rel);
-        if let Ok(abs) = self.abs(rel) {
-            if is_regular_file(&abs) {
-                self.index_file(&abs.clone());
-            }
+    /// The rel an index row for this path is keyed under: the asked spelling
+    /// unless the volume spells it differently, in which case the disk's
+    /// spelling wins (`on_disk_case`). A door that wrote to a path it named
+    /// itself asks for this before reading the row back.
+    fn keyed_rel(&self, rel: &str) -> String {
+        match self.abs(rel) {
+            Ok(abs) => self.rel(&self.on_disk_case(&abs)),
+            Err(_) => rel.to_string(),
         }
     }
 
+    /// Returns the rel the fresh row is keyed under, which the caller reads
+    /// its meta back with. Both spellings are dropped first: a case-differing
+    /// ask reaches the same one file, so leaving a row under the other
+    /// spelling would leave the list showing it twice.
+    fn reindex_one(&mut self, rel: &str) -> String {
+        let keyed = self.keyed_rel(rel);
+        self.deindex_note(rel);
+        if keyed != rel {
+            self.deindex_note(&keyed);
+        }
+        if let Ok(abs) = self.abs(&keyed) {
+            if is_regular_file(&abs) {
+                return self.index_file(&abs.clone());
+            }
+        }
+        keyed
+    }
+
+    /// Mark the index changed. Called from the three places that touch
+    /// `notes`/`links` — the full rescan, the per-file index and the
+    /// per-file deindex — before the change rather than after, so a snapshot
+    /// built from a half-applied state can never look current.
+    ///
+    /// It moves the counter and nothing else. The published copy stays up:
+    /// retiring it here would put every reader on the engine lock from a
+    /// write's first mutation until its last, which is the wait this whole
+    /// arrangement exists to remove. The new copy goes out when the write
+    /// releases the lock — see [`readindex::EngineGuard`].
+    fn bump_revision(&mut self) {
+        self.published.bump();
+    }
+
+    /// The publication itself, for a reader that answers from the snapshot
+    /// without holding the engine lock.
+    pub fn publication(&self) -> std::sync::Arc<readindex::Publication> {
+        std::sync::Arc::clone(&self.published)
+    }
+
+    pub fn revision(&self) -> u64 {
+        self.published.revision()
+    }
+
+    /// True when a write has moved the index past what is published.
+    pub(crate) fn publication_owed(&self) -> bool {
+        self.published.owes_a_publication()
+    }
+
+    /// Copy the index and publish the copy. Called with the engine lock
+    /// held, on the writing thread, as the lock is released.
+    pub(crate) fn publish(&self) -> std::sync::Arc<ReadIndex> {
+        let revision = self.revision();
+        self.published.install(std::sync::Arc::new(ReadIndex::build(self, revision)))
+    }
+
+    /// The read-side snapshot for a caller that already holds the engine —
+    /// republished on the spot if this caller's own writes have moved past
+    /// what is published, which is what keeps read-your-own-writes intact
+    /// inside a single held lock. Readers that do NOT hold the engine go
+    /// through the publication instead and never rebuild.
+    ///
+    /// The engine's own read methods below go through this, so there is one
+    /// implementation of listing, backlinks and related rather than two that
+    /// can drift.
+    pub fn read_index(&self) -> std::sync::Arc<ReadIndex> {
+        if let Some(idx) = self.published.snapshot() {
+            if idx.current(self.revision()) {
+                return idx;
+            }
+        }
+        self.publish()
+    }
+
     pub fn list(&self) -> Vec<NoteMeta> {
-        let mut v: Vec<NoteMeta> = self.notes.values().cloned().collect();
-        v.sort_by_key(|n| std::cmp::Reverse(n.updated_ms));
-        v
+        // newest first, ties by path. The index is a hash map, so without the
+        // path key two notes saved in the same millisecond come back in
+        // whatever order the map iterated — a different order per run, and a
+        // different order from the list a caller patched from `metas`.
+        self.read_index().list()
+    }
+
+    /// The delta half of `list`: the metas for exactly these paths, in the
+    /// order asked, `None` where the index no longer has one. A caller that
+    /// already knows which paths a write touched patches its copy of the
+    /// list from this instead of re-fetching every note in the vault; `None`
+    /// is the removal, which is why the answer is positional rather than a
+    /// map (a map cannot say "this one is gone").
+    pub fn metas(&self, rels: &[String]) -> Vec<Option<NoteMeta>> {
+        self.read_index().metas(rels)
     }
 
     pub fn sealed_configured(&self) -> bool {
@@ -2434,8 +2715,8 @@ impl Engine {
         // plaintext git history safely (and roll the file back if that purge
         // fails). The public IPC command locks it before replying.
         self.authorize_sealed(rel, identity);
-        self.reindex_one(rel);
-        Ok(SealResult { meta: self.meta_after_write(rel)?, device_unlock })
+        let keyed = self.reindex_one(rel);
+        Ok(SealResult { meta: self.meta_after_write(&keyed)?, device_unlock })
     }
 
     /// Everything an unlock needs from the engine before it can ask for the
@@ -2554,8 +2835,8 @@ impl Engine {
         // the note is plaintext again: every holder's authorization is void,
         // not just this caller's
         self.unlocked_sealed.remove(rel);
-        self.reindex_one(rel);
-        self.meta_after_write(rel)
+        let keyed = self.reindex_one(rel);
+        self.meta_after_write(&keyed)
     }
 
     pub fn read(&self, rel: &str) -> Result<NoteContent, String> {
@@ -2615,8 +2896,8 @@ impl Engine {
         let out =
             if fm.trim().is_empty() { body.to_string() } else { format!("---\n{fm}\n---\n{body}") };
         self.write_note_atomic(rel, &abs, out)?;
-        self.reindex_one(rel);
-        self.meta_after_write(rel)
+        let keyed = self.reindex_one(rel);
+        self.meta_after_write(&keyed)
     }
 
     /// Replace a note's body, frontmatter preserved byte-verbatim. A missing
@@ -2674,8 +2955,8 @@ impl Engine {
             None => body.to_string(),
         };
         self.write_note_atomic(rel, &abs, out)?;
-        self.reindex_one(rel);
-        self.meta_after_write(rel)
+        let keyed = self.reindex_one(rel);
+        self.meta_after_write(&keyed)
     }
 
     /// Overwrite a note with raw file content (frontmatter included) — used
@@ -2694,8 +2975,8 @@ impl Engine {
             fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         }
         self.write_note_atomic(rel, &abs, raw)?;
-        self.reindex_one(rel);
-        self.meta_after_write(rel)
+        let keyed = self.reindex_one(rel);
+        self.meta_after_write(&keyed)
     }
 
     /// Post-write meta lookup: indexed paths come from the reindex; the
@@ -2828,8 +3109,8 @@ impl Engine {
         {
             self.note_writes += 1;
         }
-        self.reindex_one(rel);
-        Ok((out, self.meta_after_write(rel)?))
+        let keyed = self.reindex_one(rel);
+        Ok((out, self.meta_after_write(&keyed)?))
     }
 
     /// Set a sheet column's notification settings, stored in the
@@ -2941,11 +3222,7 @@ impl Engine {
     /// `create_full` derives its own path through this same function, so the
     /// two cannot drift; only a writer outside the app, taking the name in
     /// the moment between the two calls, can make the prediction wrong.
-    pub fn planned_note_rel(
-        &self,
-        title: &str,
-        folder: &str,
-    ) -> Result<(String, PathBuf), String> {
+    pub fn planned_note_rel(&self, title: &str, folder: &str) -> Result<(String, PathBuf), String> {
         let name = sanitize_filename(title);
         validate_note_title(title, &name)?;
         // same guard as move_note: hidden or escaping folders are refused, so
@@ -3023,9 +3300,11 @@ impl Engine {
         {
             self.note_writes += 1;
         }
-        let rel = self.rel(&file);
-        self.index_file(&file.clone());
-        self.notes.get(&rel).cloned().ok_or_else(|| "create failed".into())
+        // read back under the rel the index actually keyed: on a volume that
+        // spells the folder differently than the ask, the row is there under
+        // the disk's spelling and only a stale key calls it a failure
+        let keyed = self.index_file(&file.clone());
+        self.notes.get(&keyed).cloned().ok_or_else(|| "create failed".into())
     }
 
     /// A reference note captured from a URL: filed in Inbox with
@@ -3080,8 +3359,8 @@ impl Engine {
         }
         let rel = self.rel(&file);
         self.write_note_atomic(&rel, &file, format!("---\n{}---\n", fm))?;
-        self.index_file(&file.clone());
-        self.notes.get(&rel).cloned().ok_or_else(|| "create failed".into())
+        let keyed = self.index_file(&file.clone());
+        self.notes.get(&keyed).cloned().ok_or_else(|| "create failed".into())
     }
 
     pub fn meta(&self, rel: &str) -> Option<NoteMeta> {
@@ -3314,7 +3593,9 @@ impl Engine {
         } else {
             self.deindex_note(rel);
         }
-        self.reindex_one(&new_rel);
+        // the disk's own spelling of the destination, which every keyed-by-path
+        // follower below and the readback all have to agree on
+        let new_rel = self.reindex_one(&new_rel);
         // a sidebar pin is keyed by path — follow the file
         self.move_sidebar_pin(rel, Some(&new_rel))?;
         // an assigned key is keyed by path too
@@ -3539,7 +3820,7 @@ impl Engine {
         // the identity — it reopens locked, exactly as the pane shows it.
         self.relock_moved_sealed_note(rel, &new_rel);
         self.remove_note(rel);
-        self.reindex_one(&new_rel);
+        let new_rel = self.reindex_one(&new_rel);
         // the pin is keyed by path — follow the file into its new folder,
         // and so does an assigned key
         self.move_sidebar_pin(rel, Some(&new_rel))?;
@@ -3929,6 +4210,9 @@ pub use schema::{
     AGG_KINDS, BULK_CONFIG_PATHS, NUMBER_FORMATS, PROP_KINDS, SCHEMA_REL_PATH,
 };
 
+mod readindex;
+pub use readindex::{EngineLock, ReadIndex, SchemaStamp};
+
 mod search;
 // `FullSearchHit` / `SearchMatch` / `SnippetPart` are only named through the
 // result types today; the re-exports keep `vault::<T>` resolving as before.
@@ -3987,9 +4271,7 @@ pub use spaces::{
 // a drive is a mount carrying a `VolumeMark`, not a second mechanism.
 mod drives;
 pub(crate) use drives::{stat_identity, DRIVE_FILE_CAP};
-pub use drives::{
-    volume_search_roots, volumes_at, DriveEntry, DriveHit, DriveInfo, Volume,
-};
+pub use drives::{volume_search_roots, volumes_at, DriveEntry, DriveHit, DriveInfo, Volume};
 
 // What a mounted file says about itself. Split out of `mounts`
 // because it is pure per-file parsing: no engine, no lock, no vault.
@@ -4032,6 +4314,60 @@ mod tests {
     use super::testutil::*;
     use super::*;
     use serde_json::json;
+
+    /// Launch hands the frontend an engine before the vault has been walked,
+    /// so what that engine answers with is a product decision, not an
+    /// accident: an EMPTY vault, consistently, until the scan lands. A
+    /// constructor that half-filled the index would put stray notes on the
+    /// first screen and take them away again.
+    #[test]
+    fn a_deferred_scan_engine_lists_nothing_until_the_scan_lands() {
+        let (_scanned, dir) = temp_vault("deferred-scan");
+        std::fs::write(dir.join("Alpha.md"), "one").unwrap();
+        std::fs::write(dir.join("Beta.md"), "two").unwrap();
+
+        let mut deferred = Engine::new_deferred_scan(dir.clone());
+        assert!(deferred.list().is_empty(), "the pre-scan index answers as an empty vault");
+        assert!(
+            deferred.search("one", None, false).is_empty(),
+            "…and so does search, not an error"
+        );
+
+        deferred.rescan();
+        let titles: Vec<String> = deferred.list().into_iter().map(|n| n.title).collect();
+        for want in ["Alpha", "Beta"] {
+            assert!(
+                titles.iter().any(|t| t == want),
+                "{want} indexed by the deferred scan: {titles:?}"
+            );
+        }
+        // and it is the same index a constructor-scanned engine builds
+        let eager = Engine::new(dir.clone());
+        assert_eq!(
+            deferred.list().len(),
+            eager.list().len(),
+            "deferred and eager agree once scanned"
+        );
+    }
+
+    /// The launch scan runs on a background thread that holds the engine lock
+    /// across the whole boot sequence — that lock is what keeps a command from
+    /// seeing the empty index or a half-converted seal scope. A `rescan()`
+    /// moved back into the constructor would put the black launch window back
+    /// without failing anything else, so the constructor's shape is pinned.
+    #[test]
+    fn the_deferred_constructor_really_defers() {
+        let code = strip_line_comments(include_str!("mod.rs"));
+        let head = code
+            .find("pub fn new_deferred_scan(root: PathBuf) -> Self {")
+            .expect("the deferred-scan constructor moved — re-derive this guard, don't delete it");
+        let (body_start, body_end) = braced_block(&code, head);
+        let body = code[body_start..body_end - 1].trim();
+        assert_eq!(
+            body, "Self::build(root, true, false)",
+            "the deferred constructor must not scan: launch paints its first frame behind this"
+        );
+    }
 
     #[test]
     fn machine_fence_strip_covers_info_string_tails() {
@@ -4095,11 +4431,7 @@ mod tests {
                 let body = format!("a\n```{lang}{pad}\nsecret: 1\n```\nb");
                 let out = strip_machine_fences(&body);
                 assert!(!out.contains("secret"), "config stripped for {lang}{pad:?}: {out:?}");
-                assert_eq!(
-                    out.matches('\n').count(),
-                    body.matches('\n').count(),
-                    "line map kept"
-                );
+                assert_eq!(out.matches('\n').count(), body.matches('\n').count(), "line map kept");
             }
         }
         // ...and the same opener on a CRLF body, where the padding sits before
@@ -4146,6 +4478,105 @@ mod tests {
         // its spelling, so it stays searchable.
         let tailed = "a\n```HeatMap year\nsecret: session\n```\nb";
         assert_eq!(strip_machine_fences(tailed), tailed, "tailed mixed-case heatmap stays prose");
+    }
+
+    #[test]
+    fn column_markers_leave_the_excerpt_and_the_snippet() {
+        // A note that opens with a column region used to carry the opening
+        // marker as its excerpt — the plumbing where the first sentence goes.
+        let body = "<!-- columns -->\n## Address\nNine Palms Records\n<!-- col -->\n## Bank\n<!-- /columns -->";
+        assert_eq!(make_excerpt(body), "Address", "the first real line, not the marker");
+
+        // and the indexed body keeps its line count, so the editor's reveal
+        // still jumps where a hit says it should
+        let out = strip_column_markers(body);
+        assert!(!out.contains("<!--"), "no marker reaches a snippet: {out:?}");
+        assert!(out.contains("Nine Palms Records"), "column content stays searchable");
+        assert_eq!(out.matches('\n').count(), body.matches('\n').count(), "line map kept");
+
+        // spacing and case are the author's, on this side too
+        for marker in ["<!--columns-->", "  <!--   COL   -->", "<!-- /Columns -->"] {
+            assert!(is_column_marker(marker), "recognized: {marker:?}");
+        }
+        assert!(!is_column_marker("Write <!-- col --> to split a column."), "prose is prose");
+    }
+
+    /// The indexer's half of the marker/fence lockstep pin. One fixture,
+    /// parity/lockstep/column-markers.json, replayed here and by
+    /// src/lib/columnLockstep.test.ts under `npm test`: the renderer lays the
+    /// page out, this side decides what reaches the search index, and a line
+    /// the two disagree about is a marker one hides while the other prints it.
+    /// Both files claimed to be twins in prose before this existed, and both
+    /// had drifted — `<!-- /col -->` was a marker here and nowhere else.
+    ///
+    /// Unreadable or unparseable fails; a pin that quietly stops running is
+    /// the drift it exists to catch.
+    #[test]
+    fn the_lockstep_fixture_gets_the_same_answers() {
+        const FIXTURE: &str =
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../parity/lockstep/column-markers.json");
+        let raw = std::fs::read_to_string(FIXTURE)
+            .unwrap_or_else(|e| panic!("lockstep fixture unreadable at {FIXTURE}: {e}"));
+        let fixture: serde_json::Value = serde_json::from_str(&raw)
+            .unwrap_or_else(|e| panic!("lockstep fixture unparseable at {FIXTURE}: {e}"));
+
+        let rows = |key: &str| -> Vec<serde_json::Value> {
+            let list = fixture[key]
+                .as_array()
+                .unwrap_or_else(|| panic!("fixture has no {key} list"))
+                .clone();
+            assert!(list.len() > 5, "{key} cases exist");
+            list
+        };
+
+        // this side only asks whether a line is layout, so the renderer's
+        // three kinds collapse to a yes
+        for case in rows("markers") {
+            let line = case["line"].as_str().expect("marker line");
+            let want = !case["kind"].is_null();
+            assert_eq!(is_column_marker(line), want, "marker verdict for {line:?}");
+        }
+
+        for case in rows("fences") {
+            let line = case["line"].as_str().expect("fence line");
+            let want = case["opens"].as_str().map(str::to_owned);
+            assert_eq!(opening_fence(line), want, "fence opener for {line:?}");
+        }
+
+        for case in rows("closers") {
+            let line = case["line"].as_str().expect("closer line");
+            let run = case["run"].as_str().expect("closer run");
+            let want = case["closes"].as_bool().expect("closer verdict");
+            assert_eq!(closes_fence(line, run), want, "{line:?} closing {run:?}");
+        }
+    }
+
+    #[test]
+    fn column_markers_inside_a_fence_stay_searchable() {
+        // a note DOCUMENTING the syntax must stay findable by the markers it
+        // documents — every spelling of a fence, same rule the parser keeps
+        for open in ["```markdown", "~~~markdown", "````markdown", "   ```markdown"] {
+            let close = if open.starts_with("~") {
+                "~~~"
+            } else if open.starts_with("````") {
+                "````"
+            } else if open.starts_with("   ") {
+                "   ```"
+            } else {
+                "```"
+            };
+            let body = format!(
+                "How to write one:\n{open}\n<!-- columns -->\na\n<!-- /columns -->\n{close}\nafter"
+            );
+            let out = strip_column_markers(&body);
+            assert!(out.contains("<!-- columns -->"), "the sample survives {open:?}: {out:?}");
+            assert!(out.contains("after"), "the fence closed, {open:?}: {out:?}");
+        }
+        // and a real region below a four-backtick sample still strips
+        let body =
+            "````md\n```\n<!-- col -->\n```\n````\n<!-- columns -->\nreal\n<!-- /columns -->";
+        let out = strip_column_markers(body);
+        assert_eq!(out.matches("<!--").count(), 1, "only the shown one survives: {out:?}");
     }
 
     #[test]
@@ -4712,8 +5143,7 @@ mod tests {
         e.set_prop("Note.md", "status", Some("live")).unwrap();
         e.set_view_pref(
             "release", "board", None, None, None, None, None, None, None, None, None, None, None,
-            None,
-            None,
+            None, None, None,
         )
         .unwrap();
         let raw = fs::read_to_string(dir.join("Note.md")).unwrap();
@@ -4815,13 +5245,14 @@ mod tests {
     #[test]
     fn bare_key_frontmatter_reaches_the_app_as_a_present_null() {
         /* A note whose author typed `dashboard:` and stopped is one keystroke
-           from `dashboard: metrics`, and the app has to be able to tell it
-           apart from a note with no such key — the two render different
-           things. The shape it arrives in is null under a present key, and
-           nothing downstream can recover the distinction if this collapses
-           to an absent key here. */
+        from `dashboard: metrics`, and the app has to be able to tell it
+        apart from a note with no such key — the two render different
+        things. The shape it arrives in is null under a present key, and
+        nothing downstream can recover the distinction if this collapses
+        to an absent key here. */
         let (mut e, dir) = temp_vault("fmbarekey");
-        fs::write(dir.join("Overview.md"), "---\ntype: dashboard\ndashboard:\n---\nBody.\n").unwrap();
+        fs::write(dir.join("Overview.md"), "---\ntype: dashboard\ndashboard:\n---\nBody.\n")
+            .unwrap();
         e.rescan();
         let c = e.read("Overview.md").unwrap();
         assert!(c.props.contains_key("dashboard"), "the bare key was dropped on the way in");
@@ -5073,6 +5504,120 @@ mod tests {
         e.reindex_one("Inbox/Note.MD");
         let back = e.trash_restore(&id).unwrap();
         assert_eq!(back.path, "Inbox/Note 2.MD");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// One file on disk must never hold two rows in the list. A caller can
+    /// reach a note by a spelling the filesystem accepts but does not store —
+    /// a wikilink target, an IPC path argument — and on a case-insensitive
+    /// volume that opens the same file. Indexed under the spelling it was
+    /// asked for, the note appears twice: same title, same excerpt, same
+    /// date, adjacent in the list, and nothing downstream can tell them apart.
+    #[test]
+    fn a_case_differing_spelling_indexes_the_note_it_already_has() {
+        let (mut e, dir) = temp_vault("caseonce");
+        fs::create_dir_all(dir.join("Notes")).unwrap();
+        fs::write(dir.join("Notes/Alpha.md"), "body\n").unwrap();
+        e.reindex_one("Notes/Alpha.md");
+        e.reindex_one("notes/alpha.md");
+        let rows: Vec<String> = e.list().into_iter().map(|n| n.path).collect();
+        let mine: Vec<&String> =
+            rows.iter().filter(|p| p.to_lowercase() == "notes/alpha.md").collect();
+        assert_eq!(
+            mine,
+            vec!["Notes/Alpha.md"],
+            "one file, one row, spelled as the disk spells it"
+        );
+        // and the folder sweep agrees rather than minting a second key
+        e.reindex_dir_detailed(&dir.join("Notes"));
+        let rows: Vec<String> = e.list().into_iter().map(|n| n.path).collect();
+        assert_eq!(rows.iter().filter(|p| p.to_lowercase() == "notes/alpha.md").count(), 1);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Whether this volume folds case, which is what makes two spellings one
+    /// file. On a case-sensitive one the tests below have no subject: the two
+    /// spellings are two files and nothing is canonicalized.
+    fn volume_folds_case(dir: &Path) -> bool {
+        let probe = dir.join("CaseProbe");
+        if fs::create_dir_all(&probe).is_err() {
+            return false;
+        }
+        let folds = dir.join("caseprobe").is_dir();
+        let _ = fs::remove_dir_all(&probe);
+        folds
+    }
+
+    /// The other half of adopting the disk's spelling: a door that named the
+    /// path itself has to read its row back under the spelling the index
+    /// keyed, not the one it asked with. Creating into `inbox` on a volume
+    /// that spells the folder `Inbox` indexes correctly and would otherwise
+    /// report "create failed" for a note that is right there.
+    #[test]
+    fn a_create_into_a_case_differing_folder_reads_its_own_row_back() {
+        let (mut e, dir) = temp_vault("casecreate");
+        if !volume_folds_case(&dir) {
+            let _ = fs::remove_dir_all(&dir);
+            return;
+        }
+        fs::create_dir_all(dir.join("Inbox")).unwrap();
+        let meta = e
+            .create_full("Cased", "inbox", None, None, Some("body\n"))
+            .expect("the note exists on disk, so the create reports it");
+        assert_eq!(meta.path.to_lowercase(), "inbox/cased.md");
+        let rows: Vec<String> = e.list().into_iter().map(|n| n.path).collect();
+        assert_eq!(
+            rows.iter().filter(|p| p.to_lowercase() == "inbox/cased.md").count(),
+            1,
+            "one file, one row"
+        );
+        assert!(e.notes.contains_key(&meta.path), "the meta names the key the index holds");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Same shape one door further along: write, reindex, meta_after_write.
+    #[test]
+    fn a_write_through_a_case_differing_spelling_reads_its_own_row_back() {
+        let (mut e, dir) = temp_vault("casewrite");
+        if !volume_folds_case(&dir) {
+            let _ = fs::remove_dir_all(&dir);
+            return;
+        }
+        fs::create_dir_all(dir.join("Notes")).unwrap();
+        fs::write(dir.join("Notes/Beta.md"), "first\n").unwrap();
+        e.reindex_one("Notes/Beta.md");
+        let meta = e.write_raw("notes/Beta.md", "second\n").expect("the note is there to write");
+        assert_eq!(meta.path.to_lowercase(), "notes/beta.md");
+        assert!(e.notes.contains_key(&meta.path));
+        assert_eq!(
+            e.list().iter().filter(|n| n.path.to_lowercase() == "notes/beta.md").count(),
+            1,
+            "the write did not mint a second row under the asked spelling"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A change event announced under the spelling it arrived with hands the
+    /// client a path `metas` has no row for — and a list patched from that
+    /// answer drops the note until a full re-list.
+    #[test]
+    fn a_case_differing_change_event_is_announced_as_the_index_keys_it() {
+        let (mut e, dir) = temp_vault("caseevent");
+        if !volume_folds_case(&dir) {
+            let _ = fs::remove_dir_all(&dir);
+            return;
+        }
+        fs::create_dir_all(dir.join("Notes")).unwrap();
+        fs::write(dir.join("Notes/Gamma.md"), "first\n").unwrap();
+        e.reindex_one("Notes/Gamma.md");
+        fs::write(dir.join("Notes/Gamma.md"), "second\n").unwrap();
+        let touched = e.apply_changes(&[dir.join("notes/Gamma.md")]);
+        for rel in &touched {
+            assert!(
+                e.metas(std::slice::from_ref(rel))[0].is_some(),
+                "announced {rel}, which the index has no row for — the patch would remove it"
+            );
+        }
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -5450,10 +5995,82 @@ mod tests {
         assert!(touched.contains(&("Projects/Draft B.md".to_string(), NoteChange::Removed)));
         assert!(touched.contains(&("Archive/Draft B.md".to_string(), NoteChange::Created)));
 
+        // a removed directory expands to every note that was under it, so a
+        // consumer patching a list from these outcomes drops the whole subtree
+        // rather than the directory row it never had
+        e.create("Kept", "Shed", None).unwrap();
+        e.create("Also Kept", "Shed/Inner", None).unwrap();
+        fs::remove_dir_all(dir.join("Shed")).unwrap();
+        let gone = e.apply_changes_detailed(&[dir.join("Shed")]);
+        assert!(gone.contains(&("Shed/Kept.md".to_string(), NoteChange::Removed)));
+        assert!(gone.contains(&("Shed/Inner/Also Kept.md".to_string(), NoteChange::Removed)));
+
         // a rescan-sized batch reports nothing at all: reflexes run on live
         // events, never on a catch-up sweep
         let flood: Vec<PathBuf> = (0..501).map(|i| dir.join(format!("g{i}.md"))).collect();
         assert!(e.apply_changes_detailed(&flood).is_empty());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// What the app fetches after a write instead of re-listing: the same
+    /// metas `list` would carry for those paths, positional so a removal is
+    /// answerable, and it must agree with `list` or a patched list drifts from
+    /// a freshly listed one.
+    #[test]
+    fn metas_answers_known_paths_and_reports_removals() {
+        let (mut e, dir) = temp_vault("metas");
+        let a = e.create("Metas A", "", None).unwrap();
+        let b = e.create("Metas B", "Notes", None).unwrap();
+
+        // in the order asked, whatever order the index holds them in
+        let got = e.metas(&[b.path.clone(), a.path.clone()]);
+        assert_eq!(got.len(), 2);
+        assert_eq!(got[0].as_ref().unwrap().path, b.path);
+        assert_eq!(got[1].as_ref().unwrap().path, a.path);
+
+        // the same note `list` carries, field for field — a patched list and a
+        // re-listed one have to be the same list
+        let listed = e.list().into_iter().find(|n| n.path == a.path).unwrap();
+        let fetched = e.metas(&[a.path.clone()]).remove(0).unwrap();
+        assert_eq!(fetched.title, listed.title);
+        assert_eq!(fetched.folder, listed.folder);
+        assert_eq!(fetched.updated_ms, listed.updated_ms);
+        assert_eq!(fetched.props, listed.props);
+        assert_eq!(fetched.tags, listed.tags);
+
+        // a body edit shows through, so the patch carries the new excerpt
+        fs::write(dir.join(&a.path), "---\ntype: note\n---\nRewritten body\n").unwrap();
+        e.apply_changes_detailed(&[dir.join(&a.path)]);
+        assert!(e.metas(&[a.path.clone()])[0].as_ref().unwrap().excerpt.contains("Rewritten"));
+
+        // gone from the index answers None — the row the caller drops
+        fs::remove_file(dir.join(&b.path)).unwrap();
+        e.apply_changes_detailed(&[dir.join(&b.path)]);
+        assert!(e.metas(&[b.path.clone()])[0].is_none());
+        // and so does a path that was never a note at all
+        assert!(e.metas(&["No Such Note.md".to_string()])[0].is_none());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Two notes saved in the same millisecond have to come back in one
+    /// settled order, or the app's patched list and its re-listed one
+    /// disagree about rows nothing changed. The index is a hash map, so the
+    /// order can only come from the sort.
+    #[test]
+    fn list_breaks_updated_ties_by_path() {
+        let (mut e, dir) = temp_vault("tieorder");
+        for title in ["Tie C", "Tie A", "Tie D", "Tie B"] {
+            e.create(title, "", None).unwrap();
+        }
+        for meta in e.notes.values_mut() {
+            meta.updated_ms = 1_700_000_000_000;
+        }
+        let order: Vec<String> = e.list().into_iter().map(|n| n.path).collect();
+        let mut sorted = order.clone();
+        sorted.sort();
+        assert_eq!(order, sorted, "equal timestamps order by path");
+        // and the same order every time it is asked, whatever the map does
+        assert_eq!(order, e.list().into_iter().map(|n| n.path).collect::<Vec<_>>());
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -6100,17 +6717,7 @@ mod tests {
 
     #[test]
     fn scan_5k_vault_under_budget() {
-        let dir = std::env::temp_dir().join(format!("vault-bench-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        for i in 0..5000 {
-            let folder = dir.join(format!("Folder {:02}", i % 25));
-            fs::create_dir_all(&folder).unwrap();
-            let body = format!(
-                "---\ntype: release\nstatus: live\ncat#: SMP-{:04}\n---\nNote {} body with a [[Note {}]] link and some filler text about granular spectral processing to give search something to chew on.\n",
-                i, i, (i + 1) % 5000
-            );
-            fs::write(folder.join(format!("Note {}.md", i)), body).unwrap();
-        }
+        let dir = synthetic_5k_vault("scan");
 
         let t = std::time::Instant::now();
         let mut e = Engine::new(dir.clone());
@@ -6144,6 +6751,80 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+    /// Boot-to-usable, engine half: what a returning user waits through
+    /// between double-clicking the app and the note list being servable.
+    ///
+    /// Launch no longer scans on the thread that owns the window — it manages
+    /// an unscanned engine, paints the shell, and fills the index on a
+    /// background thread — so the honest boot measurement is three legs, not
+    /// one:
+    ///   * `launch` — `Engine::new_deferred_scan`, the only leg that blocks
+    ///     Tauri's setup and therefore the first frame. It must stay
+    ///     effectively free no matter how big the vault is; a scan that leaks
+    ///     back into the constructor shows up here as seconds.
+    ///   * `index` — the deferred `rescan` on the boot thread. The vault is
+    ///     unusable until this lands, so it is the wait the boot frame covers.
+    ///   * `serve` — `list()` plus the JSON encode of it, which together are
+    ///     what `vault_list` costs once the index is up. The frontend's first
+    ///     paint of real content waits on this payload, so a list that got
+    ///     quadratic or a meta that grew a heavy field is a boot regression
+    ///     even though nothing about the scan changed.
+    ///
+    /// The ceilings below are not a tight budget and should not be read as
+    /// one: they sit 30-90x over what the legs actually measure (a debug
+    /// build on a developer machine: launch ~60ms against 2s, index ~330ms
+    /// against 30s, serve ~50ms against 5s). That is deliberate. This runs in
+    /// debug, on a machine also running cargo and an e2e suite, where a
+    /// stolen minute is ordinary — so it is a regression-IN-KIND detector: a
+    /// rescan that stopped being incremental, a `list()` that started
+    /// re-reading bodies, a constructor that started scanning again. Those
+    /// cost orders of magnitude and trip these; tuning drift will not, and is
+    /// not meant to. The numbers are printed on every run, which is where the
+    /// drift is actually visible.
+    #[test]
+    fn boot_to_usable_5k_vault_under_budget() {
+        let dir = synthetic_5k_vault("boot");
+
+        let t = std::time::Instant::now();
+        let mut e = Engine::new_deferred_scan(dir.clone());
+        let launch = t.elapsed();
+        // the contract the launch leg rides on: nothing is listed yet, so a
+        // fast `launch` here can never be a scan that quietly happened anyway
+        assert!(e.list().is_empty(), "the deferred-scan engine listed notes before its scan");
+
+        let t = std::time::Instant::now();
+        e.rescan();
+        let index = t.elapsed();
+
+        let t = std::time::Instant::now();
+        let metas = e.list();
+        let payload = serde_json::to_string(&metas).unwrap();
+        let serve = t.elapsed();
+
+        let dir = e.root.clone();
+        // 5000 authored + the AGENTS.md, CLAUDE.md and Settings.md boot
+        // backfills — the same census the scan budget asserts
+        assert_eq!(metas.len(), 5003);
+
+        eprintln!(
+            "boot budget 5k notes — launch (blocks the first frame): {:?}, index (deferred rescan): {:?}, \
+             serve (list + vault_list encode, {} bytes): {:?}, boot-to-usable total: {:?}",
+            launch,
+            index,
+            payload.len(),
+            serve,
+            launch + index + serve
+        );
+        assert!(
+            launch < Duration::from_secs(2),
+            "launch blocked the first frame for {:?} — a scan is back on the launch path",
+            launch
+        );
+        assert!(index < Duration::from_secs(30), "deferred index took {:?}", index);
+        assert!(serve < Duration::from_secs(5), "vault_list payload took {:?} to build", serve);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn voice_hotkey_defaults_and_reads_its_own_row() {
         let (_e, dir) = temp_vault("settings-voice");
@@ -6173,11 +6854,8 @@ mod tests {
         // seeded vault has no row at all → off, so the feature ships inert
         assert!(!Settings::load(&dir).experimental_context_capture);
 
-        fs::write(
-            dir.join(Settings::REL_PATH),
-            "---\nExperimental-Context-Capture: TRUE\n---\n",
-        )
-        .unwrap();
+        fs::write(dir.join(Settings::REL_PATH), "---\nExperimental-Context-Capture: TRUE\n---\n")
+            .unwrap();
         assert!(Settings::load(&dir).experimental_context_capture);
 
         // anything that isn't "true" — the off value the toggle writes, a
@@ -6188,10 +6866,7 @@ mod tests {
                 format!("---\nexperimental-context-capture: {raw}\n---\n"),
             )
             .unwrap();
-            assert!(
-                !Settings::load(&dir).experimental_context_capture,
-                "{raw} read as on"
-            );
+            assert!(!Settings::load(&dir).experimental_context_capture, "{raw} read as on");
         }
     }
 
@@ -6207,10 +6882,7 @@ mod tests {
         // three chords share one handler, and a collision would make the
         // first match swallow the others
         assert_ne!(Settings::DEFAULT_PALETTE_HOTKEY, Settings::DEFAULT_HOTKEY);
-        assert_ne!(
-            Settings::DEFAULT_PALETTE_HOTKEY,
-            Settings::DEFAULT_VOICE_HOTKEY
-        );
+        assert_ne!(Settings::DEFAULT_PALETTE_HOTKEY, Settings::DEFAULT_VOICE_HOTKEY);
 
         // its own row, case-folded, independent of the neighbouring chords
         fs::write(
@@ -6224,11 +6896,7 @@ mod tests {
 
         // blank reads as the default, which is itself blank — the chord stays
         // unregistered rather than falling back onto some other gesture
-        fs::write(
-            dir.join(Settings::REL_PATH),
-            "---\npalette-hotkey: \"  \"\n---\n",
-        )
-        .unwrap();
+        fs::write(dir.join(Settings::REL_PATH), "---\npalette-hotkey: \"  \"\n---\n").unwrap();
         assert_eq!(Settings::load(&dir).palette_hotkey, "");
     }
 
@@ -6335,6 +7003,7 @@ mod tests {
                 table: Some(vec!["status".to_string(), "artist".to_string()]),
                 list: Some(vec!["status".to_string()]),
             }),
+            None,
             None,
             None,
             None,
@@ -6929,8 +7598,7 @@ mod tests {
         e.create_type("books", Vec::new()).unwrap();
         e.set_view_pref(
             "books", "table", None, None, None, None, None, None, None, None, None, None, None,
-            None,
-            None,
+            None, None, None,
         )
         .unwrap();
         let side = crate::vaultfmt::read_sidecar(&dir);

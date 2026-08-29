@@ -14,6 +14,7 @@
  *  respected: a `> [!note]` line inside a ``` fence is never a callout.
  *  Pure parsing only — rendering lives in src/components/HubDashboard.tsx. */
 
+import { fenceCloses, fenceOpening } from "./fences.ts";
 import { parseCalloutStyle, type AccentName, type CardSpan } from "./styletokens.ts";
 
 export type CalloutKind = "note" | "warn" | "idea";
@@ -50,11 +51,6 @@ export type HubBlock =
 const CALLOUT_HEADER_RE = /^(\s*>\s*\[!(note|warn|idea)(?:\|([^\]]*))?\]\s*)/i;
 const QUOTE_PREFIX_RE = /^(\s*>\s?)/;
 
-// the opener takes a full info string (```rust ignore) — first word is the
-// language; a spaced info string must not leak the fence body into callout
-// scanning by demoting the opener to prose
-const FENCE_OPEN_RE = /^```(\S*)(?:\s[^`]*)?$/;
-const FENCE_CLOSE_RE = /^```\s*$/;
 const SECTION_RE = /^##\s+(.*)$/;
 
 export function parseHub(body: string): HubBlock[] {
@@ -66,18 +62,23 @@ export function parseHub(body: string): HubBlock[] {
     md.length = 0;
   };
 
-  let inFence = false;
+  // every spelling of a code fence hides callout and section markers: a
+  // spaced info string (```rust ignore), a tilde fence, one indented under a
+  // list item, and a run longer than three — which the old short closer test
+  // could never end, leaving the parser inside code for the rest of the board
+  let fence: string | null = null;
   let i = 0;
   while (i < lines.length) {
     const line = lines[i];
-    if (inFence) {
+    if (fence !== null) {
       md.push(line);
-      if (FENCE_CLOSE_RE.test(line)) inFence = false;
+      if (fenceCloses(line, fence)) fence = null;
       i++;
       continue;
     }
-    if (FENCE_OPEN_RE.test(line)) {
-      inFence = true;
+    const opened = fenceOpening(line);
+    if (opened !== null) {
+      fence = opened;
       md.push(line);
       i++;
       continue;

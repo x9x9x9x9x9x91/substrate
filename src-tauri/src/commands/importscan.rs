@@ -128,10 +128,7 @@ pub(crate) fn import_scan(root: String) -> Result<ScanResult, String> {
     }
 
     out.sort_by(|a, b| a.path.cmp(&b.path));
-    Ok(ScanResult {
-        entries: out,
-        unreadable_dirs,
-    })
+    Ok(ScanResult { entries: out, unreadable_dirs })
 }
 
 /// The path's `/`-separated form relative to `base`, or None when it is not

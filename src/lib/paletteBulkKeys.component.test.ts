@@ -140,7 +140,7 @@ async function mountBoth(
     t,
     h(
       UndoContext.Provider,
-      { value: { record: (e: Omit<UndoEntry, "id">) => recorded.push(e), runById: () => {} } },
+      { value: { record: (e: Omit<UndoEntry, "id">) => recorded.push(e), runById: () => {}, evictScope: () => {} } },
       h(
         Fragment,
         null,

@@ -55,10 +55,15 @@ Commands:
   write PATH [--body TEXT]            replace a note's body (stdin if no --body)
   create [FOLDER] --title T [--type X]  create a note
   search QUERY                        search inside granted folders
+  view NAME                           a saved view, evaluated as the app shows it
 ",
     "\n\
 Options:
   --client NAME   the granted client name (or SUBSTRATE_MCP_CLIENT); required
+  --note PATH     for view: read a ```view fence out of this note instead
+  --fence N       which view fence in that note, 1-based (default 1)
+  --db TYPE       for view: settle a name two databases both carry
+  --today DAY     for view: reference day for relative date filters
   --body TEXT     body for write; --body-file PATH reads it from a file
   --title TITLE   title for create
   --type TYPE     note type for create
@@ -77,7 +82,8 @@ Exit codes: 0 done, 1 usage, 2 door closed, 3 no vault, 4 refused.",
 /// Every option the parser accepts, anywhere. An unknown flag is a usage
 /// error rather than something silently ignored: a script whose `--body`
 /// was typo'd must not quietly write an empty note.
-const KNOWN_OPTS: &[&str] = &["client", "body", "body-file", "title", "type"];
+const KNOWN_OPTS: &[&str] =
+    &["client", "body", "body-file", "title", "type", "note", "fence", "db", "today"];
 
 /// One resolved invocation: which client is asking, which tool, which args.
 struct Call {
@@ -169,9 +175,7 @@ fn parse(argv: &[String], stdin: &mut dyn Read) -> Result<Parsed, String> {
                 Some(v) => v,
                 None => {
                     i += 1;
-                    argv.get(i)
-                        .cloned()
-                        .ok_or_else(|| format!("--{name} needs a value"))?
+                    argv.get(i).cloned().ok_or_else(|| format!("--{name} needs a value"))?
                 }
             };
             if opts.insert(name.to_string(), value).is_some() {
@@ -219,9 +223,8 @@ fn parse(argv: &[String], stdin: &mut dyn Read) -> Result<Parsed, String> {
         }
         "create" => {
             let folder = at_most_one(rest, "create", "FOLDER")?.unwrap_or("");
-            let title = opts
-                .remove("title")
-                .ok_or_else(|| "create needs --title TITLE".to_string())?;
+            let title =
+                opts.remove("title").ok_or_else(|| "create needs --title TITLE".to_string())?;
             let mut args = json!({ "folder": folder, "title": title });
             if let Some(kind) = opts.remove("type") {
                 args["type"] = json!(kind);
@@ -231,6 +234,31 @@ fn parse(argv: &[String], stdin: &mut dyn Read) -> Result<Parsed, String> {
         "search" => {
             let query = exactly_one(rest, "search", "QUERY")?;
             ("vault_search", json!({ "query": query }))
+        }
+        "view" => {
+            let mut args = json!({});
+            let note = opts.remove("note");
+            let name = at_most_one(rest, "view", "NAME")?;
+            match (name, &note) {
+                (Some(_), Some(_)) => {
+                    return Err("view takes a saved view NAME or --note PATH, not both".into())
+                }
+                (None, None) => return Err("view needs a saved view NAME or --note PATH".into()),
+                (Some(name), None) => args["view"] = json!(name),
+                (None, Some(path)) => args["path"] = json!(path),
+            }
+            if let Some(fence) = opts.remove("fence") {
+                let n: u64 = fence
+                    .parse()
+                    .map_err(|_| format!("--fence takes a whole number, not {fence}"))?;
+                args["fence"] = json!(n);
+            }
+            for key in ["db", "today"] {
+                if let Some(v) = opts.remove(key) {
+                    args[key] = json!(v);
+                }
+            }
+            ("view_read", args)
         }
         other => return Err(format!("unknown command: {other}")),
     };
@@ -369,10 +397,7 @@ fn execute(
         let _ = writeln!(err, "substrate-mcp: {msg}");
         return EXIT_REFUSED;
     }
-    let text = reply
-        .pointer("/result/content/0/text")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
+    let text = reply.pointer("/result/content/0/text").and_then(Value::as_str).unwrap_or_default();
     if reply.pointer("/result/isError") == Some(&json!(true)) {
         let _ = writeln!(err, "substrate-mcp: {text}");
         return EXIT_REFUSED;
@@ -402,10 +427,7 @@ mod tests {
         fs::write(root.join("Notes/a.md"), "---\ntype: note\n---\nalpha body\n").unwrap();
         fs::write(root.join("Finance/f.md"), "secret ledger\n").unwrap();
         let set = ScopeSet {
-            grants: grants
-                .iter()
-                .map(|(p, a)| Grant::folder(CLIENT, p, *a))
-                .collect(),
+            grants: grants.iter().map(|(p, a)| Grant::folder(CLIENT, p, *a)).collect(),
             extra: Default::default(),
         };
         set.save(&cfg).unwrap();
@@ -413,12 +435,7 @@ mod tests {
     }
 
     /// Run one CLI invocation end to end, returning (code, stdout, stderr).
-    fn cli(
-        cfg: &Path,
-        root: &Path,
-        argv: &[&str],
-        stdin: &str,
-    ) -> (i32, String, String) {
+    fn cli(cfg: &Path, root: &Path, argv: &[&str], stdin: &str) -> (i32, String, String) {
         let argv: Vec<String> = argv.iter().map(|s| s.to_string()).collect();
         let mut input = Cursor::new(stdin.as_bytes().to_vec());
         let call = match parse(&argv, &mut input) {
@@ -460,8 +477,12 @@ mod tests {
     #[test]
     fn a_scoped_write_lands_and_carries_the_door_receipt() {
         let (root, cfg) = setup("write", &[("Notes", Access::Write)]);
-        let (code, out, err) =
-            cli(&cfg, &root, &["write", "Notes/a.md", "--body", "rewritten", "--client", CLIENT], "");
+        let (code, out, err) = cli(
+            &cfg,
+            &root,
+            &["write", "Notes/a.md", "--body", "rewritten", "--client", CLIENT],
+            "",
+        );
         assert_eq!(code, 0, "{err}");
         assert!(out.contains("receipt"), "{out}");
         assert!(fs::read_to_string(root.join("Notes/a.md")).unwrap().contains("rewritten"));
@@ -493,8 +514,12 @@ mod tests {
         assert!(out.is_empty(), "nothing leaks on stdout: {out}");
         assert!(err.contains("not shared"), "{err}");
         // and a read grant is not a write grant
-        let (code, _out, err) =
-            cli(&cfg, &root, &["write", "Notes/a.md", "--body", "refused edit", "--client", CLIENT], "");
+        let (code, _out, err) = cli(
+            &cfg,
+            &root,
+            &["write", "Notes/a.md", "--body", "refused edit", "--client", CLIENT],
+            "",
+        );
         assert_eq!(code, EXIT_REFUSED);
         assert!(err.contains("not shared for writing"), "{err}");
         assert!(!fs::read_to_string(root.join("Notes/a.md")).unwrap().contains("refused edit"));
@@ -599,7 +624,8 @@ mod tests {
         // a dash-leading query is an unknown option until `--` says otherwise
         let (code, _out, err) = cli(&cfg, &root, &["search", "-alpha", "--client", CLIENT], "");
         assert_eq!(code, 1, "{err}");
-        let (code, out, err) = cli(&cfg, &root, &["search", "--client", CLIENT, "--", "-alpha"], "");
+        let (code, out, err) =
+            cli(&cfg, &root, &["search", "--client", CLIENT, "--", "-alpha"], "");
         assert_eq!(code, 0, "{err}");
         assert!(serde_json::from_str::<Value>(&out).unwrap().get("hits").is_some(), "{out}");
         // including the word that is otherwise a command
@@ -618,7 +644,8 @@ mod tests {
             assert!(out.is_empty(), "{out}");
         }
         // the boundary itself still passes
-        let (code, _out, err) = cli(&cfg, &root, &["read", "Notes/a.md", "--client", &"x".repeat(80)], "");
+        let (code, _out, err) =
+            cli(&cfg, &root, &["read", "Notes/a.md", "--client", &"x".repeat(80)], "");
         assert_eq!(code, EXIT_REFUSED, "an 80-char name is a name, just not a granted one: {err}");
         let _ = fs::remove_dir_all(root.parent().unwrap());
     }
@@ -804,17 +831,59 @@ mod tests {
     #[test]
     fn create_lands_a_note_under_a_write_grant() {
         let (root, cfg) = setup("create", &[("Notes", Access::Write)]);
-        let (code, out, err) = cli(
-            &cfg,
-            &root,
-            &["create", "Notes", "--title", "Fresh One", "--client", CLIENT],
-            "",
-        );
+        let (code, out, err) =
+            cli(&cfg, &root, &["create", "Notes", "--title", "Fresh One", "--client", CLIENT], "");
         assert_eq!(code, 0, "{err}");
         let v: Value = serde_json::from_str(&out).unwrap();
         let path = v["path"].as_str().unwrap();
         assert!(path.starts_with("Notes/"), "{path}");
         assert!(root.join(path).exists());
+        let _ = fs::remove_dir_all(root.parent().unwrap());
+    }
+
+    #[test]
+    fn view_reads_a_pin_and_a_fence_through_the_same_door() {
+        let (root, cfg) = setup("view", &[("Notes", Access::Read)]);
+        fs::create_dir_all(root.join(".vault")).unwrap();
+        fs::write(
+            root.join(".vault/views.json"),
+            r#"{"$views":[{"id":"open","name":"Open notes","db":"note","query":"","columns":[],"sorts":[]}]}"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("Notes/Board.md"),
+            "---\ntype: page\n---\n\n```view\ntype: note\n```\n",
+        )
+        .unwrap();
+        let engine = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../scripts/view-read/viewengine.ts")
+            .canonicalize()
+            .unwrap();
+        std::env::set_var("SUBSTRATE_VIEW_ENGINE", engine);
+
+        let (code, out, err) = cli(&cfg, &root, &["view", "Open notes", "--client", CLIENT], "");
+        assert_eq!(code, 0, "{err}");
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["schema"], "substrate.view/1");
+        assert_eq!(v["rows"][0]["path"], "Notes/a.md");
+
+        let (code, out, err) =
+            cli(&cfg, &root, &["view", "--note", "Notes/Board.md", "--client", CLIENT], "");
+        assert_eq!(code, 0, "{err}");
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["source"]["kind"], "fence");
+        assert_eq!(v["rows"][0]["path"], "Notes/a.md");
+
+        // a name and a note are two different questions, and asking both is
+        // a typo rather than a preference the verb should pick between
+        let (code, _out, err) = cli(
+            &cfg,
+            &root,
+            &["view", "Open notes", "--note", "Notes/Board.md", "--client", CLIENT],
+            "",
+        );
+        assert_eq!(code, 1);
+        assert!(err.contains("not both"), "{err}");
         let _ = fs::remove_dir_all(root.parent().unwrap());
     }
 }

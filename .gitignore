@@ -58,6 +58,11 @@ dist-ssr
 # by `npm run coverage` and published by the nightly pass — never committed.
 /coverage/
 
+# Evidence bundles from the auto-sync verification lane
+# (scripts/autosync-verify.sh): a dated capture + transcript per run, kept on
+# purpose so a release can point at one. Machine-local proof, never source.
+/.autosync-evidence/
+
 # Probe fixtures a test plants in the tracked tree and removes again
 # (scripts/live-tree.ts PROBE_SUFFIX). Transient by construction — a committed
 # one would only ever be the leftover of a run that died mid-test.

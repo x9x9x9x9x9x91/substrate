@@ -7,6 +7,7 @@ import {
   AGENDA_HEIGHT_MIN,
   AGENDA_PREFS_DEFAULT,
   AGENDA_RAIL_MIN_PANE,
+  AGENDA_WIDTH_DEFAULT,
   AGENDA_WIDTH_MAX,
   AGENDA_WIDTH_MIN,
   CAL_GRID_MIN_WIDTH,
@@ -15,13 +16,15 @@ import {
   clampAgendaWidth,
   clampRailWidth,
   effectivePlacement,
+  forgetStoredPlacement,
+  legacyStoredPlacement,
   parseAgendaPrefs,
   railWidthMax,
+  writeAgendaPrefs,
 } from "./calagenda.ts";
 
 test("an unwritten profile reads as today's look", () => {
   assert.deepEqual(parseAgendaPrefs(null), AGENDA_PREFS_DEFAULT);
-  assert.equal(AGENDA_PREFS_DEFAULT.placement, "bottom");
   assert.equal(AGENDA_PREFS_DEFAULT.folded, false);
   assert.equal(AGENDA_PREFS_DEFAULT.height, AGENDA_HEIGHT_DEFAULT);
 });
@@ -29,18 +32,80 @@ test("an unwritten profile reads as today's look", () => {
 test("junk in the store never costs the panel", () => {
   assert.deepEqual(parseAgendaPrefs("not json"), AGENDA_PREFS_DEFAULT);
   assert.deepEqual(parseAgendaPrefs("null"), AGENDA_PREFS_DEFAULT);
-  assert.deepEqual(parseAgendaPrefs("[1,2]").placement, "bottom");
+  assert.deepEqual(parseAgendaPrefs("[1,2]"), AGENDA_PREFS_DEFAULT);
   assert.deepEqual(
-    parseAgendaPrefs('{"height":"tall","width":null,"placement":"sideways"}'),
+    parseAgendaPrefs('{"height":"tall","width":null}'),
     AGENDA_PREFS_DEFAULT,
   );
 });
 
 test("a partial record keeps the defaults it does not name", () => {
-  const prefs = parseAgendaPrefs('{"placement":"right"}');
-  assert.equal(prefs.placement, "right");
+  const prefs = parseAgendaPrefs('{"folded":true}');
+  assert.equal(prefs.folded, true);
   assert.equal(prefs.height, AGENDA_HEIGHT_DEFAULT);
-  assert.equal(prefs.folded, false);
+  assert.equal(prefs.width, AGENDA_WIDTH_DEFAULT);
+});
+
+test("the dock is the note's answer, not the store's", () => {
+  // where the panel sits moved into Settings.md (`upcoming-dock`), so a
+  // record still carrying the old field parses without one — nothing reads it
+  // but the one-time migration
+  const legacy = parseAgendaPrefs('{"placement":"right","height":200}');
+  assert.equal("placement" in legacy, false);
+  assert.equal(legacy.height, 200);
+});
+
+/** the browser store and the one window event the prefs writer announces
+    itself with, enough of each for the record's own bookkeeping */
+function fakeStore(seed: string | null): { read: () => string | null } {
+  const cell = { v: seed };
+  const g = globalThis as unknown as Record<string, unknown>;
+  g.localStorage = {
+    getItem: (k: string) => (k === "substrate.calAgenda" ? cell.v : null),
+    setItem: (k: string, v: string) => {
+      if (k === "substrate.calAgenda") cell.v = v;
+    },
+  };
+  g.window = { dispatchEvent: () => true };
+  g.CustomEvent = class {};
+  return { read: () => cell.v };
+}
+
+const storedField = (raw: string | null, key: string): unknown =>
+  raw === null ? undefined : (JSON.parse(raw) as Record<string, unknown>)[key];
+
+test("a refused migration keeps the old placement across a fold", () => {
+  // the note would not take the key (a sealed or read-only vault), so the
+  // store is still the only copy — folding the panel must not spend it
+  const store = fakeStore('{"placement":"right","height":200}');
+  writeAgendaPrefs({ folded: true, height: 200, width: AGENDA_WIDTH_DEFAULT });
+  assert.equal(storedField(store.read(), "placement"), "right");
+  assert.equal(storedField(store.read(), "folded"), true);
+  assert.equal(legacyStoredPlacement(), "right");
+});
+
+test("once the note has the dock, the old field is gone for good", () => {
+  // the per-machine leftover would otherwise hand this vault's rail to the
+  // next vault opened here, and bring back a hand-deleted line next launch
+  const store = fakeStore('{"placement":"right","height":200}');
+  forgetStoredPlacement();
+  assert.equal(legacyStoredPlacement(), null);
+  assert.equal(storedField(store.read(), "height"), 200);
+  // and a later fold does not write it back
+  writeAgendaPrefs({ folded: true, height: 200, width: AGENDA_WIDTH_DEFAULT });
+  assert.equal(legacyStoredPlacement(), null);
+});
+
+test("nothing to forget is not an error, and writes no record", () => {
+  const store = fakeStore(null);
+  forgetStoredPlacement();
+  assert.equal(store.read(), null);
+  assert.equal(legacyStoredPlacement(), null);
+  // junk in the store reads as no placement rather than throwing
+  fakeStore("not json");
+  assert.equal(legacyStoredPlacement(), null);
+  fakeStore('{"placement":"bottom"}');
+  assert.equal(legacyStoredPlacement(), null);
 });
 
 test("stored sizes land inside the clamps", () => {
@@ -58,31 +123,30 @@ test("the clamps round and bound whatever the drag hands them", () => {
 });
 
 test("the rail falls back to the bottom in a narrow pane", () => {
-  const right = { ...AGENDA_PREFS_DEFAULT, placement: "right" as const };
-  assert.equal(effectivePlacement(right, AGENDA_RAIL_MIN_PANE), "right");
-  assert.equal(effectivePlacement(right, AGENDA_RAIL_MIN_PANE - 1), "bottom");
-  // unmeasured: the stated preference wins over a fallback nobody asked for
-  assert.equal(effectivePlacement(right, 0), "right");
-  assert.equal(effectivePlacement(AGENDA_PREFS_DEFAULT, 4000), "bottom");
+  assert.equal(effectivePlacement("right", AGENDA_RAIL_MIN_PANE), "right");
+  assert.equal(effectivePlacement("right", AGENDA_RAIL_MIN_PANE - 1), "bottom");
+  // unmeasured: the setting wins over a fallback nobody asked for
+  assert.equal(effectivePlacement("right", 0), "right");
+  assert.equal(effectivePlacement("bottom", 4000), "bottom");
 });
 
 test("the feed window follows the room the panel has", () => {
-  assert.equal(agendaWindowDays(AGENDA_PREFS_DEFAULT), 14);
-  assert.equal(agendaWindowDays({ ...AGENDA_PREFS_DEFAULT, height: 288 }), 21);
+  assert.equal(agendaWindowDays(AGENDA_PREFS_DEFAULT, "bottom"), 14);
   assert.equal(
-    agendaWindowDays({ ...AGENDA_PREFS_DEFAULT, height: AGENDA_HEIGHT_MAX }),
+    agendaWindowDays({ ...AGENDA_PREFS_DEFAULT, height: 288 }, "bottom"),
+    21,
+  );
+  assert.equal(
+    agendaWindowDays(
+      { ...AGENDA_PREFS_DEFAULT, height: AGENDA_HEIGHT_MAX },
+      "bottom",
+    ),
     35,
   );
   // the rail is a full-height column, taller than any bottom strip
-  assert.equal(
-    agendaWindowDays({ ...AGENDA_PREFS_DEFAULT, placement: "right" }),
-    AGENDA_DAYS_MAX,
-  );
-  // a rail preference rendering as a bottom strip reads the strip's height
-  assert.equal(
-    agendaWindowDays({ ...AGENDA_PREFS_DEFAULT, placement: "right" }, "bottom"),
-    14,
-  );
+  assert.equal(agendaWindowDays(AGENDA_PREFS_DEFAULT, "right"), AGENDA_DAYS_MAX);
+  // a rail setting rendering as a bottom strip reads the strip's height
+  assert.equal(agendaWindowDays(AGENDA_PREFS_DEFAULT, "bottom"), 14);
 });
 
 test("the rail never takes the grid below its own floor", () => {

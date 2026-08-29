@@ -114,9 +114,9 @@ test("after a reorder the resize handle and the right-click checklist still work
   expect(Math.abs(back.width - after.width)).toBeLessThan(3);
   expect((await colOrder(page))[0]).toBe(moved);
 
-  // Regression: right-click the header row still opens the
-  // property-visibility checklist
-  await page.locator(".db-table thead").click({ button: "right" });
+  // Regression: right-click the header row (the Name cell — property
+  // headers own their right-click) still opens the visibility checklist
+  await page.locator(".db-table thead th").first().click({ button: "right" });
   await expect(page.locator(".propvis")).toBeVisible();
   await expect(page.locator(".propvis .propvis-item")).toHaveCount(before.length);
 });

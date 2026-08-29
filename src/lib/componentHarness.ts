@@ -152,6 +152,10 @@ const copied = [
   "DOMParser",
   "MutationObserver",
   "DOMRect",
+  // the shared audio player constructs its element with `new Audio()`; the
+  // constructor lives on jsdom's window and nowhere else, so an embed that
+  // mounts one throws a ReferenceError without it
+  "Audio",
   // `CSS.escape` — how any surface that finds a cell by selector quotes a
   // note path or a property name into one
   "CSS",
@@ -192,6 +196,33 @@ if (typeof win.ResizeObserver !== "function") {
   win.ResizeObserver = ResizeObserverStub;
   target.ResizeObserver = ResizeObserverStub;
 }
+if (typeof win.IntersectionObserver !== "function") {
+  /* jsdom has no viewport, so "is this on screen" has no true answer here.
+     The stub never reports an intersection, which is the honest reading of a
+     page with no layout — a surface that defers work until visible (the audio
+     embed's waveform) simply never starts it, rather than throwing on mount. */
+  class IntersectionObserverStub {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+    takeRecords() {
+      return [];
+    }
+  }
+  win.IntersectionObserver = IntersectionObserverStub;
+  target.IntersectionObserver = IntersectionObserverStub;
+}
+/* jsdom implements no media transport and shouts a "Not implemented" stack
+   per call; an audio embed pauses whatever was playing as it mounts. Silent
+   no-ops, for the same reason as the canvas context below: playback is not
+   what a component test is checking. */
+const mediaProto = (
+  dom.window as unknown as { HTMLMediaElement: { prototype: Record<string, unknown> } }
+).HTMLMediaElement.prototype;
+mediaProto.play = () => Promise.resolve();
+mediaProto.pause = () => {};
+mediaProto.load = () => {};
+
 /* Nor scrollIntoView, which jsdom leaves off Element entirely — any surface
    that keeps a selected row in view (SelectMenu on open, the panes' reveal)
    throws on mount without it. A no-op, for the same reason as the two above:
@@ -286,6 +317,9 @@ const STAGING_SEAMS = [
   "__mockDeleteNote",
   "__mockHostedVault",
   "__mockWriteKind",
+  "__mockEmit",
+  "__mockSetVaultReady",
+  "__mockQueueOpenTarget",
 ] as const;
 type StagingSeam = (typeof STAGING_SEAMS)[number];
 

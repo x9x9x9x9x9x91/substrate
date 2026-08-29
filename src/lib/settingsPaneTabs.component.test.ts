@@ -40,6 +40,8 @@ const paneProps = {
   onRejectVaultSeal: () => {},
   onRemoveVaultSeal: () => {},
   onCheckUpdates: () => Promise.resolve({ state: "current" as const }),
+  upcomingDock: "bottom" as const,
+  setUpcomingDock: () => {},
 };
 
 /** the controls on the tab currently showing, by settings key */

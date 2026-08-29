@@ -15,15 +15,17 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createElement as h, type FunctionComponent } from "react";
 import { markdown, NoVaultError, parseArgs, pickView, run, UsageError } from "./view-read.ts";
+import { nthViewFence, run as engineRun, type DoorPayload, type EngineResponse } from "./viewengine.ts";
 import { makeExcerpt, noteTags, parseProps, readVault, splitFrontmatter } from "./vaultread.ts";
 import { mockBackend, renderComponent, type Rendered } from "../../src/lib/componentHarness.ts";
 import { evaluateSavedView, savedViewPref } from "../../src/lib/vieweval.ts";
+import { embedQueryFor, parseViewSpec } from "../../src/lib/embeds.ts";
 import type { SavedView } from "../../src/lib/types.ts";
 
 const CLI = fileURLToPath(new URL("./view-read.ts", import.meta.url));
@@ -487,6 +489,20 @@ test("run as a process: exit 1 and the vault's pins on an unknown view name", (t
   }
 });
 
+test("run as a process: a symlinked path to the verb still prints the view", (t) => {
+  const vault = fixtureVault(t);
+  // a launcher hands over the path it was given, not the resolved one; the
+  // module URL is always resolved. Compared raw, the verb reads itself as
+  // imported and exits 0 printing nothing — silently, which is the trap.
+  const dir = mkdtempSync(join(tmpdir(), "substrate-view-read-link-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const link = join(dir, "view-read.ts");
+  symlinkSync(CLI, link);
+
+  const printed = execFileSync("node", [link, "Open tasks", "--vault", vault, "--today", TODAY], { encoding: "utf8" });
+  assert.equal(JSON.parse(printed).view.id, "open-tasks");
+});
+
 test("a vault that is not there is said so, not answered as an empty one", (t) => {
   const missing = join(fixtureVault(t), "no-such-folder");
   // the trap this guards: a folder that cannot be read walks as a folder with
@@ -531,21 +547,36 @@ test("the reader never writes: the vault is byte-identical after a read", (t) =>
     the evaluator's own component test does. */
 function painted(r: Rendered): {
   columns: string[];
-  rows: { title: string; cells: string[] }[];
+  rows: { title: string; cells: string[]; chips: (string[] | null)[] }[];
   groups: { label: string; count: number }[];
 } {
   const columns = r
     .all("th .db-th-label")
     .map((el) => (el.textContent ?? "").replace(/[↑↓]/g, "").trim());
+  // a multi or relation cell paints a row of pills carrying no separator of
+  // its own, while the evaluator reports the same cell as the values joined —
+  // read the chips back as that string so the two compare like with like, and
+  // keep the list itself for a case that wants it value by value
+  const chipsOf = (td: Element): string[] | null => {
+    const pills = td.querySelector(".multi-pills");
+    return pills ? Array.from(pills.children).map((el) => el.textContent ?? "") : null;
+  };
   const rows = r
     .all("tbody tr")
     .filter((tr) => tr.querySelector("td[data-fc='0']"))
-    .map((tr) => ({
-      title: tr.querySelector("td[data-fc='0'] .db-title-txt")?.textContent ?? "",
-      cells: Array.from(tr.querySelectorAll("td[data-fc]"))
-        .filter((td) => td.getAttribute("data-fc") !== "0")
-        .map((td) => td.querySelector(".db-cell-txt")?.textContent ?? ""),
-    }));
+    .map((tr) => {
+      const tds = Array.from(tr.querySelectorAll("td[data-fc]")).filter(
+        (td) => td.getAttribute("data-fc") !== "0"
+      );
+      return {
+        title: tr.querySelector("td[data-fc='0'] .db-title-txt")?.textContent ?? "",
+        cells: tds.map((td) => {
+          const chips = chipsOf(td);
+          return chips ? chips.join(", ") : (td.querySelector(".db-cell-txt")?.textContent ?? "");
+        }),
+        chips: tds.map(chipsOf),
+      };
+    });
   const groups = r.all(".db-group-head").map((el) => ({
     label: el.querySelector(".db-group-label")?.textContent ?? "",
     count: Number(el.querySelector(".db-group-count")?.textContent ?? "0"),
@@ -636,10 +667,15 @@ test("same eyes: the CLI's rows are the rows the pane paints from the same folde
   );
   assert.deepEqual(
     seen.rows,
-    printed.rows.map((row: { title: string; cells: Record<string, { display: string }> }) => ({
-      title: row.title,
-      cells: printed.columns.map((c: string) => row.cells[c].display),
-    }))
+    printed.rows.map(
+      (row: { title: string; cells: Record<string, { display: string; values?: string[] }> }) => ({
+        title: row.title,
+        cells: printed.columns.map((c: string) => row.cells[c].display),
+        // `values` is set for exactly the chip kinds; a cell with none paints
+        // no pill row at all, which is the null on the painted side
+        chips: printed.columns.map((c: string) => row.cells[c].values ?? null),
+      })
+    )
   );
   assert.deepEqual(
     seen.groups,
@@ -679,4 +715,404 @@ test("same eyes: rows sharing a sort value land in path order on both sides", as
     order
   );
   assert.deepEqual(seen.rows.map((row) => row.title), order);
+});
+
+/* ── The parity matrix ────────────────────────────────────────────────────
+ *
+ *  The two "same eyes" tests above cover a saved query with a sort and a tie
+ *  run. What they never reach is the rest of the feature surface a caller can
+ *  actually ask for: a grouped table, a rollup column derived from another
+ *  database, a total scoped by grants, and — on the fence side — a `limit:`
+ *  and a dotted relation column. Each of those is a separate projection step
+ *  between the evaluator and the payload, and an unpinned projection is where
+ *  "the door reports what the screen shows" quietly stops being true.
+ *
+ *  The cases share one fixture, kept apart from the vault above so the column
+ *  unions and totals those tests pin stay untouched. Each is small and named
+ *  for the one feature it pins. */
+
+const MATRIX_NOTES: Record<string, string> = {
+  "Crew/Ada.md": "---\ntype: crew\nrate: 120\ncity: Berlin\n---\nEngineer.\n",
+  "Crew/Sam.md": "---\ntype: crew\nrate: 80\ncity: Lisbon\n---\nLive sound.\n",
+  "Gigs/Night One.md": "---\ntype: gig\nstage: booked\nfee: 400\nlead: Ada\n---\nHeadline.\n",
+  "Gigs/Night Two.md": "---\ntype: gig\nstage: held\nfee: 250\nlead: Sam\n---\nPencilled.\n",
+  // two linked rows, so the rollup folds a list rather than a single value
+  "Gigs/Night Three.md":
+    "---\ntype: gig\nstage: booked\nfee: 150\nlead:\n  - Ada\n  - Sam\n---\nDouble bill.\n",
+  // no relation at all: the rollup has nothing to fold, which is a missing
+  // cell rather than a zero on both sides
+  "Gigs/Night Four.md": "---\ntype: gig\nstage: done\nfee: 90\n---\nPlayed already.\n",
+};
+
+const MATRIX_SCHEMA = JSON.stringify({
+  crew: {
+    rate: { options: [], kind: "number" },
+    city: { options: [], kind: "text" },
+  },
+  gig: {
+    stage: {
+      options: [{ value: "booked", color: "blue" }, { value: "held", color: "grey" }, { value: "done" }],
+    },
+    fee: { options: [], kind: "number" },
+    lead: { options: [], kind: "relation", type: "crew" },
+    // derived on read from the rows `lead` points at — stored nowhere, which
+    // is exactly why both readers have to agree about it
+    lead_rate: { options: [], kind: "rollup", relation: "lead", prop: "rate", agg: "sum" },
+  },
+});
+
+const GROUPED_GIGS: SavedView = {
+  id: "gigs-by-stage",
+  name: "Gigs by stage",
+  db: "gig",
+  sorts: [{ key: "fee", dir: -1 }],
+  columns: ["stage", "fee"],
+  view: "table",
+  table_group_by: "stage",
+};
+
+const ROLLED_GIGS: SavedView = {
+  id: "gigs-by-rate",
+  name: "Gigs by rate",
+  db: "gig",
+  sorts: [{ key: "lead_rate", dir: -1 }],
+  columns: ["lead", "lead_rate", "fee"],
+  view: "table",
+};
+
+const ALL_GIGS: SavedView = {
+  id: "all-gigs",
+  name: "All gigs",
+  db: "gig",
+  sorts: [{ key: "fee", dir: -1 }],
+  columns: ["stage", "fee"],
+  view: "table",
+};
+
+/** A pin naming a dotted column. The fence resolver reads such a name as a
+    join through the relation; the saved-view path has no join step and drops
+    any column the database does not itself store. Pinned as it stands: both
+    readers must drop it the same way, and the day the saved path grows the
+    join this case is where the two would part company. */
+const DOTTED_PIN: SavedView = {
+  id: "gigs-dotted",
+  name: "Gigs dotted",
+  db: "gig",
+  sorts: [{ key: "fee", dir: -1 }],
+  columns: ["fee", "lead.city"],
+  view: "table",
+};
+
+/** A note carrying the fences the fence cases read, written as a reader would
+    write them. Kept as one note with two fences so the engine's 1-based
+    fence position is exercised alongside what the fences say. */
+const FENCE_NOTE =
+  "---\ntype: note\n---\nThe board.\n\n" +
+  "```view\ntype: gig\nsort: fee:desc\nlimit: 2\n```\n\n" +
+  "```view\ntype: gig\ncolumns: fee, lead.city\nsort: fee:desc\n```\n";
+
+/** The matrix fixture: its own notes, schema and pin list, so nothing here
+    moves a column union or a total the tests above pin. */
+function matrixVault(t: Parameters<typeof fixtureVault>[0]): string {
+  const dir = mkdtempSync(join(tmpdir(), "substrate-view-read-matrix-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  for (const [rel, body] of Object.entries({ ...MATRIX_NOTES, "Gigs/Board.md": FENCE_NOTE })) {
+    mkdirSync(join(dir, rel.slice(0, rel.lastIndexOf("/"))), { recursive: true });
+    writeFileSync(join(dir, rel), body);
+  }
+  mkdirSync(join(dir, ".vault"), { recursive: true });
+  writeFileSync(join(dir, ".vault", "schema.json"), MATRIX_SCHEMA);
+  writeFileSync(
+    join(dir, ".vault", "views.json"),
+    JSON.stringify({ $views: [GROUPED_GIGS, ROLLED_GIGS, ALL_GIGS, DOTTED_PIN] })
+  );
+  writeFileSync(join(dir, "Settings.md"), "---\nnumber-locale: de-DE\n---\n");
+  return dir;
+}
+
+/** The door's payload for a saved view, and the table the pane paints from
+    the same read — the one comparison every saved-view case below makes. */
+async function bothEyes(
+  t: Parameters<typeof renderComponent>[0],
+  vault: string,
+  view: SavedView,
+  allow?: string[]
+): Promise<{ seen: ReturnType<typeof painted>; door: DoorPayload }> {
+  const allowed = allow === undefined ? undefined : new Set(allow);
+  const read = readVault(vault, {
+    allow: allowed === undefined ? undefined : (rel: string) => allowed.has(rel),
+  });
+  const door = answered(
+    ask(vault, allow ?? [...Object.keys(MATRIX_NOTES), "Gigs/Board.md"], { view: view.name })
+  );
+  const r = await paneOver(t, read, view);
+  await r.settle();
+  return { seen: painted(r), door };
+}
+
+/** The payload's rows in the shape `painted` reads off the DOM. */
+function doorTable(door: DoorPayload): {
+  columns: string[];
+  rows: { title: string; cells: string[]; chips: (string[] | null)[] }[];
+  groups: { label: string; count: number }[];
+} {
+  return {
+    columns: door.columns.map((c) => c.charAt(0).toUpperCase() + c.slice(1)),
+    rows: door.rows.map((row) => ({
+      title: row.title,
+      cells: door.columns.map((c) => row.cells[c].display),
+      chips: door.columns.map((c) => row.cells[c].values ?? null),
+    })),
+    groups: door.groups.map((g) => ({ label: g.label, count: g.count })),
+  };
+}
+
+test("parity: a grouped view's sections and their counts are the painted ones", async (t) => {
+  const vault = matrixVault(t);
+  const { seen, door } = await bothEyes(t, vault, GROUPED_GIGS);
+
+  // booked (two rows) · held · done — the section run, not just the rows
+  assert.equal(seen.rows.length, 4);
+  assert.deepEqual(
+    seen.groups,
+    [{ label: "booked", count: 2 }, { label: "held", count: 1 }, { label: "done", count: 1 }]
+  );
+  assert.equal(door.group_by, "stage");
+  const want = doorTable(door);
+  assert.deepEqual(seen.groups, want.groups);
+  assert.deepEqual(seen.columns, want.columns);
+  assert.deepEqual(seen.rows, want.rows);
+});
+
+test("parity: a rollup column reads the same on both sides, empty cell included", async (t) => {
+  const vault = matrixVault(t);
+  const { seen, door } = await bothEyes(t, vault, ROLLED_GIGS);
+  const want = doorTable(door);
+
+  // the derivation itself, so the case cannot pass on two blank columns:
+  // Ada+Sam folds to 200, Ada alone to 120, and the gig with no lead has no
+  // value at all rather than a zero
+  assert.deepEqual(
+    door.rows.map((row) => [row.title, row.cells.lead_rate.display]),
+    [
+      ["Night Three", "200"],
+      ["Night One", "120"],
+      ["Night Two", "80"],
+      ["Night Four", ""],
+    ]
+  );
+  assert.ok(want.columns.includes("Lead_rate"), want.columns.join(","));
+  // the relation cell is a pill per linked row on both sides — a single pill
+  // reading "Ada, Sam" would satisfy the joined string and nothing else
+  assert.deepEqual(seen.rows.map((row) => row.chips[0]), [["Ada", "Sam"], ["Ada"], ["Sam"], []]);
+  assert.deepEqual(seen.columns, want.columns);
+  assert.deepEqual(seen.rows, want.rows);
+});
+
+test("parity: a scoped read's total is the granted rows, on both sides", async (t) => {
+  const vault = matrixVault(t);
+  const allow = ["Gigs/Night One.md", "Gigs/Night Four.md", "Crew/Ada.md"];
+  const { seen, door } = await bothEyes(t, vault, ALL_GIGS, allow);
+
+  // the grant reaches two gigs, so that is the whole table — not the vault's
+  // four with two of them hidden
+  assert.equal(door.total, 2);
+  assert.equal(door.reader.scope, "granted folders");
+  assert.equal(door.reader.members, 2);
+  assert.deepEqual(door.rows.map((row) => row.title), ["Night One", "Night Four"]);
+  const want = doorTable(door);
+  assert.equal(seen.rows.length, door.total);
+  assert.deepEqual(seen.columns, want.columns);
+  assert.deepEqual(seen.rows, want.rows);
+});
+
+test("parity: a pin's dotted column is dropped by both readers, not by one", async (t) => {
+  const vault = matrixVault(t);
+  const { seen, door } = await bothEyes(t, vault, DOTTED_PIN);
+
+  // a dotted name is a join on the fence side and nothing on this one, so the
+  // column simply is not there — the point is that the pane agrees
+  assert.deepEqual(door.columns, ["fee"]);
+  const want = doorTable(door);
+  assert.deepEqual(seen.columns, want.columns);
+  assert.deepEqual(seen.rows, want.rows);
+});
+
+/** The fence surfaces render one table component over the resolver's own
+    result, so the fence cases compare the door's payload against THAT table
+    painted — the projection between the two is what the engine adds. */
+async function fenceEyes(
+  t: Parameters<typeof renderComponent>[0],
+  vault: string,
+  fence: number
+): Promise<{ painted: { columns: string[]; rows: { title: string; cells: string[] }[] }; door: DoorPayload }> {
+  const read = readVault(vault);
+  const door = answered(
+    ask(vault, [...Object.keys(MATRIX_NOTES), "Gigs/Board.md"], { path: "Gigs/Board.md", fence })
+  );
+  const inner = nthViewFence(splitFrontmatter(readFileSync(join(vault, "Gigs/Board.md"), "utf8")).body, fence);
+  assert.ok(inner !== null, `the fixture note has no fence ${fence}`);
+  const result = embedQueryFor(parseViewSpec(inner), read.notes, read.schema, read.views);
+  assert.ok(!("error" in result), JSON.stringify(result));
+
+  await mockBackend();
+  const { default: EmbedViewTable } = await import("../../src/components/EmbedViewTable.tsx");
+  const r = await renderComponent(
+    t,
+    h(EmbedViewTable as unknown as FunctionComponent<Record<string, unknown>>, {
+      result,
+      onOpenSource: () => {},
+    })
+  );
+  await r.settle();
+  const columns = r.all("thead th").map((el) => (el.textContent ?? "").trim());
+  const rows = r.all("tbody tr").map((tr) => {
+    const tds = Array.from(tr.querySelectorAll("td"));
+    return {
+      title: (tds[0]?.textContent ?? "").trim(),
+      cells: tds.slice(1).map((td) => (td.textContent ?? "").trim()),
+    };
+  });
+  return { painted: { columns, rows }, door };
+}
+
+test("parity: a fence's limit cuts the door's rows exactly where the table stops", async (t) => {
+  const vault = matrixVault(t);
+  const { painted: seen, door } = await fenceEyes(t, vault, 1);
+
+  // `limit: 2` after `sort: fee:desc` means the two dearest, and `total`
+  // still reports every match — the cut is a cut, not a smaller query
+  assert.deepEqual(door.rows.map((row) => row.title), ["Night One", "Night Two"]);
+  assert.equal(door.total, 4);
+  assert.deepEqual(seen.rows.map((row) => row.title), ["Night One", "Night Two"]);
+  assert.deepEqual(
+    seen.rows.map((row) => row.cells),
+    door.rows.map((row) => door.columns.map((c) => row.cells[c].display))
+  );
+});
+
+test("parity: a dotted column reads through the relation on both sides", async (t) => {
+  const vault = matrixVault(t);
+  const { painted: seen, door } = await fenceEyes(t, vault, 2);
+
+  // `lead.city` is a value stored on the CREW row, read through the gig's
+  // relation — nothing on the gig carries it, so a reader that lost the join
+  // paints an empty column rather than failing
+  assert.deepEqual(door.columns, ["fee", "lead.city"]);
+  assert.deepEqual(
+    door.rows.map((row) => [row.title, row.cells["lead.city"].display]),
+    [
+      ["Night One", "Berlin"],
+      ["Night Two", "Lisbon"],
+      ["Night Three", "Berlin, Lisbon"],
+      ["Night Four", ""],
+    ]
+  );
+  assert.deepEqual(seen.rows.map((row) => row.title), door.rows.map((row) => row.title));
+  assert.deepEqual(
+    seen.rows.map((row) => row.cells),
+    door.rows.map((row) => door.columns.map((c) => row.cells[c].display))
+  );
+});
+
+/** The same engine as the MCP door drives it: a request that names the notes
+ *  the caller's grants reach, and a refusal that tells the caller nothing
+ *  about the rest of the vault.
+ *
+ *  These sit here rather than beside the door because the rule they pin lives
+ *  in the evaluator: the pins a name resolves against are the pins over a
+ *  database the caller's own notes are members of. Resolving first and
+ *  scoping after put the vault's pin list into the refusal strings — a name
+ *  the caller was never given failed differently from a name nothing carries,
+ *  and a name two databases share answered with the ungranted one's type. */
+const GRANTED_TASKS = Object.keys(NOTE_FILES).filter((p) => p.startsWith("Tasks/"));
+
+const DIRECTORY: SavedView = {
+  id: "directory",
+  name: "Directory",
+  db: "contact",
+  query: "",
+  sorts: [],
+  view: "table",
+};
+
+/** The fixture vault with a pin list of this test's choosing. */
+function doorVault(t: Parameters<typeof fixtureVault>[0], views: SavedView[]): string {
+  const vault = fixtureVault(t);
+  writeFileSync(join(vault, ".vault", "views.json"), JSON.stringify({ $views: views }));
+  return vault;
+}
+
+function refusal(res: EngineResponse): string {
+  if (res.ok) throw new Error("the engine answered where a refusal was expected");
+  return res.error;
+}
+
+function answered(res: EngineResponse): DoorPayload {
+  if (!res.ok) throw new Error(`the engine refused: ${res.error}`);
+  return res.payload;
+}
+
+function ask(vault: string, allow: string[], req: Record<string, unknown>): EngineResponse {
+  return engineRun(JSON.stringify({ vault, allow, today: TODAY, ...req }));
+}
+
+test("door: a pin over a database no grant reaches refuses like a name this vault lacks", (t) => {
+  const vault = doorVault(t, [OPEN_TASKS, DIRECTORY]);
+  const ungranted = refusal(ask(vault, GRANTED_TASKS, { view: "Directory" }));
+  const unknown = refusal(ask(vault, GRANTED_TASKS, { view: "Ferrous log" }));
+  // the two refusals differ only by the name that was asked for: a client
+  // must not be able to sort the pins it was not given from the pins that do
+  // not exist by reading which way the door said no
+  assert.equal(ungranted.replace("Directory", "<asked>"), unknown.replace("Ferrous log", "<asked>"));
+  // and neither names the database behind the pin it did not get
+  assert.ok(!ungranted.includes("contact"), ungranted);
+});
+
+test("door: a name two databases carry is settled by the grants before it is called ambiguous", (t) => {
+  const rosterTasks: SavedView = { ...OPEN_TASKS, id: "roster-task", name: "Roster" };
+  const rosterPeople: SavedView = { ...DIRECTORY, id: "roster-contact", name: "Roster" };
+  const vault = doorVault(t, [rosterTasks, rosterPeople]);
+
+  // grants over the tasks only: one of the two pins exists for this caller,
+  // so the answer is that one and the other's database is never named
+  const scoped = answered(ask(vault, GRANTED_TASKS, { view: "Roster" }));
+  assert.equal(scoped.view.id, "roster-task");
+  assert.equal(scoped.view.db, "task");
+
+  // grants over both databases: the question is a real one again, and the
+  // list it prints is the list this caller could have asked for
+  const both = refusal(ask(vault, [...GRANTED_TASKS, "People/Rob.md"], { view: "Roster" }));
+  assert.match(both, /more than one database/);
+  assert.match(both, /task/);
+  assert.match(both, /contact/);
+});
+
+test("door: notes_read, members and total count the granted notes, not the vault's", (t) => {
+  const vault = doorVault(t, [OPEN_TASKS, DIRECTORY]);
+  const allow = ["Tasks/Master the EP.md", "Tasks/Shipped.md"];
+  const p = answered(ask(vault, allow, { view: "Open tasks" }));
+  assert.equal(p.reader.scope, "granted folders");
+  assert.equal(p.reader.notes_read, 2);
+  assert.equal(p.reader.members, 2);
+  // `Shipped` is done, so the pin's own filter drops it: the total is what
+  // this caller's grants hold and the filter kept, never the vault's count
+  assert.equal(p.total, 1);
+  assert.deepEqual(p.rows.map((r) => r.path), ["Tasks/Master the EP.md"]);
+});
+
+test("door: a note that will not open is warned about without a host path in the reason", (t) => {
+  if (process.getuid?.() === 0) return; // root opens a mode-000 file anyway
+  const vault = doorVault(t, [OPEN_TASKS]);
+  const rel = "Tasks/Locked.md";
+  writeFileSync(join(vault, rel), "---\ntype: task\nstatus: todo\n---\nlocked\n", { mode: 0o000 });
+  const p = answered(ask(vault, [...GRANTED_TASKS, rel], { view: "Open tasks" }));
+  const warning = p.reader.warnings.find((w) => w.path === rel);
+  assert.ok(warning !== undefined, JSON.stringify(p.reader.warnings));
+  // the vault root is the one host path the engine holds, and a warning is
+  // the easy way for it to travel: the reason names the failure, the `path`
+  // beside it names the note the way every other key does
+  assert.ok(!warning.reason.includes(vault), warning.reason);
+  assert.ok(!warning.reason.includes("/"), warning.reason);
+  assert.match(warning.reason, /EACCES|EPERM/);
 });

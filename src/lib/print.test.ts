@@ -164,3 +164,60 @@ test("props chips lead with the app's own keys, then alphabetical, minus title",
 test("prop chips escape their values", () => {
   assert.match(propsLine({ note: '<img onerror=x> & "q"' }), /&lt;img onerror=x&gt; &amp; &quot;q&quot;/);
 });
+
+test("a column region prints as a grid, and the markers do not print at all", () => {
+  const html = renderPrintBody(
+    "Above.\n\n<!-- columns -->\n## Left\n- one\n<!-- col -->\n## Right\nText.\n<!-- /columns -->\n\nBelow.",
+    noAssets
+  );
+  assert.match(html, /<div class="print-columns" style="[^"]*"><div class="print-column">/);
+  assert.equal(html.match(/class="print-column"/g)?.length, 2, "two columns");
+  // the count travels with the row, so the sheet can put it side by side or
+  // stack it entire — a part-row is never one of the outcomes
+  assert.match(html, /--columns:2/, "the row carries its own column count");
+  assert.match(html, /<h2>Left<\/h2>\n<ul><li>one<\/li><\/ul>/, "a column is ordinary markdown");
+  assert.ok(!html.includes("&lt;!--"), "the layout comments are layout, not text");
+  // the prose either side keeps its place and its order
+  assert.ok(html.indexOf("<p>Above.</p>") < html.indexOf("print-columns"));
+  assert.ok(html.indexOf("print-columns") < html.indexOf("<p>Below.</p>"));
+});
+
+test("markers inside a blockquote print as markers, the way the editor shows them", () => {
+  const html = renderPrintBody(
+    "> <!-- columns -->\n> ## Left\n> <!-- col -->\n> ## Right\n> <!-- /columns -->",
+    noAssets
+  );
+  assert.ok(!html.includes("print-columns"), "a quote is quoted material, not a layout instruction");
+  assert.match(html, /&lt;!-- columns --&gt;/, "what the editor shows is what prints");
+  // and a real region OUTSIDE the quote still lays out
+  const mixed = renderPrintBody(
+    "> <!-- col -->\n\n<!-- columns -->\na\n<!-- col -->\nb\n<!-- /columns -->",
+    noAssets
+  );
+  assert.equal(mixed.match(/class="print-column"/g)?.length, 2);
+});
+
+test("a malformed region prints its markers rather than eating the page", () => {
+  const html = renderPrintBody("<!-- columns -->\nOrphan.\n\nRest of the page.", noAssets);
+  assert.ok(!html.includes("print-columns"));
+  assert.match(html, /&lt;!-- columns --&gt;/, "the author sees what they wrote");
+  assert.match(html, /Rest of the page\./);
+});
+
+test("a three-column row is one flat row carrying its count, so a narrow sheet stacks it whole", () => {
+  const html = renderPrintBody(
+    "<!-- columns -->\n## A\n<!-- col -->\n## B\n<!-- col -->\n## C\n<!-- /columns -->",
+    noAssets
+  );
+  // structure is what makes the wrap all or nothing: three siblings in ONE row
+  // box, none of them nested inside another, and the count on the box so the
+  // stylesheet can compare it against the width it was given
+  assert.match(html, /<div class="print-columns" style="--columns:3">/);
+  assert.equal(html.match(/class="print-columns"/g)?.length, 1, "one row, not a row per column");
+  assert.equal(html.match(/class="print-column"/g)?.length, 3);
+  assert.doesNotMatch(
+    html,
+    /class="print-column">(?:(?!<\/div>).)*class="print-column"/s,
+    "no column wraps another — a wrapped column must land under the row, not inside a sibling"
+  );
+});

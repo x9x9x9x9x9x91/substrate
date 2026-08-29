@@ -202,11 +202,8 @@ impl Sidecar {
         for (i, line) in raw.split_inclusive('\n').enumerate() {
             let trimmed = line.trim_end_matches(['\n', '\r']);
             if trimmed.is_empty() {
-                rest = &raw[raw
-                    .split_inclusive('\n')
-                    .take(i + 1)
-                    .map(|l| l.len())
-                    .sum::<usize>()..];
+                rest =
+                    &raw[raw.split_inclusive('\n').take(i + 1).map(|l| l.len()).sum::<usize>()..];
                 break;
             }
             let Some(field) = trimmed.strip_prefix("# ") else { return None };
@@ -482,8 +479,11 @@ mod platform {
     #[link(name = "CoreFoundation", kind = "framework")]
     extern "C" {
         fn CGImageSourceCreateWithURL(url: CFRef, options: CFRef) -> CFRef;
-        fn CGImageSourceCreateImageAtIndex(source: CFRef, index: usize, options: CFRef)
-            -> CGImageRef;
+        fn CGImageSourceCreateImageAtIndex(
+            source: CFRef,
+            index: usize,
+            options: CFRef,
+        ) -> CGImageRef;
         fn CGImageGetWidth(image: CGImageRef) -> usize;
         fn CGImageGetHeight(image: CGImageRef) -> usize;
         fn CGColorSpaceCreateDeviceRGB() -> CFRef;
@@ -527,15 +527,8 @@ mod platform {
         if space.is_null() {
             return None;
         }
-        let ctx = CGBitmapContextCreate(
-            std::ptr::null_mut(),
-            w,
-            h,
-            8,
-            0,
-            space,
-            ALPHA_NONE_SKIP_LAST,
-        );
+        let ctx =
+            CGBitmapContextCreate(std::ptr::null_mut(), w, h, 8, 0, space, ALPHA_NONE_SKIP_LAST);
         CGColorSpaceRelease(space);
         if ctx.is_null() {
             return None;
@@ -580,8 +573,8 @@ mod platform {
         // Asked for before any CoreGraphics object exists: everything below
         // owns a CGImage that has to be released by hand, and an early return
         // between the create and the release leaks the whole bitmap.
-        let handler_class =
-            AnyClass::get(c"VNImageRequestHandler").ok_or("Vision is unavailable on this system")?;
+        let handler_class = AnyClass::get(c"VNImageRequestHandler")
+            .ok_or("Vision is unavailable on this system")?;
         let request_class = AnyClass::get(c"VNRecognizeTextRequest")
             .ok_or("Vision text recognition is unavailable on this system")?;
         let url = NSURL::fileURLWithPath(&NSString::from_str(&path.to_string_lossy()));
@@ -615,7 +608,8 @@ mod platform {
         let _: () = msg_send![&*request, setRecognitionLevel: 0isize];
         let _: () = msg_send![&*request, setUsesLanguageCorrection: true];
 
-        let requests: Retained<NSArray<AnyObject>> = NSArray::from_retained_slice(&[request.clone()]);
+        let requests: Retained<NSArray<AnyObject>> =
+            NSArray::from_retained_slice(&[request.clone()]);
         let mut error: *mut NSObject = std::ptr::null_mut();
         let ok: bool = msg_send![&*handler, performRequests: &*requests, error: &mut error];
         if !ok {
@@ -968,10 +962,9 @@ impl Engine {
             .file_name()
             .map(|s| s.to_string_lossy().to_string())
             .unwrap_or_else(|| rel.to_string());
-        if let Ok(mut st) = self
-            .db
-            .prepare_cached("INSERT INTO notes_fts(path, title, body, partial) VALUES(?1, ?2, ?3, ?4)")
-        {
+        if let Ok(mut st) = self.db.prepare_cached(
+            "INSERT INTO notes_fts(path, title, body, partial) VALUES(?1, ?2, ?3, ?4)",
+        ) {
             st.execute(rusqlite::params![
                 row_path(rel),
                 name,
@@ -988,11 +981,14 @@ impl Engine {
             return;
         }
         self.db
-            .execute("DELETE FROM notes_fts WHERE path LIKE ?1 ESCAPE '\\'", [format!(
-                "{}{}/%",
-                ROW_SCHEME,
-                rel.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
-            )])
+            .execute(
+                "DELETE FROM notes_fts WHERE path LIKE ?1 ESCAPE '\\'",
+                [format!(
+                    "{}{}/%",
+                    ROW_SCHEME,
+                    rel.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
+                )],
+            )
             .ok();
     }
 
@@ -1005,10 +1001,10 @@ impl Engine {
 
     fn deindex_all_images(&self) {
         self.db
-            .execute("DELETE FROM notes_fts WHERE substr(path, 1, ?1) = ?2", rusqlite::params![
-                ROW_SCHEME.len() as i64,
-                ROW_SCHEME
-            ])
+            .execute(
+                "DELETE FROM notes_fts WHERE substr(path, 1, ?1) = ?2",
+                rusqlite::params![ROW_SCHEME.len() as i64, ROW_SCHEME],
+            )
             .ok();
     }
 }
@@ -1111,7 +1107,10 @@ mod tests {
             .collect();
         e.apply_extracted(done);
         assert!(
-            e.search_full("4711", None, false).hits.iter().any(|h| h.path == "image://.assets/invoice.png"),
+            e.search_full("4711", None, false)
+                .hits
+                .iter()
+                .any(|h| h.path == "image://.assets/invoice.png"),
             "the embedded picture answers the search"
         );
 
@@ -1253,14 +1252,17 @@ mod tests {
         fs::write(&image, INVOICE_PNG).unwrap();
         let identity = mounts::file_identity(&image).unwrap();
         let (text, truncated) = recognize(&image).unwrap();
-        write_sidecar(&image, &Sidecar {
-            source: "shot.png".into(),
-            identity,
-            bytes: fs::metadata(&image).unwrap().len(),
-            text,
-            truncated,
-            error: String::new(),
-        })
+        write_sidecar(
+            &image,
+            &Sidecar {
+                source: "shot.png".into(),
+                identity,
+                bytes: fs::metadata(&image).unwrap().len(),
+                text,
+                truncated,
+                error: String::new(),
+            },
+        )
         .unwrap();
         assert!(e.image_ocr_jobs().is_empty(), "the fresh sidecar is trusted");
 
@@ -1344,7 +1346,10 @@ mod tests {
     #[test]
     fn a_foreign_or_future_sidecar_reads_as_absent() {
         assert_eq!(Sidecar::parse("just some notes I typed\n"), None);
-        assert_eq!(Sidecar::parse("# substrate-ocr v99 — from the future\n# sha256: x\n\nhi"), None);
+        assert_eq!(
+            Sidecar::parse("# substrate-ocr v99 — from the future\n# sha256: x\n\nhi"),
+            None
+        );
         // a header with no hash cannot be checked against the image, so it is
         // worth nothing: re-reading the image is always available
         assert_eq!(Sidecar::parse("# substrate-ocr v1 — x\n# source: a.png\n\nhi"), None);
@@ -1408,14 +1413,17 @@ mod tests {
         let image = dir.join("shot.png");
         fs::write(&image, INVOICE_PNG).unwrap();
         let identity = mounts::file_identity(&image).unwrap();
-        write_sidecar(&image, &Sidecar {
-            source: "shot.png".into(),
-            identity,
-            bytes: INVOICE_PNG.len() as u64,
-            text: "Invoice 4711\n".into(),
-            truncated: false,
-            error: String::new(),
-        })
+        write_sidecar(
+            &image,
+            &Sidecar {
+                source: "shot.png".into(),
+                identity,
+                bytes: INVOICE_PNG.len() as u64,
+                text: "Invoice 4711\n".into(),
+                truncated: false,
+                error: String::new(),
+            },
+        )
         .unwrap();
 
         // confirming the sidecar against the bytes costs exactly one read
@@ -1563,17 +1571,20 @@ mod tests {
         assert_eq!(rows(&e).len(), 4, "four pictures, four rows");
 
         e.deindex_images_under("a_b");
-        assert_eq!(rows(&e), vec![
-            "image://a%b/shot.png".to_string(),
-            "image://axb/shot.png".to_string(),
-            "image://azzb/shot.png".to_string(),
-        ]);
+        assert_eq!(
+            rows(&e),
+            vec![
+                "image://a%b/shot.png".to_string(),
+                "image://axb/shot.png".to_string(),
+                "image://azzb/shot.png".to_string(),
+            ]
+        );
 
         e.deindex_images_under("a%b");
-        assert_eq!(rows(&e), vec![
-            "image://axb/shot.png".to_string(),
-            "image://azzb/shot.png".to_string(),
-        ]);
+        assert_eq!(
+            rows(&e),
+            vec!["image://axb/shot.png".to_string(), "image://azzb/shot.png".to_string(),]
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 

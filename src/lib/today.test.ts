@@ -6,6 +6,8 @@ import {
   isFocused,
   isPickedToday,
   pickedDay,
+  suggestOpenTasks,
+  SUGGEST_LIMIT,
   todayData,
   todayTitle,
   TODAY_PROP,
@@ -248,4 +250,49 @@ test("the headline mark never lands on the calendar as a date", () => {
   const d = todayData(notes, schema, TODAY);
   assert.equal(d.scheduled.length, 0);
   assert.equal(d.due.length, 0);
+});
+
+/* The add box's suggestions. The line was free text only, so a task already
+   in the vault could only be re-typed — which minted a second note saying the
+   same thing. These pin what the line is allowed to offer. */
+
+function task(title: string, props: Record<string, unknown> = {}): NoteMeta {
+  return note(`Tasks/${title}.md`, { type: "task", status: "todo", title, ...props }, 0, "Tasks");
+}
+
+test("suggestions are open tasks matching the typed text, case-insensitively", () => {
+  const notes = [
+    task("Mix bounce"),
+    task("Remix notes"),
+    task("File receipts"),
+    note("Calendar/Mixdown gig.md", { type: "event", title: "Mixdown gig", date: TODAY }),
+  ];
+  const hits = suggestOpenTasks(notes, "MIX", TODAY);
+  // a prefix match leads; an event is not a task, however well it matches
+  assert.deepEqual(hits.map((n) => n.title), ["Mix bounce", "Remix notes"]);
+});
+
+test("finished tasks and today's picks never appear as suggestions", () => {
+  const notes = [
+    task("Mix bounce"),
+    task("Mix master", { status: "done" }),
+    task("Mix stems", { status: "Cancelled" }),
+    task("Mix vocals", { [TODAY_PROP]: TODAY }),
+    // a stale pick is still open work — offering it re-picks it for today
+    task("Mix reverb", { [TODAY_PROP]: "2026-07-16" }),
+  ];
+  assert.deepEqual(
+    suggestOpenTasks(notes, "mix", TODAY).map((n) => n.title),
+    ["Mix bounce", "Mix reverb"]
+  );
+});
+
+test("an empty query suggests nothing, and the list is capped", () => {
+  const many = Array.from({ length: SUGGEST_LIMIT + 4 }, (_, i) => task(`Mix take ${i + 1}`));
+  assert.deepEqual(suggestOpenTasks(many, "", TODAY), []);
+  assert.deepEqual(suggestOpenTasks(many, "   ", TODAY), []);
+  assert.equal(suggestOpenTasks(many, "mix", TODAY).length, SUGGEST_LIMIT);
+  assert.equal(suggestOpenTasks(many, "mix", TODAY, 3).length, 3);
+  // nothing matched is an empty list, not a shortened one
+  assert.deepEqual(suggestOpenTasks(many, "sausage", TODAY), []);
 });

@@ -158,6 +158,24 @@ test("savedViewPref: a pin's sorts never fall back to the database's", () => {
   ]);
 });
 
+test("savedViewPref: a pin's own date binding wins, and one without inherits", () => {
+  const dbPref = { view: "calendar" as const, cal_date: "mastered" };
+  // the pin captured its own binding, so it opens on that prop however the
+  // database is bound — two pins on one database can differ
+  assert.equal(
+    savedViewPref(view({ view: "calendar", cal_date: "released" }), dbPref).cal_date,
+    "released"
+  );
+  // a pin that carries none (an older pin) still follows the database rather
+  // than rebinding to whichever date prop comes first
+  assert.equal(savedViewPref(view({ view: "calendar" }), dbPref).cal_date, "mastered");
+  // and a pin that opens on a table carries its capture too, so switching that
+  // pin to the calendar lands on the prop it was saved with
+  assert.equal(savedViewPref(view({ view: "table", cal_date: "released" }), dbPref).cal_date, "released");
+  assert.equal(savedViewPref(view({ view: "table" }), dbPref).cal_date, "mastered");
+  assert.equal(savedViewPref(view(), undefined).cal_date, undefined);
+});
+
 test("evaluateSavedView: membership folds case, cells carry raw and painted values", () => {
   const out = evaluateSavedView(view({ query: "status:todo" }), TASKS, TASK_SCHEMA);
   assert.equal(out.schema, VIEW_EVAL_SCHEMA);

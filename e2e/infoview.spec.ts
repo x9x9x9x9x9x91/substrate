@@ -32,7 +32,7 @@ test("info view follows the pointer and remembers its open state", async ({ page
   await expect(panel.locator(".info-view-title")).toHaveText("Note editor");
   await expect(panel.locator(".info-view-body")).toContainText("Markdown");
 
-  await page.getByRole("button", { name: "History" }).hover();
+  await page.getByRole("button", { name: "History", exact: true }).hover();
   await expect(panel.locator(".info-view-title")).toHaveText("Version history");
   // Moving down to read the dock must preserve the explanation.
   await panel.hover();

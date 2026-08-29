@@ -48,14 +48,16 @@ pub(super) fn watch_relevant(root: &Path, p: &Path) -> bool {
 }
 
 /// The live-editable config files —
-/// `.vault/{schema,views,folders,calendars,tagfolders,mounts,reflexes}.json`.
+/// `.vault/{schema,views,folders,calendars,tagfolders,mounts,reflexes,sync-folders}.json`.
 /// The watcher surfaces exactly these dot-paths so external edits apply
 /// without a restart; lib.rs routes them to a separate
 /// `vault:config-changed` signal instead of the note-refetch `vault:changed`.
 ///
 /// `.vault/reflexes-log.json` is deliberately NOT here: the reflex receipts
 /// file is app-owned, and a watched log would make every fire re-enter the
-/// watcher that produced it.
+/// watcher that produced it. `.vault/files-index.json` is out for the same
+/// reason — it is written by our own snapshots, so watching it would have every
+/// snapshot wake the watcher that caused it.
 pub fn config_path(root: &Path, p: &Path) -> bool {
     let rel = p.strip_prefix(root).unwrap_or(p);
     rel == Path::new(SCHEMA_REL_PATH)
@@ -65,6 +67,7 @@ pub fn config_path(root: &Path, p: &Path) -> bool {
         || rel == Path::new(TagFolder::REL_PATH)
         || rel == Path::new(MOUNTS_REL_PATH)
         || rel == Path::new(crate::reflexes::CONFIG_REL_PATH)
+        || rel == Path::new(crate::syncfolders::CONFIG_REL_PATH)
 }
 
 /// Cadence of the degraded-mode fallback: when the watcher can't
@@ -158,7 +161,7 @@ fn watch_with_interval<F, E>(
         Rescan,
     }
 
-/// Watcher construction plus the root watch as one retryable unit —
+    /// Watcher construction plus the root watch as one retryable unit —
     /// degraded mode retries both.
     fn arm(
         root: &Path,
@@ -608,6 +611,7 @@ mod tests {
             ".vault/tagfolders.json",
             ".vault/mounts.json",
             ".vault/reflexes.json",
+            ".vault/sync-folders.json",
         ] {
             assert!(watch_relevant(&dir, &dir.join(rel)), "{rel} is config-relevant");
             assert!(config_path(&dir, &dir.join(rel)));
@@ -616,6 +620,9 @@ mod tests {
         // the receipt log is app-owned and deliberately unwatched, or every
         // reflex that fires would wake the watcher that fired it
         assert!(!watch_relevant(&dir, &dir.join(".vault/reflexes-log.json")));
+        // and the ghost index is written by our own snapshots, so watching it
+        // would have every snapshot wake the watcher that caused it
+        assert!(!watch_relevant(&dir, &dir.join(".vault/files-index.json")));
         assert!(!watch_relevant(&dir, &dir.join(".git/config")));
         assert!(!watch_relevant(&dir, &dir.join(".vault/templates/event.md")));
         assert!(!watch_relevant(&dir, &dir.join(".vault/nested/schema.json")));
@@ -671,7 +678,9 @@ mod tests {
 
     #[test]
     fn a_read_is_not_a_change() {
-        use notify::event::{AccessKind, AccessMode, CreateKind, DataChange, ModifyKind, RemoveKind};
+        use notify::event::{
+            AccessKind, AccessMode, CreateKind, DataChange, ModifyKind, RemoveKind,
+        };
         use notify::EventKind;
         // The kinds Linux hands back for a plain `open()`/read of a file the
         // app itself is indexing — none of them changed anything.

@@ -66,7 +66,6 @@ impl Grant {
             extra: BTreeMap::new(),
         }
     }
-
 }
 
 /// The whole grant set for this machine. Unknown keys in the file are
@@ -123,9 +122,8 @@ impl ScopeSet {
     /// fail on.
     pub fn load(cfg_dir: &Path) -> Self {
         let mut set = Self::load_for_edit(cfg_dir).unwrap_or_default();
-        set.grants.retain(|g| {
-            validate_client(&g.client).is_ok() && validate_prefix(&g.prefix).is_ok()
-        });
+        set.grants
+            .retain(|g| validate_client(&g.client).is_ok() && validate_prefix(&g.prefix).is_ok());
         set
     }
 
@@ -191,9 +189,7 @@ impl ScopeSet {
         let ceiling = if is_write_denied(&rel) { Access::Read } else { Access::Write };
         self.grants
             .iter()
-            .filter(|g| {
-                normalize_rel(&g.prefix).is_some_and(|p| covers(&p, &rel))
-            })
+            .filter(|g| normalize_rel(&g.prefix).is_some_and(|p| covers(&p, &rel)))
             .map(|g| g.access.min(ceiling))
             .max()
             .map_or(Decision::Deny, Decision::Allow)
@@ -211,9 +207,7 @@ impl ScopeSet {
         if is_hard_denied(&rel) {
             return false;
         }
-        self.grants
-            .iter()
-            .any(|g| normalize_rel(&g.prefix).is_some_and(|p| covers(&rel, &p)))
+        self.grants.iter().any(|g| normalize_rel(&g.prefix).is_some_and(|p| covers(&rel, &p)))
     }
 
     /// Decide access for a path that will actually be touched on disk.
@@ -305,9 +299,7 @@ fn covers(p: &str, rel: &str) -> bool {
 /// whole shape costs nothing and needs no per-artifact allowlist.
 fn is_hard_denied(rel: &str) -> bool {
     rel.split('/').any(|seg| seg.starts_with('.'))
-        || ROOT_HARD_DENY
-            .iter()
-            .any(|denied| rel.eq_ignore_ascii_case(denied))
+        || ROOT_HARD_DENY.iter().any(|denied| rel.eq_ignore_ascii_case(denied))
 }
 
 /// Can a folder prefix be granted at all? The pane asks before it writes, so
@@ -515,7 +507,10 @@ mod tests {
                 "caller {caller:?} matched a grant no editor could have written"
             );
         }
-        assert_eq!(loaded.for_client("Real").decide_rel("Notes/a.md"), Decision::Allow(Access::Read));
+        assert_eq!(
+            loaded.for_client("Real").decide_rel("Notes/a.md"),
+            Decision::Allow(Access::Read)
+        );
         // the editor still sees the file as written, so granting cannot
         // quietly delete the rows it refuses to act on
         assert_eq!(ScopeSet::load_for_edit(t.path()).unwrap().grants.len(), 3);

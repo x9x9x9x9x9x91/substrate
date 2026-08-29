@@ -31,9 +31,10 @@ async function scrollTo(page: Page, top: number) {
   await page.waitForTimeout(120);
 }
 
-// the header right-click checklist: one click toggles one property
+// the header right-click checklist (on the Name cell — property headers
+// own their right-click): one click toggles one property
 async function toggleCol(page: Page, name: string) {
-  await page.locator(".db-table thead").click({ button: "right" });
+  await page.locator(".db-table thead th").first().click({ button: "right" });
   const menu = page.locator(".propvis");
   await expect(menu).toBeVisible();
   await menu.locator(".propvis-item", { hasText: name }).click();

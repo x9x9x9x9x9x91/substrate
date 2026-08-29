@@ -16,6 +16,8 @@
      learnable only by typing something wrong and reading the error. */
 
 import type { SyntaxNode } from "@lezer/common";
+import { COLUMNS_CLOSE, COLUMNS_DIVIDER, COLUMNS_OPEN, isColumnsMarker } from "./columns.ts";
+import { fenceCloses, fenceOpening } from "./fences.ts";
 import { NO_MATCH, fuzzyScore } from "./fuzzy.ts";
 import { todayIso } from "./dates.ts";
 import { isFilterableKey } from "./query.ts";
@@ -118,6 +120,59 @@ function tableCommand(): SlashCommand {
   };
 }
 
+/** Why `/columns` will not wrap this text, or null when it will.
+
+    Two shapes make a region that is not what was picked, and neither is the
+    palette's to repair. Markers already in the text open a second region
+    inside this one — three columns nobody asked for, or a close marker
+    landing before the divider. A code fence the selection only half contains
+    swallows the divider that follows it, because the scanner that hides a
+    marker inside a fence (`columns.ts`, and the indexer beside it) cannot
+    see the closing line that never came.
+
+    The message is the whole answer the author gets, so it says which of the
+    two it is and what to do about it. */
+export function columnsWrapRefusal(selected: string): string | null {
+  const lines = selected.split("\n");
+  if (lines.some((line) => isColumnsMarker(line))) {
+    return "Already in columns — pick text without the column markers";
+  }
+  let run: string | null = null;
+  for (const line of lines) {
+    if (run === null) run = fenceOpening(line);
+    else if (fenceCloses(line, run)) run = null;
+  }
+  if (run !== null) return "The selection cuts a code block in half — take in its closing line";
+  return null;
+}
+
+/** A `<!-- columns -->` region (vault-format §3c), two columns wide. Two is
+    the shape a side-by-side page is nearly always reaching for, and a third
+    column is one `<!-- col -->` line away — so the palette inserts rather
+    than asking, the way it does for the 2×2 table.
+
+    `selected` is the text the palette is standing in for. Empty is the plain
+    skeleton and the cursor opens the FIRST column, because that is where the
+    next thing typed belongs — the same call `/table` makes by landing in the
+    first cell. Non-empty means the author already wrote the left column and
+    picked it: it becomes column one verbatim, and the cursor opens the empty
+    SECOND one, because the half they still have to write is the other half. */
+export function columnsCommand(selected = ""): SlashCommand {
+  const first = selected.replace(/^\n+|\n+$/g, "");
+  const head = `${COLUMNS_OPEN}\n`;
+  const insert = `${head}${first}\n${COLUMNS_DIVIDER}\n\n${COLUMNS_CLOSE}`;
+  return {
+    name: "columns",
+    detail: "side-by-side columns",
+    insert,
+    // the blank line the divider opens, when there is something above it to
+    // be the other half of; the first column's own blank line otherwise
+    cursor: first
+      ? head.length + first.length + 1 + COLUMNS_DIVIDER.length + 1
+      : head.length,
+  };
+}
+
 /** Insert text is built per accept so `/date` is the day you accept it, not
     the day the module loaded. */
 export function slashCommands(): SlashCommand[] {
@@ -144,6 +199,7 @@ export function slashCommands(): SlashCommand[] {
     // brackets, ready for the name
     { name: "asset", detail: "embed a file", insert: "![[]]", cursor: 3 },
     tableCommand(),
+    columnsCommand(),
     // the machine fences (vault-format §5) — scaffolds carry each parser's
     // required keys so nobody recalls fence grammar from memory
     fenceCommand("chart", "chart over a database or sheet", ["source: ", "x: ", "y: count"]),

@@ -5,12 +5,17 @@ import {
   FEED_STALE_MS,
   feedStaleness,
   feedTopics,
+  FEED_TOPICS_KEY,
   filterFeedItems,
+  forgetStoredTopics,
   groupFeedByDay,
   isOpenableUrl,
+  legacyStoredTopics,
   parseCuratedStamp,
   parseFeedItems,
+  FEED_TOPICS_MIGRATED_KEY,
   setFeedback,
+  topicsMigrationDone,
 } from "./feed.ts";
 
 const HEADER = "date,topic,title,source,url,blurb,why,fb";
@@ -243,4 +248,88 @@ test("feedStaleness: missing or unparseable stamps classify fresh", () => {
   assert.deepEqual(feedStaleness(undefined, NOW), { stale: false, age: "" });
   assert.deepEqual(feedStaleness("", NOW), { stale: false, age: "" });
   assert.deepEqual(feedStaleness("whenever", NOW), { stale: false, age: "" });
+});
+
+/** the browser store the topic filter used to live in, enough of it for the
+    one-time migration's bookkeeping — every key, because the migration marker
+    lives beside the old value and the two are read against each other */
+function fakeStore(seed: string | null): { read: () => string | null; keys: () => string[] } {
+  const cells = new Map<string, string>();
+  if (seed !== null) cells.set(FEED_TOPICS_KEY, seed);
+  const g = globalThis as unknown as Record<string, unknown>;
+  g.localStorage = {
+    getItem: (k: string) => cells.get(k) ?? null,
+    setItem: (k: string, v: string) => void cells.set(k, v),
+    removeItem: (k: string) => void cells.delete(k),
+  };
+  return { read: () => cells.get(FEED_TOPICS_KEY) ?? null, keys: () => [...cells.keys()].sort() };
+}
+
+test("legacyStoredTopics: an older profile's selection is worth migrating", () => {
+  fakeStore('["plugins","ai"]');
+  assert.deepEqual(legacyStoredTopics(), ["plugins", "ai"]);
+  // normalized on the way out, same as the note's own read — the store was
+  // written by older builds and by hand-edited devtools alike
+  fakeStore('[" Plugins ","AI","plugins",""]');
+  assert.deepEqual(legacyStoredTopics(), ["plugins", "ai"]);
+});
+
+test("legacyStoredTopics: nothing worth migrating reads as nothing", () => {
+  // absent, unreadable, and empty all already mean "the whole stream", so
+  // none of them should spend a write on a settings note
+  fakeStore(null);
+  assert.equal(legacyStoredTopics(), null);
+  fakeStore("not json");
+  assert.equal(legacyStoredTopics(), null);
+  fakeStore("[]");
+  assert.equal(legacyStoredTopics(), null);
+  fakeStore('{"topics":["ai"]}');
+  assert.equal(legacyStoredTopics(), null);
+  fakeStore("[1,2,3]");
+  assert.equal(legacyStoredTopics(), null);
+});
+
+test("forgetStoredTopics: the old key goes once the note has the answer", () => {
+  // a per-machine leftover would otherwise hand this vault's topics to the
+  // next vault opened here, and bring back a hand-deleted `feed-topics:` line
+  const store = fakeStore('["plugins"]');
+  forgetStoredTopics();
+  assert.equal(store.read(), null);
+  assert.equal(legacyStoredTopics(), null);
+  // and forgetting what was never there is not an error
+  forgetStoredTopics();
+  assert.equal(legacyStoredTopics(), null);
+});
+
+test("forgetStoredTopics: it leaves a marker, so an empty store is not 'never migrated'", () => {
+  // the whole point of the marker: clearing the filter also removes the old
+  // key, and without something that says "this store has had its say" the
+  // next read would treat the emptiness as a profile waiting to be moved and
+  // seed the selection back — into the note, and from there to every machine
+  const store = fakeStore('["plugins"]');
+  assert.equal(topicsMigrationDone(), false, "an untouched store still has a say");
+
+  forgetStoredTopics();
+  assert.equal(topicsMigrationDone(), true);
+  assert.deepEqual(store.keys(), [FEED_TOPICS_MIGRATED_KEY], "the value went, the marker stayed");
+
+  // and a later hand-written value does not un-say it — the marker is about
+  // this machine's store as a whole, not about one key's presence
+  localStorage.setItem(FEED_TOPICS_KEY, '["ai"]');
+  assert.equal(topicsMigrationDone(), true);
+});
+
+test("topicsMigrationDone: a store that cannot be read has nothing to migrate", () => {
+  // a blocked store (private mode, a hardened profile) holds no legacy value
+  // either, so the honest answer is "done", not "try again on every read"
+  const g = globalThis as unknown as Record<string, unknown>;
+  g.localStorage = {
+    getItem: () => {
+      throw new Error("blocked");
+    },
+    setItem: () => {},
+    removeItem: () => {},
+  };
+  assert.equal(topicsMigrationDone(), true);
+  assert.equal(legacyStoredTopics(), null);
 });

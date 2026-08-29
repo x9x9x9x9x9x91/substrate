@@ -61,6 +61,7 @@ import {
   tableGroupBy,
 } from "../lib/dbgroup";
 import { viewColumns, viewOrderedRows } from "../lib/vieweval";
+import { calendarDateProp, calendarSeedDay, dbDateProps } from "../lib/dbcalendarlayout";
 import SelectMenu, { anchorFrom, anchorsWentStale, type AnchorRect } from "./SelectMenu";
 import PropForm from "./PropForm";
 import RowGroupPrompt from "./RowGroupPrompt";
@@ -70,6 +71,7 @@ import IconPicker from "./IconPicker";
 import TypeIcon from "./TypeIcon";
 import ContextMenu from "./ContextMenu";
 import DbBoardLayout from "./DbBoardLayout";
+import DbCalendarLayout from "./DbCalendarLayout";
 import DbGalleryLayout from "./DbGalleryLayout";
 import DbListLayout from "./DbListLayout";
 import DbTableLayout from "./DbTableLayout";
@@ -202,7 +204,7 @@ interface DatabasePaneProps {
       default union */
   onSaveView: (
     name: string,
-    capture: { query: string; sorts: SavedViewSort[]; view: DbLayout; groupBy?: string; tableGroupBy?: string; columns?: string[] }
+    capture: { query: string; sorts: SavedViewSort[]; view: DbLayout; groupBy?: string; tableGroupBy?: string; calDate?: string; columns?: string[] }
   ) => void;
   /* The view tab bar — this db's pins (App filters), the open pin's
      id for the active tab, the two tab actions (open / context menu — App
@@ -719,6 +721,24 @@ function DatabasePane({
   // The table's own grouping key — no fallback; a table stays
   // ungrouped unless the pref names a still-groupable column
   const tableGroup = tableGroupBy(columns, typeSchema, normalizedPref?.table_group_by);
+  /* The calendar's date binding: which date props this database offers, and
+     the one it is bound to. A pref naming a prop that is gone falls back to
+     the first offered rather than emptying the grid — the board's own rule
+     for a stale grouping. */
+  const dateProps = useMemo(
+    () => dbDateProps(notes, typeSchema, schema),
+    [notes, typeSchema, schema]
+  );
+  const calDate = calendarDateProp(normalizedPref?.cal_date, dateProps);
+  /* The month the calendar grid is showing. It lives here rather than in the
+     grid because a new row is born here: a row made while the calendar is on
+     screen takes the day the reader is looking at, so the pane has to know
+     which month that is. Seeded once — paging owns it afterwards, so a day
+     rollover can't yank a reader back from the month they paged to. */
+  const [calMonth, setCalMonth] = useState(() => {
+    const now = new Date();
+    return { year: now.getFullYear(), month0: now.getMonth() };
+  });
   /* The table's section memory, both halves persisted on the pref so a
      tidied table stays tidied through a navigation away: which sections are
      folded shut, and the hand order a header drag left them in. Both name
@@ -849,6 +869,7 @@ function DatabasePane({
   const [tabsMore, setTabsMore] = useState(false);
   const [iconMenu, setIconMenu] = useState<AnchorRect | null>(null);
   const [groupMenu, setGroupMenu] = useState<AnchorRect | null>(null);
+  const [dateMenu, setDateMenu] = useState<AnchorRect | null>(null);
   const [editCell, setEditCell] = useState<{
     path: string;
     key: string;
@@ -1056,6 +1077,18 @@ function DatabasePane({
     vaultTemplateRead(dbType)
       .then((tpl) => {
         let props = buildEntryProps({ typeSchema, typeNotes: notes, template: tpl, title: t, date });
+        /* Born on the calendar: the grid places rows by the bound date
+           prop, so a dateless row would be created and land nowhere on
+           screen. It takes the day the reader is looking at — today while
+           the visible month is today's, else that month's first day — which
+           is what a month grid implies. Only the calendar seeds a date;
+           every other layout creates the way it always did. */
+        if (layout === "calendar" && calDate)
+          props = mergeEntryProp(
+            props,
+            calDate,
+            calendarSeedDay(calMonth.year, calMonth.month0, date)
+          );
         // born under an active filter: simple bare key:value terms pin the
         // new entry's props so it stays visible
         for (const [k, v] of filterInherits(parsedQuery.filters))
@@ -1580,6 +1613,12 @@ function DatabasePane({
   // out from under them on every refresh.
   useEffect(() => {
     if (!focus) return;
+    // A month grid holds no focusable cell, so a focus carried in from the
+    // layout the user just left would sit nowhere on screen. Drop it.
+    if (layout === "calendar") {
+      setFocus(null);
+      return;
+    }
     if (layout === "board") {
       for (let c = 0; c < boardCols.length; c++) {
         const r = boardCols[c].notes.findIndex((n) => n.path === focus.path);
@@ -2797,6 +2836,12 @@ function DatabasePane({
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey) return;
       if (isTyping(e.target) || editCell || titleEdit) return;
+      // The calendar layout renders a month grid, not rows: there is no
+      // [data-fc][data-fr] cell to land on, so walking it would move an
+      // invisible focus and open a note with nothing on screen to say which.
+      // Tab reaches every chip and Enter activates it; the arrows are left
+      // to scroll the pane, which a swallowed arrow key would prevent.
+      if (layout === "calendar") return;
       // Every table cell that holds an editor of its own: the data columns,
       // and the Name column wherever the vault owns the rename. Where it does
       // not — a mounted folder, a checkbox that toggles, a rollup the schema
@@ -3107,7 +3152,7 @@ function DatabasePane({
       </div>
       <div className="db-tools">
         <SwitchGroup className="db-layouts" label="Layout">
-          {(["list", "table", "board", "gallery"] as const).map((l) => (
+          {(["list", "table", "board", "gallery", "calendar"] as const).map((l) => (
             <button
               key={l}
               className={layout === l ? "active" : undefined}
@@ -3134,6 +3179,41 @@ function DatabasePane({
               {layout === "board" ? groupBy : (tableGroup ?? "None")}
             </button>
           </label>
+        )}
+        {/* The calendar's date binding, in the slot the grouping picker uses
+            on the layouts that group — a database with one date prop needs no
+            picker; the calendar head already names what it drew on. */}
+        {layout === "calendar" && dateProps.length > 1 && (
+          <label className="db-group">
+            Date
+            <button
+              className="db-group-btn"
+              onClick={(e) => {
+                // capture the anchor synchronously — currentTarget is null by
+                // the time a deferred setState updater runs
+                const anchor = anchorFrom(e.currentTarget);
+                setDateMenu((cur) => (cur ? null : anchor));
+              }}
+            >
+              {calDate ?? "None"}
+            </button>
+          </label>
+        )}
+        {dateMenu && layout === "calendar" && (
+          <SelectMenu
+            anchor={dateMenu}
+            value={calDate ?? ""}
+            label="Date"
+            options={dateProps.map((c) => ({ value: c }))}
+            used={[]}
+            canEditSchema={false}
+            onCommit={(v) => {
+              setDateMenu(null);
+              patchPref({ view: "calendar", cal_date: v || undefined });
+            }}
+            onSaveSchema={() => {}}
+            onClose={() => setDateMenu(null)}
+          />
         )}
         {groupMenu && (layout === "board" || layout === "table") && (
           <SelectMenu
@@ -3178,9 +3258,6 @@ function DatabasePane({
             headers write, on every layout. A board or a gallery has no
             headers, so this is the only place their sort is visible at all. */}
         <SortMenu keys={sortableKeys} sorts={sorts} onChange={setSorts} />
-        {(layout === "table" || layout === "list") && (
-          <ColumnsMenu columns={columns} checked={curated ?? null} onToggle={toggleColumn} />
-        )}
         <button
           className={`db-filter-toggle${showFilter ? " active" : ""}`}
           title="Filter"
@@ -3189,6 +3266,9 @@ function DatabasePane({
         >
           <FilterIcon />
         </button>
+        {(layout === "table" || layout === "list") && (
+          <ColumnsMenu columns={columns} checked={curated ?? null} onToggle={toggleColumn} />
+        )}
         <span ref={dotsWrapRef}>
           <DotsMenu
             title="View actions"
@@ -3246,7 +3326,7 @@ function DatabasePane({
           hint={(typed) => saveViewHint(savedViews, dbType, typed)}
           onCommit={(name) => {
             setNamingView(false);
-            onSaveView(name, { query: query.trim(), sorts, view: layout, groupBy, tableGroupBy: tableGroup, columns: colCapture });
+            onSaveView(name, { query: query.trim(), sorts, view: layout, groupBy, tableGroupBy: tableGroup, calDate: calDate ?? undefined, columns: colCapture });
             // both presses land here — the update of an open pin and the
             // pinning of a new name — so both confirm the same way
             flashSaved();
@@ -3510,7 +3590,7 @@ function DatabasePane({
               run: () => toggleWrap(colMenu.col),
             },
             // Hides the column, never the data — the visibility
-            // checklist (right-click the header) brings it back
+            // checklist (the columns icon in the tools row) brings it back
             { label: "Hide property", icon: <EyeOffIcon />, run: () => toggleColumn(colMenu.col) },
             {
               label: "Edit schema…",
@@ -3683,6 +3763,32 @@ function DatabasePane({
         onOpenNote={onOpenNote}
         onNoteMenu={onNoteMenu}
         startDraft={startDraft}
+      />
+    );
+  }
+
+  if (layout === "calendar") {
+    return (
+      <DbCalendarLayout
+        rows={rows}
+        schema={schema}
+        dbType={dbType}
+        icon={icon}
+        dateProp={calDate}
+        dateProps={dateProps}
+        month={calMonth}
+        onMonth={(year, month0) => setCalMonth({ year, month0 })}
+        openPath={openPath}
+        bgMenuProps={bgMenuProps}
+        head={head}
+        tabRow={tabRow}
+        bar={bar}
+        noMatch={noMatch}
+        adminPop={adminPop}
+        draftRow={draftRow}
+        bodyRef={bodyRef}
+        onOpenNote={onOpenNote}
+        onNoteMenu={onNoteMenu}
       />
     );
   }

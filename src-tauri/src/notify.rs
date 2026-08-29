@@ -1155,7 +1155,7 @@ fn scan(app: &tauri::AppHandle) {
 #[cfg(target_os = "macos")]
 fn fire_and_handle(app: tauri::AppHandle, item: DueItem) {
     use mac_notification_sys::{MainButton, Notification, NotificationResponse};
-    use tauri::{Emitter, Manager};
+    use tauri::Manager;
 
     let mut n = Notification::new();
     let body = item.describe();
@@ -1170,20 +1170,25 @@ fn fire_and_handle(app: tauri::AppHandle, item: DueItem) {
             match &item.row {
                 // a sheet cell opens the note AND reveals its row;
                 // `app:open-note` keeps its bare-path payload, which the tray
-                // agenda shares
+                // agenda shares. Through the pending-target queue for the same
+                // reason the branch below is: clicked while the launch frame is
+                // still up, a bare emit reaches no listener and opens nothing.
                 Some(row) => {
-                    app.emit(
-                        "app:open-sheet-row",
-                        serde_json::json!({
-                            "path": item.path,
-                            "column": item.prop,
-                            "row": row,
-                        }),
-                    )
-                    .ok();
+                    crate::commands::window::open_sheet_row(
+                        &app,
+                        crate::commands::window::SheetRow {
+                            path: item.path.clone(),
+                            column: item.prop.clone(),
+                            row: row.clone(),
+                        },
+                    );
                 }
                 None => {
-                    app.emit("app:open-note", item.path.clone()).ok();
+                    // through the pending-target queue, not a bare emit: a
+                    // notification clicked while the launch frame is still up
+                    // has no listener yet, and a due date that opens nothing
+                    // is the one outcome this feature rules out
+                    crate::commands::window::open_note(&app, item.path.clone());
                 }
             }
         }

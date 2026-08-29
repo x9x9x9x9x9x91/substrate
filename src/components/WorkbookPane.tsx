@@ -19,7 +19,6 @@ import { foldedPropStr, foldedTypeName } from "../lib/types";
 import {
   onHistoryLeave,
   vaultFmRaw,
-  vaultFmWrite,
   vaultRead,
   vaultResolve,
   vaultWriteBody,
@@ -28,6 +27,8 @@ import { parsePages, type PageEntry } from "../lib/pages";
 import { appendPage } from "../lib/pagesedit";
 import { embedQueryFor, type EmbedResult } from "../lib/embeds";
 import { errText } from "../lib/errtext";
+import { fmWriteUndoable } from "../lib/undofm";
+import { useUndo } from "../lib/undoContext";
 import { DashHead } from "./DashHead";
 import { DashAlert } from "./DashNotice";
 import { parseSheet } from "../lib/sheet";
@@ -657,6 +658,7 @@ function SubPages({
 export default function WorkbookPane(props: WorkbookProps & {
   renderDashboard: (meta: NoteMeta) => ReactNode;
 }) {
+  const undo = useUndo();
   const pages = useMemo(() => parsePages(props.meta.props), [props.meta.props]);
   /* The note list IS the delete/rename event as this pane sees one: a path
      that left it stopped naming the note whose text is held under it. Run
@@ -757,7 +759,16 @@ export default function WorkbookPane(props: WorkbookProps & {
       value: dbType ?? note!.title,
     });
     if ("error" in edit) throw new Error(edit.error);
-    await vaultFmWrite(props.meta.path, edit.fm);
+    // the block as it stood rides the undo: a note that had no frontmatter
+    // at all lands back on none, not on an empty block
+    await fmWriteUndoable({
+      path: props.meta.path,
+      fm: edit.fm,
+      before: fm,
+      label: `Add page “${label}”`,
+      record: undo.record,
+      onApplied: () => props.onMutated(),
+    });
     setAdding(false);
     jumpLast.current = true;
     props.onMutated();

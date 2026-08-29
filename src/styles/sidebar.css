@@ -127,6 +127,14 @@ button.side-item {
   font-variant-numeric: tabular-nums;
 }
 
+/* the row flex-centers this smaller box against the 13px label, which lands
+   the numeral's baseline 1px above the label's — nudge it back onto the
+   shared baseline. Shortcut hints and key chips keep the centered slot. */
+.side-count:not(.side-shortcut) {
+  position: relative;
+  top: 1px;
+}
+
 /* Quiet chip on a db-homed folder row — the row keeps the folder's
    on-disk name; this is the one hint that clicking opens the database view
    (the .head-kind idiom at row scale). Pinned to the row's right

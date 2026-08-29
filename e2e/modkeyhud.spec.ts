@@ -35,8 +35,8 @@ async function release(page: Page, keys: string[]) {
   for (const k of [...keys].reverse()) await page.keyboard.up(k);
 }
 
-/** the food board: a built-in that writes to its log sheet, so it owns a
-    board-undo stack for the HUD to advertise */
+/** the food board: a built-in that writes to its log sheet, so logging a meal
+    puts an action on the session stack for the HUD to advertise */
 async function openCalories(page: Page) {
   await page.locator(".side-item", { hasText: "Calories" }).first().click();
   await expect(page.locator(".dash-title")).toHaveText("Calories");
@@ -125,8 +125,15 @@ test("the worst case still fits: an open sheet (SUB-490)", async ({ page }) => {
 
 test("a board advertises only the history direction it can perform (SUB-726)", async ({ page }) => {
   await openCalories(page);
-  const undoRow = page.locator(".modkey-hud-row").filter({ hasText: "Undo board edit" });
-  const redoRow = page.locator(".modkey-hud-row").filter({ hasText: "Redo board edit" });
+  // The board's edits are entries on the app's own stack now, not a private
+  // pair of refs, so the rows it advertises are the app's undo and redo.
+  const undoRow = page.locator(".modkey-hud-row").filter({ hasText: "Undo last change" });
+  // exact on the label, not a substring of the row: "Redo" is a prefix of the
+  // board's own "Redo board edit", and a substring match would call the row
+  // this test says is gone present
+  const redoRow = page
+    .locator(".modkey-hud-row")
+    .filter({ has: page.locator(".modkey-hud-row-label", { hasText: /^Redo$/ }) });
 
   // Mount alone owns nothing: a fresh board has no action to advertise.
   await hold(page, ["Meta"]);
@@ -159,7 +166,7 @@ test("a board advertises only the history direction it can perform (SUB-726)", a
 });
 
 test("board history availability does not leak across dashboards (SUB-726)", async ({ page }) => {
-  const undoRow = page.locator(".modkey-hud-row").filter({ hasText: "Undo board edit" });
+  const undoRow = page.locator(".modkey-hud-row").filter({ hasText: "Undo last change" });
 
   await openCalories(page);
   await addMeal(page, "HUD meal", "250");

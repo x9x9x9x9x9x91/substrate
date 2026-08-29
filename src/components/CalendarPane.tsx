@@ -74,6 +74,7 @@ import {
   railWidthMax,
   readAgendaPrefs,
   writeAgendaPrefs,
+  type AgendaPlacement,
   type AgendaPrefs,
 } from "../lib/calagenda";
 import { formatDateHuman } from "../lib/dates";
@@ -210,6 +211,10 @@ interface CalendarPaneProps {
   /** The day menu's "Open daily note" — App's openJournal
       (get-or-create the day's note, ghost for non-today) */
   onOpenJournal: (date: string) => void;
+  /** `upcoming-dock` from Settings.md, read by App with the rest of them —
+      where the Upcoming panel docks is a setting, not an arrangement of this
+      window, so it arrives as a prop rather than out of the browser store */
+  upcomingDock: AgendaPlacement;
 }
 
 function CalendarPane({
@@ -222,6 +227,7 @@ function CalendarPane({
   onToast,
   onRenameNote,
   onOpenJournal,
+  upcomingDock,
 }: CalendarPaneProps) {
   const undo = useUndo();
   // the entry cards' subtitles carry formatted numbers — the dial
@@ -252,11 +258,13 @@ function CalendarPane({
       difference is how many columns `days` holds — so nothing below this line
       forks per layout, it reads the column set. */
   const onCanvas = layout !== "month";
-  /** Upcoming's placement, fold and size — stated preferences like the layout,
-      so they persist per window in localStorage rather than in the vault. The
-      settings sheet writes the same record while this pane is mounted behind
-      it, and a same-window write fires no `storage` event, so the write
-      announces itself and the pane listens. */
+  /** Upcoming's fold and size — how the panel is arranged on this display,
+      like the layout switcher, so they persist per window in localStorage
+      rather than in the vault. (Where it docks is the one part of the panel
+      that IS a setting: `upcomingDock`, read from Settings.md.) The header
+      latch and the drag handle both write this record, and a same-window
+      write fires no `storage` event, so the write announces itself and the
+      pane listens. */
   const [agenda, setAgenda] = useState<AgendaPrefs>(() => readAgendaPrefs());
   const agendaRef = useRef(agenda);
   useEffect(() => {
@@ -269,7 +277,6 @@ function CalendarPane({
       // our own writes come back through here — re-rendering on a record the
       // pane already holds is the one thing this must not do
       if (
-        next.placement === cur.placement &&
         next.folded === cur.folded &&
         next.height === cur.height &&
         next.width === cur.width
@@ -303,7 +310,7 @@ function CalendarPane({
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  const agendaPlacement = effectivePlacement(agenda, paneWidth);
+  const agendaPlacement = effectivePlacement(upcomingDock, paneWidth);
   const agendaRail = agendaPlacement === "right";
   /** how far ahead Upcoming looks — it follows the room the panel has, so a
       dragged-open panel stops running out of list halfway down. A folded

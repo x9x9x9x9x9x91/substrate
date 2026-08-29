@@ -46,6 +46,7 @@ import {
   SidebarIcon,
   SparkleIcon,
   SyncIcon,
+  UndoIcon,
   SunIcon,
   TrashIcon,
   XIcon,
@@ -192,6 +193,9 @@ interface SidebarProps {
   onOpenSettings: () => void;
   /** open the vault-wide history scrubber */
   onOpenTimeTravel: () => void;
+  /** open the session undo stack as a list, anchored on the button that
+      asked (docs/undo.md §6.5) */
+  onOpenUndoHistory: (x: number, y: number) => void;
   /** Already browsing the past — the clock's own call
       (history_snapshot) is a write and the guard rejects it, so the button
       goes quiet instead of erroring. */
@@ -268,6 +272,7 @@ function Sidebar({
   keyAssign,
   onOpenSettings,
   onOpenTimeTravel,
+  onOpenUndoHistory,
   viewingPast = false,
 }: SidebarProps) {
   const key = viewKey(view);
@@ -1482,6 +1487,22 @@ function Sidebar({
                     onClick={() => setView({ kind: "cookbook" })}
                   >
                     <CookbookIcon />
+                  </button>
+                  {/* The session's own past, next door to the vault's — what
+                      ⌘Z still has ahead of it, and which of those actions it
+                      will walk past because the file moved underneath them.
+                      Reading, not acting: only the top row runs. */}
+                  <button
+                    type="button"
+                    className="side-tool-btn"
+                    {...tooltip("Undo history", { label: false })}
+                    aria-label="Undo history"
+                    onClick={(e) => {
+                      const r = e.currentTarget.getBoundingClientRect();
+                      onOpenUndoHistory(r.left, r.bottom + 4);
+                    }}
+                  >
+                    <UndoIcon />
                   </button>
                   <button
                     type="button"

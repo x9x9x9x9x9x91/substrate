@@ -41,13 +41,19 @@ export function forgetFreshnessFailures(): void {
 /** Fill a table's freshness columns, cached answers now and mined ones as they
  * land.
  *
- * The table may still be DETACHED when this runs — the widget builds its whole
- * node before CodeMirror inserts it — so "is this answer still wanted?" is
- * asked as "is this table still the one hanging off its wrapper?", never as
- * "is it in the document?". A repaint removes the old table from the wrapper,
- * which is exactly what makes the parent test the accurate one; testing
- * `isConnected` instead loses the whole warm-cache paint, and a fully cached
- * table then has no ages at all until something else happens to repaint it.
+ * The table is still DETACHED when this runs — the widget builds its whole
+ * node before CodeMirror inserts it — so the cached answers are painted
+ * unconditionally: they are for the table just handed over, and there is
+ * nothing yet for them to be stale about.
+ *
+ * The MINED answers land later, and by then "is this answer still wanted?" is
+ * `isConnected`: a column region is torn down wholesale, wrapper and all, and
+ * a table inside a detached wrapper still has a parent — so a `parentNode`
+ * test alone leaves the dead walk running and a remount stacks a second one
+ * on the same cells. For the one microtask the widget spends being
+ * built there is nothing to conclude from being off the page, and there the
+ * older question still holds: a repaint swaps the table out of the wrapper it
+ * was built in, and an answer for that one has nowhere to land.
  *
  * `ask` is the history call. Chunked through `askFreshness`, so a fence over a
  * big database releases the history lock between chunks rather than holding it
@@ -64,11 +70,22 @@ export function fillAges(
   );
   if (stamps.length === 0) return;
   const schema = result.typeSchema;
-  // still ours as long as the wrapper still holds it; a repaint detaches the
-  // table it replaced, and an answer for that one has nowhere to land
-  const live = () => table.parentNode !== null;
-  const paint = (found: FactFreshness[]) => {
-    if (!live()) return;
+  // Still ours as long as it is on the page: a repaint or a torn-down region
+  // takes the table it replaced with it, and an answer for that one has
+  // nowhere to land. Before the first insertion there is nothing to conclude
+  // from being off the page — the widget is still building — so the test only
+  // starts biting once this table HAS been on it.
+  // The insertion happens in the same update that built this node, so one
+  // microtask later "off the page" is an answer rather than a race. Inside
+  // that window the older question is the accurate one: a repaint swaps the
+  // table out of the wrapper it was built in.
+  let building = true;
+  queueMicrotask(() => {
+    building = false;
+  });
+  const live = () => table.isConnected || (building && table.parentNode !== null);
+  const paint = (found: FactFreshness[], warm = false) => {
+    if (!warm && !live()) return;
     // one clock per painted batch: cells that landed together should not
     // disagree about what "today" is
     const now = Date.now();
@@ -86,7 +103,7 @@ export function fillAges(
     }
   };
   const { hits, misses } = freshCache.plan(stamps);
-  paint(hits);
+  paint(hits, true);
   if (misses.length === 0) return;
   const signature = misses.map((s) => `${s.path}\0${s.key}\0${s.updated_ms}`).join("\n");
   if (failed.has(signature)) return;

@@ -20,8 +20,9 @@ test("right-click on the table header opens the property checklist; toggles pers
   // full union: Name + 10 data columns + the add-property cell
   await expect(page.locator(".db-table thead th")).toHaveCount(12);
 
-  // right-click the header row → the checklist, every prop checked
-  await page.locator(".db-table thead").click({ button: "right" });
+  // right-click the Name header → the checklist, every prop checked
+  // (a property header owns its right-click now — the column menu)
+  await page.locator(".db-table thead th").first().click({ button: "right" });
   const menu = page.locator(".propvis");
   await expect(menu).toBeVisible();
   await expect(menu.locator(".propvis-item")).toHaveCount(10);
@@ -43,10 +44,24 @@ test("right-click on the table header opens the property checklist; toggles pers
   await expect(page.locator(".db-table thead th", { hasText: "artist" })).toHaveCount(0);
 
   // "Show all" restores the union in one click
-  await page.locator(".db-table thead").click({ button: "right" });
+  await page.locator(".db-table thead th").first().click({ button: "right" });
   await expect(menu.locator(".propvis-showall")).toBeVisible();
   await menu.locator(".propvis-showall").click();
   await expect(page.locator(".db-table thead th")).toHaveCount(12);
+});
+
+test("right-click on a property header opens that column's action menu", async ({ page }) => {
+  await page.goto("/");
+  await openRelease(page);
+
+  // same menu as the caret, anchored at the pointer
+  await page.locator(".db-table thead th", { hasText: "status" }).click({ button: "right" });
+  const menu = page.locator(".colmenu");
+  await expect(menu).toBeVisible();
+  await expect(menu.locator(".dots-item", { hasText: "Wrap text" })).toBeVisible();
+  await expect(page.locator(".propvis")).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(menu).toHaveCount(0);
 });
 
 test("the column caret menu hides a property; the checklist brings it back", async ({ page }) => {
@@ -60,7 +75,7 @@ test("the column caret menu hides a property; the checklist brings it back", asy
   await expect(page.locator(".db-table thead th", { hasText: "status" })).toHaveCount(0);
 
   // re-check it in the checklist
-  await page.locator(".db-table thead").click({ button: "right" });
+  await page.locator(".db-table thead th").first().click({ button: "right" });
   const menu = page.locator(".propvis");
   await expect(menu.locator(".propvis-item", { hasText: "status" }).locator(".prop-check.on")).toHaveCount(0);
   await menu.locator(".propvis-item", { hasText: "status" }).click();
@@ -74,7 +89,7 @@ test("column visibility is per-layout: the table and the list curate independent
   await openRelease(page);
 
   // hide cat# in the TABLE
-  await page.locator(".db-table thead").click({ button: "right" });
+  await page.locator(".db-table thead th").first().click({ button: "right" });
   const menu = page.locator(".propvis");
   await menu.locator(".propvis-item", { hasText: "cat#" }).click();
   await expect(page.locator(".db-table thead th", { hasText: "cat#" })).toHaveCount(0);

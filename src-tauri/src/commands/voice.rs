@@ -50,10 +50,17 @@ pub(crate) async fn voice_start(app: tauri::AppHandle) -> Result<String, String>
 }
 
 /// Stop recording and file the result as a `type: voice` note.
+///
+/// `async` + `blocking` for the reason `voice_start` is: the body blocks. It
+/// joins the recorder, waits for the launch index and then takes the engine
+/// lock, and a synchronous command body runs on the main thread — so a chord
+/// pressed during the launch scan would freeze every window for the length of
+/// it. The capture window is created hidden at startup, which is exactly when
+/// that is reachable.
 #[tauri::command]
-pub(crate) fn voice_stop(app: tauri::AppHandle) -> Result<NoteMeta, String> {
+pub(crate) async fn voice_stop(app: tauri::AppHandle) -> Result<NoteMeta, String> {
     #[cfg(target_os = "macos")]
-    return stop_and_file(&app);
+    return crate::blocking(move || stop_and_file(&app)).await?;
     #[cfg(not(target_os = "macos"))]
     {
         let _ = app;
@@ -73,6 +80,12 @@ pub(crate) fn stop_and_file(app: &tauri::AppHandle) -> Result<NoteMeta, String> 
     let finished = crate::voice::stop(app)?;
     let captured = crate::voice::captured_of(&finished.wav);
     app.state::<SnapDirty>().mark();
+    // The launch barrier, waited on rather than raced: the engine lock alone
+    // is not one — the boot thread is spawned, so a caller can win the lock
+    // before the scan has taken it and file into a vault with no index. Safe
+    // to block here because both callers are already off the main thread: the
+    // command's `blocking`, and the hotkey's own thread.
+    app.state::<crate::VaultReady>().wait_ready();
     let meta = {
         let state: State<AppState> = app.state();
         let mut engine = state.0.lock().unwrap();

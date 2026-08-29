@@ -30,17 +30,67 @@ const lastOwn = new Map<string, number>();
 /** when we last ran a write whose paths we could not enumerate */
 let lastUnnamed = 0;
 
+/* The same knowledge, kept for the note list rather than for undo: which
+   paths this app has written since the list last caught up. The list is
+   refilled after every mutation, and refilling it meant re-fetching every
+   note in the vault to learn about the one that changed. Draining this
+   instead names exactly what to re-fetch. It is a ledger, not a window:
+   entries wait here until somebody catches up on them, however long that
+   takes, because a path dropped on a timer would be a row left stale. */
+const unsynced = new Set<string>();
+/** a write with unnameable reach is pending — the list must be re-fetched
+    whole, the same conservative answer `unknown` gives on the event side */
+let unsyncedUnnamed = false;
+
+/** Everything written since the last drain. `unnamed` is the write whose
+    reach nobody could name, and the caller re-lists on it; an empty `paths`
+    with `unnamed` false is simply a refresh with no write behind it (mount,
+    a rescan, the user asking), which re-lists too. */
+export function takeUnsyncedWrites(): { paths: string[]; unnamed: boolean } {
+  const out = { paths: [...unsynced], unnamed: unsyncedUnnamed };
+  unsynced.clear();
+  unsyncedUnnamed = false;
+  return out;
+}
+
+/** Put a drained batch back. Draining means "the list is about to catch up on
+    these", and a refresh that fetched nothing — its patch rejected AND the
+    whole-list fallback behind it rejected — never did. Without this the paths
+    are gone and their rows stay stale until something unrelated re-lists. */
+export function requeueUnsyncedWrites(paths: string[], unnamed: boolean): void {
+  for (const path of paths) unsynced.add(path);
+  if (unnamed) unsyncedUnnamed = true;
+}
+
+/** File a write in the list's ledger only, without claiming its echo.
+    Commands whose writes the OS watcher attributes to us go through
+    `noteOwnWrite`; this is for the ones that change the index some other way
+    — installing a recipe, mounting or unmounting a folder, a sync checkout.
+    The list still has to hear about them, or the next refresh patches a
+    ledger that never covered them and the new notes are simply missing. */
+export function noteIndexWrite(paths: string[] | null): void {
+  if (paths === null) {
+    unsyncedUnnamed = true;
+    return;
+  }
+  for (const path of paths) unsynced.add(path);
+}
+
 /** Record a write this app just made. `paths` null = "we wrote, but can't say
     where" — a folder rename, a trash restore of a folder, a rescan. */
 export function noteOwnWrite(paths: string[] | null, now: number = Date.now()): void {
   if (paths === null) {
     lastUnnamed = now;
+    unsyncedUnnamed = true;
     return;
   }
   for (const [path, at] of lastOwn) {
     if (now - at >= ECHO_WINDOW_MS) lastOwn.delete(path);
   }
-  for (const path of paths) lastOwn.set(path, now);
+  for (const path of paths) {
+    lastOwn.set(path, now);
+    unsynced.add(path);
+  }
 }
 
 export type EchoSplit = {
@@ -88,4 +138,6 @@ export function splitEcho(paths: string[] | null, now: number = Date.now()): Ech
 export function __resetOwnWrites(): void {
   lastOwn.clear();
   lastUnnamed = 0;
+  unsynced.clear();
+  unsyncedUnnamed = false;
 }

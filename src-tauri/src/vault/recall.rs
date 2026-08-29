@@ -609,8 +609,10 @@ fn bump_commits(conn: &Connection, by: i64) -> Result<(), String> {
 }
 
 fn wipe(conn: &Connection) -> Result<(), String> {
-    conn.execute_batch("DELETE FROM meta; DELETE FROM blob; DELETE FROM blob_fts; DELETE FROM span;")
-        .map_err(|e| e.to_string())
+    conn.execute_batch(
+        "DELETE FROM meta; DELETE FROM blob; DELETE FROM blob_fts; DELETE FROM span;",
+    )
+    .map_err(|e| e.to_string())
 }
 
 fn db_bytes(path: &Path) -> u64 {
@@ -1029,7 +1031,11 @@ mod tests {
         // of magnitude, not merely faster
         let again = std::time::Instant::now();
         let second = f.index();
-        println!("second index: {:.3}s, {} new versions", again.elapsed().as_secs_f64(), second.versions - stats.versions);
+        println!(
+            "second index: {:.3}s, {} new versions",
+            again.elapsed().as_secs_f64(),
+            second.versions - stats.versions
+        );
         assert!(
             again.elapsed() * 5 < elapsed,
             "incremental run was not decisively cheaper: {:?} vs {:?}",

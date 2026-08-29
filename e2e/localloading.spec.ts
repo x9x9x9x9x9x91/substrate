@@ -15,7 +15,7 @@ import { expect, test, type Page } from "./fixtures";
 async function openHistory(page: Page) {
   await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
-  await page.getByRole("button", { name: "History" }).click();
+  await page.getByRole("button", { name: "History", exact: true }).click();
   await expect(page.locator(".hist")).toBeVisible();
 }
 

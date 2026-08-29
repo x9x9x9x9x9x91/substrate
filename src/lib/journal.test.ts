@@ -75,3 +75,18 @@ test("journalOrder puts today before yesterday", () => {
     [today, yesterday]
   );
 });
+
+test("journalOrder settles equal mtimes by path, like every other list", () => {
+  // a vault restored from a clone has one mtime across the whole tree; without
+  // the tiebreak the strays come back in whatever order the index handed them
+  const strays = ["Journal/zeta.md", "Journal/alpha.md", "Journal/mid.md"];
+  const forward = journalOrder(strays.map((p) => meta(p, 777))).map((n) => n.path);
+  const reversed = journalOrder(
+    strays
+      .slice()
+      .reverse()
+      .map((p) => meta(p, 777))
+  ).map((n) => n.path);
+  assert.deepEqual(forward, ["Journal/alpha.md", "Journal/mid.md", "Journal/zeta.md"]);
+  assert.deepEqual(reversed, forward, "the same notes, the same order, whichever way they arrived");
+});

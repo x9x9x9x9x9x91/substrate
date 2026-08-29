@@ -17,7 +17,7 @@
  *  Read-only, by construction: nothing here opens a file for writing.
  */
 
-import { statSync } from "node:fs";
+import { realpathSync, statSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { readVault, type VaultRead } from "./vaultread.ts";
 import { evaluateSavedView, type EvaluatedView } from "../../src/lib/vieweval.ts";
@@ -28,7 +28,10 @@ import {
 } from "../../src/lib/numberLocale.ts";
 import { todayIso } from "../../src/lib/dates.ts";
 import { byFoldedKey, typeSchemaFor } from "../../src/lib/schemalookup.ts";
-import type { SavedView } from "../../src/lib/types.ts";
+import { pickView, UsageError } from "./pickview.ts";
+
+// re-exported so a caller of this verb keeps reaching them where they were
+export { pickView, UsageError };
 
 export interface CliOptions {
   name: string | null;
@@ -40,7 +43,6 @@ export interface CliOptions {
   help: boolean;
 }
 
-export class UsageError extends Error {}
 /** No vault to read: none named, or the named path is not a folder. Its own
     error because the CLI door already draws that line — a script can tell "I
     asked wrong" from "there is no vault here" without parsing prose, and
@@ -102,27 +104,6 @@ export const USAGE = `substrate view — read a saved table view headless
 
 Exit codes follow the CLI door: 0 answered, 1 asked wrong, 3 no vault there.
 `;
-
-/** The pin a name stands for. Names are matched case-insensitively, the way
-    the app matches them when saving over an existing pin; a name carried by
-    two databases is an error rather than a guess, and `--db` settles it. */
-export function pickView(views: SavedView[], name: string, db: string | null): SavedView {
-  const wanted = name.trim().toLowerCase();
-  const byId = views.filter((v) => v.id === name);
-  const hits = byId.length > 0 ? byId : views.filter((v) => v.name.trim().toLowerCase() === wanted);
-  const scoped = db === null ? hits : hits.filter((v) => v.db.toLowerCase() === db.toLowerCase());
-  if (scoped.length === 0) {
-    const known = views.map((v) => `  ${v.name}  (${v.db})`).join("\n");
-    throw new UsageError(
-      known === "" ? `no saved view named ${name} — this vault has none` : `no saved view named ${name}. This vault has:\n${known}`
-    );
-  }
-  if (scoped.length > 1) {
-    const dbs = scoped.map((v) => v.db).join(", ");
-    throw new UsageError(`${name} names a view in more than one database (${dbs}) — pass --db`);
-  }
-  return scoped[0];
-}
 
 /** What the reader itself contributed, stated next to the payload rather
     than folded into it: which vault was read, which day the relative date
@@ -240,13 +221,25 @@ export function run(argv: string[], env: NodeJS.ProcessEnv): string {
   return `${JSON.stringify({ ...evaluated, reader: envelope }, null, 2)}\n`;
 }
 
-// `file://${path}` leaves a space (or any other character a URL escapes) raw,
-// so a vault checkout under `~/My Notes/` never matched its own module URL and
-// the CLI printed nothing at all. `pathToFileURL` encodes it the same way the
-// loader did.
-const invokedDirectly =
-  process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
-if (invokedDirectly) {
+/** Run, as opposed to imported by a test.
+ *
+ *  `pathToFileURL` because `file://${path}` leaves a space (or any other
+ *  character a URL escapes) raw, so a vault checkout under `~/My Notes/`
+ *  never matched its own module URL and the CLI printed nothing at all.
+ *  `realpathSync` because a launcher hands over the path it was given while
+ *  `import.meta.url` is the resolved one — invoked through a symlink (macOS
+ *  `/tmp` is one) the two differ, and the verb exits 0 having printed
+ *  nothing. */
+function invokedDirectly(): boolean {
+  const argv = process.argv[1];
+  if (argv === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(argv)).href;
+  } catch {
+    return false;
+  }
+}
+if (invokedDirectly()) {
   try {
     process.stdout.write(run(process.argv.slice(2), process.env));
   } catch (error) {

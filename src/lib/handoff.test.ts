@@ -99,7 +99,13 @@ test("the document sheet paints its accent as a literal at a paper weight", () =
   // this sheet would resolve to nothing; and the page is white, so the screen
   // family's light weights would be the wrong end of the family
   const sheet = docCss();
-  assert.ok(!sheet.includes("var(--"), "the standalone sheet leans on an app token");
+  // `--columns` is the exception that proves the rule: the document's own
+  // markup sets it inline on every column row, so it resolves in a browser
+  // that has never seen the app. Every OTHER var() would resolve to nothing.
+  assert.ok(
+    !sheet.replace(/var\(--columns, 1\)/g, "").includes("var(--"),
+    "the standalone sheet leans on an app token"
+  );
   assert.match(sheet, /a \{ color: #14597a; \}/);
   assert.match(sheet, /\.print-link \{ color: #14597a; \}/);
   assert.match(sheet, /\.print-task\.done \.print-box \{ background: #14597a;/);

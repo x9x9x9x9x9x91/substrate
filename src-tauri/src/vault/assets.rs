@@ -88,7 +88,12 @@ impl Engine {
     /// under a claimed `.assets/` name. Same claim-don't-overwrite rule as a
     /// pasted file — an embed that already points somewhere keeps pointing
     /// there.
-    pub fn save_asset_bytes(&self, name: &str, bytes: Vec<u8>, default_ext: &str) -> Result<String, String> {
+    pub fn save_asset_bytes(
+        &self,
+        name: &str,
+        bytes: Vec<u8>,
+        default_ext: &str,
+    ) -> Result<String, String> {
         let (path, filename) = self.claim_asset_name(name, default_ext)?;
         write_atomic(&path, bytes)?;
         Ok(filename)

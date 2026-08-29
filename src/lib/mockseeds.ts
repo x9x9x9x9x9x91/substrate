@@ -55,8 +55,45 @@ export const day = (offset: number) => {
 /* Mock `.assets/`: name → base64 payload. `blueprint-sketch.png` is embedded in
    Static Bouquet (GC must leave it alone); `stale-screenshot.png` and
    `old-bounce.wav` are orphaned on purpose so the Assets pane has both an image
-   and a non-image row to find in the browser. `some.pdf` backs the file-chip
-   lane — chips never decode the payload, so a stub suffices. */
+   and a non-image row to find in the browser. `some.docx` backs the file-chip
+   lane — chips never decode the payload, so a stub suffices; `some.pdf` carries
+   real bytes because the PDF viewer does decode. */
+/* A real, if tiny, two-page PDF — uncompressed, one Helvetica line per page.
+   The inline PDF viewer parses whatever it is handed, so unlike the audio and
+   image lanes there is nothing to synthesize: the browser gate needs actual
+   PDF bytes or it cannot exercise rendering or paging at all. Written out by
+   hand rather than checked in as a binary so the fixture stays readable and
+   the seed file stays the one place the mock vault is described. */
+export const MOCK_PDF =
+  "JVBERi0xLjQKMSAwIG9iago8PCAvVHlwZSAvQ2F0YWxvZyAvUGFnZXMgMiAwIFIgPj4KZW5kb2JqCjIgMCBvYmoKPDwg" +
+  "L1R5cGUgL1BhZ2VzIC9LaWRzIFszIDAgUiA1IDAgUl0gL0NvdW50IDIgPj4KZW5kb2JqCjMgMCBvYmoKPDwgL1R5cGUg" +
+  "L1BhZ2UgL1BhcmVudCAyIDAgUiAvTWVkaWFCb3ggWzAgMCA2MTIgNzkyXSAvUmVzb3VyY2VzIDw8IC9Gb250IDw8IC9G" +
+  "MSA0IDAgUiA+PiA+PiAvQ29udGVudHMgNiAwIFIgPj4KZW5kb2JqCjQgMCBvYmoKPDwgL1R5cGUgL0ZvbnQgL1N1YnR5" +
+  "cGUgL1R5cGUxIC9CYXNlRm9udCAvSGVsdmV0aWNhID4+CmVuZG9iago1IDAgb2JqCjw8IC9UeXBlIC9QYWdlIC9QYXJl" +
+  "bnQgMiAwIFIgL01lZGlhQm94IFswIDAgNjEyIDc5Ml0gL1Jlc291cmNlcyA8PCAvRm9udCA8PCAvRjEgNCAwIFIgPj4g" +
+  "Pj4gL0NvbnRlbnRzIDcgMCBSID4+CmVuZG9iago2IDAgb2JqCjw8IC9MZW5ndGggNzcgPj4Kc3RyZWFtCkJUIC9GMSAy" +
+  "NCBUZiA3MiA3MDAgVGQgKFN1YnN0cmF0ZSBtb2NrIGRvY3VtZW50KSBUaiAwIC0zMiBUZCAocGFnZSBvbmUpIFRqIEVU" +
+  "CmVuZHN0cmVhbQplbmRvYmoKNyAwIG9iago8PCAvTGVuZ3RoIDM5ID4+CnN0cmVhbQpCVCAvRjEgMjQgVGYgNzIgNzAw" +
+  "IFRkIChwYWdlIHR3bykgVGogRVQKZW5kc3RyZWFtCmVuZG9iagp4cmVmCjAgOAowMDAwMDAwMDAwIDY1NTM1IGYgCjAw" +
+  "MDAwMDAwMDkgMDAwMDAgbiAKMDAwMDAwMDA1OCAwMDAwMCBuIAowMDAwMDAwMTIxIDAwMDAwIG4gCjAwMDAwMDAyNDcg" +
+  "MDAwMDAgbiAKMDAwMDAwMDMxNyAwMDAwMCBuIAowMDAwMDAwNDQzIDAwMDAwIG4gCjAwMDAwMDA1NzAgMDAwMDAgbiAK" +
+  "dHJhaWxlcgo8PCAvU2l6ZSA4IC9Sb290IDEgMCBSID4+CnN0YXJ0eHJlZgo2NTkKJSVFT0YK";
+
+/* The same document one page shorter — what a reader gets when they replace a
+   file with a revision that lost a page. The viewer remembers the page it was
+   left on across a re-import, so the browser gate needs a real second version
+   to prove that memory lands somewhere that exists. */
+export const MOCK_PDF_SHORT =
+  "JVBERi0xLjQKMSAwIG9iago8PCAvVHlwZSAvQ2F0YWxvZyAvUGFnZXMgMiAwIFIgPj4KZW5kb2JqCjIgMCBvYmoKPDwg" +
+  "L1R5cGUgL1BhZ2VzIC9LaWRzIFszIDAgUl0gL0NvdW50IDEgPj4KZW5kb2JqCjMgMCBvYmoKPDwgL1R5cGUgL1BhZ2Ug" +
+  "L1BhcmVudCAyIDAgUiAvTWVkaWFCb3ggWzAgMCA2MTIgNzkyXSAvUmVzb3VyY2VzIDw8IC9Gb250IDw8IC9GMSA0IDAg" +
+  "UiA+PiA+PiAvQ29udGVudHMgNSAwIFIgPj4KZW5kb2JqCjQgMCBvYmoKPDwgL1R5cGUgL0ZvbnQgL1N1YnR5cGUgL1R5" +
+  "cGUxIC9CYXNlRm9udCAvSGVsdmV0aWNhID4+CmVuZG9iago1IDAgb2JqCjw8IC9MZW5ndGggNTIgPj4Kc3RyZWFtCkJU" +
+  "IC9GMSAyNCBUZiA3MiA3MDAgVGQgKHRoZSBzaG9ydGVyIGRvY3VtZW50KSBUaiBFVAplbmRzdHJlYW0KZW5kb2JqCnhy" +
+  "ZWYKMCA2CjAwMDAwMDAwMDAgNjU1MzUgZiAKMDAwMDAwMDAwOSAwMDAwMCBuIAowMDAwMDAwMDU4IDAwMDAwIG4gCjAw" +
+  "MDAwMDAxMTUgMDAwMDAgbiAKMDAwMDAwMDI0MSAwMDAwMCBuIAowMDAwMDAwMzExIDAwMDAwIG4gCnRyYWlsZXIKPDwg" +
+  "L1NpemUgNiAvUm9vdCAxIDAgUiA+PgpzdGFydHhyZWYKNDEyCiUlRU9GCg==";
+
 export const PIXEL_PNG =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 /* Two recipes, in the shape of the real `cookbook/index.json` —
@@ -95,7 +132,17 @@ export const mockAssets = new Map<string, string>([
   ["blueprint-sketch.png", PIXEL_PNG],
   ["stale-screenshot.png", PIXEL_PNG],
   ["old-bounce.wav", ""],
-  ["some.pdf", "JVBERi0xLjQKbW9jayBwZGYgZm9yIGUyZQo="],
+  ["some.pdf", MOCK_PDF],
+  ["some.docx", ""],
+  /* Five more documents so the browser gate can put more PDFs on one note than
+     the viewer's parsed-document cache holds — the shape where a cache that
+     evicts badly starts calling healthy files unreadable. Same bytes, five
+     names: each resolves to its own path, so each is its own cache entry. */
+  ["batch-1.pdf", MOCK_PDF],
+  ["batch-2.pdf", MOCK_PDF],
+  ["batch-3.pdf", MOCK_PDF],
+  ["batch-4.pdf", MOCK_PDF],
+  ["batch-5.pdf", MOCK_PDF],
   // routing stand-in for the wide image set (heic renders inline, not as a
   // chip) — payload is a png pixel; e2e asserts the widget, not the decode
   ["IMG_0231.heic", PIXEL_PNG],

@@ -6,6 +6,7 @@ import {
   FOCUS_PROP,
   isFocused,
   TODAY_PROP,
+  suggestOpenTasks,
   todayData,
   type LeftoverItem,
   type PickedItem,
@@ -64,13 +65,78 @@ function EntryIcon({ type, icons }: { type: string; icons: Record<string, DbIcon
     the pick already on it (the same `today` prop the verb writes), and the
     fresh row lands in the Picked lane with everything else. It sits OUTSIDE
     the listbox on purpose: this is a text field, and the rows' bare letter
-    keys would eat what is typed into it. */
-function QuickAdd({ onAdd }: { onAdd: (title: string) => Promise<void> }) {
+    keys would eat what is typed into it.
+
+    Typing also LOOKS for the thought rather than only capturing it: most
+    mornings "I need to do X" is work the vault already holds, and re-typing
+    it minted a second note saying the same thing. Matching open tasks drop
+    under the line, and choosing one picks that note — the pane's one verb,
+    not a create. Nothing matched draws nothing at all: a capture line that
+    flashes an empty box at every keystroke is worse than one that stays
+    quiet. */
+function QuickAdd({
+  notes,
+  today,
+  onAdd,
+  onPick,
+}: {
+  notes: NoteMeta[];
+  today: string;
+  onAdd: (title: string) => Promise<void>;
+  /** resolves true when the pick actually landed on the note */
+  onPick: (path: string) => Promise<boolean>;
+}) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+  /** the highlighted suggestion, -1 = none — plain text commits from there */
+  const [sel, setSel] = useState(-1);
+  /** Escape (or leaving the line) closes the list without clearing the text:
+      a reader who means the new thought should not lose it to the dismissal. */
+  const [closed, setClosed] = useState(false);
+  const listId = useId();
   const title = text.trim();
+  const hits = useMemo(
+    () => (closed ? [] : suggestOpenTasks(notes, text, today)),
+    [closed, notes, text, today]
+  );
+  const open = hits.length > 0;
+  const active = sel >= 0 && sel < hits.length ? hits[sel] : null;
+
+  const retype = (value: string) => {
+    setText(value);
+    // every keystroke re-opens the list and drops the old highlight: the
+    // suggestion under index 2 a moment ago is a different task now
+    setClosed(false);
+    setSel(-1);
+  };
+
+  const choose = (path: string) => {
+    if (busy) return;
+    setBusy(true);
+    /* The typed text survives a refused pick exactly as it survives a refused
+       create: a sealed or unwritable note toasts why and leaves the line as it
+       was, so the thought is still there to commit some other way. Only a
+       landed write clears it. */
+    onPick(path).then(
+      (ok) => {
+        setBusy(false);
+        if (!ok) return;
+        setText("");
+        setSel(-1);
+        setClosed(false);
+      },
+      () => setBusy(false)
+    );
+  };
+
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
+    // a highlighted suggestion is the answer to Enter: pick the note that
+    // already exists rather than minting a second one with the same title
+    if (active) {
+      choose(active.path);
+      return;
+    }
     if (!title || busy) return;
     setBusy(true);
     /* The typed text survives a refusal: an unwritable Inbox or a title the
@@ -79,6 +145,7 @@ function QuickAdd({ onAdd }: { onAdd: (title: string) => Promise<void> }) {
     onAdd(title).then(
       () => {
         setText("");
+        setSel(-1);
         setBusy(false);
       },
       () => setBusy(false)
@@ -91,19 +158,93 @@ function QuickAdd({ onAdd }: { onAdd: (title: string) => Promise<void> }) {
         value={text}
         placeholder="Add to today…"
         aria-label="Add to today"
-        onChange={(e) => setText(e.target.value)}
+        role="combobox"
+        aria-expanded={open}
+        aria-controls={listId}
+        aria-autocomplete="list"
+        aria-activedescendant={active ? `${listId}-o${sel}` : undefined}
+        autoComplete="off"
+        onChange={(e) => retype(e.target.value)}
+        // leaving the line puts the panel away; coming back to a line that
+        // still holds text brings the offer back with it
+        onBlur={() => setClosed(true)}
+        // …but not with the old highlight: a selection left behind at blur
+        // would silently re-arm Pick on a line the reader came back to type
+        // into, and Enter would commit a note they never chose
+        onFocus={() => {
+          setClosed(false);
+          setSel(-1);
+        }}
         onKeyDown={(e) => {
-          // Esc drops a half-typed thought rather than leaving it parked in
-          // the line; kept off the surface's own Esc while there is text
-          if (e.key === "Escape" && text) {
+          // an IME candidate window owns the arrows and Escape while it is up:
+          // stealing them mid-composition walks the suggestion list instead of
+          // the candidates, and kills the half-composed word
+          if (e.nativeEvent.isComposing) return;
+          if (open && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+            // the walk starts above the first row and wraps through a "no
+            // selection" stop, so arrowing back out of the list returns the
+            // line to plain text rather than trapping the commit in it
+            e.preventDefault();
             e.stopPropagation();
-            setText("");
+            const step = e.key === "ArrowDown" ? 1 : -1;
+            const stops = hits.length + 1;
+            setSel(((sel + 1 + step + stops) % stops) - 1);
+            return;
+          }
+          if (e.key === "Escape") {
+            // Esc drops the suggestions first, then a half-typed thought —
+            // dismissing the list is the smaller of the two undos, and the
+            // pane's own Esc stays out of it while either has work to do
+            if (open) {
+              e.stopPropagation();
+              setClosed(true);
+              setSel(-1);
+            } else if (text) {
+              e.stopPropagation();
+              setText("");
+            }
           }
         }}
       />
-      <button type="submit" className="today-add-act" disabled={!title || busy}>
-        Add
+      <button
+        type="submit"
+        className="today-add-act"
+        // the press must not blur the line first: blur closes the list, and a
+        // list closed before the click has taken the highlight with it — the
+        // button would then create the note the highlight said to pick
+        onMouseDown={(e) => e.preventDefault()}
+        disabled={(!title && !active) || busy}
+      >
+        {active ? "Pick" : "Add"}
       </button>
+      {open && (
+        <div
+          className="today-suggest"
+          id={listId}
+          role="listbox"
+          aria-label="Matching open tasks"
+        >
+          {hits.map((n, i) => (
+            <div
+              key={n.path}
+              id={`${listId}-o${i}`}
+              role="option"
+              aria-selected={i === sel}
+              className={`today-suggest-row${i === sel ? " selected" : ""}`}
+              // mousemove, not mouseenter — a re-scan can slide a row under a
+              // resting cursor, as it can in the lanes below
+              onMouseMove={() => setSel(i)}
+              // the press must not blur the line: blur closes the list, and a
+              // list closed before the click has nothing left to click
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => choose(n.path)}
+            >
+              <span className="today-suggest-title">{n.title}</span>
+              <span className="today-suggest-verb">Pick</span>
+            </div>
+          ))}
+        </div>
+      )}
     </form>
   );
 }
@@ -404,14 +545,19 @@ export default function TodayPane({
   // the one verb, both directions — the write mirrors CalendarPane's
   // reschedule: the pane owns its mutation, failures land on App's toast and
   // re-sync so nothing implies the write landed
-  const writeToday = (path: string, day: string | null) => {
+  // …and it says whether the write landed, so a caller holding text the write
+  // was meant to consume (the capture line) can keep it on a refusal
+  const writeToday = (path: string, day: string | null): Promise<boolean> =>
     setPropUndoable({ path, key: TODAY_PROP, value: day, record: undo.record })
-      .then(onMutated)
+      .then(() => {
+        onMutated();
+        return true;
+      })
       .catch((err) => {
         onToast?.(`couldn’t save — ${errText(err)}`);
         onMutated();
+        return false;
       });
-  };
   const pick = (path: string) => writeToday(path, iso);
   const unpick = (path: string) => writeToday(path, null);
 
@@ -709,7 +855,7 @@ export default function TodayPane({
             </button>
           </div>
 
-          <QuickAdd onAdd={quickAdd} />
+          <QuickAdd notes={notes} today={iso} onAdd={quickAdd} onPick={pick} />
 
           {emptyDay && (
             <EmptyState className="today-empty" icon={<HeroToday />} title="Nothing on today" />

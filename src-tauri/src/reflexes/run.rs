@@ -97,7 +97,7 @@ pub trait EngineAccess {
     fn with<T>(&self, f: impl FnOnce(&mut Engine) -> T) -> Result<T, String>;
 }
 
-impl EngineAccess for std::sync::Mutex<Engine> {
+impl EngineAccess for crate::vault::EngineLock {
     fn with<T>(&self, f: impl FnOnce(&mut Engine) -> T) -> Result<T, String> {
         match self.lock() {
             Ok(mut e) => Ok(f(&mut e)),
@@ -947,7 +947,7 @@ mod tests {
     }
 
     struct Vault {
-        access: Mutex<Engine>,
+        access: crate::vault::EngineLock,
         root: PathBuf,
         rt: Runtime,
         notes: Captured,
@@ -957,7 +957,12 @@ mod tests {
         let (engine, root) = temp_vault(name);
         let mut rt = Runtime::default();
         rt.set_now(1_000_000);
-        Vault { access: Mutex::new(engine), root, rt, notes: Captured::default() }
+        Vault {
+            access: crate::vault::EngineLock::new(engine),
+            root,
+            rt,
+            notes: Captured::default(),
+        }
     }
 
     impl Vault {

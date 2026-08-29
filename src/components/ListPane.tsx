@@ -8,6 +8,8 @@ import type { DbBlock } from "../lib/views";
 import { NOTE_DRAG_MIME } from "../lib/sidebar";
 import { isTyping, isTypingNow } from "../lib/dom";
 import { displayTitle, JOURNAL_DIR } from "../lib/journal";
+import type { ListSort } from "../lib/listsort";
+import ListSortMenu from "./ListSortMenu";
 import { tagFolderSummary } from "../lib/tags";
 import { fileExt, fileKind } from "../lib/folderfiles";
 import { formatFileSize } from "../lib/display";
@@ -326,6 +328,13 @@ interface ListPaneProps {
   /** per-type database icons for the blocks */
   icons?: Record<string, DbIcon>;
   onOpenDb?: (type: string) => void;
+  /** How this list is ordered, and the header control that changes it.
+      The order itself is applied upstream — the pane renders the rows it is
+      given — so these are only the control's state and its handler. The
+      choice is the vault's (`note-sort` in Settings.md), which is why it
+      arrives as a prop rather than living here. */
+  sort?: ListSort;
+  onSort?: (next: ListSort) => void;
   /** Folder header "+" — new note born in this folder (a typed entry
       when the folder is a database's home, today's daily in the Journal).
       Same fork ⌘N takes; the button is the only visible path on touch, where
@@ -371,6 +380,8 @@ function ListPane({
   blocks = [],
   icons,
   onOpenDb,
+  sort,
+  onSort,
   onNewHere,
   onNewNote,
   tagFolders = [],
@@ -665,6 +676,10 @@ function ListPane({
         {view.kind === "folder" && <span className="head-kind">Folder</span>}
         {view.kind === "tagfolder" && <span className="head-kind">Tag folder</span>}
         {view.kind === "tag" && <span className="head-kind">Tag</span>}
+        {/* Every list of notes is ordered the same way and says so — the
+            control is not folder-only, because Scratch and Notes are the
+            same surface under another name */}
+        {sort && onSort && <ListSortMenu sort={sort} onPick={onSort} />}
         {/* Births in this folder — a typed entry when the folder is a
             database's home, today's daily in the Journal; the ⌘N
             fork made clickable, and the only path on touch */}

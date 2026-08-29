@@ -35,6 +35,8 @@ const paneProps = {
   onRejectVaultSeal: () => {},
   onRemoveVaultSeal: () => {},
   onCheckUpdates: () => Promise.resolve({ state: "current" as const }),
+  upcomingDock: "bottom" as const,
+  setUpcomingDock: () => {},
 };
 
 test("an interrupted model download can be retried from the row", async (t) => {

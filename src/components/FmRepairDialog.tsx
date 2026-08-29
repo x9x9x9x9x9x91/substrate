@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { FmState, NoteMeta } from "../lib/types";
-import { vaultFmWrite } from "../lib/ipc";
+import { fmWriteUndoable } from "../lib/undofm";
+import { useUndo } from "../lib/undoContext";
 
 /* Broken-frontmatter repair dialog: the raw block verbatim, the
    engine's one-line diagnosis, and a Save that only lands a clean parse — a
@@ -19,6 +20,7 @@ export default function FmRepairDialog({
   onSaved: (meta: NoteMeta) => void;
   onClose: () => void;
 }) {
+  const undo = useUndo();
   const [draft, setDraft] = useState(fm.raw);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -38,7 +40,17 @@ export default function FmRepairDialog({
     if (busy) return;
     setBusy(true);
     setErr(null);
-    vaultFmWrite(path, draft)
+    // the block the dialog opened on is the prior state ⌘Z restores — a
+    // repair that dropped a key the user wanted back is the whole reason
+    // this dialog is a hazard worth undoing
+    fmWriteUndoable({
+      path,
+      fm: draft,
+      before: fm,
+      label: "Repair frontmatter",
+      record: undo.record,
+      onApplied: onSaved,
+    })
       .then((m) => {
         onSaved(m);
         onClose();

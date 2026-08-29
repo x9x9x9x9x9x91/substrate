@@ -14,6 +14,7 @@
 import { setSheetCell } from "./sheet.ts";
 import { readNoteTable } from "./notetable.ts";
 import { fmtDur } from "./syncstory.ts";
+import { normalizeFeedTopics } from "./settings.ts";
 
 /** "" = no verdict yet; the app cycles through these three. */
 export type Feedback = "" | "up" | "down";
@@ -108,6 +109,76 @@ export function filterFeedItems(items: FeedItem[], active: string[]): FeedItem[]
   if (active.length === 0) return items;
   const want = new Set(active.map((t) => t.trim().toLowerCase()));
   return items.filter((it) => want.has(it.topic.trim().toLowerCase()));
+}
+
+/* The topic filter's old home. It now lives in Settings.md as `feed-topics`
+   — a stated preference follows the person, not the display — and these two
+   exist only so a profile written before that key does not silently lose its
+   selection on the first launch of a build that reads the note. */
+
+/** the pre-`feed-topics` browser-store key: a JSON array of slugs */
+export const FEED_TOPICS_KEY = "substrate.feedTopics";
+
+/** The selection a profile written before `feed-topics` carries, or null when
+    there is none worth honouring — absent, unreadable, or empty, all of which
+    already mean "no filter" and so need no migration write. */
+export function legacyStoredTopics(): string[] | null {
+  let raw: unknown;
+  try {
+    const stored = localStorage.getItem(FEED_TOPICS_KEY);
+    if (!stored) return null;
+    raw = JSON.parse(stored);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(raw)) return null;
+  const topics = normalizeFeedTopics(raw);
+  return topics.length > 0 ? topics : null;
+}
+
+/** Set once the browser copy is known to be dead weight: the note has stated
+    the key, or a migration write of it landed. Absence of `FEED_TOPICS_KEY`
+    alone can never mean that — clearing the filter removes the key too, so
+    inferring "never migrated" from an empty store resurrects a selection the
+    person deliberately threw away (and, through the guarded write, syncs the
+    resurrection to every machine). This marker is the thing that says it. It
+    is per-machine on purpose: what it guards IS this machine's browser store,
+    and once that store is empty there is nothing left to migrate into any
+    vault opened here. */
+export const FEED_TOPICS_MIGRATED_KEY = "substrate.feedTopicsMigrated";
+
+/** Whether this machine's store has already had its say — no legacy selection
+    left worth honouring, whatever the old key does or doesn't hold now. */
+export function topicsMigrationDone(): boolean {
+  try {
+    return localStorage.getItem(FEED_TOPICS_MIGRATED_KEY) !== null;
+  } catch {
+    // a blocked store can hold no legacy value either, so nothing to migrate
+    return true;
+  }
+}
+
+/** Drop the old key and record that it is done with, once the note is known to
+    carry the selection instead.
+
+    Until then it must stay: a vault that refuses writes (sealed, read-only)
+    would otherwise lose the filter on the first launch. But once a Settings.md
+    has spoken — by a migration write landing OR by simply stating the key —
+    keeping it is a bug in the other direction: the store is per-machine while
+    the setting is per-vault, so the next vault opened here would inherit this
+    one's topics unasked, and a hand-deleted `feed-topics:` line would come
+    back instead of falling to the whole stream. */
+export function forgetStoredTopics(): void {
+  try {
+    localStorage.setItem(FEED_TOPICS_MIGRATED_KEY, "1");
+  } catch {
+    // a blocked store costs the marker, never the interaction
+  }
+  try {
+    localStorage.removeItem(FEED_TOPICS_KEY);
+  } catch {
+    // a blocked store costs the cleanup, never the interaction
+  }
 }
 
 export interface FeedDay {

@@ -20,6 +20,11 @@ export interface MdListItem {
   /** the item's text with the marker — and the `[ ]` box — already stripped */
   text: string;
   done: boolean | null;
+  /** the item's line index within the text the scanner was handed (0-based).
+      The one piece of provenance a rendering that stays LIVE needs: a task
+      box drawn from this item writes its toggle back to this line. Static
+      surfaces ignore it. */
+  line: number;
 }
 
 export type MdBlock =
@@ -150,8 +155,8 @@ export function scanMdBlocks(md: string, opts: MdScanOptions): MdBlock[] {
         if (!m) break;
         if (opts.splitListsOnMarkerFlip && (m[1] === undefined) !== ordered) break;
         const task = TASK_BODY_RE.exec(m[2]);
-        if (task) items.push({ text: task[2], done: task[1] !== " " });
-        else items.push({ text: m[2], done: null });
+        if (task) items.push({ text: task[2], done: task[1] !== " ", line: i });
+        else items.push({ text: m[2], done: null, line: i });
         i++;
       }
       out.push({ kind: "list", ordered, items });

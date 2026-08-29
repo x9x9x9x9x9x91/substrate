@@ -263,3 +263,48 @@ export function hasUnclosedFence(body: string, lang: string, foldCase = false): 
   }
   return false;
 }
+
+/* ── the line-at-a-time fence scanner ───────────────────────────────────── */
+
+/** An opening or closing fence line, as a line-at-a-time scanner sees it:
+    the run of backticks or tildes, plus whatever followed it.
+
+    Kept here rather than in each scanner because getting it wrong is quiet.
+    A CRLF file's lines arrive carrying their `\r`, and it is not part of the
+    info string — JS `.` does not match a carriage return, so the whole line
+    read as prose until this said so, quietly turning every fence in a
+    Windows-written note invisible to any caller that had not normalized first.
+    The Rust twin (`opening_fence`, src-tauri/src/vault/mod.rs) tolerates one
+    the same way.
+
+    A parser that only knows ```` ``` ```` reads three kinds of ordinary
+    markdown as prose: a `~~~` fence (which is what an author reaches for the
+    moment their sample contains backticks), a fence indented one to three
+    spaces under a list item, and — the expensive one — a longer run than
+    three, where the SHORT closer test never fires and the scanner believes it
+    is inside code for the rest of the note. */
+const FENCE_LINE_RE = /^ {0,3}(`{3,}|~{3,})([^\n\r]*)\r?$/;
+
+/** The run that opens a fence on this line, or null when the line is prose.
+
+    CommonMark's two rules that matter to a scanner: up to three spaces of
+    indent still open a fence (four make an indented code block, which has no
+    marker line to confuse anyone), and a BACKTICK opener's info string may not
+    itself contain a backtick — `` ``` ``a`` `` is inline code in a paragraph,
+    not a fence. Tilde openers take any info string. */
+export function fenceOpening(line: string): string | null {
+  const m = FENCE_LINE_RE.exec(line);
+  if (!m) return null;
+  if (m[1][0] === "`" && m[2].includes("`")) return null;
+  return m[1];
+}
+
+/** Whether this line closes the fence `run` opened. A closer is the same
+    character, at least as long as the opener (so ```` ```` ```` closes a
+    ```` ``` ```` but not the reverse), and carries no info string — which is
+    what keeps a second opener inside a fence from ending it. */
+export function fenceCloses(line: string, run: string): boolean {
+  const m = FENCE_LINE_RE.exec(line);
+  if (!m) return false;
+  return m[1][0] === run[0] && m[1].length >= run.length && m[2].trim() === "";
+}

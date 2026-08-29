@@ -18,6 +18,51 @@ async function bootFirstRun(page: Page) {
   await expect(page.getByTestId("onboarding")).toBeVisible();
 }
 
+/* The boot frame. Cold start paints the shell's geometry from the first
+   frame now, so the two waits in front of the app — the status round-trip and
+   the vault index behind it — show chrome rather than a black window. The
+   mock answers instantly, so both waits are staged through load-time flags;
+   the frame is only reachable from a spec that asks for one. */
+
+test("the chrome is painted while boot status is still in flight", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__mockBootDelay = 2000;
+  });
+  await page.goto("/");
+
+  const frame = page.getByTestId("boot-skeleton");
+  await expect(frame).toBeVisible();
+  await expect(frame.locator(".boot-sidebar")).toBeVisible();
+  await expect(frame.locator(".boot-pane")).toBeVisible();
+  // neutral: it is neither the vault nor the first-run screen, because the
+  // backend has not yet said which this machine is
+  await expect(page.locator(".side-item")).toHaveCount(0);
+  await expect(page.getByTestId("onboarding")).toHaveCount(0);
+
+  // …and it gives way to the real thing once status lands
+  await expect(page.locator(".side-item").first()).toBeVisible({ timeout: 10000 });
+  await expect(frame).toHaveCount(0);
+});
+
+test("a vault whose index is still building shows the frame, not an empty list", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    window.__mockBootScanMs = 1200;
+  });
+  await page.goto("/");
+
+  // status answered — there IS a vault — but the index is not up, so an app
+  // rendered here would show an empty notes list as if it were the vault
+  const frame = page.getByTestId("boot-skeleton");
+  await expect(frame).toBeVisible();
+  await expect(page.locator(".side-item")).toHaveCount(0);
+
+  // the backend's vault:ready event is what lifts it
+  await expect(page.locator(".side-item").first()).toBeVisible({ timeout: 10000 });
+  await expect(frame).toHaveCount(0);
+});
+
 test("a machine with a vault never sees onboarding", async ({ page }) => {
   await page.goto("/");
   await page.locator(".side-item", { hasText: /^Scratch/ }).click();

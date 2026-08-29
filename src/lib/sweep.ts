@@ -3,6 +3,8 @@
     never substituted for it — the user must learn what the sweep actually did
     even, and especially, when something else went wrong. Pure, node-testable. */
 
+import { errText } from "./errtext.ts";
+
 /** The count half of a `BulkSweep` plus the error of a sweep that stopped
     partway. Structurally a `BulkSweep`, declared locally so this
     module stays free of the IPC types. */
@@ -106,4 +108,42 @@ export function schemaOnlyClearOutcome(
     the outcome; the sweep is never blocked on it. */
 export function withSnapshotWarning(outcome: string, snapped: boolean): string {
   return snapped ? outcome : `${outcome}; no safety snapshot taken`;
+}
+
+/** The sweep's parachute, and the two ways it can be missing.
+ *
+ *  `history_snapshot` resolves false for exactly one reason: this vault has
+ *  no history to snapshot into (a foreign folder, git off). That is a known
+ *  state the sweep proceeds through, saying so in its outcome.
+ *
+ *  A REJECTION is the other thing entirely — history exists and the commit
+ *  failed — and it used to be caught and reported as the first, so a sweep
+ *  that could rewrite hundreds of notes ran believing it had a restore point
+ *  it did not have. It stops the sweep now: nothing is written, and the
+ *  message says both what went wrong and that nothing changed, because "the
+ *  snapshot failed" alone leaves a reader unsure which half of the operation
+ *  they are looking at. */
+export function presweep(
+  snapshot: (label: string) => Promise<boolean>,
+  label: string
+): Promise<boolean> {
+  return snapshot(label).catch((e) => {
+    throw new Error(
+      `Couldn't take the safety snapshot ${label} — nothing was changed: ${errText(e)}`
+    );
+  });
+}
+
+export const SNAPSHOT_RESTORE_LABEL = "Restore from snapshot";
+
+/** The way back out of a sweep that did land. The snapshot is a vault history
+    point, so the door is the vault's own time travel — the sweep's label is
+    the newest entry in that list. Offered only when a snapshot was actually
+    taken; a toast that offers a restore there is none of is worse than
+    silence. */
+export function snapshotRestore(
+  snapped: boolean,
+  openRestore: () => void
+): { label: string; run: () => void } | undefined {
+  return snapped ? { label: SNAPSHOT_RESTORE_LABEL, run: openRestore } : undefined;
 }

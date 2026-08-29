@@ -6,38 +6,24 @@
    on the calendar itself (the header's Upcoming toggle, the panel's drag
    edge) — this is the one choice with no natural home over there.
 
-   It writes localStorage rather than Settings.md, like the calendar's layout
-   switcher: how a surface is arranged on this display is a per-window
-   preference, not a fact about the vault that should sync to a phone. Which is
-   also why the write announces itself — the calendar may be mounted behind
-   this sheet, and a same-window store write fires no `storage` event. */
+   It writes Settings.md (`upcoming-dock`) like every other switch in this
+   sheet, so the answer is a line in a file anyone — a person in an editor, an
+   agent working the vault — can read and change. The panel's fold and size
+   stay per window: how a surface is arranged on this display is not a fact
+   about the vault. The flip is handed upwards rather than written here so the
+   calendar mounted behind this sheet moves on the click, not a second later
+   when the watcher echo lands. */
 
-import { useEffect, useState } from "react";
-import {
-  AGENDA_PREFS_EVENT,
-  readAgendaPrefs,
-  writeAgendaPrefs,
-  type AgendaPrefs,
-} from "../lib/calagenda";
+import type { AgendaPlacement } from "../lib/calagenda";
 
-export default function CalendarSettings() {
-  const [prefs, setPrefs] = useState<AgendaPrefs>(() => readAgendaPrefs());
-  useEffect(() => {
-    const onPrefs = (e: Event) =>
-      setPrefs((e as CustomEvent<AgendaPrefs>).detail ?? readAgendaPrefs());
-    window.addEventListener(AGENDA_PREFS_EVENT, onPrefs);
-    return () => window.removeEventListener(AGENDA_PREFS_EVENT, onPrefs);
-  }, []);
-
-  const rail = prefs.placement === "right";
-  const flip = () => {
-    const next: AgendaPrefs = {
-      ...prefs,
-      placement: rail ? "bottom" : "right",
-    };
-    setPrefs(next);
-    writeAgendaPrefs(next);
-  };
+export default function CalendarSettings({
+  dock,
+  onDock,
+}: {
+  dock: AgendaPlacement;
+  onDock: (next: AgendaPlacement) => void;
+}) {
+  const rail = dock === "right";
 
   return (
     <>
@@ -58,7 +44,7 @@ export default function CalendarSettings() {
           role="switch"
           aria-checked={rail}
           className={`settings-switch${rail ? " on" : ""}`}
-          onClick={flip}
+          onClick={() => onDock(rail ? "bottom" : "right")}
         >
           <span className="settings-knob" />
         </button>

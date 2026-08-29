@@ -1,0 +1,76 @@
+/* The boot frame: the shell's geometry with nothing in it, shown from the
+   first paint until the backend has answered and the vault index is up.
+   Every measurement here mirrors a real rule so the chrome does not move when
+   the app takes over — the sidebar column matches `.sidebar` (sidebar.css),
+   the pane matches `.main` (menus.css), and the rows sit on `.side-item`'s
+   28px pitch. Change one of those and this sheet owes the same change; the
+   tell is the sidebar or the pane edge jumping at the moment content lands. */
+
+.boot-frame {
+  display: flex;
+  height: 100vh;
+}
+
+.boot-sidebar {
+  width: clamp(160px, 26vw, 248px);
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  padding: 0 8px 10px;
+}
+
+/* faint enough to read as an empty room rather than as content that failed
+   to load — one step under the softest border the app draws */
+.boot-block {
+  background: rgba(255, 255, 255, 0.045);
+  border-radius: var(--r-2);
+}
+
+.boot-title {
+  height: 14px;
+  width: 84px;
+  margin: 4px 8px 14px;
+}
+
+.boot-rows {
+  display: flex;
+  flex-direction: column;
+  /* 16px row + 12px gap = the 28px pitch `.side-item` rows sit on, so the
+     placeholder rows land where real ones will */
+  gap: 12px;
+  padding: 0 8px;
+}
+
+.boot-row {
+  height: 16px;
+  /* a settled list, not a ruler: the widths taper the way vault names do */
+  width: 82%;
+}
+
+.boot-rows .boot-row:nth-child(2) {
+  width: 64%;
+}
+
+.boot-rows .boot-row:nth-child(4) {
+  width: 71%;
+}
+
+.boot-rows .boot-row:nth-child(5) {
+  width: 55%;
+}
+
+.boot-rows .boot-row:nth-child(6) {
+  width: 68%;
+}
+
+/* mirrors `.main` — same inset, same panel, same edge, so the pane does not
+   shift when the real one replaces it */
+.boot-pane {
+  flex: 1;
+  min-width: 0;
+  margin: 8px 8px 8px 0;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-3);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}

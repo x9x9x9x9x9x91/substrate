@@ -69,6 +69,53 @@ export function isPickedToday(n: NoteMeta, today: string): boolean {
   return pickedDay(n) === today;
 }
 
+/** How many suggestions the add box offers at once. Small on purpose: the
+    line is a capture field, not a search surface — a reader scans a handful
+    and otherwise keeps typing the new thought. */
+export const SUGGEST_LIMIT = 7;
+
+/** Open tasks whose title contains what has been typed. The definition of an
+    open task is the Tasks board's own (`type: task`, status not complete), so
+    the line can never offer something that surface calls finished. Notes
+    already picked for today are out — picking one again is a no-op, and a
+    committed row belongs in the Picked lane, not in the suggestions above it.
+
+    A snoozed task IS offered, though the Tasks board parks it out of sight
+    until its wake day. Deliberate, and the same call every other surface
+    makes: a snooze says "not on the board today", not "not a task" — and a
+    reader who types its title is asking for that exact task by name, which is
+    a stronger signal than the parking.
+
+    Ordering puts titles that START with the query first: a reader typing
+    "mix" means the task called "Mix bounce" before the one called "Remix
+    notes". Ties fall back to the title, so the list never reorders under a
+    keystroke that changed nothing. */
+export function suggestOpenTasks(
+  notes: readonly NoteMeta[],
+  query: string,
+  today: string,
+  limit = SUGGEST_LIMIT
+): NoteMeta[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+  const hits: NoteMeta[] = [];
+  for (const n of notes) {
+    // the title test first: it rejects most of a vault on a plain substring
+    // check, before anything has to fold a prop
+    if (!n.title.toLowerCase().includes(q)) continue;
+    if (foldedPropStr(n.props, "type")?.trim().toLowerCase() !== "task") continue;
+    if (isComplete(foldedPropStr(n.props, "status")?.trim())) continue;
+    if (isPickedToday(n, today)) continue;
+    hits.push(n);
+  }
+  hits.sort((a, b) => {
+    const ap = a.title.toLowerCase().startsWith(q) ? 0 : 1;
+    const bp = b.title.toLowerCase().startsWith(q) ? 0 : 1;
+    return ap - bp || a.title.localeCompare(b.title) || a.path.localeCompare(b.path);
+  });
+  return hits.slice(0, Math.max(0, limit));
+}
+
 export interface PickedItem {
   note: NoteMeta;
   /** the note's earliest timed entry today from its OTHER date props (a

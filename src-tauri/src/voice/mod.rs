@@ -144,7 +144,11 @@ const MIC_OK: &str = ".mic-ok";
 /// device failure still reports immediately, through the channel) and turns a
 /// guaranteed first-use failure into a working first capture.
 fn ready_timeout(first_run: bool) -> Duration {
-    if first_run { Duration::from_secs(120) } else { Duration::from_secs(5) }
+    if first_run {
+        Duration::from_secs(120)
+    } else {
+        Duration::from_secs(5)
+    }
 }
 
 /// Begin recording. Returns the stem the capture will be filed under.
@@ -212,7 +216,8 @@ fn start_inner(app: &tauri::AppHandle) -> Result<(String, Active), String> {
             stop.store(true, Ordering::Relaxed);
             let _ = join.join();
             return Err(if first_run {
-                "the microphone never started — check Settings ▸ Privacy & Security ▸ Microphone".into()
+                "the microphone never started — check Settings ▸ Privacy & Security ▸ Microphone"
+                    .into()
             } else {
                 "the microphone did not start within 5 seconds".to_string()
             });
@@ -328,11 +333,8 @@ pub(crate) fn orphans(app: &tauri::AppHandle) -> Vec<PathBuf> {
 /// a wrong guess here would corrupt a good file.
 pub(crate) fn repair_wav(path: &Path) -> Result<bool, String> {
     use std::io::{Read, Seek, SeekFrom, Write};
-    let mut f = std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(path)
-        .map_err(|e| e.to_string())?;
+    let mut f =
+        std::fs::OpenOptions::new().read(true).write(true).open(path).map_err(|e| e.to_string())?;
     let len = f.metadata().map_err(|e| e.to_string())?.len();
     if len < 44 {
         return Err("not a WAV file (too short)".into());
@@ -416,9 +418,8 @@ fn record(
 
     let build = || -> Result<(cpal::Stream, Receiver<Vec<i16>>, Arc<AtomicBool>, u32), String> {
         let host = cpal::default_host();
-        let device = host
-            .default_input_device()
-            .ok_or_else(|| "no microphone found".to_string())?;
+        let device =
+            host.default_input_device().ok_or_else(|| "no microphone found".to_string())?;
         let supported = device
             .default_input_config()
             .map_err(|e| format!("the microphone is unavailable ({e})"))?;
@@ -817,7 +818,11 @@ mod tests {
             .single()
             .expect("a real local time");
         assert_eq!(stem_for(at), "Voice 2026-08-04 14.32");
-        assert_eq!(captured_prop(at), "2026-08-04T14:32:09", "seconds survive; the stem drops them");
+        assert_eq!(
+            captured_prop(at),
+            "2026-08-04T14:32:09",
+            "seconds survive; the stem drops them"
+        );
         assert_eq!(duration_prop(12.4), "12");
         assert_eq!(duration_prop(12.6), "13");
         assert_eq!(duration_prop(0.0), "0");

@@ -70,6 +70,15 @@ write instead — a note that says only `type: dashboard` has asked for no board
 in particular. A present but unknown value shows an “unknown kind” card the
 same way, instead of silently rendering the wrong dashboard.
 
+That roster is the public set, not necessarily the whole set: a given build may
+carry further built-in kinds beyond it, and this vault may add its own under
+`.vault/kinds/` (below). So a dashboard note whose `dashboard:` value you don't
+recognise is not automatically broken — the note's own render says which it is,
+an “unknown kind” card being the only proof this build lacks that renderer, and
+the app's `kinds_list` command (or a look at `.vault/kinds/` itself) names the
+bundles the vault contributes. Don't rewrite
+such a note's `dashboard:` value to one of the names above.
+
 A **sheet** is `type: sheet` with a ` ```csv ` fence (first row = headers) and an
 optional ` ```formulas ` fence of `name = expression` lines.
 
@@ -94,6 +103,16 @@ backticks:
 - `view` — accepted, but only `table` renders today.
 - `saved` — alternative one-key form naming a pinned view by id or name; when
   present it wins over `type`/`query`.
+- `sort` — optional; `<prop>` for ascending or `<prop>:desc` for descending.
+- `limit` — optional; a whole number of rows to stop at.
+- `columns` — optional; a comma-separated list of property names, shown in the
+  order you write them. A dotted name (`artist.label`) is read as a **relation
+  join** — follow the relation named before the dot and look the rest up on the
+  note it points at — unless the database really does store a property spelled
+  with that dot, which wins. `sort` accepts a dotted name the same way.
+
+Those seven keys are the whole vocabulary: `type`, `query`, `saved`, `view`,
+`sort`, `limit`, `columns`.
 
 An unknown key or a malformed value shows a quiet inline error card instead of
 breaking the note — a typo says so rather than being silently ignored. Every
@@ -176,8 +195,12 @@ Dashboards/         convention only — dashboards can live anywhere
 ```
 
 Any path component starting with `.` is invisible to the app's note index: it is
-never listed, searched, or watched. That is why `.vault/` and `.claude/` don't
-show up as notes.
+never listed and never searched, and the watcher mostly ignores it too. The
+deliberate exceptions: the handful of `.vault/` config files listed below, which
+the app watches live so external edits apply without a restart, plus
+`.substrate-seal` markers and removals of embedded images under `.assets/`,
+which the watcher also notices. That is why
+`.vault/` and `.claude/` don't show up as notes.
 
 Root `Settings.md`, `AGENTS.md`, and `CLAUDE.md` are indexed and ordinary on
 disk, but **concealed from the app's note lists and search by default** so the
@@ -200,9 +223,16 @@ vault:
 - `format.json` — format versions. **Never bump it**; a version above the app's
   makes that file read-only in Substrate.
 
-Prefer changing schema through the app. If you must write these files, write
-atomically (temp file in the same directory, then rename) — the app watches them
-live and a torn read looks like an empty file.
+Eight of them are the live-watched exception to the dot-path rule above:
+`schema.json`, `views.json`, `folders.json`, `calendars.json`,
+`tagfolders.json`, `mounts.json`, `reflexes.json` and `sync-folders.json`.
+An external edit to one of those reaches the app without a restart; everything
+else under `.vault/` (including `format.json`) is simply re-read the next time
+it is needed.
+
+Prefer changing schema through the app. If you must write any of these files,
+write atomically (temp file in the same directory, then rename) — for the eight
+above a torn read looks like an empty file.
 
 ## Off limits
 
@@ -236,10 +266,20 @@ is not corruption.
   seal, on purpose: you need to orient before any key is authorized. Their
   being readable is not evidence that the rest is.
 - **Before creating or replacing a note, check for `.substrate-seal` at the
-  vault root and on every folder of the target path.** If one is there, the new
-  file must be ciphertext too: encrypt it to the public `recipient` named in
-  the marker (never invent a second recipient in the same vault), or leave the
-  creation to the app. Never drop plaintext into a sealed scope.
+  vault root and on every folder of the target path.** If one is there — and
+  this device has confirmed it (next bullet) — the new file must be ciphertext
+  too: encrypt it to the public `recipient` named in the marker
+  (never invent a second recipient in the same vault), or leave the creation
+  to the app. Never drop plaintext into a sealed scope.
+- **A marker only enforces anything on a device that has confirmed it.**
+  Confirmation is device-local and lives in `.vault/seal-trust.json`, which
+  pins each confirmed scope to the exact `recipient` it was confirmed with — a
+  marker whose path or recipient is absent from that file is one this app is
+  ignoring, so it encrypts nothing and purges nothing there and writes its own
+  new notes as plaintext. Encrypting into such a scope yourself leaves files
+  the app is not managing. Prefer to leave the creation to the app and tell the
+  user to confirm the seal first; if you do write, say plainly which scope was
+  unconfirmed rather than assuming the seal is live.
 
 ## Writing notes safely
 

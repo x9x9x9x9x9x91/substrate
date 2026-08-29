@@ -83,6 +83,9 @@ interface LockEntry {
   license?: string;
   dev?: boolean;
   devOptional?: boolean;
+  optional?: boolean;
+  os?: string[];
+  cpu?: string[];
 }
 
 /**
@@ -94,6 +97,14 @@ interface LockEntry {
  * than a graph walk we'd have to keep correct ourselves. The root entry (key
  * "") is Substrate itself and is skipped — the app's own AGPL license is in
  * LICENSE, not in a third-party notice.
+ *
+ * Optional packages gated to one operating system or processor — the
+ * prebuilt-binary siblings a package publishes one of per platform — are
+ * skipped. Only the platform matching the machine that ran `npm install` is
+ * ever on disk, so including them would either crash generation on the eleven
+ * that are absent or, worse, make the notice say something different depending
+ * on who regenerated it. The parent package that selects between them is a
+ * normal entry and is still listed, which is what a reader is owed.
  */
 export function productionPackagePaths(lock: {
   packages?: Record<string, LockEntry>;
@@ -101,6 +112,7 @@ export function productionPackagePaths(lock: {
   const packages = lock.packages ?? {};
   return Object.entries(packages)
     .filter(([path, entry]) => path !== "" && !entry.dev && !entry.devOptional)
+    .filter(([, entry]) => !(entry.optional && (entry.os || entry.cpu)))
     .map(([path]) => path)
     .sort();
 }
@@ -373,10 +385,18 @@ function renderIntro(npm: readonly NpmPackage[], crates: readonly Crate[]): stri
     "  (`MIT OR Apache-2.0`), the row names every option and the reproduced text is",
     "  the one relied on.",
     "",
-    "Two related notices live elsewhere:",
+    "Three related notices live elsewhere:",
     "",
     "- The bundled **Inter** font is under the SIL Open Font License and is covered",
     "  in `THIRD-PARTY-FONTS.md`, which ships beside this file in the app bundle.",
+    "- The **PDF renderer's support files** — the Foxit and Liberation font",
+    "  programs, the character maps, the ICC profiles and the JBIG2, JPEG 2000 and",
+    "  qcms decoders — are binaries taken out of `pdfjs-dist` and served from the",
+    "  app's own origin, under their own terms rather than the `pdfjs-dist` row",
+    "  below. Liberation is under the SIL Open Font License and qcms under the",
+    "  Mozilla Public License 2.0, both of which require the notice to travel with",
+    "  the binary, so each upstream `LICENSE*` file is emitted beside the files it",
+    "  covers, in `pdfjs/<directory>/` inside the app bundle.",
     "- The **landing page's** webfonts are distributed separately with the site and",
     "  are covered in `site/FONT-LICENSES.md` in the source repository.",
     "",

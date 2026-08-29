@@ -438,11 +438,13 @@ test("tasks: a card's move menu re-areas it without a drag, by pointer and by ke
     has: page.locator(".tasks-col-name", { hasText: /^Label$/ }),
   });
 
-  // right-click offers one entry per column, and the card's own column is
-  // listed but inert — the menu can never name a target a drop couldn't reach
+  // right-click leads with the Today verb, then offers one entry per column,
+  // and the card's own column is listed but inert — the menu can never name a
+  // target a drop couldn't reach
   const artwork = page.locator(".tasks-card", { hasText: "Approve SMP-030 artwork" });
   await artwork.click({ button: "right" });
   await expect(page.locator(".ctx-menu .ctx-label")).toHaveText([
+    "Pick for today",
     "Move to Label",
     "Move to Studio",
     "Move to Admin",
@@ -468,7 +470,9 @@ test("tasks: a card's move menu re-areas it without a drag, by pointer and by ke
   await chase.locator(".tasks-open").focus();
   await page.keyboard.press("Shift+F10");
   await expect(page.locator(".ctx-menu")).toBeVisible();
-  // the first stop skips the disabled current column and lands on Studio
+  // the first stop is the Today verb; the next skips the disabled current
+  // column and lands on Studio
+  await page.keyboard.press("ArrowDown");
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("Enter");
   await expect(

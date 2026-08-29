@@ -1,10 +1,14 @@
 /* The calendar's Upcoming panel: where it sits, whether it is showing, and
    how much room it takes.
 
-   Same storage idiom as the layout switcher one screen over (`substrate.calLayout`):
-   stated preferences about a surface, kept per window in localStorage rather
-   than in the vault. Nothing here syncs — how tall the panel is on this
-   display is not a fact about the notes.
+   The two halves live in different places, on purpose. WHERE the panel docks
+   is a setting — the ⌘, sheet asks it as a question, so it is a fact about
+   the vault and lives in Settings.md as `upcoming-dock`, like the terminal
+   HUD's `terminal-dock` next to it. Whether the panel is folded away and how
+   many pixels it takes are per-window arrangement, so they stay in
+   localStorage with the layout switcher one screen over
+   (`substrate.calLayout`): how tall the panel is on this display is not a
+   fact about the notes, and nothing here syncs.
 
    Size is in PIXELS, not a fraction of the window like the terminal panel.
    The panel's job is to show whole agenda rows, and a row is a fixed number of
@@ -14,10 +18,11 @@
    quantities, and flipping the placement returns the size last chosen for that
    side. */
 
-/** bottom strip, or a column beside the last weekday */
+/** bottom strip, or a column beside the last weekday — the `upcoming-dock`
+    setting's two words, parsed in lib/settings.ts */
 export type AgendaPlacement = "bottom" | "right";
 
-const DEFAULT_AGENDA_PLACEMENT: AgendaPlacement = "bottom";
+export const DEFAULT_AGENDA_PLACEMENT: AgendaPlacement = "bottom";
 
 /** the height cap the panel shipped with before it could be dragged
     (`max-height: 168px`), so an untouched profile looks exactly as it did —
@@ -70,7 +75,6 @@ export const clampRailWidth = (n: number, paneWidth: number): number =>
   Math.round(Math.min(railWidthMax(paneWidth), Math.max(AGENDA_WIDTH_MIN, n)));
 
 export interface AgendaPrefs {
-  placement: AgendaPlacement;
   /** folded away entirely — the header toggle, for both placements */
   folded: boolean;
   /** bottom placement, px */
@@ -80,7 +84,6 @@ export interface AgendaPrefs {
 }
 
 export const AGENDA_PREFS_DEFAULT: AgendaPrefs = {
-  placement: DEFAULT_AGENDA_PLACEMENT,
   folded: false,
   height: AGENDA_HEIGHT_DEFAULT,
   width: AGENDA_WIDTH_DEFAULT,
@@ -88,9 +91,9 @@ export const AGENDA_PREFS_DEFAULT: AgendaPrefs = {
 
 const AGENDA_KEY = "substrate.calAgenda";
 
-/** the pane is mounted while the settings sheet writes the placement, and a
-    same-window localStorage write fires no `storage` event — so the write
-    announces itself the way a stale anchor does */
+/** the pane is mounted while its own drag handle and header latch write this
+    record, and a same-window localStorage write fires no `storage` event — so
+    the write announces itself the way a stale anchor does */
 export const AGENDA_PREFS_EVENT = "substrate:cal-agenda";
 
 export const clampAgendaHeight = (n: number): number =>
@@ -117,7 +120,6 @@ export function parseAgendaPrefs(raw: string | null): AgendaPrefs {
   const height = num(rec.height);
   const width = num(rec.width);
   return {
-    placement: rec.placement === "right" ? "right" : "bottom",
     folded: rec.folded === true,
     height: height === null ? AGENDA_HEIGHT_DEFAULT : clampAgendaHeight(height),
     width: width === null ? AGENDA_WIDTH_DEFAULT : clampAgendaWidth(width),
@@ -132,17 +134,73 @@ export function readAgendaPrefs(): AgendaPrefs {
   }
 }
 
+/** The stored record as it actually stands, fields and all — including the
+    ones this build's `AgendaPrefs` has no name for. `null` when there is no
+    record, or nothing object-shaped in it. */
+function storedAgendaRecord(): Record<string, unknown> | null {
+  try {
+    const raw = localStorage.getItem(AGENDA_KEY);
+    if (!raw) return null;
+    const data: unknown = JSON.parse(raw);
+    if (!data || typeof data !== "object" || Array.isArray(data)) return null;
+    return data as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+/** The placement a profile written before `upcoming-dock` existed carries,
+    or null when there is none to honour.
+
+    The key moved into Settings.md, and a build that reads only the note would
+    silently put every rail user's panel back under the grid on first launch.
+    So the boot read falls back to this record's old `placement` field while
+    the setting is unset — a stale field the parse above already ignores, kept
+    readable until the note has the answer (`forgetStoredPlacement`). */
+export function legacyStoredPlacement(): AgendaPlacement | null {
+  const rec = storedAgendaRecord();
+  if (!rec) return null;
+  return rec.placement === "right" ? "right" : null;
+}
+
+/** Drop the pre-`upcoming-dock` field, once the note is known to carry the
+    answer instead.
+
+    Until then it must stay: a vault that refuses writes (sealed, read-only)
+    would otherwise lose the rail on the first fold. But once it has been
+    written into a Settings.md, keeping it is a bug in the other direction —
+    the old field is per-machine while the setting is per-vault, so the next
+    vault opened on this machine would inherit the first one's rail unasked,
+    and a hand-deleted `upcoming-dock:` line would come back on the next
+    launch instead of falling to the default. Called only on a migration
+    write that succeeded. */
+export function forgetStoredPlacement(): void {
+  const rec = storedAgendaRecord();
+  if (!rec || !("placement" in rec)) return;
+  delete rec.placement;
+  try {
+    localStorage.setItem(AGENDA_KEY, JSON.stringify(rec));
+  } catch {
+    // a blocked store costs the cleanup, never the interaction
+  }
+}
+
 /** Write and announce. The clamps run on the way out too, so a value that
     reached here around the drag handle still lands inside the range. */
 export function writeAgendaPrefs(prefs: AgendaPrefs): void {
   const safe: AgendaPrefs = {
-    placement: prefs.placement === "right" ? "right" : "bottom",
     folded: prefs.folded === true,
     height: clampAgendaHeight(prefs.height),
     width: clampAgendaWidth(prefs.width),
   };
   try {
-    localStorage.setItem(AGENDA_KEY, JSON.stringify(safe));
+    // Patch the record, do not rebuild it: a field this build has no name for
+    // — today, the pre-`upcoming-dock` placement — may still be the only copy
+    // of a preference the note has not accepted yet, and folding the panel is
+    // not the moment to throw it away. `forgetStoredPlacement` is the one
+    // thing that removes it, and only once the note has the answer.
+    const kept = storedAgendaRecord() ?? {};
+    localStorage.setItem(AGENDA_KEY, JSON.stringify({ ...kept, ...safe }));
   } catch {
     // a full or blocked store costs the persistence, never the interaction
   }
@@ -150,13 +208,13 @@ export function writeAgendaPrefs(prefs: AgendaPrefs): void {
 }
 
 /** Which placement actually renders, given how wide the calendar pane is.
-    The stored preference survives a narrow window — it is what the pane
-    returns to once there is room again. */
+    The setting survives a narrow window — it is what the pane returns to once
+    there is room again. */
 export function effectivePlacement(
-  prefs: AgendaPrefs,
+  dock: AgendaPlacement,
   paneWidth: number,
 ): AgendaPlacement {
-  if (prefs.placement !== "right") return "bottom";
+  if (dock !== "right") return "bottom";
   // 0 is "not measured yet" (first frame, or a hidden pane), and the stored
   // preference is the better guess than a fallback nobody asked for
   return paneWidth === 0 || paneWidth >= AGENDA_RAIL_MIN_PANE
@@ -180,7 +238,7 @@ export const AGENDA_DAYS_MAX = 42;
 
 export function agendaWindowDays(
   prefs: AgendaPrefs,
-  placement: AgendaPlacement = prefs.placement,
+  placement: AgendaPlacement,
 ): number {
   if (placement === "right") return AGENDA_DAYS_MAX;
   const extra = Math.floor(

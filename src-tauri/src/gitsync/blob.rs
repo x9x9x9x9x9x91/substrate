@@ -174,11 +174,7 @@ impl MasterKey {
     /// subsystem and `salt` distinguishes the instances inside it; both are
     /// domain separation and neither is a secret. Wrapped in `Zeroizing`, so
     /// the derived material wipes itself the moment the caller drops it.
-    pub(crate) fn derive(
-        &self,
-        salt: &[u8],
-        info: &[u8],
-    ) -> Result<Zeroizing<[u8; 32]>, String> {
+    pub(crate) fn derive(&self, salt: &[u8], info: &[u8]) -> Result<Zeroizing<[u8; 32]>, String> {
         derive_key(&self.0, salt, info).map(Zeroizing::new)
     }
 
@@ -187,8 +183,9 @@ impl MasterKey {
     /// echoing anything about the stored value.
     pub(crate) fn from_hex(hex: &str) -> Result<Self, String> {
         let hex = hex.trim();
-        let invalid =
-            || "hosted sync master-key credential is invalid; configure the remote again".to_string();
+        let invalid = || {
+            "hosted sync master-key credential is invalid; configure the remote again".to_string()
+        };
         // Exactly the form to_hex writes — lowercase, 64 characters. Anything
         // else did not come from this app and is treated as corruption.
         if hex.len() != 64
@@ -613,7 +610,8 @@ impl HttpBlobStore {
         if !matches!(parsed.scheme(), "http" | "https") {
             return Err("hosted sync server URL must be http or https".into());
         }
-        if !parsed.username().is_empty() || parsed.password().is_some() || parsed.query().is_some() {
+        if !parsed.username().is_empty() || parsed.password().is_some() || parsed.query().is_some()
+        {
             return Err("hosted sync server URL must not carry credentials or a query".into());
         }
         if token.trim().is_empty() {
@@ -1061,9 +1059,9 @@ impl ListingRefusal {
 fn is_wire_safe_cursor(cursor: &str) -> bool {
     !cursor.is_empty()
         && cursor.len() <= 128
-        && cursor
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'.' || byte == b'-' || byte == b'_')
+        && cursor.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || byte == b'.' || byte == b'-' || byte == b'_'
+        })
 }
 
 impl HttpBlobStore {
@@ -1821,9 +1819,9 @@ fn verify_present_sample(
         let local = odb
             .read(*oid)
             .map_err(|error| format!("hosted sync object {oid} unavailable: {error}"))?;
-        let envelope = transport.get_object(name, MAX_OBJECT_ENVELOPE_BYTES).map_err(|error| {
-            format!("{}: {error}", damaged_present_object(*oid))
-        })?;
+        let envelope = transport
+            .get_object(name, MAX_OBJECT_ENVELOPE_BYTES)
+            .map_err(|error| format!("{}: {error}", damaged_present_object(*oid)))?;
         let stored = decrypt_object(key, name, &envelope)
             .map_err(|error| format!("{}: {error}", damaged_present_object(*oid)))?;
         verify_git_hash(&stored)
@@ -2436,11 +2434,9 @@ fn remote_head_builds_on(
             }
             verify_git_hash(&object)?;
             if object.oid != oid {
-                return Err(
-                    "hosted sync push refused: the server returned the wrong object for \
+                return Err("hosted sync push refused: the server returned the wrong object for \
                      its own history; nothing changed here"
-                        .into(),
-                );
+                    .into());
             }
             commit_parent_ids(&object.data)
         };
@@ -2934,8 +2930,7 @@ pub(crate) fn change_passphrase(
 /// operation, and telling them apart is the difference between trying again
 /// and going to look up the new phrase.
 fn passphrase_changed_elsewhere_error() -> String {
-    "the vault passphrase was changed on another device; enter the current one and try again"
-        .into()
+    "the vault passphrase was changed on another device; enter the current one and try again".into()
 }
 
 /// The server's key document unwrapped to a key that is not this vault's — a
@@ -4795,8 +4790,8 @@ mod tests {
     /// log line or error chain that ever did.
     #[test]
     fn the_http_store_never_debug_prints_its_token() {
-        let store = HttpBlobStore::new("https://drop.example/blob", "test-token-0123456789")
-            .unwrap();
+        let store =
+            HttpBlobStore::new("https://drop.example/blob", "test-token-0123456789").unwrap();
         let shown = format!("{store:?}");
         assert!(!shown.contains("test-token-0123456789"), "{shown}");
         assert!(shown.contains("drop.example"), "{shown}");
@@ -5258,10 +5253,7 @@ mod tests {
 
         flaky.failing.set(false);
         push_replacing_remote(&b, &key, &flaky, || ()).unwrap();
-        assert!(
-            !super::super::store_replaced(&repo_b),
-            "the approving retry left a pause behind"
-        );
+        assert!(!super::super::store_replaced(&repo_b), "the approving retry left a pause behind");
     }
 
     /// A pause heals when the store turns ordinary again: an operator restore
@@ -5308,10 +5300,7 @@ mod tests {
         ));
 
         pull(&b, &key, &store, || ()).unwrap();
-        assert!(
-            !super::super::store_replaced(&repo_b),
-            "an ordinary store left the pause armed"
-        );
+        assert!(!super::super::store_replaced(&repo_b), "an ordinary store left the pause armed");
         assert_eq!(fs::read_to_string(b.join("Third.md")).unwrap(), "ahead of b\n");
     }
 
@@ -5366,10 +5355,7 @@ mod tests {
         // blocking the Replace door.
         let refused = pull_adopting_replaced(&b, &key, &store, || ()).unwrap_err();
         assert!(refused.contains("rewritten"), "{refused}");
-        assert!(
-            !super::super::store_replaced(&repo_b),
-            "the answered pause outlived its answer"
-        );
+        assert!(!super::super::store_replaced(&repo_b), "the answered pause outlived its answer");
         push_replacing_remote(&b, &key, &store, || ()).unwrap();
     }
 
@@ -5835,11 +5821,7 @@ mod tests {
         let cached = load_listing_cache(&path, &cache_store_key(&store.store_identity()))
             .expect("cache written");
         assert!(!store.journal.borrow().is_empty(), "the push uploaded nothing to be wrong about");
-        assert!(
-            cached.names.is_empty(),
-            "the push cached its own uploads: {:?}",
-            cached.names
-        );
+        assert!(cached.names.is_empty(), "the push cached its own uploads: {:?}", cached.names);
 
         // The next push is answered those same names out of the store's own
         // list, which is what makes leaving them out free rather than a cost.
@@ -6675,7 +6657,8 @@ mod tests {
         let transport = http(&server);
 
         assert!(transport.read_ref(MAX_REF_ENVELOPE_BYTES).unwrap().is_none());
-        let CasResult::Updated(first) = transport.compare_and_swap_ref(None, b"one").unwrap() else {
+        let CasResult::Updated(first) = transport.compare_and_swap_ref(None, b"one").unwrap()
+        else {
             panic!("first ref write should have been accepted");
         };
         // A second device that also believes the ref is absent must lose.
@@ -6807,8 +6790,7 @@ mod tests {
         });
 
         let transport = HttpBlobStore::new(&format!("http://{address}"), "token").unwrap();
-        let listing =
-            transport.list_objects_since(Some("epoch-one.4"), MAX_LIST_OBJECTS).unwrap();
+        let listing = transport.list_objects_since(Some("epoch-one.4"), MAX_LIST_OBJECTS).unwrap();
         served.join().unwrap();
 
         assert_eq!(listing.names, vec!["a".repeat(64)]);
@@ -6876,9 +6858,8 @@ mod tests {
             let address = listener.local_addr().unwrap();
             let plain = Arc::new(AtomicUsize::new(0));
             let counted = Arc::clone(&plain);
-            let refusal = format!(
-                "HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-            );
+            let refusal =
+                format!("HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
             let served = std::thread::spawn(move || {
                 for stream in listener.incoming().take(2) {
                     let mut stream = stream.unwrap();
@@ -6969,9 +6950,8 @@ mod tests {
             let transport = HttpBlobStore::new(&format!("http://{address}"), "token")
                 .unwrap()
                 .with_retry_policy(brisk_retry());
-            let error = transport
-                .list_objects_since(Some("epoch-one.4"), MAX_LIST_OBJECTS)
-                .unwrap_err();
+            let error =
+                transport.list_objects_since(Some("epoch-one.4"), MAX_LIST_OBJECTS).unwrap_err();
             let code: u16 = status[..3].parse().unwrap();
             assert_eq!(error, status_error("listing", code), "{status}: not reported as itself");
             assert_eq!(

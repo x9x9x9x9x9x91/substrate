@@ -75,7 +75,7 @@ Vault/
 ├── .claude/skills/            # agent skills, seeded + user-written (§12)
 ├── .assets/                   # embedded binaries, flat (§9)
 ├── .trash/                    # deleted notes + folders, recoverable (§10)
-├── .vault/                    # format.json + schema.json + views.json + folders.json + calendars.json + mounts.json + mounts/ + notifications.json + jobs-exit.json + sealed-key.age + lens.json + lens-subscriptions.json + templates/ + kinds/ + backup/ (§2a, §5b–§8)
+├── .vault/                    # format.json + schema.json + views.json + folders.json + calendars.json + mounts.json + mounts/ + notifications.json + jobs-exit.json + sync-folders.json + files-index.json + sealed-key.age + lens.json + lens-subscriptions.json + templates/ + kinds/ + backup/ (§2a, §5b–§8f)
 ├── .substrate-seal            # optional vault-wide inherited seal marker (§2a)
 └── .git/                      # version history, owned by the app (§11)
 ```
@@ -83,9 +83,10 @@ Vault/
 **The hidden rule**: any path component starting with `.` is invisible — never
 indexed, searched, or watched (`vault/mod.rs` `hidden_rel`, `walk_md_files`). That
 covers `.assets/`, `.trash/`, `.vault/`, `.git/`, and any `.foo/` you add
-yourself. The `.substrate-seal` policy marker is the sole dotfile watcher
-exception: it is never a note, but creating, changing, or removing one triggers a
-scope reconciliation. Only `.md` files are notes; binary files (containing NUL) are skipped,
+yourself. The `.substrate-seal` policy marker is one of the narrow dotfile
+watcher exceptions (with the live-watched `.vault/` configs and `.assets/`
+image removals, §13): it is never a note, but creating, changing, or removing
+one triggers a scope reconciliation. Only `.md` files are notes; binary files (containing NUL) are skipped,
 invalid UTF-8 is read lossily. One explicit-path exception: `.vault/templates/`
 (§7) stays unindexed but can be read and written directly.
 
@@ -708,13 +709,19 @@ brackets. The inner text is `target#anchor|alias`, all three parts optional:
   ever an error**: whatever it says, the embed still resolves and still renders.
   Nothing is stored — the size lives in the note text and nowhere else. Applies
   to image embeds on all three surfaces (editor, hub dashboards, print/PDF);
-  audio players, file chips and the one-sheet hero image ignore it — the hero
+  the editor's document viewer reads the width and caps its page at it; audio
+  players, file chips and the one-sheet hero image ignore it — the hero
   is a hoisted layout slot that owns its own dimensions.
 
 - Rendering is by extension: audio (`.wav .aif .aiff .mp3 .flac .m4a .ogg
   .opus .weba .webm`) renders an audio player (streams from disk); images
-  (`.png .jpg .jpeg .gif .webp .svg .avif .heic .heif`) render inline; **any
-  other extension renders a file chip** — the name plus its size. Click or Enter/Space opens
+  (`.png .jpg .jpeg .gif .webp .svg .avif .heic .heif`) render inline; `.pdf`
+  renders its pages inline in the editor, one at a time, with a bar underneath
+  that steps through them (← → PageUp PageDown when the viewer has focus) and
+  an **Open** button for the OS-default app. The page renderer ships with the
+  app — fonts, character maps and all — so a document renders with no network
+  at all. **Any other extension renders a file chip** — the name plus its size.
+  Click or Enter/Space opens
   the file in the OS-default app; there is no in-app preview. Paste/drop
   accepts any file type and copies it into `.assets/` (§9); **⇧-drop links in
   place instead** (macOS) — the embed stores the `~/`-contracted path and the
@@ -725,8 +732,8 @@ brackets. The inner text is `target#anchor|alias`, all three parts optional:
   covers are the exception: they resolve `~/`/absolute targets via the `artwork`
   prop or the first image embed in the body.
 - Missing or moved targets render `missing image · <name>` / `missing audio ·
-  <name>` / `missing file · <name>` — a display state, not an error; the file
-  content is untouched.
+  <name>` / `missing pdf · <name>` / `missing file · <name>` — a display state,
+  not an error; the file content is untouched.
 
 #### Timestamped audio annotations
 
@@ -861,6 +868,87 @@ app (see §8b) always go to this prop, never into the body.
 
 Nested tags (`#a/b`), tag colours, tag renaming and tags in pulse/fences are
 not part of this format. `#a/b` reads as the tag `a` followed by `/b`.
+
+## 3c. Page layout — columns
+
+### Columns
+
+Three HTML comments put part of a page side by side:
+
+```markdown
+<!-- columns -->
+## Left
+- one
+- two
+<!-- col -->
+## Right
+Right body with a [[Static Bouquet]] link.
+<!-- /columns -->
+```
+
+- The markers are `<!-- columns -->` (open), `<!-- col -->` (divider, repeat
+  for a third and fourth column) and `<!-- /columns -->` (close). Each must be
+  **alone on its line**; leading and trailing spaces and tabs are ignored and
+  the keyword is matched case-insensitively. Parsed by `parseColumnRegions`
+  (`src/lib/columns.ts`), the single reader behind the editor, print, publish,
+  handoff and export.
+- The content between the markers is **ordinary body text** — headings, lists,
+  tables, wikilinks, tags, embeds. It indexes, it backlinks, it counts. This
+  is the reason the layout is comments and not a fence: a machine fence would
+  take the content out of the search index and out of the markdown parser.
+- **What a column renders is what the same markdown shows outside one.** The
+  file is fully live — search, backlinks, tags and counts all read the text
+  inside a region exactly as they read the text above it — and the picture the
+  editor draws while the caret is elsewhere keeps the page's working parts
+  working. Inside a region:
+  - a **task box** is a real toggle: clicking it flips the `[ ]` on its own
+    source line, exactly as it does outside a region, and the layout stays put;
+  - an **audio, PDF or file embed** in body text, a list item or a heading is
+    the app's own player or chip — audio in its inline, seek-only form (an
+    `annotations` fence does not bind to a player inside a region); images
+    render as they always did;
+  - a ` ```view ` fence draws the live table, and its cells edit in place;
+  - a **callout** (`> [!note]`, §5.3a) renders as a callout — kind glyph,
+    quiet frame, the author's `|accent` honored;
+  - clicks on any of these belong to the control; clicking the prose around
+    them still puts the caret in the source.
+
+  What stays print-style inside a region:
+  - a **tag** is plain text, neither tinted nor a click into search;
+  - every **other machine fence** — ` ```chart `, ` ```calendar ` and the rest
+    of §5 — shows its source plus the same quiet "draws on a dashboard note"
+    hint line it gets in the editor outside a region (unless the note is a
+    dashboard's own source, where the line would be noise);
+  - **quote interiors** — a task inside a quote or a callout body is still a
+    printed mark, and a file embed there (or in a table cell) is still a
+    named placeholder;
+  - a **video embed** is still a named placeholder.
+
+  Put the caret in the region and all of it is the plain markdown that was
+  always on disk — that rule is unchanged.
+- **Every other markdown reader drops the comments and keeps the prose.** A
+  column note opened in Obsidian, pushed through Pandoc or read on GitHub is
+  the same page in one column, in order. Nothing about the file is Substrate's
+  to lose.
+- **Widths are not expressible, and the row is all or nothing.** Columns share
+  the row evenly, and every surface has exactly two ways to draw a region: all
+  the columns side by side, or all of them stacked top to bottom in written
+  order. A pane, a phone-width published page or a printed measure too narrow
+  to give every column its minimum stacks the whole row rather than fitting
+  what it can — a third column dropped under the first reads as that column
+  continuing, which is a worse lie than stacking. Same bargain as the hub
+  renderer (§5.2) — the vault says *these belong side by side*, the surface
+  decides whether they can be.
+- Regions **do not nest**: an opener inside an open region invalidates the
+  outer one. A region with no divider is legal and renders as one column; an
+  empty segment renders as an empty column. Markers inside a code fence are
+  code, not layout.
+- A **malformed region** — an opener with no closer — renders as its literal
+  text, comments and all, the same fail-open rule the annotations block
+  follows. Nothing is hidden that cannot be round-tripped.
+- In the editor the region renders as one block widget; putting the caret
+  inside it gives back the markdown underneath, exactly as tables and view
+  fences do.
 
 ## 4. Databases and prop values
 
@@ -3534,8 +3622,8 @@ file; `vault_doctor` names it and says changes are being refused.
 }
 ```
 
-- `view`: one of `list`, `table`, `board`, `gallery` (anything else is rejected
-  by the app).
+- `view`: one of `list`, `table`, `board`, `gallery`, `calendar` (anything else
+  is rejected by the app).
 - `group_by`: optional; the prop a board groups its columns by. Omitted when unset.
 - `table_group_by`: optional; the prop a table groups its section
   rows by. A separate key from `group_by` — a table never inherits the
@@ -3543,6 +3631,23 @@ file; `vault_doctor` names it and says changes are being refused.
   (unschema'd values after, alphabetically), the "No <prop>" section trails,
   empty sections don't render. Omitted when unset. `vault_rename_prop` /
   `vault_clear_prop` (§4) keep this key in sync like `group_by`.
+- `cal_date`: optional; the date prop a CALENDAR places its rows on. Its own
+  key for the same reason `table_group_by` is: a calendar's date binding must
+  never be re-read as a board's grouping. Omitted when unset — the calendar
+  then falls back to the first date property the database offers, and a
+  database with no date property draws no grid at all. A key naming a prop
+  that is gone falls back the same way rather than emptying the month. What a
+  database offers is every prop the schema declares as a date plus every prop
+  its rows carry one on, minus the reserved date-shaped props that never mean
+  scheduling (`created`, `updated`, `title`, `type`, `calendar`, `repeat`,
+  `repeat_until`, `repeat_skip` — §5.7 states this refusal for the three
+  `repeat*` keys; the rest are reserved the same way), however the schema
+  declares them. That reserved class is the whole of the guarantee: a prop the
+  schema declares as a date is offered even when no row carries a value for it,
+  and binding to it draws an empty month. No pin captures this key, so a pin shown as a calendar
+  places its rows on the same day its database does rather than rebinding to
+  the first prop offered — it follows the database the way the other
+  uncaptured presentation keys do.
 - `aggregations`: optional; the table layout's per-column footer
   calculations — column name → one of `sum`, `avg`, `min`, `max`, `count`
   (`count` = non-empty cells; the rest parse cells as numbers and skip
@@ -3590,7 +3695,8 @@ file; `vault_doctor` names it and says changes are being refused.
   object with nothing left leaves the file). A layout with no set of its own
   reads the flat `hidden` seed; the first per-layout write materializes both
   layouts' sets and drops the flat key, so a written file is always fully in
-  the new shape. Board/gallery have no curation UI and never carry a set.
+  the new shape. Board, gallery and calendar have no curation UI and never
+  carry a set.
   `vault_rename_prop` / `vault_clear_prop` (§4) sweep these entries like the
   flat list's.
 - `widths`: optional; table column widths in px, prop name →
@@ -3736,8 +3842,10 @@ rewritten. Current reserved keys:
   header, the list caps at 3. Written only when 2+ keys are active; `sort`
   always mirrors the first key so older readers keep working, and readers
   treat a view as `sorts ?? (sort ? [sort] : [])`), optional `view` /
-  `group_by` / `table_group_by` (layout and grouping overrides; absent falls
-  back to the database's own pref), optional `columns` (the ordered
+  `group_by` / `table_group_by` / `cal_date` (layout, grouping and
+  calendar-date-binding overrides; absent falls
+  back to the database's own pref — so two pins on one database may place
+  their calendar rows on two different date props), optional `columns` (the ordered
   property keys this view renders in table/list layouts, the title column
   always leading; absent = the database's default column union, keys naming
   no known column are ignored).
@@ -3983,11 +4091,56 @@ These are the inputs that can differ, and where each one comes from:
   rules, which follow YAML 1.2's core schema but are not a YAML
   implementation. A warned note is exactly where the two readers can differ.
 - **Non-table pins are evaluated as the table they would be, grouping and
-  all.** A pin whose `view` is `board`, `gallery` or `list` gets table rows
-  and table cells (below, "v1 covers saved TABLE views only") — and if the
-  pin or its database carries a `table_group_by`, the payload's `groups` are
-  populated with sections that exist on no board and in no gallery. Read
+  all.** A pin whose `view` is `board`, `gallery`, `list` or `calendar` gets table
+  rows and table cells (below, "v1 covers saved TABLE views only") — and if
+  the pin or its database carries a `table_group_by`, the payload's `groups`
+  are populated with sections that exist on no board, gallery or month grid.
+  Read
   `rows` and ignore `groups` when the pin is not a table.
+
+### The same answer through the MCP door
+
+`view_read` (`docs/mcp-door.md`) hands this payload to an MCP client, and to
+`substrate-mcp view NAME` on the command line. It is the same contract and
+the same evaluator — the door runs the app's bundled copy of it rather than
+reading the view rules a second time in Rust — with three differences that
+follow from the caller being granted rather than trusted:
+
+- **`reader` says `scope` instead of `vault`.** A client that reached the
+  vault through grants was never told where on the host it sits, so the
+  absolute path is not in its payload; `scope` is `"granted folders"` and
+  says the table was narrowed by something other than the view.
+- **`reader.members`** counts the notes read that belong to the view's
+  database, before its filter narrows them. It is not a view rule and not
+  part of the answer: it is what lets the door tell "the filter matched
+  nothing" from "this caller was never given the database", which are the
+  same empty table and must not read the same way. The door refuses the
+  second case rather than answering it.
+- **`source`** says where the answer came from — `{"kind":"saved"}` for a
+  pin, `{"kind":"fence","path":…,"fence":N}` for the Nth ```view fence in a
+  note (§5.5), which the door can evaluate as well as a pin. A fence's rows
+  carry no `kind` and no `values`: its resolver paints joined and freshness
+  columns that stand for no stored property, so a kind claimed for them would
+  be claimed for cells that have none. Its own `limit:` still applies; the
+  widget's display caps do not, because those are a drawing limit rather than
+  part of what the fence says.
+
+Both `source` and the `reader` keys are additive, so they do not bump the
+version — a reader written against the headless verb reads a door payload
+without knowing they exist.
+
+The scoping is decided **before** anything is evaluated: the door turns the
+client's grants into the list of note paths that may be opened at all, drops
+sealed notes from it, and the evaluator opens nothing else. An ungranted note
+is therefore absent rather than filtered — not a row, not a rollup target
+a relation could follow out of the granted folders, not a group count. The
+pin list is scoped the same way and just as early: a name is resolved only
+against the pins over databases the granted notes belong to, so a pin this
+client was never given refuses in the same words as a name the vault does not
+carry, and a name two databases share is settled by the grants rather than
+answered with the ungranted database's type. `reader.warnings` is scoped too
+— a note that would not open is reported by its vault-relative `path` and a
+reason with no host path in it.
 
 ### Versioning
 
@@ -4003,9 +4156,9 @@ new grouping rule changes what this payload says, and that change is either
 compatible or a version bump. Weigh it when adding one.
 
 **v1 covers saved TABLE views only.** A pin whose `view` is `board`,
-`gallery` or `list` is evaluated as the table it would be — the same rows and
-cells, no board columns or gallery cards. Dashboards, sheet cells and the
-MCP-door method are not in v1.
+`gallery`, `list` or `calendar` is evaluated as the table it would be — the
+same rows and cells, no board columns, gallery cards or calendar days.
+Dashboards and sheet cells are not in v1.
 
 ## 8. `.vault/mounts.json` — mounted folders (reality mounts)
 
@@ -4640,6 +4793,162 @@ nothing is categorized, which is a normal vault.
   degrading to "no rules", because a half-read money file is worse than a
   loud one.
 
+## 8f. `.vault/sync-folders.json` + `.vault/files-index.json` — folders that don't sync
+
+A vault can keep a folder off sync. The folder stays on whichever devices
+already hold it and stops travelling between them: **nothing is deleted
+anywhere**, on the device that made the decision or on any other.
+
+The decision is **vault-wide, not per-device**. There is no "sync this folder on
+the laptop but not the phone" — the list is a tracked file that syncs like any
+other `.vault/` config, so every device gets the same answer. That is a
+deliberate limit rather than a missing feature: a per-device list means two
+devices can disagree about whether a path belongs in the history, and one then
+spends every snapshot re-committing what the other spends every snapshot
+removing.
+
+### `.vault/sync-folders.json` — the list
+
+```json
+{
+  "version": 1,
+  "exclude": ["Files", "Music/Stems"]
+}
+```
+
+- `exclude` — vault-root-relative folder paths, `/`-separated. Nested paths
+  work; matching is by path prefix **on whole segments**, so `Music` covers
+  `Music/loop.wav` and never `Musicals/riff.md`.
+- **Absent file → `["Files"]`.** The attachments home ships excluded, because
+  it is the one folder whose contents are binaries by construction. Nothing
+  writes the file until the setting is first touched.
+- **A default never unsyncs a folder the vault already carries.** On a vault
+  that has been syncing `Files/` since before this format existed, the default
+  is skipped for that folder: it keeps syncing until somebody turns the switch
+  off. Otherwise the first snapshot after an update would commit the folder's
+  deletion and drop real attachments off every other device, from a release
+  note. An explicit config file is a decision and is honoured either way,
+  including a decision to exclude a folder that is already tracked.
+- **An explicit `[]` is a decision** and means "sync everything". Only an
+  absent or unparseable file falls back to the default — the fallback leans
+  towards excluding, because the failure worth avoiding is the one that starts
+  uploading a folder somebody excluded.
+- Entries are refused, not repaired, when they are absolute, carry a `.` or
+  `..` segment, or begin with a dot. The first two are escapes out of the
+  vault; the third is the app's own `.vault/`, `.assets/` and `.trash/`, whose
+  sync behaviour is settled elsewhere and is not the user's to override here.
+- Entries carrying `*`, `?`, `[`, `]` or `\` are refused as well — at the
+  moment the folder is picked, and again when the file is read. The exclusion
+  is enforced through a gitignore file, and all five are gitignore syntax
+  there: `Notes [2026]` written verbatim is a character class that matches
+  `Notes 0` and never the folder itself. Refusing them is what keeps the two
+  platforms reading one config the same way; an entry that reached the file
+  some other way is skipped rather than half-applied.
+- Unknown fields are ignored, so a file written by a newer app still parses.
+- The file carries its own `version` and is **not** in `.vault/format.json`'s
+  registry (§5b).
+
+Edited in the app under **Settings → Vault → Folders that don't sync**, or by
+hand. A hand edit is picked up by the next snapshot.
+
+### How a folder actually stops syncing
+
+Three mechanisms, and each covers a hole the others leave:
+
+1. **The index.** An ignore rule has no effect on a path git already tracks, so
+   the first snapshot after an exclusion runs `git rm -r --cached` over the
+   folder. That commit — a tree with the folder's files removed — is what other
+   devices read as "stop syncing this".
+2. **`.git/info/exclude`.** The excluded folders are appended to the file the
+   app writes at every repo open, below a `# substrate:sync-folders` marker
+   line, each anchored and directory-only (`/Music/Stems/`). Without this the
+   leftover files read as untracked in every `git status` the app makes, and a
+   snapshot would see a dirty tree it can never clean.
+3. **The pull.** A device that pulls another's exclusion sees deletions for
+   files it still has. It **untracks them locally instead of deleting them**:
+   the checkout is fenced off those paths and they are dropped from the index,
+   leaving the bytes on disk and the tree clean. A deletion under a folder
+   nobody excluded still deletes, as always. The list a pull honours is the
+   union of this device's and the one inside the incoming history — including
+   the remote head's, so an exclusion is still honoured when the config file
+   itself conflicted and the user kept their own copy.
+4. **The re-include.** Letting a folder back in arrives on the other devices as
+   additions, at paths they may already hold their own never-synced copies of.
+   Those are fenced off the checkout too, and the local copy is staged instead:
+   **nothing is silently overwritten**, and the difference surfaces as an
+   ordinary edit the next snapshot carries.
+
+None of this applies to a **shared space**. A space has no `.vault/` and its
+members share a folder precisely so that everything in it travels, so the list
+is never read there — the caller says which kind of repository it is, and a
+space's own ignore rules keep their own flavour (`.assets/` stays syncable).
+
+That marker line is also why the exclude file's **ownership check** reads in two
+parts. `.git/info/exclude` doubles as evidence that a repository is the app's
+(§11): a line outside the app's fixed vocabulary means a human wrote it, which
+reads the whole repo as the user's own and turns version history off for it. A
+folder list can't be a fixed vocabulary, so the check reads only the part above
+the marker. A foreign line there still disowns the repo, and a file that *opens*
+with the marker has no anchor above it and is not ours either — so pasting the
+marker in cannot launder somebody's repository.
+
+### `.vault/files-index.json` — the ghost index
+
+What the excluded folders hold, for the devices that don't hold them. Written by
+whichever device actually has the folder on disk; tracked and synced like the
+list itself.
+
+```json
+{
+  "version": 1,
+  "folders": {
+    "Files": {
+      "updated": 1767225600000,
+      "entries": [{ "path": "Guides/x.pdf", "size": 123, "mtime": 456 }]
+    }
+  }
+}
+```
+
+- `path` is relative **to the folder**, not to the vault. `size` is bytes,
+  `mtime` and `updated` are Unix milliseconds (`0` where the platform wouldn't
+  say).
+- Refreshed at snapshot time, and **written only when the listing actually
+  changed** — a scan that finds nothing new produces no commit. "Changed"
+  compares names and sizes, not `mtime`: two devices holding the same file got
+  it at different moments, so comparing timestamps would have each device
+  rewriting what the other just wrote, one commit per snapshot, over content
+  that never changed.
+- **One slot per folder, which is the shape's limit.** Two devices holding
+  *different* copies of the same excluded folder each replace the other's
+  listing on every snapshot. Nothing is lost by it — the index is a listing,
+  not the files — and the case the feature exists for is the opposite one: the
+  folder lives on the machine with the disk for it and is absent elsewhere.
+- Dot-prefixed names are skipped at every level.
+- Capped at 5000 entries per folder; past that the folder's record carries
+  `"capped": true` rather than leaving a suspiciously round count to be
+  inferred.
+- A folder this device does **not** have is left exactly as another device
+  wrote it — absence here is not evidence of absence there. A folder that is no
+  longer excluded is dropped, because its rows would describe files the vault
+  now syncs for real.
+
+### Letting a folder back in
+
+Weighed before it is allowed. Every object the sync transport carries is sealed
+and uploaded whole, so one file past the per-object ceiling (64 MiB,
+`gitsync/blob.rs`) fails the whole push rather than failing alone. An include
+that would carry such a file is **refused**, with the offending files named, and
+nothing changes — the same refusal a space makes when an oversize asset is
+copied in. The scan also reports the folder's total size, so a multi-gigabyte
+include can say what the next sync is about to cost.
+
+### On the wire
+
+Both files are ordinary tracked vault content. On a hosted remote they ride the
+same encrypted transport as every note, and no folder name ever appears in a
+URL, a header, or an unencrypted manifest.
+
 ## 9. `.assets/` — embedded binaries
 
 Flat store for pasted/imported files. Dot-prefixed → never indexed, never watched,
@@ -4658,9 +4967,11 @@ never in history.
   the trash copy is the only recovery path.
 - Export bundle copies the note plus every `.assets/` file it embeds into
   `<dest>/.assets/`, so the `![[...]]` targets still resolve.
-- Non-media assets (PDF, docx, html, …) render as file chips in the editor
-  (§3): click opens them in the OS-default app. Export and print treat them
-  like every other asset — print emits `embedded file · <name>`.
+- A PDF renders its pages inline in the editor (§3); every other non-media
+  asset (docx, html, …) renders as a file chip there, and click opens it in the
+  OS-default app. Export and print treat them all
+  like every other asset — print emits `embedded file · <name>`, PDFs included:
+  the page renderer is an editing surface, not a paper one.
 
 ## 9a. `.<image>.ocr.txt` — recognized-text sidecars
 
@@ -5053,7 +5364,19 @@ Plain notes the app treats specially — all optional, all just files:
   time with a 20-minute cap; empty or unset = no refresh button, the pane
   offers its setup card instead. Like `terminal-command`, the exact string is
   approved per machine before it first runs — approvals live on the machine,
-  never in the vault; `docs/dashboards.md` §feed has the contract), and
+  never in the vault; `docs/dashboards.md` §feed has the contract),
+  `feed-topics` (a list of topic slugs — the feed dashboard's chips, which
+  write this key as you flip them, undoably, like every other setting. The
+  slugs are the ones the curator put in the sheet's `topic` column, lowercased;
+  an empty list or an unset key both read as no filter, the whole stream. A
+  bare string is read leniently as a one-topic list — `feed-topics: scene`
+  filters to `scene`, the same as `[scene]` — and anything else (a number, a
+  map) reads as no filter. A slug that matches nothing in today's items is
+  inert rather than an error, so a selection survives the curator retiring a
+  topic. This is a *stated preference*, not the display's arrangement — which
+  is why it is in this file: "these are the topics I care about" follows the
+  person to a second machine. A selection made before this key existed is
+  migrated out of the browser store once, on first read), and
   `drop-hint` (default `true`; `false` hides the drag-over copy-vs-⇧-link
   hint), `mod-hud` (default `true`; `false` stops the hold-⌘ panel from
   unfolding the shortcuts that would fire right now — same rule as
@@ -5066,6 +5389,36 @@ Plain notes the app treats specially — all optional, all just files:
   board's `stale`/`undated` age chips — same explicit-`false` rule as
   `drop-hint`. It is the global DEFAULT: a board with its own `stale_days`
   (§5.2) keeps its chips, and a task with `stale: never` never wears one),
+  `upcoming-dock` (`bottom` or `right`, default `bottom`; where the calendar's
+  Upcoming panel sits — the strip under the grid, or a rail beside the last
+  weekday column. Reads exactly like `terminal-dock`: only the exact word
+  `right` docks it as a rail, anything else reads as `bottom`. A calendar too
+  narrow for both a rail and seven readable day columns shows the strip
+  regardless; the setting is what it returns to once there is room. Whether
+  the panel is folded away and how many pixels it takes are NOT here — those
+  are per-window arrangement, see "state that is not in the vault" below),
+  `note-sort` (default `updated desc`; how every list of notes is ordered —
+  the Scratch list, the Notes list and any folder pane, which are one surface
+  wearing three names. One value holding a field and a direction, space
+  separated: the field is `updated` (the file's mtime), `created` (the note's
+  own `created:` frontmatter, §2) or `name` (the title the row displays, so a
+  Journal daily reads as its date and not its stem), and the direction is
+  `asc` or `desc`. Hand-editable, so each half degrades on its own — a field
+  nobody knows falls back to the whole default, while a missing or typo'd
+  direction keeps the field and takes the way that field reads (`name` opens
+  A–Z, the two dates open newest-first). Every order ends in a path tiebreak
+  that no direction flips: a vault restored from a clone has one mtime across
+  the whole tree, and without the last key those rows reshuffle between two
+  renders of notes nothing touched. Notes with no readable `created:` sort
+  last in BOTH directions — a missing date is not an ancient one. Two things
+  outrank this: a database pane's own remembered sort (§7 views.json
+  `sorts`), which is that view's answer about one database rather than the
+  vault's answer about plain lists, and the Journal folder's dateline order,
+  which holds while the key is ABSENT and yields to any stated value —
+  including a stated `updated desc`, which is a choice like any other. With
+  nothing stated the Journal's sort control reads `Created — Newest first`,
+  the dateline order said in its own vocabulary, rather than claiming an
+  order the rows are not in),
   `auto-sync` (default `true`; `false` parks the vault-sync timer lane —
   push when edits settle, pull on open/focus and every few minutes — while
   the Sync pane's Push/Pull buttons keep working either way. Inert until a
@@ -5211,6 +5564,41 @@ Plain notes the app treats specially — all optional, all just files:
   below whenever it still byte-matches a body the app shipped. The body is
   hashed on its own; a note with no frontmatter at all is treated as the
   user's entirely.
+
+  **State that is not in the vault** (the carve-out, decided 2026-08-28). If a
+  person would call it a *setting*, it is a key in this file — that is the
+  rule, and the ⌘, sheet writes nothing anywhere else. Three kinds of state are
+  deliberately outside it, and nothing else may join them:
+
+  - **Per-window arrangement** — how a surface is laid out on *this* display,
+    in *this* window: the calendar's layout mode and the Upcoming panel's fold
+    and pixel size (`substrate.calAgenda`, `substrate.calLayout`), zoom, a
+    hidden sidebar. Per-window state is browser `localStorage`, never synced
+    and never a note, because "168 pixels tall on the laptop" is not a fact
+    about anyone's notes. `upcoming-dock` above is the line between the two:
+    *where* the panel docks is a question the sheet asks, so it moved into
+    this file; how big it is on this screen stayed out.
+  - **Per-machine security state** — the terminal HUD's trust record, which
+    names commands this machine's owner allowed. Syncing it would let one
+    device's decision arm another's shell, so it stays local by design (§12
+    has no key for it, and never will).
+  - **Caches** — recomputable, disposable copies (exchange rates, proxy
+    figures, waveform peaks). A cleared cache costs a redraw, not an answer.
+
+  No preference is outside the three kinds. The last one that was — the Feed
+  dashboard's **topic filter** — moved into this file as `feed-topics`, the
+  worked example of the rule: which chips are lit is a durable statement about
+  the reader, not about this display, so it became a key rather than staying in
+  a browser store. It is also the worked example of the *move*: the old
+  `substrate.feedTopics` value seeds the key on first read and is then deleted
+  from the store, so no one loses a selection and no machine keeps a stale
+  second copy. Anything preference-shaped found in a browser store now is a
+  bug.
+
+  External writers can therefore read every preference from this note alone —
+  including the ones set from a surface rather than from the ⌘, sheet, like the
+  topic filter above: nothing a person would call a setting is hiding in a
+  browser store.
 - `AGENTS.md` (vault root) + `CLAUDE.md` + `.claude/skills/setup/SKILL.md` —
   the orientation the agent CLI in the ⌘⇧T terminal HUD reads about the vault
   it is running inside: `AGENTS.md` is this format in one page,
@@ -5316,15 +5704,19 @@ external write races an open editor.
 2. **The watcher picks changes up live.** Recursive FSEvents over the vault,
    300ms debounce; more than 500 changed paths in one burst triggers a full
    rescan. No restart, no manual refresh. Writes under dot-paths (`.git`,
-   `.assets/`, …) are deliberately invisible to it — with one exception:
+   `.assets/`, …) are deliberately invisible to it — with narrow exceptions
+   (`.substrate-seal` markers and `.assets/` image removals are watcher-visible
+   too, §2a and §9):
    edits to `.vault/schema.json`, `.vault/views.json`,
    `.vault/folders.json`, `.vault/calendars.json`, `.vault/tagfolders.json`,
-   and `.vault/mounts.json` are picked up live and
+   `.vault/mounts.json` and `.vault/reflexes.json` (§8c) are picked up live and
    surface as a separate `vault:config-changed` event (the app's config
    listeners re-read the
    files from disk; no note refetch fires). Everything else under `.vault/`
    (templates, notification state, `jobs-exit.json`, `format.json`, `backup/`,
-   the per-mount indexes under `mounts/`)
+   the per-mount indexes under `mounts/`, and `reflexes-log.json` — app-owned
+   receipts, deliberately unwatched so a fire cannot re-enter the watcher that
+   produced it)
    stays unwatched and is re-read from disk on every access.
 3. **Write atomic-ish**: temp file in the same directory + rename. The watcher
    debounce absorbs bursts, but a torn write can be indexed mid-state. The app

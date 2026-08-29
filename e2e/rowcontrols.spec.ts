@@ -35,19 +35,26 @@ test("primary list and Today rows expose separate keyboard controls (SUB-355)", 
 
   // Existing global list navigation remains independent of the newly
   // focusable row controls: an arrow key changes selection and bare Enter
-  // still moves into the selected note's editor. Welcome sorts last among the
-  // loose rows (the Yield APR fixture left when the yield-apr dashboard kind
-  // was retired), so step UP — the
-  // direction with a guaranteed neighbor — then back DOWN to Welcome, the
-  // known plain note, before entering the editor (its neighbors are sheets
-  // and dashboards, whose panes aren't the note editor).
+  // still moves into the selected note's editor. Where Welcome sits in the
+  // list is the sort order's business, not this test's — the list is ordered
+  // by edit time now, so neither end is guaranteed. Step away in whichever
+  // direction has a neighbor, then step back to Welcome, the known plain
+  // note, before entering the editor (its neighbors are sheets and
+  // dashboards, whose panes aren't the note editor).
   await page.locator(".sidebar-title").click();
   const before = await page.locator(".list .row.selected").getAttribute("data-path");
   await page.keyboard.press("ArrowUp");
   const selected = page.locator(".list .row.selected");
-  const after = await selected.getAttribute("data-path");
+  let after = await selected.getAttribute("data-path");
+  let back = "ArrowDown";
+  if (after === before) {
+    // Welcome is the first row, so up was a no-op — the neighbor is below
+    await page.keyboard.press("ArrowDown");
+    after = await selected.getAttribute("data-path");
+    back = "ArrowUp";
+  }
   expect(after).not.toBe(before);
-  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press(back);
   await expect(selected).toHaveAttribute("data-path", before ?? "");
   const selectedTitle = await selected.getAttribute("aria-label");
   await page.keyboard.press("Enter");

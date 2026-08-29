@@ -77,9 +77,7 @@ pub(crate) fn sweep_dir(engine: &mut Engine, dir: &Path) -> SweepReport {
     let mut envelopes: Vec<PathBuf> = entries
         .flatten()
         .map(|e| e.path())
-        .filter(|p| {
-            p.is_file() && p.extension().is_some_and(|x| x.eq_ignore_ascii_case("json"))
-        })
+        .filter(|p| p.is_file() && p.extension().is_some_and(|x| x.eq_ignore_ascii_case("json")))
         .collect();
     envelopes.sort();
 
@@ -145,9 +143,8 @@ fn land(engine: &mut Engine, envelope: &Envelope) -> Result<(), String> {
 /// the link — scheme validation, credentials, the filename — stays
 /// `create_reference`'s business.
 fn is_bare_http_url(value: &str) -> bool {
-    let head = |prefix: &str| {
-        value.get(..prefix.len()).is_some_and(|h| h.eq_ignore_ascii_case(prefix))
-    };
+    let head =
+        |prefix: &str| value.get(..prefix.len()).is_some_and(|h| h.eq_ignore_ascii_case(prefix));
     (head("http://") || head("https://")) && !value.contains(char::is_whitespace)
 }
 
@@ -278,7 +275,9 @@ fn landing_dir() -> Option<PathBuf> {
         return None;
     }
     let read: unsafe extern "C" fn() -> *mut std::os::raw::c_char = unsafe {
-        std::mem::transmute::<*mut libc::c_void, unsafe extern "C" fn() -> *mut std::os::raw::c_char>(raw)
+        std::mem::transmute::<*mut libc::c_void, unsafe extern "C" fn() -> *mut std::os::raw::c_char>(
+            raw,
+        )
     };
     let ptr = unsafe { read() };
     if ptr.is_null() {
@@ -294,17 +293,17 @@ fn landing_dir() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vault::NoteMeta;
     use crate::vault::testutil::temp_vault;
+    use crate::vault::NoteMeta;
     use std::fs;
 
     /// A landing folder beside the vault — on the phone it lives in the App
     /// Group container, which is outside the vault for the same reason.
     fn landing(root: &Path) -> PathBuf {
-        let dir = root.parent().unwrap().join(format!(
-            "{}-landing",
-            root.file_name().unwrap().to_string_lossy()
-        ));
+        let dir = root
+            .parent()
+            .unwrap()
+            .join(format!("{}-landing", root.file_name().unwrap().to_string_lossy()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
@@ -450,7 +449,11 @@ mod tests {
         assert_eq!(after_first, vec!["Once only.md".to_string()]);
 
         assert_eq!(sweep_dir(&mut e, &pad), SweepReport::default());
-        assert_eq!(filed_since(&dir, &before), after_first, "the sweep filed the same capture twice");
+        assert_eq!(
+            filed_since(&dir, &before),
+            after_first,
+            "the sweep filed the same capture twice"
+        );
         let _ = fs::remove_dir_all(&dir);
         let _ = fs::remove_dir_all(&pad);
     }

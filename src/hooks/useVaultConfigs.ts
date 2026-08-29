@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { Dispatch, RefObject, SetStateAction } from "react";
 import {
   vaultFolderMetaRead,
   vaultSavedViewsRead,
@@ -25,24 +26,48 @@ import { createWriteQueue } from "../lib/writequeue";
    previous one settled, so disk and adoption move in issue order. */
 export const queueViewsWrite = createWriteQueue();
 
+/** State plus a ref holding the value the last SET left, which is not what
+    the last render was handed. Two gestures on the same object inside one
+    frame both read the render's copy, so the second records an undo whose
+    `before` is two steps back — undoing it then jumps a step, or refuses on a
+    conflict that never happened. The undoable writers read the ref instead.
+    The updater form is resolved against the ref rather than against React's
+    copy, so there is exactly one truth here rather than two that can drift.
+
+    The ref is only as live as what is written INTO it, which is why every
+    queued write's adoption passes through the app's adoption gate
+    (`lib/writequeue.ts`) on the way here: without it a completed write's
+    response walks the ref back to that write's value while a newer gesture is
+    still in flight, and an undo recorded in that window captures the wrong
+    `before`. */
+function useLive<T>(initial: T): [T, Dispatch<SetStateAction<T>>, RefObject<T>] {
+  const [value, setValue] = useState(initial);
+  const ref = useRef(initial);
+  const set = useCallback((next: SetStateAction<T>) => {
+    ref.current = typeof next === "function" ? (next as (cur: T) => T)(ref.current) : next;
+    setValue(ref.current);
+  }, []);
+  return [value, set, ref];
+}
+
 /**
  * everything the app reads out of `.vault/views.json` and the schema: db
  * prefs, sidebar order, saved views, folder icons and the database schema —
  * plus the queued-write helper every optimistic setter goes through.
  */
 export function useVaultConfigs(showToast: (msg: string) => void) {
-  const [viewsConfig, setViewsConfig] = useState<ViewsConfig>({});
+  const [viewsConfig, setViewsConfig, viewsConfigRef] = useLive<ViewsConfig>({});
   // `folders` is seeded here rather than left undefined — a
   // `?? []` at the Sidebar call site would mint a fresh array every render and
   // silently defeat the memo for every vault whose folders were never dragged.
-  const [sidebarOrder, setSidebarOrder] = useState<SidebarOrder>({
+  const [sidebarOrder, setSidebarOrder, sidebarOrderRef] = useLive<SidebarOrder>({
     dashboards: [],
     databases: [],
     folders: [],
   });
-  const [savedViews, setSavedViews] = useState<SavedView[]>([]);
+  const [savedViews, setSavedViews, savedViewsRef] = useLive<SavedView[]>([]);
   /** per-folder icons, keyed by vault-relative folder path */
-  const [folderMeta, setFolderMeta] = useState<FolderMetaMap>({});
+  const [folderMeta, setFolderMeta, folderMetaRef] = useLive<FolderMetaMap>({});
   /* tag-query folders. Their own file, not views.json — the queue
      above serializes views.json writers only, and tagfolders.json has a
      single writer (the builder), so it needs no queue of its own. */
@@ -92,12 +117,16 @@ export function useVaultConfigs(showToast: (msg: string) => void) {
   return {
     viewsConfig,
     setViewsConfig,
+    viewsConfigRef,
     sidebarOrder,
     setSidebarOrder,
+    sidebarOrderRef,
     savedViews,
     setSavedViews,
+    savedViewsRef,
     folderMeta,
     setFolderMeta,
+    folderMetaRef,
     tagFolders,
     setTagFolders,
     schema,

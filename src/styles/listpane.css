@@ -63,6 +63,50 @@
   color: var(--text-1);
 }
 
+/* The header's sort control — which order the rows below are in, and the
+   only place to change it. Pushed to the header's far edge like the "+",
+   and first when both are there: the order is about the whole list, the
+   birth button is about the next note. */
+.list-sort {
+  margin-left: auto;
+  flex: none;
+}
+
+/* the "+" sits beside it rather than claiming the gap for itself */
+.list-sort ~ .list-new {
+  margin-left: 0;
+}
+
+.list-sort-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: var(--r-2);
+  background: transparent;
+  color: var(--text-3);
+  transition:
+    background-color var(--t) ease-out,
+    color var(--t) ease-out;
+}
+
+.list-sort-btn:hover,
+.list-sort-btn.active {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+/* the tick column is held open on every row, so the labels do not shift
+   sideways when the checked row moves */
+.list-sort-menu .dots-check {
+  display: flex;
+  flex: none;
+  width: 12px;
+  color: var(--accent);
+}
+
 /* Folder header "+" — births a note (or the home database's entry)
    in the open folder; sits at the header's far edge, .sidebar-new's shape */
 .list-new {
@@ -253,13 +297,13 @@ button.empty-hint-fix:hover {
 }
 
 .note-inner {
-  /* Notion's reading measure is ~900px; 700 read cramped next to it
-     (2026-07-20: "more space in notion") — 780 keeps lines readable
-     while letting the page breathe */
+  /* fluid: the note fills the pane, side padding is the only margin
+     (2026-08-28: "i want notes to use more width" — was 780px, and 700
+     before that; mobile already ran uncapped, desktop now matches) */
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  max-width: 780px;
+  max-width: none;
   /* .note is a flex item rather than an explicitly-sized containing block,
      so a percentage min-height collapses to content height here. Match the
      desktop pane's viewport minus .main's 8px top/bottom frame instead. */

@@ -156,7 +156,7 @@ async function mountPane(
     t,
     h(
       UndoContext.Provider,
-      { value: { record: (e: Omit<UndoEntry, "id">) => recorded.push(e), runById: () => {} } },
+      { value: { record: (e: Omit<UndoEntry, "id">) => recorded.push(e), runById: () => {}, evictScope: () => {} } },
       h(DatabasePane as never, paneProps(notes, over) as never)
     )
   );
@@ -773,7 +773,7 @@ async function mountFoldable(
     t,
     h(
       UndoContext.Provider,
-      { value: { record: (e: Omit<UndoEntry, "id">) => recorded.push(e), runById: () => {} } },
+      { value: { record: (e: Omit<UndoEntry, "id">) => recorded.push(e), runById: () => {}, evictScope: () => {} } },
       h(Host)
     )
   );

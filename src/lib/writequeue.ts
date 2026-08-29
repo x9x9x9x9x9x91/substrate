@@ -17,3 +17,33 @@ export function createWriteQueue() {
     return result;
   };
 }
+
+/** Adoption that cannot regress to an older write's result.
+
+    The queue above keeps the WRITES in issue order, but the optimistic state
+    each gesture sets is not in the queue at all: gesture A sets its value and
+    queues its write, gesture B sets its value while A is still in flight, and
+    then A's response lands and adopts A's — older — value over B's. The state
+    is briefly two gestures behind, and an undo recorded in that window
+    captures A as its `before`, so undoing a third gesture jumps back past B.
+
+    So only the NEWEST write issued against a given adopter is allowed to
+    adopt: an older response still resolves its own promise (callers read the
+    stored truth off it for their guards) but no longer writes to state. The
+    newest write's response always lands, so state still converges on what the
+    engine normalized rather than on what the UI asked for.
+
+    Keyed on the adopter's identity, which means a stable callback — the state
+    setters — gets the guarantee, and a one-off inline adopter is simply always
+    the newest of its own kind, exactly as it was before. */
+export function createAdoptionGate(): <T>(adopt: (value: T) => void) => (value: T) => void {
+  const issued = new WeakMap<object, number>();
+  return <T,>(adopt: (value: T) => void) => {
+    const mine = (issued.get(adopt) ?? 0) + 1;
+    issued.set(adopt, mine);
+    return (value: T) => {
+      if (issued.get(adopt) !== mine) return;
+      adopt(value);
+    };
+  };
+}

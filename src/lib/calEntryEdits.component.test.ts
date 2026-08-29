@@ -68,6 +68,7 @@ const LiveCalendar = () => {
     onTrashNote: () => {},
     onRenameNote: async () => {},
     onOpenJournal: () => {},
+    upcomingDock: "bottom" as const,
   });
 };
 

@@ -539,8 +539,7 @@ fn als_attr(e: &quick_xml::events::BytesStart, key: &[u8]) -> Option<String> {
 /// The twelve note names a Live scale root is stored as, sharp-spelled.
 /// Live stores the root as a pitch class and the mode as its own string, so
 /// the readable key is the two joined back together.
-const ALS_NOTES: [&str; 12] =
-    ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+const ALS_NOTES: [&str; 12] = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
 /// What an Ableton project says about the set inside it.
 ///
@@ -632,7 +631,9 @@ fn als(path: &Path) -> Result<Reading, String> {
                 let parent =
                     if tracked { stack.last().map(Vec::as_slice).unwrap_or(b"") } else { &b""[..] };
                 let grandparent = tracked
-                    .then(|| stack.len().checked_sub(2).and_then(|i| stack.get(i)).map(Vec::as_slice))
+                    .then(|| {
+                        stack.len().checked_sub(2).and_then(|i| stack.get(i)).map(Vec::as_slice)
+                    })
                     .flatten();
 
                 if depth == 0 && name == b"Ableton" {
@@ -1340,8 +1341,7 @@ mod tests {
 
     /// A project file as it is on disk: one gzipped XML document.
     fn gz(xml: &str) -> Vec<u8> {
-        let mut enc =
-            flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        let mut enc = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
         enc.write_all(xml.as_bytes()).unwrap();
         enc.finish().unwrap()
     }
@@ -1609,7 +1609,8 @@ mod tests {
     fn every_field_is_independently_optional() {
         // a set with no master tempo, no scale and no tracks: still a set,
         // and still worth the one column it can answer
-        let xml = r#"<?xml version="1.0"?><Ableton Creator="Ableton Live 9.7.7"><LiveSet/></Ableton>"#;
+        let xml =
+            r#"<?xml version="1.0"?><Ableton Creator="Ableton Live 9.7.7"><LiveSet/></Ableton>"#;
         let path = scratch("bare.als", &gz(xml));
         let r = extract(&path, "als").unwrap();
         assert_eq!(r.columns["als_version"], serde_json::json!("Ableton Live 9.7.7"));
@@ -1698,7 +1699,9 @@ mod tests {
     fn a_repeated_device_is_only_named_once() {
         let mut xml = String::from("<Ableton><LiveSet><Tracks>");
         for _ in 0..50 {
-            xml.push_str("<MidiTrack><DeviceChain><Devices><Reverb/></Devices></DeviceChain></MidiTrack>");
+            xml.push_str(
+                "<MidiTrack><DeviceChain><Devices><Reverb/></Devices></DeviceChain></MidiTrack>",
+            );
         }
         xml.push_str("</Tracks></LiveSet></Ableton>");
         let path = scratch("same.als", &gz(&xml));

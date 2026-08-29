@@ -242,3 +242,67 @@ test("right-click on a windowed row opens its menu (SUB-461)", async ({ page }) 
   // the menu belongs to the row that was clicked — right-click selects first
   await expect(page.locator(".list .row.selected")).toHaveAttribute("data-path", path ?? "");
 });
+
+/** How many times each index read has crossed the IPC boundary since the
+    trace was installed. `vault_list` is the whole vault — every note's meta,
+    props map and all; `vault_metas` is the patch, and carries only the paths
+    the write named. */
+async function indexReads(page: Page) {
+  return page.evaluate(() => {
+    const trace = (window.__mockReadCommandTrace?.() ?? []) as { cmd?: string }[];
+    return {
+      list: trace.filter((e) => e.cmd === "vault_list").length,
+      metas: trace.filter((e) => e.cmd === "vault_metas").length,
+    };
+  });
+}
+
+test("a mutation patches the list; only a rescan re-lists the vault", async ({ page }) => {
+  await openSeeded(page);
+  await page.evaluate(() => {
+    // the mock's watcher echo, so the round trip is the real one: write,
+    // vault:changed ~300ms later, and whatever the app decides to re-fetch
+    window.__mockSetEchoOnWrites?.(true);
+    window.__mockTraceCommands?.();
+  });
+
+  // an edit to the open note. Whatever the app re-reads afterwards, it is
+  // the one path it just wrote — never the whole vault again
+  const target = page.locator('.list .row[data-path="Inbox/Seeded 0001.md"]');
+  await target.click();
+  await expect(page.locator(".note-title")).toHaveValue("Seeded 0001");
+  await page.locator(".cm-line").first().click();
+  await page.keyboard.insertText("patched, not re-listed");
+  await expect
+    .poll(async () =>
+      page.evaluate(
+        () =>
+          ((window.__mockReadCommandTrace?.() ?? []) as { cmd?: string }[]).filter(
+            (e) => e.cmd === "vault_write_body"
+          ).length
+      )
+    )
+    .toBeGreaterThan(0);
+  await page.waitForTimeout(1600); // past the echo window and its trailing timer
+  expect((await indexReads(page)).list, "an edit never re-lists the vault").toBe(0);
+
+  // a mutation the list has to hear about: the row leaves, and the app
+  // fetches the paths the delete named rather than the whole vault again
+  await target.click({ button: "right" });
+  await page.locator(".ctx-menu").locator(".ctx-item", { hasText: "Move to Trash" }).click();
+  await expect(page.locator('.list .row[data-path="Inbox/Seeded 0001.md"]')).toHaveCount(0);
+  await page.waitForTimeout(1600);
+  const afterTrash = await indexReads(page);
+  expect(afterTrash.list, "a named write never re-lists the vault").toBe(0);
+  expect(afterTrash.metas, "it fetches the paths it named").toBeGreaterThan(0);
+  // and the list is still the list: windowed, sorted, minus one row
+  await expect(page.locator(".list .row").first()).toBeVisible();
+  await expect
+    .poll(async () => Number(await page.locator(".list-count").innerText()))
+    .toBeGreaterThanOrEqual(SEEDED - 1);
+
+  // the engine's no-payload event is the one thing a patch cannot answer: it
+  // means "I lost track and rescanned", of unknown reach. That still re-lists.
+  await page.evaluate(() => window.__mockEmit?.("vault:changed", []));
+  await expect.poll(async () => (await indexReads(page)).list).toBeGreaterThan(0);
+});

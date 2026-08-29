@@ -117,16 +117,35 @@ export function evictScope(s: UndoState, scope: UndoScope): UndoState {
   return { entries, cursor };
 }
 
-/** Move the cursor after an entry's inverse actually ran. Keyed by id, not by
-    position: an await elapsed between peek and advance, and if the stack moved
-    under us in that window this is a no-op rather than a wrong move. */
+/** Retire an entry whose inverse actually ran. Keyed by id, not by position:
+    a vault write elapsed between the peek and this call, and the stack can
+    have moved under us in that window.
+
+    The ordinary case is the entry still sitting where ⌘Z found it, and the
+    cursor simply steps past it. The other case is a new action recorded WHILE
+    the inverse was in flight: the push moves the cursor above the entry, so it
+    is no longer what `peekUndo` returns — but it has been undone, and leaving
+    it in the list as runnable means a later ⌘Z walks back down onto it and
+    runs the same inverse a second time (with a check-then-act guard, that is
+    a refusal that stales the whole stack; without one, the edit is undone
+    twice). So it is dropped from the list instead, which is exactly where it
+    would have ended up had the push arrived a moment later: a push drops the
+    redo side, and after a plain undo this entry IS the redo side. An id that is no longer in the
+    list, or one that sits above the cursor, is somebody else's business and
+    leaves the stack alone. */
 export function advance(s: UndoState, id: number, dir: -1 | 1): UndoState {
   // dir -1 undid the entry peekUndo would have returned; dir 1 redid
-  // peekRedo's. If the id doesn't match, the stack moved and we leave it be.
+  // peekRedo's — the untroubled case, where the cursor just steps.
   const target = dir === -1 ? peekUndo(s) : peekRedo(s);
-  if (!target || target.id !== id) return s;
-  const at = s.entries.indexOf(target);
-  return { ...s, cursor: dir === -1 ? at - 1 : at };
+  if (target && target.id === id) {
+    const at = s.entries.indexOf(target);
+    return { ...s, cursor: dir === -1 ? at - 1 : at };
+  }
+  const at = s.entries.findIndex((e) => e.id === id);
+  if (at === -1 || at > s.cursor) return s;
+  const entries = s.entries.slice();
+  entries.splice(at, 1);
+  return { entries, cursor: s.cursor - 1 };
 }
 
 /** The nearest stale entry ⌘Z would have run had it not gone stale — the
@@ -164,14 +183,49 @@ export function staleBecause(entry: UndoEntry): string {
   return entry.stale === "failed" ? "undoing it failed earlier" : "it changed on disk";
 }
 
-/** Find an entry by id — the toast action and ⌘Z must run the same operation,
-    so the toast holds an id rather than its own closure. */
-export function byId(s: UndoState, id: number): UndoEntry | null {
-  return s.entries.find((e) => e.id === id) ?? null;
+/** The entry an id still names on the undo side — the toast action and ⌘Z
+ *  must run the same operation, so the toast holds an id rather than its own
+ *  closure.
+ *
+ *  Only at or below the cursor. An entry the keystroke already took back is
+ *  still in the list (it is the redo side now), and a toast is on screen for
+ *  seconds after the action it announces, so a ⌘Z landing first leaves a
+ *  button pointing at work that is already reverted. Running it again is a
+ *  second write the user never asked for — or, against a check-then-act
+ *  inverse, a refusal that stales the whole stack. Nothing left to undo is
+ *  the honest answer, and it is what the keystroke would say too. */
+export function pendingById(s: UndoState, id: number): UndoEntry | null {
+  const at = s.entries.findIndex((e) => e.id === id);
+  // not stale, either: the keystroke SKIPS a stale entry and says so without
+  // writing, and the button must not outrank that skip — running the inverse
+  // anyway would hit the conflict guard and the failure path would then mark
+  // the whole stack stale, taking runnable entries down with it.
+  return at >= 0 && at <= s.cursor && !s.entries[at].stale ? s.entries[at] : null;
 }
 
 /** Test seam: ids are module-global and monotonic, which is right in the app
     and awkward across test cases that assert on them. */
 export function __resetUndoIds(): void {
   nextId = 1;
+}
+
+/** Deep value equality with key order factored out — the compare the
+    check-then-act inverses lean on. What the engine stores comes back in ITS
+    key order and the object an action built is in the UI's, so a plain JSON
+    compare would call two identical snapshots different and refuse every
+    undo. An absent key and an `undefined` one are the same thing here,
+    because that is how they round-trip through the vault. */
+export function sameConfig(a: unknown, b: unknown): boolean {
+  return canonical(a) === canonical(b);
+}
+
+function canonical(v: unknown): string {
+  if (v === undefined || v === null) return "null";
+  if (typeof v !== "object") return JSON.stringify(v);
+  if (Array.isArray(v)) return `[${v.map(canonical).join(",")}]`;
+  const o = v as Record<string, unknown>;
+  const keys = Object.keys(o)
+    .filter((k) => o[k] !== undefined)
+    .sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${canonical(o[k])}`).join(",")}}`;
 }

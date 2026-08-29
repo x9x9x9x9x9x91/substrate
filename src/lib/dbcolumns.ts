@@ -180,9 +180,9 @@ export function dbColumns(notes: NoteMeta[], typeSchema: Record<string, PropSche
     per-layout set when it has one, else the flat `hidden` — which pre
     pref files carry and which therefore seeds BOTH layouts (the read-side
     migration; the first per-layout write materializes both sets and drops
-    the flat key) — else nothing hidden. Board and gallery have no curation
-    UI; where they need a column list at all (CSV export) they read the table
-    set, the columnar layout's. */
+    the flat key) — else nothing hidden. Board, gallery and calendar have no
+    curation UI; where they need a column list at all (CSV export) they read
+    the table set, the columnar layout's. */
 export function hiddenForLayout(
   pref: Pick<ViewPref, "hidden" | "hidden_per_layout"> | undefined,
   layout: DbLayout

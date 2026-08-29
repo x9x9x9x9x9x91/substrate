@@ -148,13 +148,12 @@ fn run_one(app: &AppHandle, job: &Job) -> Result<(), Failure> {
         let state: tauri::State<crate::AppState> = app.state();
         let engine = state.0.lock().unwrap();
         let content = engine.read(&job.rel)?;
-        let name = first_embed(&content.body)
-            .ok_or_else(|| Failure {
-                // no embed means no audio will ever appear: the note is text,
-                // and text does not become a recording later
-                msg: "note has no audio to transcribe".into(),
-                terminal: true,
-            })?;
+        let name = first_embed(&content.body).ok_or_else(|| Failure {
+            // no embed means no audio will ever appear: the note is text,
+            // and text does not become a recording later
+            msg: "note has no audio to transcribe".into(),
+            terminal: true,
+        })?;
         (content.body, engine.root.join(".assets").join(name))
     };
     if !audio.is_file() {
@@ -170,8 +169,8 @@ fn run_one(app: &AppHandle, job: &Job) -> Result<(), Failure> {
 
     // the audio is here and readable-in-principle: if the model still can't
     // make text of it, no later launch will
-    let text = whisper::transcribe_wav(&model, &audio)
-        .map_err(|msg| Failure { msg, terminal: true })?;
+    let text =
+        whisper::transcribe_wav(&model, &audio).map_err(|msg| Failure { msg, terminal: true })?;
     let title = whisper::title_from_transcript(&text);
     let new_body = compose_body(&body, &text, job.replace);
 
@@ -228,7 +227,8 @@ fn first_embed(body: &str) -> Option<String> {
 pub(crate) fn compose_body(old: &str, transcript: &str, replace: bool) -> String {
     // whisper heard nothing — say that, rather than leaving a note that looks
     // like it is still waiting its turn in the queue
-    let text = if transcript.trim().is_empty() { "*no speech detected*" } else { transcript.trim() };
+    let text =
+        if transcript.trim().is_empty() { "*no speech detected*" } else { transcript.trim() };
 
     let mut embeds = Vec::new();
     let mut rest = Vec::new();
@@ -271,7 +271,10 @@ mod tests {
 
     #[test]
     fn finds_the_embedded_recording() {
-        assert_eq!(first_embed("![[Voice 2026-08-04 15.02.wav]]\n").as_deref(), Some("Voice 2026-08-04 15.02.wav"));
+        assert_eq!(
+            first_embed("![[Voice 2026-08-04 15.02.wav]]\n").as_deref(),
+            Some("Voice 2026-08-04 15.02.wav")
+        );
         assert_eq!(first_embed("  ![[a.wav|the take]]").as_deref(), Some("a.wav"));
         assert_eq!(first_embed("no audio here"), None);
         assert_eq!(first_embed("![[]]"), None);

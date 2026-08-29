@@ -59,6 +59,11 @@ export interface ShortcutCtx {
       the shortcut sheet; its own Esc is pane-owned (window capture handler) */
   settingsOpen: boolean;
   typing: boolean;
+  /** Focus sits in a form that commits and clears on Enter, which has opted
+      into app undo with `data-undo-scope="app"`. The caret is then parked in
+      an emptied field and ⌘Z there means "take the entry back", not "restore
+      the text I just submitted" (docs/undo.md §2.5). */
+  undoForm?: boolean;
   selectedMeta: NoteMeta | null;
   dbNote: string | null;
   /** date string when the selected note is a journal day, else null */
@@ -78,8 +83,8 @@ export interface ShortcutCtx {
   workbookOpen: boolean;
   /** User-assigned key token → sidebar target token ($sidebar.keys) */
   customKeys: Record<string, string>;
-  /** A mounted yield/food board currently has history in this
-      direction. Directional truth lets an empty side fall through to the
+  /** A mounted board keeping its own body-level history has something in
+      this direction. Directional truth lets an empty side fall through to the
       session stack without sharing one keypress with a live board action. */
   dashCanUndo: boolean;
   dashCanRedo: boolean;
@@ -316,20 +321,24 @@ export const SHORTCUTS: Shortcut[] = [
   // the editor or any text input the scope is inactive, so CodeMirror and the
   // browser keep their own undo and the vault stack never steals ⌘Z.
   //
-  // And board history availability is the other half of it. The
-  // yield and food boards keep their OWN window ⌘Z / ⌘⇧Z handlers (dash-undo
-  // below). Both sides listen on the bubble phase with App's listener
-  // registered first, so
-  // the board's preventDefault cannot suppress this one: without the gate a
-  // single ⌘Z rewrote two files and toasted only the session edit. One board,
-  // one owner — while that board direction is available the chord is its alone.
+  // And board history availability is the other half of it. A vault-resident
+  // kind can still keep its OWN window ⌘Z / ⌘⇧Z handler (dash-undo below).
+  // Both sides listen on the bubble phase with App's listener registered
+  // first, so the board's preventDefault cannot suppress this one: without
+  // the gate a single ⌘Z rewrote two files and toasted only the session edit.
+  // One board, one owner — while that board direction is available the chord
+  // is its alone. The food board no longer takes it: its edits are entries on
+  // the session stack like any other action (docs/undo.md §6.6).
   define({
     id: "undo",
     description: "Undo last change",
     group: "Navigation",
-    scopes: ["surface"],
+    // "app" alongside "surface" is the commit-and-clear escape hatch: the
+    // scope stays inactive mid-typing, and `when` lets exactly the opted-in
+    // forms through it.
+    scopes: ["surface", "app"],
     combos: [{ key: "z", mod: true, shift: false, fold: true }],
-    when: (_e, ctx) => !ctx.dashCanUndo,
+    when: (_e, ctx) => !ctx.dashCanUndo && (!ctx.typing || !!ctx.undoForm),
     // the hint chip only advertises undo when there is one — the panel is 12
     // rows and an inert key doesn't earn one
     hint: (ctx) => ctx.canUndo && !ctx.dashCanUndo,
@@ -338,8 +347,9 @@ export const SHORTCUTS: Shortcut[] = [
     id: "redo",
     description: "Redo",
     group: "Navigation",
-    scopes: ["surface"],
-    // ⇧⌘Z everywhere, plus ⌃Y where Windows/Linux users reach for it
+    // ⇧⌘Z everywhere, plus ⌃Y where Windows/Linux users reach for it; "app"
+    // is the same commit-and-clear hatch the undo entry above carries
+    scopes: ["surface", "app"],
     combos: [
       { key: "z", mod: true, shift: true, fold: true },
       { key: "y", ctrl: true, meta: false },
@@ -348,7 +358,7 @@ export const SHORTCUTS: Shortcut[] = [
     // z chord, so ⌃Y there is inert rather than half-handled — the alternative
     // (gating just the z combo) leaves the HUD advertising session Redo next
     // to the board's own row under ⌘⇧, which is the confusion being removed.
-    when: (_e, ctx) => !ctx.dashCanRedo,
+    when: (_e, ctx) => !ctx.dashCanRedo && (!ctx.typing || !!ctx.undoForm),
     hint: (ctx) => ctx.canRedo && !ctx.dashCanRedo,
   }),
   define({
@@ -501,11 +511,11 @@ export const SHORTCUTS: Shortcut[] = [
     id: "dash-undo",
     description: "Undo board edit",
     group: "Views",
-    // The yield and food boards have owned ⌘Z / ⌘⇧Z since they
-    // shipped, entirely undocumented — found while taking modifier inventory
-    // for the hold HUD. Listed as `pane`: the boards keep their own window
-    // handlers, this entry exists so the sheet and the HUD can teach the
-    // chord. `⌘⇧Z` is the only ⌘⇧ chord outside Navigation.
+    // A board that keeps its own body-level history owns ⌘Z / ⌘⇧Z while it
+    // is up — undocumented until a modifier inventory for the hold HUD found
+    // it. Listed as `pane`: the board keeps its own window handler, this
+    // entry exists so the sheet and the HUD can teach the chord. `⌘⇧Z` is the
+    // only ⌘⇧ chord outside Navigation.
     scopes: ["pane"],
     combos: [{ key: "z", mod: true, shift: false }],
     hint: (ctx) => ctx.dashCanUndo,

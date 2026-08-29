@@ -29,11 +29,7 @@ pub(crate) fn drives_list(
 /// One level of a drive's catalog. Reads the index, never the disk, so it
 /// answers the same whether the drive is on the desk or in a drawer.
 #[tauri::command]
-pub(crate) fn drive_entries(
-    state: State<AppState>,
-    id: String,
-    prefix: String,
-) -> Vec<DriveEntry> {
+pub(crate) fn drive_entries(state: State<AppState>, id: String, prefix: String) -> Vec<DriveEntry> {
     state.0.lock().unwrap().drive_entries(&id, &prefix)
 }
 

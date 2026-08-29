@@ -15,7 +15,7 @@ import type {
    scope — shim one before importing so node lands on the mock lane. */
 (globalThis as { window?: unknown }).window = globalThis;
 const { invoke } = await import("./tauri.ts");
-const { splitEcho, __resetOwnWrites } = await import("./ownwrites.ts");
+const { splitEcho, takeUnsyncedWrites, __resetOwnWrites } = await import("./ownwrites.ts");
 
 test("template reads reuse the listed spelling, exact first", async () => {
   const listed = await invoke<string[]>("vault_template_list");
@@ -911,6 +911,49 @@ test("the database/property bulk sweeps record an unnamed own-write (SUB-660)", 
   }
 });
 
+/* Moving a folder rewrites every note under it — ordinary note writes the OS
+   watcher reports like any other. Left out of the watched set it filed in the
+   list's ledger only: the echo came back unclaimed and read as somebody
+   else's edit (flattening the undo stack), and the auto-sync push, which
+   rides the same seam, never heard the vault had changed. Its sibling folder
+   ops were watched all along. */
+test("a folder move claims its own echo and drives the sync push", async () => {
+  const note = await invoke<NoteMeta>("vault_create", {
+    title: "Movefolder Subject",
+    folder: "MoveFolderFrom",
+  });
+  __resetOwnWrites();
+
+  // cold: with nothing recorded the same echo reads as an outside edit
+  assert.deepEqual(
+    splitEcho([note.path]).external,
+    [note.path],
+    "control — no own-write yet"
+  );
+
+  const { onVaultWrite } = await import("./tauri.ts");
+  let pushes = 0;
+  const off = onVaultWrite(() => {
+    pushes += 1;
+  });
+  const moved = await invoke<string>("vault_move_folder", {
+    path: "MoveFolderFrom",
+    folder: "MoveFolderTo",
+  });
+  off();
+  assert.equal(moved, "MoveFolderTo/MoveFolderFrom");
+  assert.equal(pushes, 1, "the move never told the auto-sync push the vault moved");
+
+  // a folder op sweeps notes it never names, so the honest answer is unnamed
+  const split = splitEcho([note.path, "MoveFolderTo/MoveFolderFrom/Movefolder Subject.md"]);
+  assert.equal(split.unknown, true, "unnamed reach — a folder move names no paths");
+  assert.deepEqual(split.external, [], "neither side of the move reads as somebody else's write");
+  assert.equal(split.recentOwn, true, "the write was recorded");
+
+  // and the list still hears about it, which is all it had before
+  assert.equal(takeUnsyncedWrites().unnamed, true);
+});
+
 /* A bulk delete's reach IS nameable — the engine answers one entry per input
    path, in order — so it must not fall through to the unnamed default the
    counting sweeps take. Unnamed, a neighbour's edit landing in the same window
@@ -942,6 +985,71 @@ test("a bulk delete names the notes it vacated, minus the ones that failed", asy
   const partial = splitEcho([c.path, "BulkDel Missing.md"]);
   assert.deepEqual(partial.own, [c.path]);
   assert.deepEqual(partial.external, ["BulkDel Missing.md"], "the refused path was never our write");
+});
+
+/* The note list refills after every mutation, and it refills from what this
+   ledger names: fetch these paths, not all ~2600 notes. So the ledger has to
+   name a write's whole reach — the same reach undo attribution reads — and it
+   has to hold entries until somebody drains them rather than expire them on a
+   clock the way the echo window does, or a row goes stale unnoticed. */
+test("the own-write ledger names what to re-fetch, and holds it until drained", async () => {
+  const note = await invoke<NoteMeta>("vault_create", { title: "Unsynced Subject", folder: "" });
+  __resetOwnWrites();
+
+  // nothing written: no paths and no unnamed write, which is a caller's cue
+  // to fetch the whole list (a mount, a rescan, the user asking)
+  assert.deepEqual(takeUnsyncedWrites(), { paths: [], unnamed: false });
+
+  // a write names its path, and draining is what "the list caught up" means
+  await invoke("vault_set_prop", { path: note.path, key: "mood", value: "warm" });
+  assert.deepEqual(takeUnsyncedWrites(), { paths: [note.path], unnamed: false });
+  assert.deepEqual(takeUnsyncedWrites(), { paths: [], unnamed: false }, "drained once, not twice");
+
+  // unlike the echo window, entries do not age out — nobody drained, so the
+  // path is still owed a fetch however long the app sat idle
+  await invoke("vault_set_prop", { path: note.path, key: "mood", value: "cool" });
+  const stale = splitEcho([note.path], Date.now() + 60_000);
+  assert.deepEqual(stale.own, [], "the echo window has long closed");
+  assert.deepEqual(takeUnsyncedWrites(), { paths: [note.path], unnamed: false });
+
+  // a rename's whole reach, not just the renamed note: the vacated path has
+  // to leave the list too, or a deleted row lingers in it
+  const renamed = await invoke<RenameResult>("vault_rename", {
+    path: note.path,
+    title: "Unsynced Renamed",
+  });
+  const afterRename = takeUnsyncedWrites();
+  assert.equal(afterRename.unnamed, false);
+  assert.ok(afterRename.paths.includes(note.path), "the vacated path is fetched (and found gone)");
+  assert.ok(afterRename.paths.includes(renamed.meta.path), "so is the note's new path");
+
+  // a folder op sweeps notes it never names, so the honest answer is
+  // "re-list" — the same conservative answer an unpathed event gets
+  await invoke("vault_create_folder", { path: "Unsynced Folder" });
+  assert.equal(takeUnsyncedWrites().unnamed, true);
+});
+
+/* What the ledger's paths are spent on. Positional so the answer can say
+   "gone": a removed note has no meta to return, and the row has to go. */
+test("vault_metas answers the asked paths in order, null where the note is gone", async () => {
+  const a = await invoke<NoteMeta>("vault_create", { title: "Metas Kept", folder: "" });
+  const b = await invoke<NoteMeta>("vault_create", { title: "Metas Doomed", folder: "" });
+
+  const got = await invoke<(NoteMeta | null)[]>("vault_metas", { paths: [b.path, a.path] });
+  assert.deepEqual(
+    got.map((m) => m?.path ?? null),
+    [b.path, a.path]
+  );
+
+  // the same rows a full list carries, so a patched list matches a listed one
+  const listed = await invoke<NoteMeta[]>("vault_list");
+  assert.deepEqual(got[1], listed.find((n) => n.path === a.path));
+
+  await invoke("vault_delete", { path: b.path });
+  const after = await invoke<(NoteMeta | null)[]>("vault_metas", {
+    paths: [b.path, "Never A Note.md"],
+  });
+  assert.deepEqual(after, [null, null]);
 });
 
 test("vault_schema_set normalizes the lead time like the engine does (SUB-842)", async () => {
@@ -1486,5 +1594,109 @@ test("mock rename mirrors the engine's fence edge cases", async () => {
       "``a [[Fence Edges Src 1569]] b``\n" +
       "a ` lone backtick [[Fence Edges Dst 1569]]\n" +
       "```\n[[Fence Edges Src 1569]]\nno closer here\n"
+  );
+});
+
+/* The ledger is only safe to patch from if it is complete. These four
+   commands change the index without being watched writes — the watcher never
+   attributes their echo to us — and before they filed anything a refresh
+   they triggered would drain some earlier write's paths, patch exactly those
+   rows, and leave the notes the command really added or removed out of the
+   list entirely. */
+test("a recipe install and a mount reach the list's ledger, watched write or not", async () => {
+  __resetOwnWrites();
+
+  // an install names the files the recipe wrote, so the new notes can be
+  // fetched by path rather than by re-listing the vault
+  const installed = await invoke<{ files: { path: string }[] }>("cookbook_install", {
+    id: "food-log",
+    files: ["Cookbook Sheet.md"],
+  });
+  const written = installed.files.map((f) => f.path);
+  assert.ok(written.length > 0, "the mock install wrote nothing to file");
+  const afterInstall = takeUnsyncedWrites();
+  assert.equal(afterInstall.unnamed, false);
+  for (const path of written) {
+    assert.ok(afterInstall.paths.includes(path), `the install never filed ${path}`);
+  }
+
+  // mounting has no nameable reach — a scan adds whatever the folder holds —
+  // so it files the honest answer, and the caller re-lists on it
+  await invoke("mount_add", {
+    name: "Ledger Mount",
+    path: "/tmp/vault-test-ledger-mount",
+    globs: [],
+    watch: false,
+  });
+  assert.equal(takeUnsyncedWrites().unnamed, true, "a mount left the list none the wiser");
+
+  // and the stale-ledger trap the completeness closes: a write whose caller
+  // patches locally and never refreshes leaves paths behind, and the NEXT
+  // refresh — a mount's — must not mistake them for its own reach
+  const note = await invoke<NoteMeta>("vault_create", { title: "Ledger Straggler", folder: "" });
+  await invoke("mount_remove", { id: "no-such-mount", cleanup: false }).catch(() => {});
+  const mixed = takeUnsyncedWrites();
+  assert.ok(mixed.paths.includes(note.path), "the straggler is still owed a fetch");
+});
+
+/* Overlapping refreshes: which answer is allowed to reach the list. */
+test("a later refresh's answer wins per path, and an older one still lands elsewhere", async () => {
+  const { RefreshOrder, mergeList, patchNotes, compareNotes } = await import("./listpatch.ts");
+  const meta = (path: string, updated_ms: number): NoteMeta =>
+    ({ path, title: path, folder: "", updated_ms }) as NoteMeta;
+
+  const order = new RefreshOrder();
+  // patch #2 answers A; patch #1, still in flight, is stale about A only
+  assert.deepEqual(order.admitPatch(2, ["A.md"]), ["A.md"]);
+  assert.deepEqual(order.admitPatch(1, ["A.md"]), [], "an older patch reinstated older state");
+  // the crucial half: an older patch that also carries B is NOT dropped
+  // wholesale — nothing newer has said anything about B
+  assert.deepEqual(order.admitPatch(1, ["A.md", "B.md"]), ["B.md"]);
+
+  // a full list issued at 3 speaks for every path, so it may land — but it
+  // read the vault before patch #4 did, and must not undo it
+  assert.deepEqual(order.admitPatch(4, ["C.md"]), ["C.md"]);
+  assert.deepEqual([...(order.admitList(3) ?? [])], ["C.md"]);
+  // having spoken for everything else, it subsumes the older patches
+  assert.deepEqual(order.admitPatch(2, ["A.md"]), [], "a list did not subsume an older patch");
+  // and a list older than one already applied has nothing left to say
+  assert.equal(order.admitList(2), null);
+
+  // what that means for the rows: the list's stale copy of C is dropped for
+  // the patched one, and a row the patch removed stays removed
+  const patched = [meta("C.md", 300), meta("D.md", 100)];
+  const late = [meta("C.md", 30), meta("D.md", 100), meta("E.md", 20)];
+  assert.deepEqual(
+    mergeList(patched, late, new Set(["C.md", "Gone.md"])).map((n) => n.path),
+    ["C.md", "D.md", "E.md"]
+  );
+  assert.deepEqual(
+    mergeList(patched, late, new Set(["C.md"])).find((n) => n.path === "C.md")?.updated_ms,
+    300
+  );
+
+  // ties settle by path on both sides, so a patched list and a listed one
+  // agree row for row (Engine::list sorts the same way)
+  const tied = patchNotes([meta("B.md", 5), meta("D.md", 5)], ["A.md", "D.md"], [
+    meta("A.md", 5),
+    null,
+  ]);
+  assert.deepEqual(
+    tied.map((n) => n.path),
+    ["A.md", "B.md"]
+  );
+  assert.equal(compareNotes(meta("A.md", 5), meta("B.md", 5)) < 0, true);
+});
+
+/* The mock's list has to order like the engine's, ties included, or an e2e
+   greens a row order the app never shows. */
+test("the listed vault orders newest first, ties by path", async () => {
+  const listed = await invoke<NoteMeta[]>("vault_list");
+  const expected = [...listed].sort(
+    (a, b) => b.updated_ms - a.updated_ms || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)
+  );
+  assert.deepEqual(
+    listed.map((n) => n.path),
+    expected.map((n) => n.path)
   );
 });

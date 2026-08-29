@@ -33,7 +33,7 @@ test("an unconfigured vault keeps the broken-embed placeholder (SUB-444)", async
 
   const missing = page.locator(".cm-embed-missing");
   await expect(missing).toHaveCount(2);
-  await expect(missing.filter({ hasText: "gone.pdf" })).toContainText("missing file · gone.pdf");
+  await expect(missing.filter({ hasText: "gone.pdf" })).toContainText("missing pdf · gone.pdf");
   await expect(missing.filter({ hasText: "gone.png" })).toContainText("missing image · gone.png");
   // no sync remote → nothing could have failed to arrive
   await expect(page.locator(".cm-embed-unsynced")).toHaveCount(0);

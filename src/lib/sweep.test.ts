@@ -5,6 +5,8 @@ import {
   renameDbOutcome,
   renamePropOutcome,
   schemaOnlyClearOutcome,
+  presweep,
+  snapshotRestore,
   stripPropOutcome,
   withSnapshotWarning,
 } from "./sweep.ts";
@@ -127,4 +129,45 @@ test("a partial sweep that rewrote nothing still says so", () => {
   const outcome = renamePropOutcome("author", "writer", died(0));
   assert.match(outcome, /Renamed in 0 notes/, "zero is a real, reportable answer");
   assert.match(outcome, /then failed/);
+});
+
+test("a vault with no history lets the sweep through, saying so", async () => {
+  // history off is a state, not a failure: the sweep runs and the outcome
+  // carries the warning (`withSnapshotWarning` above)
+  assert.equal(await presweep(() => Promise.resolve(false), "before delete database books"), false);
+  assert.equal(await presweep(() => Promise.resolve(true), "before delete database books"), true);
+});
+
+test("a snapshot that failed stops the sweep and says nothing was changed", async () => {
+  await assert.rejects(
+    presweep(() => Promise.reject(new Error("could not write index")), "before delete database books"),
+    (e: Error) => {
+      assert.match(
+        e.message,
+        /nothing was changed/,
+        "a reader has to know which half of the operation they are looking at"
+      );
+      assert.match(e.message, /could not write index/, "and why the snapshot failed");
+      assert.match(e.message, /before delete database books/, "and which sweep it was for");
+      assert.doesNotMatch(
+        e.message,
+        /no safety snapshot taken/,
+        "a failed commit is not a vault without history — that phrasing would read as a sweep that ran"
+      );
+      return true;
+    }
+  );
+});
+
+test("the restore door is only offered when a snapshot was actually taken", () => {
+  let opened = 0;
+  const offered = snapshotRestore(true, () => opened++);
+  assert.equal(offered?.label, "Restore from snapshot");
+  offered?.run();
+  assert.equal(opened, 1, "the button opens the vault history the snapshot lives in");
+  assert.equal(
+    snapshotRestore(false, () => opened++),
+    undefined,
+    "offering a restore there is none of is worse than silence"
+  );
 });

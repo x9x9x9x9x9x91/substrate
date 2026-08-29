@@ -112,7 +112,8 @@ Capacities, Affine).*
   automatic push/pull against your own server (push once edits settle, pull
   on open/focus/interval; conflicts always park for you), HTTPS + keychain
   token, self-hosted;
-  the E2E-encrypted transport is built but unreleased (see In flight).
+  the E2E-encrypted transport has been in shipped builds since 0.25.0, with
+  the proof run the remaining caveat (see In flight).
   **Open source, AGPL** (0.19) — the trust argument Notion structurally can't make.
 - **Sealed notes and inherited private zones, unreadable even to local agents** —
   any individual note, folder subtree, or the user-note portion of a whole vault
@@ -375,12 +376,21 @@ Capacities, Affine).*
   and undistributed. Rides the iOS lane above; same "in development" line.
   (Obsidian mobile has no widget story; Notion's widgets are cloud-bound —
   this one reads the last-synced local vault.)
-- **E2E-encrypted sync**: implemented end to end — encrypted blob-store
-  transport (XChaCha20-Poly1305 per object, Argon2id passphrase wrap), an
-  open-source single-tenant server, and a `blob+https://` remote type in the
-  Sync pane — but not yet in a shipped release or verified against a real
-  vault. Until a release carries it, keep saying "self-hosted sync today,
-  E2E encryption landing"; never market encryption as shipped before then.
+- **E2E-encrypted sync**: encrypted blob-store transport (XChaCha20-Poly1305
+  per object, Argon2id passphrase wrap), an open-source single-tenant server,
+  and a `blob+https://` remote type in the Sync pane. It has been in shipped
+  builds since 0.25.0, so "not shipped" is no longer the honest caveat — the
+  remaining one is proof. `bash scripts/autosync-verify.sh` now drives a binary
+  with the frontend compiled into it against a real store and reads the wire
+  from outside the app: a tee keeps every byte, and the run fails if anything
+  the seeded test vault holds turns up in the capture — its prose, note names
+  and folder names from 24 characters up, the canary folder, file name and tag
+  whatever their length, the sync markers, the passphrase
+  — or if any uploaded body is not inside its encryption envelope. A
+  green run of that on the release commit is what backs the claim, and it is a
+  required pre-release step for any release that touches sync. Advertise
+  encryption only against a green run; without one, the honest line stays
+  "self-hosted sync today, E2E encryption in builds and being proven".
 - **Hosted handoff relay**: the handoff feature is shipped; a public hosted
   relay is not. Until one exists, the self-host story leads.
 - **Same eyes — the evaluated view, headless**: `view-read` prints a saved
@@ -390,14 +400,21 @@ Capacities, Affine).*
   (`substrate.view/1`, vault-format.md §7b). This is the claim no
   CLI-shipping competitor can follow — Obsidian's CLIs and Bear return files
   and search hits, Bases evaluation is app-locked, Notion's API returns
-  records and never the view as configured. **Not yet advertised**: it covers
-  saved TABLE views only, and the MCP-door method (the half an agent reaches
-  without a shell) is not built. Move this to "The core claims" once both are
-  true; the honest sentence then is "you and your AI look at the same
-  board."
-- **Known parity gaps — don't invite the comparison**: multi-column page
-  layout, PDF/doc embeds (image+audio only). Undo covers
-  props + structural edits, not yet everything.
+  records and never the view as configured. The half an agent reaches without a
+  shell now exists too: the MCP door's `view_read` returns the same payload
+  under the client's grants, for a pin or a note's ```view fence, from the
+  same evaluator. **Still not advertised**: it covers saved TABLE views only —
+  a board or a gallery is answered as the table it would be. Move this to
+  "The core claims" once that is no longer true; the honest sentence then is
+  "you and your AI look at the same board."
+- **Known parity gaps — don't invite the comparison**: document embeds render
+  PDFs inline and every other document type as
+  a chip that opens externally. Undo covers
+  props, note and folder moves/renames/creates/trashes, view config,
+  single-property schema edits, frontmatter rewrites and dashboard actions —
+  not database renames, database deletes, property renames or property clears,
+  which sweep every note of a type and recover from the pre-sweep snapshot
+  instead.
 
 ## Planned (roadmap material — clearly marked, never advertised as shipped)
 

@@ -17,6 +17,7 @@ import { createLatestGuard } from "./lib/latest";
 import { foldedPropStr, type NoteMeta, type SearchHit } from "./lib/types";
 import { looksLikeUrl } from "./lib/url";
 import { errText } from "./lib/errtext";
+import { whenVaultReady } from "./lib/vaultReady";
 import {
   contextChipIcon,
   contextChipLabel,
@@ -50,6 +51,11 @@ export function PaletteApp() {
   // query — the ⌘K palette's `hitsQuery` rule
   const [hitsQuery, setHitsQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
+  /* A capture is in flight. Filing waits for the vault index, a wait that can
+     run to the gate's ceiling on a cold launch — and every Enter pressed
+     meanwhile would queue its own capture and file them all together when the
+     index lands: N identical Inbox notes from one typed line. */
+  const [filing, setFiling] = useState(false);
   // selection follows the row's ID, not its slot: a search batch lands under
   // the cursor while the user is typing, and an index would silently move the
   // highlight onto a different note
@@ -63,6 +69,11 @@ export function PaletteApp() {
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const searchGuard = useMemo(() => createLatestGuard(), []);
+  // The note list is refreshed from two places that can overlap — every
+  // re-show of the window and every `vault:changed` — and the command is
+  // async, so two lists in flight can come back in either order and the
+  // older one would paint the vault as it was before the change.
+  const listGuard = useMemo(() => createLatestGuard(), []);
 
   const titles = useMemo(() => new Map(notes.map((n) => [n.path, n.title])), [notes]);
   const dashboards = useMemo(
@@ -75,8 +86,13 @@ export function PaletteApp() {
   );
 
   const reload = useCallback(() => {
-    vaultList().then(setNotes).catch(console.error);
-  }, []);
+    const id = listGuard.issue();
+    vaultList()
+      .then((n) => {
+        if (listGuard.isLatest(id)) setNotes(n);
+      })
+      .catch(console.error);
+  }, [listGuard]);
 
   // The window persists hidden between chords, so every re-show starts clean:
   // empty box, focused input, and a fresh note list (the vault moved on while
@@ -132,8 +148,12 @@ export function PaletteApp() {
       cancelled = true;
       unFocus?.();
       unVault?.();
+      // cancel anything still in flight: a response landing after unmount
+      // would otherwise call a setter on an unmounted component
+      searchGuard.issue();
+      listGuard.issue();
     };
-  }, [reset, reload]);
+  }, [reset, reload, searchGuard, listGuard]);
 
   // Debounced search, guarded so a slow batch can't repopulate stale hits
   // behind a newer query — same 100ms and the same guard the ⌘K palette uses.
@@ -194,8 +214,14 @@ export function PaletteApp() {
   const chip = ctx && !ctxDropped && !looksLikeUrl(q.trim()) ? ctx : null;
 
   const capture = async (text: string) => {
+    if (filing) return;
     setError(null);
+    // this window is created hidden at startup, so a summon during the launch
+    // scan would park the main thread for the rest of it. Wait for the index
+    // rather than freeze the app — the text stays in the box meanwhile.
+    setFiling(true);
     try {
+      await whenVaultReady();
       // a pasted link becomes a reference note, exactly as in quick capture
       if (looksLikeUrl(text)) await urlCaptureGated(text);
       else
@@ -211,6 +237,8 @@ export function PaletteApp() {
       // retries or the text can be copied out
       setError(errText(e));
       return;
+    } finally {
+      setFiling(false);
     }
     setQ("");
     void hideWindow();
@@ -231,9 +259,13 @@ export function PaletteApp() {
   const selected = rows[sel];
   const foot =
     selected?.id === CAPTURE_ROW_ID
-      ? looksLikeUrl(q.trim())
-        ? "capture link"
-        : "file in Inbox"
+      ? // the row is the only place a wait on the index shows: the text stays
+        // in the box, so without this Enter reads as having done nothing
+        filing
+        ? "filing…"
+        : looksLikeUrl(q.trim())
+          ? "capture link"
+          : "file in Inbox"
       : "open";
 
   return (

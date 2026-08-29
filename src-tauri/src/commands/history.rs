@@ -12,6 +12,46 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use tauri::{Manager, State};
 
+// ---------------------------------------------------------------- lock order
+//
+// THE APP'S LOCK ORDER, for every site that holds two of these at once:
+//
+//     ReflexState  →  HistoryState  →  the engine  →  a registry lock
+//
+// The engine is always innermost, and reflex state always outermost. Any site
+// that takes a pair the other way round is an ABBA deadlock waiting for two
+// threads to arrive together — a hang with no error and no log line, which is
+// the one failure the app cannot tell the user about.
+//
+// Why this order and not another:
+//
+// * Reflex state outside the engine because a reflex RUN has no choice: it
+//   holds its runtime — cooldowns, echo memory, the breaker — for the whole
+//   batch and reaches through the engine per action (lib.rs,
+//   `run_reflex_triggers`). The letterbox's own-write rail wants the same pair
+//   for one call, so it is the side that bends: it enters the rail around its
+//   engine-locked landing (`SuppressRail`, commands/letterbox.rs).
+// * History outside the engine because a rewrite has to shut a pull's local
+//   phase out, and the engine mutex is the gate that phase already holds — see
+//   `with_history_rewrite` below.
+// * Reflex state outside history because the reflex run commits what it wrote
+//   under its own subject while still holding its runtime (`snapshot_reflex_
+//   writes`, lib.rs).
+// * A registry lock (`vault::with_registry_lock`, one per registry file)
+//   innermost of all: a letterbox landing reaches it under the engine guard
+//   AND under the rail's reflex guard — `land_drop` → `land_slip` →
+//   `stamp_answered` → `lens::update_registry`. It is a leaf, held for one
+//   read-modify-write of one file and taking none of the three, so it never
+//   appears as the outer of a pair.
+//
+// Nothing re-entrant, either: these are `std::sync::Mutex`, so a thread that
+// already holds one and asks for it again deadlocks against itself. The vault
+// watcher ends its history guard before running reflexes for exactly that
+// reason (lib.rs, the watcher callback).
+//
+// `lock_order.rs` pins the pairs named here — a new site taking one of them
+// backwards fails that test instead of a user's launch.
+
 pub(crate) fn with_history<T>(
     h: &State<HistoryState>,
     f: impl FnOnce(&History) -> Result<T, String>,
@@ -41,7 +81,7 @@ pub(crate) fn with_history<T>(
 /// so taking it here makes rewrite and pull/resolve mutually exclusive.
 pub(crate) fn with_history_rewrite<T>(
     h: &Mutex<Option<History>>,
-    engine: &Mutex<Engine>,
+    engine: &crate::vault::EngineLock,
     f: impl FnOnce(&History) -> Result<T, String>,
 ) -> Result<T, String> {
     let hist = h.lock().unwrap();
@@ -737,7 +777,7 @@ mod tests {
         engine.write_raw(&meta.path, "classified\n").unwrap();
         let hist = Mutex::new(Some(crate::history::History::new(root.clone()).unwrap()));
         hist.lock().unwrap().as_ref().unwrap().snapshot("snapshot").unwrap();
-        let engine = Arc::new(Mutex::new(engine));
+        let engine = Arc::new(crate::vault::EngineLock::new(engine));
 
         // Stand in for a pull's local phase: hold the engine gate, then drop
         // it. The barrier makes the interleaving deterministic — this thread

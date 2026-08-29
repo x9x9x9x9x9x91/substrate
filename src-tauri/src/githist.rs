@@ -589,12 +589,9 @@ fn fact_lanes_in(
     // Absent in every snapshot, or gone at the newest one, means there is no
     // current life to cut to, so the whole lane stands.
     existence.sort_by_key(|(ts, _)| *ts);
-    let born_ts_ms = existence
-        .iter()
-        .rfind(|(_, existed)| !existed)
-        .and_then(|(gone, _)| {
-            existence.iter().find(|(ts, existed)| *existed && ts > gone).map(|(ts, _)| *ts)
-        });
+    let born_ts_ms = existence.iter().rfind(|(_, existed)| !existed).and_then(|(gone, _)| {
+        existence.iter().find(|(ts, existed)| *existed && ts > gone).map(|(ts, _)| *ts)
+    });
     // A topological walk is not a chronological one: a merged or imported
     // history can hand back a commit dated before its own ancestors. `collapse`
     // and `value_at` both read the lane as a timeline, so put it in time order
@@ -2417,5 +2414,4 @@ mod tests {
         assert!(lane.points.is_empty());
         assert_eq!(lane.oldest_ts_ms, Some(noon_ms("2026-01-01")));
     }
-
 }

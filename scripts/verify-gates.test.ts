@@ -564,6 +564,24 @@ test("macsmoke collapses to the check when cargo shares the battery — the test
   }
 });
 
+// The other profile the crate has: everything a public build strips out is
+// behind a cargo feature, and a module that stops compiling without those
+// features used to surface on release day, inside `release-macos.sh --public`.
+test("the cargo leg compiles the profile a public build makes, before testing the full one", () => {
+  const r = makeSmokeRepo("Darwin");
+  try {
+    const res = runSmoke(r, "cargo");
+    assert.equal(res.status, 0, res.stdout + res.stderr);
+    const calls = smokeCargoCalls(r);
+    assert.equal(calls.length, 3, calls.join("\n"));
+    assert.match(calls[0], /^cargo fmt --check/);
+    assert.match(calls[1], /^cargo check --no-default-features --lib/);
+    assert.match(calls[2], /^cargo test --lib/);
+  } finally {
+    rmSync(r.dir, { recursive: true, force: true });
+  }
+});
+
 // ── The default battery ───────────────────────────────────────────────────
 // Every other test here passes --only, so none of them would notice a leg
 // falling out of the DEFAULT gate list — which is precisely the list that
@@ -882,7 +900,12 @@ test("a padded --only is normalised too, and still runs the legs it names", () =
   try {
     const res = runPreflight(r, "test, cargo");
     assert.equal(res.status, 0, res.stdout + res.stderr);
-    assert.deepEqual(preflightToolCalls(r), ["npm test", "cargo test --lib --manifest-path src-tauri/Cargo.toml"]);
+    assert.deepEqual(preflightToolCalls(r), [
+      "npm test",
+      "cargo fmt --check --manifest-path src-tauri/Cargo.toml",
+      "cargo check --no-default-features --lib --manifest-path src-tauri/Cargo.toml",
+      "cargo test --lib --manifest-path src-tauri/Cargo.toml",
+    ]);
   } finally {
     rmSync(r.dir, { recursive: true, force: true });
   }
@@ -908,7 +931,12 @@ test("a Linux rig is not asked for cmake — it never compiles the macOS cfg", (
     const res = runPreflight(r, "test,cargo");
     assert.equal(res.status, 0, res.stdout + res.stderr);
     assert.doesNotMatch(res.stderr, /rig toolchain incomplete/);
-    assert.deepEqual(preflightToolCalls(r), ["npm test", "cargo test --lib --manifest-path src-tauri/Cargo.toml"]);
+    assert.deepEqual(preflightToolCalls(r), [
+      "npm test",
+      "cargo fmt --check --manifest-path src-tauri/Cargo.toml",
+      "cargo check --no-default-features --lib --manifest-path src-tauri/Cargo.toml",
+      "cargo test --lib --manifest-path src-tauri/Cargo.toml",
+    ]);
   } finally {
     rmSync(r.dir, { recursive: true, force: true });
   }

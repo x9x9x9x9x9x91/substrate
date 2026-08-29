@@ -52,12 +52,13 @@ substrate_use_shared_cargo_target
 # than repeating it as a pattern, so a leg can be added or fenced in one place.
 GATES_ALL="tsc,test,cargo,ios,e2e,lint,macsmoke"
 ONLY="$GATES_ALL"
+ONLY_GIVEN=0
 REF=""
 ORIG_ARGS=("$@")
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --only) [[ $# -ge 2 ]] || { echo "verify-gates: --only needs a value" >&2; exit 2; }
-            ONLY="$2"; shift 2 ;;
+            ONLY="$2"; ONLY_GIVEN=1; shift 2 ;;
     --ref)  [[ $# -ge 2 ]] || { echo "verify-gates: --ref needs a value" >&2; exit 2; }
             REF="$2"; shift 2 ;;
     *) echo "verify-gates: unknown arg '$1' (flags: --only $GATES_ALL --ref <commit>)" >&2
@@ -265,6 +266,20 @@ print_failure_detail() { # name, log
   return 0
 }
 
+# Per-leg timing telemetry, strictly advisory. The helper swallows its own
+# failures (see its header); the guards here cover the two it cannot — a
+# checkout that predates it, and a helper that somehow refuses to run at all.
+# A gate verdict must never depend on whether a timing line got written.
+GATE_TIMING_APPEND="$ROOT/scripts/gate-timing-append.sh"
+# What the run covered: the normalised subset, or `full` when no --only was
+# given, so a 40s `lint` leg is never read back as a 40s battery.
+GATE_TIMING_SCOPE=$([[ $ONLY_GIVEN -eq 1 ]] && printf '%s' "$ONLY" || printf 'full')
+record_gate_timing() { # name, seconds, rc
+  [[ -r "$GATE_TIMING_APPEND" ]] || return 0
+  bash "$GATE_TIMING_APPEND" "$1" "$2" "$3" "$HEAD_SHA" "$GATE_TIMING_SCOPE" || true
+  return 0
+}
+
 run_gate() { # name, command...
   local name="$1"; shift
   local log="$LOGDIR/$name.log" start end rc
@@ -318,6 +333,7 @@ run_gate() { # name, command...
       fi ;;
   esac
   NAMES+=("$name"); TIMES+=("$((end - start))s"); SUMMARIES+=("$summary")
+  record_gate_timing "$name" "$((end - start))" "$rc"
   if [[ $rc -eq 0 ]]; then
     STATUSES+=("PASS")
   else
@@ -375,7 +391,7 @@ ios_check() {
 
 # The macsmoke leg: the per-merge proof that the macOS build still
 # compiles and its tests still pass. The cargo leg answers that only for
-# whatever host it ran on, and the fleet has Linux hosts (px1) — on Linux,
+# whatever host it ran on, and the fleet has Linux hosts — on Linux,
 # every `cfg(target_os = "macos")` module (panel, tray, voice, sealed, ocr,
 # mcpdoor…) simply does not compile, so its code AND its tests are invisible
 # to a green cargo leg there. Same philosophy as the ios leg: on the wrong
@@ -393,6 +409,23 @@ ios_check() {
 #      leg IS the mac test pass and repeating it would double the wall-clock
 #      for no new evidence. The full mac e2e/build/proof sweep is the nightly
 #      pass (scripts/nightly-mac-pass.sh), not this leg.
+# The cargo leg, both profiles.
+#
+# `cargo test --lib` compiles the crate as it ships to this machine — every
+# feature on. The other profile, the one a public build makes, had no gate at
+# all: it was exercised only by `release-macos.sh --public`, i.e. on release
+# day, by which point a module that no longer compiles without the private
+# surfaces is a release that cannot be built. The check is the cheap half of a
+# build (no codegen) and it runs first, because a profile that does not compile
+# makes the test run's verdict beside the point.
+cargo_gate() {
+  # formatting first and cheapest: the tree drifted 303 hunks out of rustfmt
+  # before anything said so — one command keeps "cargo fmt" a no-op on main
+  cargo fmt --check --manifest-path src-tauri/Cargo.toml || return 1
+  cargo check --no-default-features --lib --manifest-path src-tauri/Cargo.toml || return 1
+  cargo test --lib --manifest-path src-tauri/Cargo.toml
+}
+
 macsmoke_check() {
   if [[ "$(uname -s)" != "Darwin" ]]; then
     echo "verify-gates: macsmoke CLASS — this leg certifies the macOS build (cfg(target_os=\"macos\") code and its tests) and needs a Darwin host; a green here on Linux would be exactly the blindness the leg exists to close"
@@ -410,7 +443,7 @@ for g in ${ONLY//,/ }; do
   case "$g" in
     tsc)   run_gate tsc   npx tsc --noEmit ;;
     test)  run_gate test  npm test ;;
-    cargo) run_gate cargo cargo test --lib --manifest-path src-tauri/Cargo.toml ;;
+    cargo) run_gate cargo cargo_gate ;;
     ios)   run_gate ios   ios_check ;;
     e2e)   run_gate e2e   npm run e2e ;;
     lint)  run_gate lint  npm run lint ;;

@@ -1,6 +1,7 @@
 /** Mock↔engine behavioral parity — the mock half of the harness.
  *
- *  The mock backend below `invoke` in `tauri.ts` is a second implementation of
+ *  The mock backend in `mockBackend.ts`, which `tauri.ts` loads in place of the
+ *  Tauri transport, is a second implementation of
  *  the vault engine, kept in step by hand, and every required e2e spec trusts
  *  it. `check:ipc` pins the command signatures; the BEHAVIOR behind them has
  *  drifted repeatedly and been fixed one case at a time: filename dedupe,

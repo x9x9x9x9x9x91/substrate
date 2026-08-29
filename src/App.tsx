@@ -9,7 +9,7 @@ import { tagFolderApplyTags } from "./lib/tags";
 import { dbColumns } from "./lib/dbcolumns";
 import { savedViewPref } from "./lib/vieweval";
 import { byFoldedKey, foldedObjectKey, isTypePropName, typeSchemaFor } from "./lib/schemalookup";
-import { folderDefaultIcon, iconsByType } from "./lib/dbicons";
+import { folderDefaultIcon, iconForType, iconsByType } from "./lib/dbicons";
 import { dashboardKindOption, newDashboardProps } from "./lib/newdashboard";
 import { dbTypesByRecency } from "./lib/dbRecency";
 import { looksLikeUrl } from "./lib/url";
@@ -23,11 +23,19 @@ import {
   newViewId,
   partitionDbEntries,
   pinsInSidebarOrder,
-  scratchNotes,
   type DbBlock,
 } from "./lib/views";
 import { focusSoon } from "./lib/focussoon";
-import { dailyDateOf, dailyPath, journalOrder, JOURNAL_DIR } from "./lib/journal";
+import { dailyDateOf, dailyPath, JOURNAL_DIR } from "./lib/journal";
+import {
+  FIELD_LABELS,
+  formatListSort,
+  DEFAULT_LIST_SORT,
+  journalListOrder,
+  journalShownSort,
+  sortNotes,
+  type ListSort,
+} from "./lib/listsort";
 import { todayIso } from "./lib/dates";
 import { TODAY_PROP } from "./lib/today";
 import {
@@ -40,13 +48,21 @@ import {
   assignKey,
   unassignKey,
 } from "./lib/keyassign";
-import { pinKeyLabels } from "./lib/shortcuts";
+import { pinKeyLabels, shortcutKeyLabel } from "./lib/shortcuts";
+import { presweep } from "./lib/sweep";
 import { setPropUndoable, type UndoRecorder } from "./lib/undoprops";
 import { addOptionAndWriteUndoable } from "./lib/undoschema";
+import {
+  propIn,
+  recordSchemaHomeUndo,
+  recordSchemaIconUndo,
+  recordSchemaPropUndo,
+} from "./lib/undodb";
 import {
   mountStatus,
 } from "./lib/mounts";
 import * as undoStack from "./lib/undo";
+import { undoMenuItems } from "./lib/undomenu";
 import { UndoContext } from "./lib/undoContext";
 import { NavContext } from "./lib/navContext";
 import {
@@ -61,7 +77,7 @@ import {
 } from "./lib/undostruct";
 import { announceRename } from "./lib/renamebus";
 import { migrateSessionFolds } from "./lib/foldsession";
-import { isAppFile, SETTINGS_PATH } from "./lib/settings";
+import { isAppFile, parseNoteSort, SETTINGS_PATH } from "./lib/settings";
 import {
   fileOpen,
   fileReveal,
@@ -72,12 +88,10 @@ import {
   vaultCreateFolder,
   vaultDelete,
   vaultDeleteMany,
-  vaultFolderIconSet,
   vaultFolderMetaRead,
   vaultRead,
   vaultResolve,
   vaultSavedViewDelete,
-  vaultSavedViewSet,
   vaultSavedViewsRead,
   vaultSchemaHomeSet,
   vaultSchemaParentSet,
@@ -92,7 +106,6 @@ import {
   vaultTrashRestore,
   vaultTrashRestoreFolder,
   vaultViewsRead,
-  vaultViewsSet,
   vaultWriteBody,
   viewExportForget,
   viewExportTarget,
@@ -161,6 +174,14 @@ import { useWidgetSummary } from "./hooks/useWidgets";
 import { useSearch } from "./hooks/useSearch";
 import { useVaultIndex } from "./hooks/useVaultIndex";
 import { queueViewsWrite, useVaultConfigs } from "./hooks/useVaultConfigs";
+import { createAdoptionGate } from "./lib/writequeue";
+import {
+  savedViewDeleteUndoable,
+  savedViewSetUndoable,
+  setDbPrefUndoable,
+  setFolderIconUndoable,
+} from "./lib/undoviews";
+import type { ViewsApply } from "./lib/undoviews";
 import { useSidebarOrderModel } from "./hooks/useSidebarOrderModel";
 import { useAppSettings } from "./hooks/useAppSettings";
 import { useMounts } from "./hooks/useMounts";
@@ -187,6 +208,8 @@ export default function App() {
     changedPaths,
     setChangedPaths,
     bootError,
+    bootFailed,
+    setBootFailed,
     lastOwnRefreshRef,
     refresh,
   } = useVaultIndex();
@@ -294,12 +317,16 @@ export default function App() {
   const {
     viewsConfig,
     setViewsConfig,
+    viewsConfigRef,
     sidebarOrder,
     setSidebarOrder,
+    sidebarOrderRef,
     savedViews,
     setSavedViews,
+    savedViewsRef,
     folderMeta,
     setFolderMeta,
+    folderMetaRef,
     tagFolders,
     setTagFolders,
     schema,
@@ -373,6 +400,10 @@ export default function App() {
     taskStaleChips,
     autoSync,
     setAutoSync,
+    noteSort,
+    setNoteSort,
+    upcomingDock,
+    setUpcomingDock,
     netLinkTitles,
     numberLocale,
   } = useAppSettings(vaultEpoch, setTerminalActions);
@@ -436,6 +467,7 @@ export default function App() {
     undoDispatch,
     setChangedPaths,
     setVaultEpoch,
+    setBootFailed,
     lastOwnRefreshRef,
   });
 
@@ -454,7 +486,7 @@ export default function App() {
     vaultViewsRead().then(setViewsConfig).catch(console.error);
     vaultSidebarOrder().then(setSidebarOrder).catch(console.error);
     vaultSavedViewsRead().then(setSavedViews).catch(console.error);
-  }, []);
+  }, [setSchema, setViewsConfig, setSidebarOrder, setSavedViews]);
 
   // Safety rail: every bulk sweep starts with an explicit snapshot; history
   // being unavailable (no git) never blocks the op — but it must not pass in
@@ -463,14 +495,20 @@ export default function App() {
   // contract); each caller then appends the warning to its outcome toast — a
   // toast fired here would be replaced unseen milliseconds later by the op's
   // own (same reasoning as `homeErr` in hooks/useDbAdmin's createDatabase).
+  // A snapshot that FAILED is not a vault without history: it stops the sweep
+  // (see `presweep`), because a data-lossy rewrite must not run believing it
+  // has a parachute it hasn't got.
   const presweepSnapshot = useCallback(
-    (label: string): Promise<boolean> =>
-      historySnapshot(label).catch((e) => {
-        console.warn("pre-sweep snapshot failed:", e);
-        return false;
-      }),
+    (label: string): Promise<boolean> => presweep(historySnapshot, label),
     []
   );
+
+  /* The way back out of a sweep that landed: the vault's own time travel,
+     where the snapshot the sweep just took is the newest point in the list.
+     Time travel is wired further down, so the door is held in a ref rather
+     than read out of a binding these lanes are declared above. */
+  const openTimeTravelRef = useRef<() => void>(() => {});
+  const restoreFromSnapshot = useCallback(() => openTimeTravelRef.current(), []);
 
   const {
     mountDialog,
@@ -503,6 +541,7 @@ export default function App() {
     refresh,
     reloadDbMeta,
     presweepSnapshot,
+    restoreFromSnapshot,
   });
 
 
@@ -632,16 +671,37 @@ export default function App() {
     [savedViews, orderedDatabases]
   );
 
+  /* One order for every list of notes — the vault's `note-sort` answer,
+     settled by path so the same unchanged notes never reshuffle between two
+     renders. Scratch, Notes and a folder pane are one surface wearing three
+     names, and a folder used to inherit whatever order the index happened to
+     hand it while the list beside it read alphabetically.
+
+     The Journal keeps its own dateline order while nothing has been stated:
+     a folder of dailies is a calendar, and an entry edited this morning does
+     not belong at the top of last week. Any explicit pick outranks it —
+     including an explicit `updated desc`, which is a choice and not the
+     absence of one. */
   const viewNotes = useMemo(() => {
-    if (view.kind === "notes") return scratchNotes(notes);
-    const filtered = notes.filter((n) => inView(n, view, tagFolders));
-    if (view.kind === "all") {
-      filtered.sort((a, b) => a.title.localeCompare(b.title));
-    }
-    // the Journal folder lists its dailies newest-first
-    if (view.kind === "folder" && view.path === JOURNAL_DIR) return journalOrder(filtered);
-    return filtered;
-  }, [notes, view, tagFolders]);
+    const scoped =
+      view.kind === "notes"
+        ? notes.filter(isScratchNote)
+        : notes.filter((n) => inView(n, view, tagFolders));
+    if (view.kind === "folder" && view.path === JOURNAL_DIR)
+      return journalListOrder(scoped, noteSort);
+    return sortNotes(scoped, noteSort ?? DEFAULT_LIST_SORT);
+  }, [notes, view, tagFolders, noteSort]);
+
+  /* What the header's control says this list is in — the same answer the
+     rows are actually in, including the Journal's own dateline order while
+     the vault has stated nothing. */
+  const shownListSort = useMemo(
+    () =>
+      view.kind === "folder" && view.path === JOURNAL_DIR
+        ? journalShownSort(noteSort)
+        : (noteSort ?? DEFAULT_LIST_SORT),
+    [view, noteSort]
+  );
 
   // In folder and Notes views the database entries collapse into
   // per-database blocks above the loose rows; every other view lists its
@@ -777,6 +837,10 @@ export default function App() {
     showToast,
   });
 
+  useEffect(() => {
+    openTimeTravelRef.current = () => void openTimeTravel();
+  }, [openTimeTravel]);
+
   // leaving a ghost daily discards it — nothing was ever written
   useEffect(() => {
     if (ghostPath && selected !== ghostPath) setGhostPath(null);
@@ -897,18 +961,64 @@ export default function App() {
     [viewsConfig, schema]
   );
 
+  /* How an undo lands a views.json write. Same queue as every forward write —
+     an inverse that jumped the queue would read-modify-write the file beside a
+     live one and lose a key — but promise-returning rather than
+     fire-and-forget, because the stack only advances past an inverse that
+     actually landed. */
+  /* Every views.json write's adoption goes through one gate, so a response
+     that has been overtaken by a newer gesture on the same state no longer
+     writes its older value back over it — the promise still resolves with the
+     stored truth the caller guards on, only the state assignment is dropped
+     (`writequeue.ts`). */
+  const adoptNewest = useRef(createAdoptionGate()).current;
+  const applyViewsWrite = useCallback<ViewsApply>(
+    (write, adopt) => {
+      const land = adoptNewest(adopt);
+      return queueViewsWrite(write).then((value) => {
+        land(value);
+        return value;
+      });
+    },
+    [adoptNewest]
+  );
+
+  /* The failure half of `persistViewsConfig`, for the views.json writes that
+     now run inside an undoable helper: say it didn't stick and re-read, so
+     optimistic state never outlives the write meant to back it. */
+  const recoverViews = useCallback(
+    <T,>(reread: () => Promise<T>, adopt: (value: T) => void, msg: string) =>
+      (e: unknown) => {
+        console.error(e);
+        showToast(msg);
+        queueViewsWrite(reread).then(adopt).catch(console.error);
+      },
+    [showToast]
+  );
+
+  const sidebarWriteFailed = useMemo(
+    () => recoverViews(vaultSidebarOrder, setSidebarOrder, "Couldn't save sidebar settings"),
+    [recoverViews, setSidebarOrder]
+  );
+
   const setDbPref = useCallback(
     (db: string, p: ViewPref) => {
       const storedDb = viewsDbKey(db);
+      // what the last write left, not what this render was handed: a second
+      // gesture inside the same frame would otherwise record a `before` from
+      // before the first one
+      const before = viewsConfigRef.current[storedDb];
       setViewsConfig((cur) => ({ ...cur, [storedDb]: p }));
-      persistViewsConfig(
-        () => vaultViewsSet(storedDb, p.view, p.group_by, p.table_group_by, p.aggregations, p.sorts, p.col_order, p.hidden, p.widths, p.wrap, p.grid, p.hidden_per_layout, p.card_order, p.group_order, p.collapsed_groups),
-        setViewsConfig,
-        vaultViewsRead,
-        "Couldn't save view settings"
-      );
+      void setDbPrefUndoable({
+        db: storedDb,
+        pref: p,
+        before,
+        record: undoApi.record,
+        apply: applyViewsWrite,
+        adopt: setViewsConfig,
+      }).catch(recoverViews(vaultViewsRead, setViewsConfig, "Couldn't save view settings"));
     },
-    [persistViewsConfig, viewsDbKey]
+    [viewsDbKey, viewsConfigRef, undoApi, applyViewsWrite, recoverViews]
   );
 
   /* ----- saved views: named pins over a database ----- */
@@ -918,14 +1028,15 @@ export default function App() {
     (
       db: string,
       name: string,
-      capture: { query: string; sorts: SavedViewSort[]; view: DbLayout; groupBy?: string; tableGroupBy?: string; columns?: string[] }
+      capture: { query: string; sorts: SavedViewSort[]; view: DbLayout; groupBy?: string; tableGroupBy?: string; calDate?: string; columns?: string[] }
     ) => {
       const trimmed = name.trim();
       if (!trimmed) return;
-      const existing = findViewByName(savedViews, db, trimmed);
+      const pins = savedViewsRef.current;
+      const existing = findViewByName(pins, db, trimmed);
       const storedDb = existing?.db ?? schemaDbKey(db);
       const view: SavedView = {
-        id: existing?.id ?? newViewId(trimmed, savedViews),
+        id: existing?.id ?? newViewId(trimmed, pins),
         name: trimmed,
         db: storedDb,
         ...(capture.query ? { query: capture.query } : {}),
@@ -936,6 +1047,9 @@ export default function App() {
         view: capture.view,
         ...(capture.groupBy ? { group_by: capture.groupBy } : {}),
         ...(capture.tableGroupBy ? { table_group_by: capture.tableGroupBy } : {}),
+        // the calendar's date binding travels with the pin, so two pins on
+        // one database can place their rows on two different date props
+        ...(capture.calDate ? { cal_date: capture.calDate } : {}),
         // The pane only sends columns that differ from the default
         // union — a plain save writes no field
         ...(capture.columns?.length ? { columns: capture.columns } : {}),
@@ -945,80 +1059,110 @@ export default function App() {
           ? cur.map((v) => (v.id === view.id ? view : v))
           : [...cur, view]
       );
-      persistViewsConfig(
-        () => vaultSavedViewSet(view),
-        setSavedViews,
-        vaultSavedViewsRead,
-        "Couldn't save view settings"
-      );
-      // A fresh pin must be findable — re-expand the Saved views
-      // section if it was collapsed (sections stay as the user left them).
-      // Same persistence path as toggleCollapsed.
-      setSidebarOrder((cur) => {
-        const collapsed = cur.collapsed ?? [];
-        if (!collapsed.includes("savedviews")) return cur;
+      void savedViewSetUndoable({
+        view,
+        before: existing ?? null,
+        record: undoApi.record,
+        apply: applyViewsWrite,
+        adopt: setSavedViews,
+      }).catch(recoverViews(vaultSavedViewsRead, setSavedViews, "Couldn't save view settings"));
+      /* A fresh pin must be findable — re-expand the Saved views section if
+         it was collapsed (sections stay as the user left them). The write is
+         issued here rather than from inside a state updater: an updater runs
+         twice under StrictMode, and the second run would issue the write
+         again. It stays off the undo stack on purpose — re-collapsing the
+         section is not what ⌘Z after saving a view should mean. */
+      const order = sidebarOrderRef.current;
+      const collapsed = order.collapsed ?? [];
+      if (collapsed.includes("savedviews")) {
         const next: SidebarOrder = {
-          ...cur,
+          ...order,
           collapsed: collapsed.filter((c) => c !== "savedviews"),
         };
+        setSidebarOrder(next);
         persistViewsConfig(
           () => vaultSetSidebarOrder(next),
           setSidebarOrder,
           vaultSidebarOrder,
           "Couldn't save sidebar settings"
         );
-        return next;
-      });
+      }
     },
-    [savedViews, persistViewsConfig, schemaDbKey]
+    [
+      savedViewsRef,
+      sidebarOrderRef,
+      setSidebarOrder,
+      persistViewsConfig,
+      schemaDbKey,
+      undoApi,
+      applyViewsWrite,
+      recoverViews,
+    ]
   );
 
   // Column curation on an open pin persists straight into the view
   // (undefined = back to the database's default column union)
   const setViewColumns = useCallback(
     (id: string, columns: string[] | undefined) => {
-      const sv = savedViews.find((v) => v.id === id);
+      const sv = savedViewsRef.current.find((v) => v.id === id);
       if (!sv) return;
       const next = { ...sv, columns };
       setSavedViews((cur) => cur.map((v) => (v.id === id ? next : v)));
-      persistViewsConfig(
-        () => vaultSavedViewSet(next),
-        setSavedViews,
-        vaultSavedViewsRead,
-        "Couldn't save view settings"
-      );
+      void savedViewSetUndoable({
+        view: next,
+        before: sv,
+        label: `Columns of “${sv.name}”`,
+        record: undoApi.record,
+        apply: applyViewsWrite,
+        adopt: setSavedViews,
+      }).catch(recoverViews(vaultSavedViewsRead, setSavedViews, "Couldn't save view settings"));
     },
-    [savedViews, persistViewsConfig]
+    [savedViewsRef, undoApi, applyViewsWrite, recoverViews]
   );
 
   const renameView = useCallback(
     (id: string, name: string) => {
       setRenamingViewId(null);
-      const sv = savedViews.find((v) => v.id === id);
+      const sv = savedViewsRef.current.find((v) => v.id === id);
       const trimmed = name.trim();
       if (!sv || !trimmed || trimmed === sv.name) return;
       const next = { ...sv, name: trimmed };
       setSavedViews((cur) => cur.map((v) => (v.id === id ? next : v)));
-      persistViewsConfig(
-        () => vaultSavedViewSet(next),
-        setSavedViews,
-        vaultSavedViewsRead,
-        "Couldn't save view settings"
-      );
+      void savedViewSetUndoable({
+        view: next,
+        before: sv,
+        label: `Rename pin to “${trimmed}”`,
+        record: undoApi.record,
+        apply: applyViewsWrite,
+        adopt: setSavedViews,
+      }).catch(recoverViews(vaultSavedViewsRead, setSavedViews, "Couldn't save view settings"));
     },
-    [savedViews, persistViewsConfig]
+    [savedViewsRef, undoApi, applyViewsWrite, recoverViews]
   );
 
   const removeView = useCallback(
     (id: string) => {
-      const sv = savedViews.find((v) => v.id === id);
+      const pins = savedViewsRef.current;
+      const sv = pins.find((v) => v.id === id);
       setSavedViews((cur) => cur.filter((v) => v.id !== id));
-      persistViewsConfig(
-        () => vaultSavedViewDelete(id),
-        setSavedViews,
+      const failed = recoverViews(
         vaultSavedViewsRead,
+        setSavedViews,
         "Couldn't save view settings"
       );
+      if (sv)
+        void savedViewDeleteUndoable({
+          removed: sv,
+          before: pins,
+          beforeKeys: sidebarOrderRef.current.keys,
+          record: undoApi.record,
+          apply: applyViewsWrite,
+          adopt: setSavedViews,
+          // the restored shortcuts land in the sidebar with the pins rather
+          // than sitting inert on disk until the next re-read
+          adoptOrder: setSidebarOrder,
+        }).catch(failed);
+      else void applyViewsWrite(() => vaultSavedViewDelete(id), setSavedViews).catch(failed);
       // The pin's remembered export target goes with it. The folder
       // on disk stays — it is the user's, and it says so on the tin.
       setExportTargets((cur) => {
@@ -1033,7 +1177,7 @@ export default function App() {
         setView((v) => (v.kind === "saved" && v.id === id ? { kind: "db", type: sv.db } : v));
       }
     },
-    [savedViews, persistViewsConfig]
+    [savedViewsRef, sidebarOrderRef, undoApi, applyViewsWrite, recoverViews, setSidebarOrder, setSavedViews]
   );
 
   const saveSchemaProp = useCallback(
@@ -1047,9 +1191,18 @@ export default function App() {
       // refusal reaches the USER either way, and the boolean is how a caller
       // with a step after the schema write — the row-onto-row grouping
       // prompt writes rows next — knows not to take that step.
+      const before = propIn(schema, storedDb, storedProp);
       return vaultSchemaSet(storedDb, storedProp, options, kind ?? undefined, notify, notifyBefore, target, format, description, review, rollup)
         .then((s) => {
           setSchema(s);
+          recordSchemaPropUndo({
+            db: storedDb,
+            prop: storedProp,
+            before,
+            cfg: s,
+            record: undoApi.record,
+            adopt: setSchema,
+          });
           return true;
         })
         // engine refusals ("a rollup property needs a relation to follow",
@@ -1060,7 +1213,7 @@ export default function App() {
           return false;
         });
     },
-    [schemaDbKey, schemaPropKey, showToast]
+    [schemaDbKey, schemaPropKey, showToast, schema, undoApi]
   );
 
   /** "Add “x” to options" on any value picker. The option is stored first and
@@ -1123,13 +1276,65 @@ export default function App() {
     [schemaDbKey, schemaPropKey, showToast, undoApi]
   );
 
+  /* The list header's sort control writes the vault's answer, not this
+     window's: `note-sort` in Settings.md, through the undo-guarded prop path,
+     so a flip is ⌘Z-undoable like every ⌘, row and reaches the phone with the
+     rest of the vault. Set locally first — the control sits on the list it
+     reorders, and the watcher echo is a second away.
+
+     On failure, re-read the note rather than restoring the captured value:
+     something else may have written it while this was in flight. */
+  const reconcileNoteSort = useCallback(async () => {
+    try {
+      const c = await vaultRead(SETTINGS_PATH);
+      setNoteSort(parseNoteSort(c.props));
+    } catch {
+      /* the note is unreadable — leave the list where it is rather than
+         snapping the rows back under the cursor */
+    }
+  }, [setNoteSort]);
+
+  const onListSort = useCallback(
+    (next: ListSort) => {
+      setNoteSort(next);
+      setPropUndoable({
+        path: SETTINGS_PATH,
+        key: "note-sort",
+        value: formatListSort(next),
+        record: undoApi.record,
+        label: `Sort by ${FIELD_LABELS[next.field].toLowerCase()}`,
+        // ⌘Z writes the note back; nothing else tells this window about it,
+        // so without the reconcile the rows sit still until the watcher
+        // echoes — and never, on a degraded watcher.
+        onApplied: reconcileNoteSort,
+      }).catch((e) => {
+        showToast(`couldn't save note-sort (${errText(e)})`);
+        void reconcileNoteSort();
+      });
+    },
+    [setNoteSort, undoApi, showToast, reconcileNoteSort]
+  );
+
   // per-type database icons ride the same schema.json, under the
   // reserved `icon` key — derived here so every surface reads one source
   const dbIcons = useMemo(() => iconsByType(schema), [schema]);
 
   const saveSchemaIcon = useCallback((dbType: string, icon: DbIcon | null) => {
-    vaultSchemaSetIcon(schemaDbKey(dbType), icon).then(setSchema).catch(console.error);
-  }, [schemaDbKey]);
+    const db = schemaDbKey(dbType);
+    const before = iconForType(dbIcons, db) ?? null;
+    vaultSchemaSetIcon(db, icon)
+      .then((cfg) => {
+        setSchema(cfg);
+        recordSchemaIconUndo({
+          db,
+          before,
+          cfg,
+          record: undoApi.record,
+          adopt: setSchema,
+        });
+      })
+      .catch(console.error);
+  }, [schemaDbKey, dbIcons, undoApi]);
 
   // a database's home folder, set/cleared from the All databases
   // manager, a folder's "Open as database…", or the
@@ -1138,9 +1343,17 @@ export default function App() {
   const setDbHome = useCallback(
     (dbType: string, home: string | null) => {
       const storedDb = schemaDbKey(dbType);
+      const before = typeHome(typeSchemaFor(schema, storedDb)) ?? null;
       vaultSchemaHomeSet(storedDb, home)
         .then((cfg) => {
           setSchema(cfg);
+          recordSchemaHomeUndo({
+            db: storedDb,
+            before,
+            cfg,
+            record: undoApi.record,
+            adopt: setSchema,
+          });
           showToast(
             home
               ? `“${dbType}” now lives in “${home}”`
@@ -1149,7 +1362,7 @@ export default function App() {
         })
         .catch((e) => showToast(errText(e)));
     },
-    [showToast, schemaDbKey]
+    [showToast, schemaDbKey, schema, undoApi]
   );
 
   // the relation prop a database's rows nest under — set/cleared from that
@@ -1175,9 +1388,20 @@ export default function App() {
   // key — the setter returns the whole map, same discipline as the schema.
   // Queued like the other views.json writes so it can't interleave with a
   // pref/sidebar/pin write; not in that issue's toast list.
-  const saveFolderIcon = useCallback((path: string, icon: DbIcon | null) => {
-    queueViewsWrite(() => vaultFolderIconSet(path, icon)).then(setFolderMeta).catch(console.error);
-  }, []);
+  const saveFolderIcon = useCallback(
+    (path: string, icon: DbIcon | null) => {
+      const before = folderMetaRef.current[path]?.icon ?? null;
+      void setFolderIconUndoable({
+        path,
+        icon,
+        before,
+        record: undoApi.record,
+        apply: applyViewsWrite,
+        adopt: setFolderMeta,
+      }).catch(console.error);
+    },
+    [folderMetaRef, setFolderMeta, undoApi, applyViewsWrite]
+  );
 
   // the engine retargets/drops `$folders` keys behind folder renames and
   // deletes — re-read the map after one lands
@@ -1211,8 +1435,10 @@ export default function App() {
     reloadDbMeta,
     reloadSidebarOrder,
     presweepSnapshot,
+    restoreFromSnapshot,
     schemaDbKey,
     schemaPropKey,
+    record: undoApi.record,
   });
 
   /** A mount row's context menu. The file is the subject, so its lanes come
@@ -2426,9 +2652,12 @@ export default function App() {
     writeKeys,
   } = useSidebarOrderModel({
     sidebarOrder,
+    sidebarOrderRef,
     setSidebarOrder,
-    persistViewsConfig,
     dashGroupIds,
+    record: undoApi.record,
+    apply: applyViewsWrite,
+    onWriteError: sidebarWriteFailed,
   });
 
   // The key HUD is open. Session-only by design — assign mode is a
@@ -2973,6 +3202,9 @@ export default function App() {
      re-deriving the entry per surface keeps click and keystroke on the
      identical operation. */
   const runUndo = useCallback(() => {
+    // picked when the turn comes, not when the key was pressed: a queued
+    // second chord must see the cursor the first one moved
+    void runUndoEntry(() => {
     const live = undoStack.peekUndo(undoStateRef.current);
     if (live) {
       // The newest action went stale, so ⌘Z reaches an older one. It still
@@ -2982,16 +3214,18 @@ export default function App() {
       // so a notice of its own would be overwritten), and the entry travels
       // whole so the notice can name why that one was passed over.
       const skipped = undoStack.skippedStale(undoStateRef.current);
-      return void runUndoEntry(live, -1, skipped ?? undefined);
+      return { entry: live, skipped: skipped ?? undefined };
     }
     // nothing live left, but a stale entry explains why: say it rather than
     // no-op in silence (docs/undo.md §3.3), and off the recorded cause —
     // a write that errored is not a note that changed on disk
     const stale = undoStack.peekStale(undoStateRef.current);
     if (stale) showToast(`Can’t undo ${stale.label} — ${undoStack.staleBecause(stale)}`);
+    return null;
+    }, -1);
   }, [runUndoEntry, showToast, undoStateRef]);
   const runRedo = useCallback(
-    () => void runUndoEntry(undoStack.peekRedo(undoStateRef.current), 1),
+    () => void runUndoEntry(() => ({ entry: undoStack.peekRedo(undoStateRef.current) }), 1),
     [runUndoEntry, undoStateRef]
   );
   // the row's label names the move it would make ("Undo Role → booking"), so
@@ -3004,6 +3238,25 @@ export default function App() {
     const e = undoStack.peekRedo(undoState);
     return e ? { label: e.label, run: runRedo } : null;
   }, [undoState, runRedo]);
+  /* The stack as a list (docs/undo.md §6.5). It opens in the same popover
+     every other point-anchored menu uses, so it inherits their clamping,
+     keyboard and dismissal. Called with no anchor — from the palette, where
+     there is no button to hang off — it lands at the bottom-left corner the
+     menu clamps a too-large point into, which is where the sidebar's own
+     button sits. */
+  const openUndoHistory = useCallback(
+    (x?: number, y?: number) =>
+      setMenu({
+        x: x ?? 14,
+        y: y ?? window.innerHeight,
+        items: undoMenuItems({
+          state: undoStateRef.current,
+          undoHint: shortcutKeyLabel("undo"),
+          runById: undoApi.runById,
+        }),
+      }),
+    [undoApi, undoStateRef]
+  );
 
   useShortcutRouter({
     view,
@@ -3558,13 +3811,18 @@ export default function App() {
           setSettingsOpen(true);
         }}
         onOpenTimeTravel={openTimeTravel}
+        onOpenUndoHistory={openUndoHistory}
         viewingPast={timePoint !== null}
       />
       )}
-      {bootError && (
+      {(bootError || bootFailed) && (
         <div className="boot-error" role="alert">
           <span className="err-dot" />
-          Vault couldn’t be read: {bootError}
+          {bootError
+            ? `Vault couldn’t be read: ${bootError}`
+            : // the launch never finished indexing, so what is listed here is
+              // whatever it got to — and the backend cannot recover on its own
+              "Vault didn’t finish opening — quit and reopen Substrate before trusting what’s listed."}
         </div>
       )}
       <PaneRouter
@@ -3627,6 +3885,7 @@ export default function App() {
         trashNote={trashNote}
         renameNote={renameNote}
         openJournal={openJournal}
+        upcomingDock={upcomingDock}
         dbPaneCtx={dbPaneCtx}
         mountPrefChange={mountPrefChange}
         openMountRow={openMountRow}
@@ -3685,6 +3944,8 @@ export default function App() {
         setReceipts={setReceipts}
         historyFor={historyFor}
         viewRows={viewRows}
+        listSort={shownListSort}
+        onListSort={onListSort}
         onListOpenDb={onListOpenDb}
         onListSelect={onListSelect}
         renaming={renaming}
@@ -3727,6 +3988,11 @@ export default function App() {
           onPrint={printable}
           undoCommand={undoCommand}
           redoCommand={redoCommand}
+          onOpenUndoHistory={() => {
+            closePalette();
+            openUndoHistory();
+          }}
+          hasUndoHistory={undoState.cursor >= 0}
           onClose={closePalette}
           onOpenNote={openNote}
           onSetView={navigateFromMobileChrome}
@@ -3814,6 +4080,8 @@ export default function App() {
           onEditRaw={() => openNote(SETTINGS_PATH)}
           onSettingsChanged={refreshTerminalSettings}
           onToast={showToast}
+          upcomingDock={upcomingDock}
+          setUpcomingDock={setUpcomingDock}
           vaultSealed={sealScopes.some(
             (scope) => scope.path === "" && scope.confirmed && scope.state === "active"
           )}

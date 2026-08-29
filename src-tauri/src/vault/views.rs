@@ -37,7 +37,7 @@ pub(super) fn parse_view_fence(inner: &str) -> HashMap<String, String> {
 /// rewrites every list row's subtitle, and a curated list no longer strips
 /// the table. A layout with no set of its own falls back to the pref's flat
 /// `hidden` on read (the UI owns that fallback), which pre-change files
-/// seed both layouts with. Board/gallery never carry a set.
+/// seed both layouts with. Board/gallery/calendar never carry a set.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, serde::Deserialize)]
 pub struct HiddenPerLayout {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -46,7 +46,8 @@ pub struct HiddenPerLayout {
     pub list: Option<Vec<String>>,
 }
 
-/// Per-database view preference (list/table/board/gallery + grouping props),
+/// Per-database view preference (list/table/board/gallery/calendar + grouping
+/// and date-binding props),
 /// persisted in `.vault/views.json` inside the vault. Hidden paths are never
 /// indexed or watched, so writes here don't churn the engine.
 #[derive(Clone, Debug, Serialize, serde::Deserialize)]
@@ -59,6 +60,12 @@ pub struct ViewPref {
     /// so a board grouping never re-sections a table and vice versa.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub table_group_by: Option<String>,
+    /// The date prop a CALENDAR places its rows on — its own key for the
+    /// same reason the table's grouping is: a calendar's date binding must not
+    /// be re-read as a board's column grouping. Absent = the UI's fallback,
+    /// the first date prop the database offers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cal_date: Option<String>,
     /// Table-footer calculations, column → aggregation kind. Opaque
     /// to the engine — the UI owns the vocabulary; BTreeMap for stable writes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -139,7 +146,7 @@ pub struct ViewPref {
 
 impl ViewPref {
     pub const REL_PATH: &'static str = ".vault/views.json";
-    pub const LAYOUTS: [&'static str; 4] = ["list", "table", "board", "gallery"];
+    pub const LAYOUTS: [&'static str; 5] = ["list", "table", "board", "gallery", "calendar"];
 }
 
 /// Sidebar section ordering (dashboard paths, database type names) and collapse
@@ -219,6 +226,11 @@ pub struct SavedView {
     /// Table-layout grouping, persisted like the board's group_by.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub table_group_by: Option<String>,
+    /// The date prop a calendar-layout pin places its rows on, captured
+    /// like the groupings so two pins on one database can show two different
+    /// bindings. Absent falls back to the database's own pref.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cal_date: Option<String>,
     /// Per-view display columns: the ordered property keys this view
     /// renders in table/list layouts. Absent = the frontend's default column
     /// union; unknown keys are ignored there.
@@ -605,6 +617,7 @@ impl Engine {
         card_order: Option<Vec<String>>,
         group_order: Option<Vec<String>>,
         collapsed_groups: Option<Vec<String>>,
+        cal_date: Option<&str>,
     ) -> Result<HashMap<String, ViewPref>, String> {
         if !ViewPref::LAYOUTS.contains(&view) {
             return Err(format!(
@@ -709,6 +722,7 @@ impl Engine {
             view: view.to_string(),
             group_by: group_by.map(String::from),
             table_group_by: table_group_by.map(String::from),
+            cal_date: cal_date.map(String::from),
             aggregations,
             sorts,
             col_order,
@@ -1197,7 +1211,7 @@ impl Engine {
                 v.query = remapped;
                 touched = true;
             }
-            for slot in [&mut v.group_by, &mut v.table_group_by] {
+            for slot in [&mut v.group_by, &mut v.table_group_by, &mut v.cal_date] {
                 if slot.as_deref().is_some_and(|key| folded_eq(key, old)) {
                     *slot = new.map(str::to_string);
                     touched = true;
@@ -1296,7 +1310,7 @@ mod tests {
         let err = e
             .set_view_pref(
                 "release", "table", None, None, None, None, None, None, None, None, None, None,
-                None, None, None,
+                None, None, None, None,
             )
             .unwrap_err();
         assert!(err.contains("unreadable"), "says what it refused: {err}");
@@ -1311,7 +1325,7 @@ mod tests {
         assert!(e
             .set_view_pref(
                 "release", "table", None, None, None, None, None, None, None, None, None, None,
-                None, None, None,
+                None, None, None, None,
             )
             .is_err());
         // blank holds nothing to lose
@@ -1319,7 +1333,7 @@ mod tests {
         let map = e
             .set_view_pref(
                 "release", "table", None, None, None, None, None, None, None, None, None, None,
-                None, None, None,
+                None, None, None, None,
             )
             .unwrap();
         assert_eq!(map["release"].view, "table");
@@ -1334,9 +1348,7 @@ mod tests {
         let map = e
             .set_view_pref(
                 "release", "table", None, None, None, None, None, None, None, None, None, None,
-                None,
-                None,
-                None,
+                None, None, None, None,
             )
             .unwrap();
         assert_eq!(map["release"].view, "table");
@@ -1360,6 +1372,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .unwrap();
         assert_eq!(map["release"].view, "board");
@@ -1368,9 +1381,7 @@ mod tests {
         let map = e
             .set_view_pref(
                 "release", "gallery", None, None, None, None, None, None, None, None, None, None,
-                None,
-                None,
-                None,
+                None, None, None, None,
             )
             .unwrap();
         assert_eq!(map["release"].view, "gallery");
@@ -1379,8 +1390,7 @@ mod tests {
         let map = e
             .set_view_pref(
                 "gear", "list", None, None, None, None, None, None, None, None, None, None, None,
-                None,
-                None,
+                None, None, None,
             )
             .unwrap();
         assert_eq!(map["gear"].view, "list");
@@ -1390,11 +1400,42 @@ mod tests {
         assert!(
             e.set_view_pref(
                 "gear", "grid", None, None, None, None, None, None, None, None, None, None, None,
-                None,
-                None,
+                None, None, None,
             )
             .is_err(),
             "unknown layout rejected"
+        );
+
+        // the calendar layout is one of the five, and its date binding is
+        // its own field — a board's grouping key must never be re-read as the
+        // day a row lands on
+        let map = e
+            .set_view_pref(
+                "release",
+                "calendar",
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some("released"),
+            )
+            .unwrap();
+        assert_eq!(map["release"].view, "calendar");
+        assert_eq!(map["release"].cal_date.as_deref(), Some("released"));
+        assert_eq!(map["release"].group_by, None, "the date binding is not a grouping");
+        assert_eq!(
+            e.views()["release"].cal_date.as_deref(),
+            Some("released"),
+            "persisted across reads"
         );
 
         // the table's grouping key is its own field, independent of
@@ -1405,6 +1446,7 @@ mod tests {
                 "table",
                 None,
                 Some("category"),
+                None,
                 None,
                 None,
                 None,
@@ -1455,6 +1497,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .unwrap();
         assert_eq!(map["release"].aggregations.as_ref().unwrap()["tracks"], "sum");
@@ -1466,9 +1509,7 @@ mod tests {
         let map = e
             .set_view_pref(
                 "release", "table", None, None, None, None, None, None, None, None, None, None,
-                None,
-                None,
-                None,
+                None, None, None, None,
             )
             .unwrap();
         assert_eq!(map["release"].aggregations, None);
@@ -1496,6 +1537,7 @@ mod tests {
                 Some(sorts),
                 None,
                 Some(hidden),
+                None,
                 None,
                 None,
                 None,
@@ -1537,6 +1579,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .is_err(),
             "dir 0 rejected"
@@ -1553,6 +1596,7 @@ mod tests {
                 Some(vec![]),
                 None,
                 Some(vec![]),
+                None,
                 None,
                 None,
                 None,
@@ -1596,6 +1640,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .unwrap();
         let got = map["release"].hidden_per_layout.as_ref().unwrap();
@@ -1634,6 +1679,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .unwrap();
         let got = map["release"].hidden_per_layout.as_ref().unwrap();
@@ -1658,6 +1704,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .unwrap();
         assert_eq!(map["release"].hidden_per_layout, None, "both empty — no key written");
@@ -1677,6 +1724,7 @@ mod tests {
                 None,
                 None,
                 Some(vec!["cat#".to_string()]),
+                None,
                 None,
                 None,
                 None,
@@ -1713,6 +1761,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .unwrap();
         assert_eq!(
@@ -1739,6 +1788,7 @@ mod tests {
                 None,
                 None,
                 Some(vec!["  ".to_string()]),
+                None,
                 None,
                 None,
                 None,
@@ -1784,6 +1834,7 @@ mod tests {
                 ]),
                 None,
                 None,
+                None,
             )
             .unwrap();
         assert_eq!(
@@ -1821,6 +1872,7 @@ mod tests {
                 Some(vec!["  ".to_string()]),
                 None,
                 None,
+                None,
             )
             .unwrap();
         assert_eq!(map["release"].card_order, None, "emptied order — no key written");
@@ -1854,6 +1906,7 @@ mod tests {
                 None,
                 Some(vec!["live".to_string(), String::new(), "  draft ".to_string()]),
                 Some(vec![String::new(), "live".to_string()]),
+                None,
             )
             .unwrap();
         assert_eq!(
@@ -1894,6 +1947,7 @@ mod tests {
                 None,
                 Some(Vec::new()),
                 Some(Vec::new()),
+                None,
             )
             .unwrap();
         assert_eq!(map["release"].group_order, None, "emptied order — no key written");
@@ -1925,6 +1979,7 @@ mod tests {
                 None,
                 None,
                 Some(paths.iter().map(|p| p.to_string()).collect()),
+                None,
                 None,
                 None,
             )
@@ -1999,6 +2054,7 @@ mod tests {
                 Some(vec!["Releases/A.md".to_string()]),
                 None,
                 None,
+                None,
             )
             .unwrap();
 
@@ -2046,6 +2102,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .unwrap();
         let pref = &map["release"];
@@ -2075,6 +2132,7 @@ mod tests {
                 None,
                 Some(std::collections::BTreeMap::new()),
                 Some(vec![]),
+                None,
                 None,
                 None,
                 None,
@@ -2111,6 +2169,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .unwrap();
         assert_eq!(map["release"].grid, Some(false));
@@ -2134,6 +2193,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .unwrap();
         assert_eq!(map["release"].grid, Some(true));
@@ -2142,9 +2202,7 @@ mod tests {
         let map = e
             .set_view_pref(
                 "release", "table", None, None, None, None, None, None, None, None, None, None,
-                None,
-                None,
-                None,
+                None, None, None, None,
             )
             .unwrap();
         assert_eq!(map["release"].grid, None);
@@ -2165,7 +2223,7 @@ mod tests {
         let set = |e: &Engine| {
             e.set_view_pref(
                 "release", "table", None, None, None, None, None, None, None, None, None, None,
-                None, None, None,
+                None, None, None, None,
             )
         };
         let err = set(&e).unwrap_err();
@@ -2246,6 +2304,7 @@ mod tests {
             "release",
             "board",
             Some("status"),
+            None,
             None,
             None,
             None,
@@ -2549,6 +2608,7 @@ mod tests {
             view: Some("table".into()),
             group_by: None,
             table_group_by: None,
+            cal_date: None,
             columns: None,
         };
         let views = e.set_saved_view(&mk("a", "Live")).unwrap();
@@ -2572,6 +2632,7 @@ mod tests {
             "release",
             "board",
             Some("status"),
+            None,
             None,
             None,
             None,
@@ -2645,6 +2706,7 @@ mod tests {
             view: None,
             group_by: None,
             table_group_by: None,
+            cal_date: None,
             columns: None,
         };
         e.set_saved_view(&view).unwrap();
@@ -2681,6 +2743,64 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+    /// A pin's own calendar date binding round-trips beside the groupings,
+    /// and is validated the same way they are: an optional string that
+    /// persists only while it is there.
+    #[test]
+    fn saved_view_calendar_binding_roundtrips_per_pin() {
+        let (e, dir) = temp_vault("svcal");
+        let base = SavedView {
+            id: "a".into(),
+            name: "Mastered".into(),
+            db: "release".into(),
+            query: None,
+            sort: None,
+            sorts: None,
+            view: Some("calendar".into()),
+            group_by: None,
+            table_group_by: None,
+            cal_date: Some("mastered".into()),
+            columns: None,
+        };
+        e.set_saved_view(&base).unwrap();
+        // a second pin on the SAME database, bound to another date prop —
+        // the two bindings coexist, which is the whole point of the field
+        e.set_saved_view(&SavedView {
+            id: "b".into(),
+            name: "Released".into(),
+            cal_date: Some("released".into()),
+            ..base.clone()
+        })
+        .unwrap();
+        let back = e.saved_views();
+        assert_eq!(back[0].cal_date.as_deref(), Some("mastered"));
+        assert_eq!(back[1].cal_date.as_deref(), Some("released"));
+        assert!(!e.views().contains_key("release"), "the pins never wrote a db pref");
+        let raw = fs::read_to_string(dir.join(ViewPref::REL_PATH)).unwrap();
+        assert!(raw.contains("\"cal_date\""), "the binding persisted: {}", raw);
+
+        // absent stays absent — an unbound pin inherits the database's, so
+        // the key must not be written as null
+        e.set_saved_view(&SavedView { cal_date: None, ..base.clone() }).unwrap();
+        assert_eq!(e.saved_views()[0].cal_date, None);
+        let raw = fs::read_to_string(dir.join(ViewPref::REL_PATH)).unwrap();
+        assert_eq!(raw.matches("\"cal_date\"").count(), 1, "only pin b still carries one");
+
+        // and it is validated like the other optional overrides: an
+        // otherwise-invalid pin is rejected whole, binding and all
+        assert!(
+            e.set_saved_view(&SavedView {
+                id: "c".into(),
+                view: Some("grid".into()),
+                ..base.clone()
+            })
+            .is_err(),
+            "unknown layout rejected even with a binding"
+        );
+        assert_eq!(e.saved_views().len(), 2, "the rejected pin never landed");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn saved_views_validate_and_corrupt_blob_reads_empty() {
         let (e, dir) = temp_vault("svbad");
@@ -2694,6 +2814,7 @@ mod tests {
             view: None,
             group_by: None,
             table_group_by: None,
+            cal_date: None,
             columns: None,
         };
         assert!(e.set_saved_view(&SavedView { id: "".into(), ..base.clone() }).is_err());
@@ -2716,8 +2837,7 @@ mod tests {
         // garbage under $views reads as empty instead of poisoning the file
         e.set_view_pref(
             "release", "table", None, None, None, None, None, None, None, None, None, None, None,
-            None,
-            None,
+            None, None, None,
         )
         .unwrap();
         let raw = fs::read_to_string(dir.join(ViewPref::REL_PATH)).unwrap();
@@ -2774,8 +2894,7 @@ mod tests {
         // persisted across reads; db prefs ride along untouched
         e.set_view_pref(
             "release", "table", None, None, None, None, None, None, None, None, None, None, None,
-            None,
-            None,
+            None, None, None,
         )
         .unwrap();
         assert_eq!(e.folder_meta().len(), 2);
@@ -2825,8 +2944,7 @@ mod tests {
         .unwrap();
         e.set_view_pref(
             "release", "board", None, None, None, None, None, None, None, None, None, None, None,
-            None,
-            None,
+            None, None, None,
         )
         .unwrap();
         let views = e.views();
@@ -2894,8 +3012,7 @@ mod tests {
         .unwrap();
         e.set_view_pref(
             "books", "board", None, None, None, None, None, None, None, None, None, None, None,
-            None,
-            None,
+            None, None, None,
         )
         .unwrap();
         let after: serde_json::Value =

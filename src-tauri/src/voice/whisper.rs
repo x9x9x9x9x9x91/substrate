@@ -115,10 +115,8 @@ pub(crate) fn download_model(app: &AppHandle) -> Result<(), String> {
     let mut current = net::guard_url(MODEL_URL)?;
     let mut hops = 0;
     let resp = loop {
-        let resp = agent
-            .get(current.as_str())
-            .call()
-            .map_err(|e| net::redact_message(&e.to_string()))?;
+        let resp =
+            agent.get(current.as_str()).call().map_err(|e| net::redact_message(&e.to_string()))?;
         if !(300..400).contains(&resp.status()) {
             break resp;
         }
@@ -130,10 +128,8 @@ pub(crate) fn download_model(app: &AppHandle) -> Result<(), String> {
         let next = current.join(location).map_err(|_| "bad redirect target".to_string())?;
         current = net::guard_url(next.as_str())?;
     };
-    let total = resp
-        .header("content-length")
-        .and_then(|v| v.parse::<u64>().ok())
-        .unwrap_or(MODEL_BYTES);
+    let total =
+        resp.header("content-length").and_then(|v| v.parse::<u64>().ok()).unwrap_or(MODEL_BYTES);
     if total > MAX_MODEL_BYTES {
         return Err(format!("model download is {total} bytes — refusing"));
     }
@@ -176,7 +172,7 @@ pub(crate) fn download_model(app: &AppHandle) -> Result<(), String> {
     if received != MODEL_BYTES || digest != MODEL_SHA256 {
         let _ = std::fs::remove_file(&part);
         return Err(
-            "downloaded model doesn't match the expected checksum — nothing was installed".into(),
+            "downloaded model doesn't match the expected checksum — nothing was installed".into()
         );
     }
     std::fs::rename(&part, &final_path).map_err(|e| e.to_string())?;

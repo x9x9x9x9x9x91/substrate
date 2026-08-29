@@ -1368,11 +1368,8 @@ impl Engine {
             let Ok(rel) = file.strip_prefix(&root) else { continue };
             let rel = rel.to_string_lossy().replace('\\', "/");
             let (modified, _) = file_stamp(&md);
-            let identity = if drive {
-                stat_identity(&md)
-            } else {
-                file_identity(&file).unwrap_or_default()
-            };
+            let identity =
+                if drive { stat_identity(&md) } else { file_identity(&file).unwrap_or_default() };
 
             // A file's own row first, while its bytes are unchanged — otherwise
             // a byte-identical twin can take it, and this file reads as brand

@@ -18,19 +18,22 @@ async function boot(page: Page) {
   await page.goto("/");
   await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
-  // The cursor goes on the note's FIRST line, not the geometric centre of
-  // `.cm-content`: the centre is whatever line the current body size happens
-  // to put there, so a type-scale change silently moves it onto a blank line
-  // or into a rendered widget and the paste lands somewhere the assertion
-  // below cannot see.
-  await page.locator(".cm-line").first().click();
+  // The cursor goes on the FIRST CHARACTER of the note's first line: an
+  // element click lands on the element's centre, and the centre of a wrapped
+  // line maps to whatever character the current type scale puts there — at
+  // one size that is mid-word (the pasted embed gets its own line, caret
+  // moves past it, the chip renders), at another it is the end of the line
+  // (no trailing newline, the caret stays on the embed's line, and the
+  // editor correctly keeps the source revealed). Pinning the click to the
+  // line's first character is size-independent.
+  await page.locator(".cm-line").first().click({ position: { x: 1, y: 4 } });
 }
 
 /** Dispatch a paste carrying `names` as real files, in one clipboard payload. */
 async function pasteFiles(page: Page, names: string[]) {
   await page.evaluate((ns) => {
     const dt = new DataTransfer();
-    for (const n of ns) dt.items.add(new File(["%PDF-1.4 e2e"], n, { type: "application/pdf" }));
+    for (const n of ns) dt.items.add(new File(["e2e document"], n, { type: "application/msword" }));
     const ev = new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true });
     document.querySelector(".cm-content")!.dispatchEvent(ev);
   }, names);
@@ -40,7 +43,7 @@ async function pasteFiles(page: Page, names: string[]) {
 async function dropFiles(page: Page, names: string[]) {
   await page.evaluate((ns) => {
     const dt = new DataTransfer();
-    for (const n of ns) dt.items.add(new File(["%PDF-1.4 e2e"], n, { type: "application/pdf" }));
+    for (const n of ns) dt.items.add(new File(["e2e document"], n, { type: "application/msword" }));
     const target = document.querySelector(".cm-content")!;
     const box = target.getBoundingClientRect();
     const ev = new DragEvent("drop", {
@@ -61,7 +64,7 @@ test("a paste whose vault write is refused says so (SUB-659)", async ({ page }) 
     window.__mockFail = new Set(["vault_save_asset"]);
   });
 
-  await pasteFiles(page, ["e2e-refused.pdf"]);
+  await pasteFiles(page, ["e2e-refused.docx"]);
 
   await expect(page.locator(".toast")).toContainText("Import failed");
   // and the failure did not half-land an embed
@@ -75,7 +78,7 @@ test("a browser drop whose vault write is refused says so (SUB-659)", async ({ p
     window.__mockFail = new Set(["vault_save_asset"]);
   });
 
-  await dropFiles(page, ["e2e-dropfail.pdf"]);
+  await dropFiles(page, ["e2e-dropfail.docx"]);
 
   await expect(page.locator(".toast")).toContainText("Import failed");
   await expect(page.locator(".cm-filechip")).toHaveCount(0);
@@ -84,15 +87,15 @@ test("a browser drop whose vault write is refused says so (SUB-659)", async ({ p
 test("every file in a multi-file paste imports (SUB-662)", async ({ page }) => {
   await boot(page);
 
-  await pasteFiles(page, ["e2e-multi-a.pdf", "e2e-multi-b.pdf", "e2e-multi-c.pdf"]);
+  await pasteFiles(page, ["e2e-multi-a.docx", "e2e-multi-b.docx", "e2e-multi-c.docx"]);
 
   // all three embed — the pre-fix behaviour stopped after the first
   const chips = page.locator(".cm-filechip");
   await expect(chips).toHaveCount(3);
   await expect(chips.locator(".cm-filechip-name")).toHaveText([
-    "e2e-multi-a.pdf",
-    "e2e-multi-b.pdf",
-    "e2e-multi-c.pdf",
+    "e2e-multi-a.docx",
+    "e2e-multi-b.docx",
+    "e2e-multi-c.docx",
   ]);
   // every file linked, so the unlinked-leftovers toast never fires
   await expect(page.locator(".toast")).toHaveCount(0);
@@ -100,14 +103,14 @@ test("every file in a multi-file paste imports (SUB-662)", async ({ page }) => {
 
 test("a multi-file paste chains embeds in payload order (SUB-662/SUB-664)", async ({ page }) => {
   await boot(page);
-  await pasteFiles(page, ["e2e-order-a.pdf", "e2e-order-b.pdf"]);
+  await pasteFiles(page, ["e2e-order-a.docx", "e2e-order-b.docx"]);
   await expect(page.locator(".cm-filechip")).toHaveCount(2);
 
   // each embed lands after the last: the tracked mark maps through the
   // previous insert rather than every file landing at the same offset
   const body = await page.locator(".cm-content").textContent();
-  const a = body!.indexOf("e2e-order-a.pdf");
-  const b = body!.indexOf("e2e-order-b.pdf");
+  const a = body!.indexOf("e2e-order-a.docx");
+  const b = body!.indexOf("e2e-order-b.docx");
   expect(a).toBeGreaterThanOrEqual(0);
   expect(b).toBeGreaterThan(a);
 });
@@ -119,14 +122,14 @@ test("a single-file paste is unchanged by the multi-file loop (SUB-662)", async 
   await page.evaluate(() => {
     const dt = new DataTransfer();
     dt.items.add("<b>rich text</b>", "text/html");
-    dt.items.add(new File(["%PDF-1.4 e2e"], "e2e-lone.pdf", { type: "application/pdf" }));
+    dt.items.add(new File(["e2e document"], "e2e-lone.docx", { type: "application/msword" }));
     const ev = new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true });
     document.querySelector(".cm-content")!.dispatchEvent(ev);
   });
 
   const chip = page.locator(".cm-filechip");
   await expect(chip).toHaveCount(1);
-  await expect(chip.locator(".cm-filechip-name")).toHaveText("e2e-lone.pdf");
+  await expect(chip.locator(".cm-filechip-name")).toHaveText("e2e-lone.docx");
   // the sibling text/html item was not also pasted in
   await expect(page.locator(".cm-content")).not.toContainText("rich text");
 });

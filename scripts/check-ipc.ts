@@ -326,7 +326,14 @@ export interface RustCommand {
   optional: Set<string>;
 }
 
-/** Command names listed in `generate_handler![…]`, module paths stripped. */
+/**
+ * Command names listed in `generate_handler![…]`, module paths stripped.
+ *
+ * An entry a build profile can leave out wears a `#[cfg(…)]` attribute; the
+ * attribute is dropped and the entry kept, because these inventories describe
+ * the source — every wrapper in ipc.ts and every case in the demo backend has
+ * to line up with the command whether or not one profile compiles it.
+ */
 export function parseHandlerList(libRs: string, label = "src-tauri/src/lib.rs"): string[] {
   const code = blankNonCode(libRs, "rust", label);
   const marker = code.indexOf("generate_handler!");
@@ -336,7 +343,7 @@ export function parseHandlerList(libRs: string, label = "src-tauri/src/lib.rs"):
   const close = matchDelim(code, open);
   const body = libRs.slice(open + 1, close);
   const names: string[] = [];
-  for (const entry of splitTopLevel(blankNonCode(body, "rust", label))) {
+  for (const entry of splitTopLevel(blankNonCode(body, "rust", label).replace(/#\[[^[\]]*\]/g, ""))) {
     const m = /^(?:[A-Za-z_][A-Za-z0-9_]*::)*([a-z_][a-z0-9_]*)$/.exec(entry);
     if (!m) throw new Error(`unparseable generate_handler! entry: ${JSON.stringify(entry)}`);
     names.push(m[1]);

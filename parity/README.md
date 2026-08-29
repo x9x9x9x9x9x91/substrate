@@ -1,7 +1,8 @@
 # Mock↔engine behavioral parity fixtures
 
-`src/lib/tauri.ts` carries a hand-maintained second implementation of the vault
-engine — the mock backend every e2e spec runs against. `npm run check:ipc` pins
+`src/lib/mockBackend.ts` carries a hand-maintained second implementation of the
+vault engine — the mock backend every e2e spec runs against, behind the
+`src/lib/tauri.ts` transport that loads it. `npm run check:ipc` pins
 the command *signatures*; nothing pinned the *behavior*, and the drift has been
 found one bug at a time: filename dedupe, rename and delete link/index
 mappings, trash and backlink order, control-character refusal, excerpt and
@@ -12,7 +13,7 @@ produce. Two runners execute the same files:
 
 | backend | runner | command |
 | --- | --- | --- |
-| mock (`src/lib/tauri.ts`) | `src/lib/parity.test.ts` | `npm test` (or `node --test src/lib/parity.test.ts`) |
+| mock (`src/lib/mockBackend.ts`) | `src/lib/parity.test.ts` | `npm test` (or `node --test src/lib/parity.test.ts`) |
 | engine (`src-tauri` `Engine`) | `src-tauri/src/vault/parity.rs` | `cargo test --lib --manifest-path src-tauri/Cargo.toml parity` |
 
 The comparison is on observable outcomes — returned paths, titles, list orders,
@@ -112,3 +113,20 @@ Only mark an op whose wrong answer leaves the rest of the scenario on script —
 a read, or a write whose divergence is confined to what a marked read observes.
 A fixture may not mark all of its ops; that is the whole-fixture skip again, and
 `parity.test.ts` fails it.
+
+# Cross-language lockstep pins
+
+`lockstep/` holds the other kind of shared file: not a scenario, a table of
+inputs and the verdict every language that reads them must give. Same bargain
+as the fixtures above — one file, two runners, nothing shared but the JSON —
+for the pure functions two implementations of the same grammar keep drifting
+apart on.
+
+| file | question | runners |
+| --- | --- | --- |
+| `lockstep/column-markers.json` | is this line a column marker, does it open a fence, does it close one | `src/lib/columnLockstep.test.ts` (`npm test`) · `the_lockstep_fixture_gets_the_same_answers` in `src-tauri/src/vault/mod.rs` (`cargo test`) |
+
+Every file here names its runners in a `runners` key, and each runner fails
+rather than skips when the file is missing or unparseable: a pin that quietly
+stops running is the drift it exists to catch. A spelling learned on one side
+is a row added here, which the other side then answers or goes red on.

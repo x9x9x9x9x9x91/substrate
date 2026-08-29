@@ -37,9 +37,24 @@ pub(crate) fn seal_note_and_purge(
     Ok(result)
 }
 
+/// Read-hot: the whole note list, fetched on first paint and whenever the
+/// app cannot patch its copy from `vault_metas`. Rides `blocking()` so a
+/// large vault's list never stalls the IPC thread.
 #[tauri::command]
-pub(crate) fn vault_list(state: State<AppState>) -> Vec<NoteMeta> {
-    state.0.lock().unwrap().list()
+pub(crate) async fn vault_list(app: tauri::AppHandle) -> Result<Vec<NoteMeta>, String> {
+    blocking(move || crate::read_index(&app).list()).await
+}
+
+/// The metas behind a known-narrow set of paths — what the app fetches after
+/// a write instead of re-listing the whole vault. Positional: entry `i`
+/// answers `paths[i]`, and `null` means the vault no longer has that note, so
+/// the caller drops the row.
+#[tauri::command]
+pub(crate) async fn vault_metas(
+    app: tauri::AppHandle,
+    paths: Vec<String>,
+) -> Result<Vec<Option<NoteMeta>>, String> {
+    blocking(move || crate::read_index(&app).metas(&paths)).await
 }
 
 #[tauri::command]

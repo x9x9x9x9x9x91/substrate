@@ -184,6 +184,25 @@ Deliberately small and vault-shaped, not filesystem-shaped:
 - `vault_search(query)` — the granted-path allow-list is pushed into the
   engine's scoped search, so ungranted folders never leak titles/snippets —
   not even as trimmed rank-N rows of a capped page.
+- `view_read(view | path, fence, db, today)` — a saved view or a note's
+  ```view fence, **evaluated**: the rows it matches, in its order, with its
+  computed cells, in the `substrate.view/1` shape `vault-format.md` §7b
+  spells. Same eyes as the screen, literally — the door runs the app's own
+  evaluator rather than a second reading of the view rules in Rust, so a
+  client and the pane cannot drift. Grants decide the allow-list BEFORE
+  anything is evaluated, so an ungranted note is never opened: not as a row,
+  not as a rollup target, not as a group count; sealed notes are dropped the
+  same way. Read-only, no receipts. Two refusals worth knowing: a fence over a
+  database no granted folder holds a note of is refused rather than answered
+  as an empty table (an empty answer would read as "nothing matched"), and a
+  view name is refused **without** naming the vault's other pins, which are
+  not a list this client was given. A saved view is looked up only among the
+  pins over databases this client's own notes belong to, so a pin it was
+  never given refuses in exactly the words a name this vault does not carry
+  refuses in, and a name two databases share is settled by the grants instead
+  of naming the ungranted database back. When Node or the bundled
+  evaluator is missing it refuses — `reading views is not set up on this
+  machine` — for the reason `vault_recall` refuses rather than falling back.
 
 No raw-byte/file tools, no asset access, no shell, no config.
 

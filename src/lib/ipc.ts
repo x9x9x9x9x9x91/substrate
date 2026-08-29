@@ -1,9 +1,12 @@
 import { invoke, setHistoryReadOnly } from "./tauri.ts";
 import { isAppFile, netAllowed, SETTINGS_PATH } from "./settings.ts";
 import { freshCache } from "./freshcache.ts";
+import { forgetVaultCaches } from "./vaultcaches.ts";
+import { whenVaultReady } from "./vaultReady.ts";
 import { forgetFreshnessFailures } from "./agefill.ts";
 import type { KindBundleInfo } from "./kinds.ts";
 import type { ReflexReceipt, ReflexStatus } from "./reflexes.ts";
+import type { GhostIndex, SyncFolder, SyncFolderToggle } from "./syncfolders.ts";
 import type { OnboardingStatus, VaultCandidate } from "./onboarding.ts";
 import type { WidgetSummary } from "./widgets.ts";
 import type {
@@ -153,6 +156,9 @@ export const vaultChoose = async (path: string, consent = false) => {
   freshCache.clear();
   // and "this vault has no history" is an answer about the old vault too
   forgetFreshnessFailures();
+  // same reasoning for the caches that cannot be reached from here: the
+  // parsed PDF documents and the page each viewer was left on
+  forgetVaultCaches();
   return root;
 };
 /** Disposable copy of the bundled example vault, selected as the choice. */
@@ -208,10 +214,28 @@ export interface McpLastSeen {
 }
 export const mcpLastSeen = () => invoke<McpLastSeen | null>("mcp_last_seen");
 
+/* Waits for the index before asking for it. The backend answers this one from
+   the engine, and a hidden window asking too early parks the main thread for
+   the length of the scan — see `whenVaultReady`. The projection branch is a
+   read of memory and waits for nothing. */
 export const vaultList = () =>
   historyProjection
     ? Promise.resolve(projectedNotes.slice())
-    : invoke<NoteMeta[]>("vault_list");
+    : whenVaultReady().then(() => invoke<NoteMeta[]>("vault_list"));
+/** The metas for paths a caller already knows changed — the patch the note
+    list applies instead of re-fetching the whole vault. Positional: entry `i`
+    answers `paths[i]`, `null` where the note is gone. Answered from the
+    snapshot while browsing the past, for the same reason `vaultList` is: what
+    the list shows there is the past's notes, not today's. No ready gate: a
+    patch is only asked for in response to a change event, which cannot fire
+    before the vault is up. */
+export type MetaPatch = (NoteMeta | null)[];
+export const vaultMetas = (paths: string[]): Promise<MetaPatch> =>
+  historyProjection
+    ? Promise.resolve(
+        paths.map((p) => clone(projectedNotes.find((n) => n.path === p) ?? null))
+      )
+    : invoke<MetaPatch>("vault_metas", { paths });
 /** Settings.md is app configuration, not vault content, and several
     live surfaces re-read it while the scrubber is open — the terminal HUD, the
     palette's quick actions, the conceal toggle, the drop hint. Projecting the
@@ -346,6 +370,20 @@ export const reflexesSetPaused = (paused: boolean) =>
 export const reflexesDisable = () => invoke<void>("reflexes_disable");
 /** The receipts log, newest first. */
 export const reflexesReceipts = () => invoke<ReflexReceipt[]>("reflexes_receipts");
+/** This vault's folders and whether each one syncs. The list is the vault's
+    top-level folders unioned with anything the config already names, so a
+    folder excluded on another device is listed here even on a device that has
+    never had it on disk. */
+export const syncFoldersList = () => invoke<SyncFolder[]>("sync_folders_list");
+/** Turn one folder's syncing off or on. Letting a folder back IN is weighed
+    first: `applied: false` with a `scan` carrying `oversize` files means the
+    folder holds something the transport cannot carry, and nothing changed. */
+export const syncFoldersSet = (folder: string, excluded: boolean) =>
+  invoke<SyncFolderToggle>("sync_folders_set", { folder, excluded });
+/** What the excluded folders hold, as the devices that have them last
+    reported. The answer for a folder this device does not have — which is what
+    lets a surface list its files instead of showing an empty folder. */
+export const syncFoldersIndex = () => invoke<GhostIndex>("sync_folders_index");
 /** Capture a pasted link as a reference note. `enrich` decides
     whether the engine then asks that site for its page title — the caller
     reads `net-link-titles` from Settings.md; the note is created either way,
@@ -461,8 +499,15 @@ const highlightedParts = (text: string, q: string) => {
   return parts.length ? parts : [{ text, hit: false }];
 };
 
+/* Gated for the same reason `vaultList` is: the everywhere palette is a
+   hidden window created at startup and it searches on the first keystroke, so
+   a summon during the launch scan would park the main thread for the rest of
+   it — the freeze this gate exists to remove. */
 export const vaultSearch = (q: string, scope?: string[], excludeAppFiles?: boolean) => {
-  if (!historyProjection) return invoke<SearchHit[]>("vault_search", { q, scope, excludeAppFiles });
+  if (!historyProjection)
+    return whenVaultReady().then(() =>
+      invoke<SearchHit[]>("vault_search", { q, scope, excludeAppFiles }),
+    );
   return Promise.resolve(
     historySearchNotes(q, scope, excludeAppFiles).map((note) => ({
       path: note.path,
@@ -738,7 +783,7 @@ export const vaultViewsRead = () =>
 export const vaultSchemaRead = () =>
   historyProjection
     ? Promise.resolve(clone(historyProjection.schema))
-    : invoke<SchemaConfig>("vault_schema_read");
+    : whenVaultReady().then(() => invoke<SchemaConfig>("vault_schema_read"));
 export const vaultSchemaSet = (
   dbType: string,
   prop: string,
@@ -840,7 +885,8 @@ export const vaultViewsSet = (
   hiddenPerLayout?: HiddenPerLayout,
   cardOrder?: string[],
   groupOrder?: string[],
-  collapsedGroups?: string[]
+  collapsedGroups?: string[],
+  calDate?: string
 ) =>
   invoke<ViewsConfig>("vault_views_set", {
     db,
@@ -858,6 +904,7 @@ export const vaultViewsSet = (
     cardOrder: cardOrder ?? null,
     groupOrder: groupOrder ?? null,
     collapsedGroups: collapsedGroups ?? null,
+    calDate: calDate ?? null,
   });
 export const vaultFolders = () =>
   historyProjection
@@ -982,6 +1029,23 @@ export const paletteSeedQuery = () => invoke<string>("palette_seed_query");
     name to look up, or a message to show; a link that resolves to nothing is
     never silent. */
 export const deeplinkTakePending = () => invoke<DeeplinkResolved[]>("deeplink_take_pending");
+/** A destination that arrived before this window could listen for it.
+    Exactly one field is set. */
+export interface OpenTarget {
+  /** a note path to open */
+  note: string | null;
+  /** a view to open, in the same JSON shape `app:open-view` carries */
+  view: unknown;
+  /** a sheet row to reveal, in the same shape `app:open-sheet-row` carries */
+  sheet: { path: string; column: string; row: string } | null;
+}
+/** Drain destinations the tray agenda, the everywhere palette or a due-date
+    notification asked for before App mounted. Called on mount — which is also
+    what tells Rust this window can receive, so everything after it arrives as
+    a plain `app:open-note` / `app:open-view` event. Without this drain, a
+    click during the launch scan emitted into no listener and opened nothing. */
+export const openTargetsTakePending = () =>
+  invoke<OpenTarget[]>("open_targets_take_pending");
 // Capture's side of the `substrate://capture?text=` handoff
 // (`deeplink_capture_prefill` / `deeplink_clear_capture_prefill`) is invoked
 // directly in capture.tsx, in that file's style — no wrapper here.

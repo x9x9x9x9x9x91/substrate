@@ -1121,7 +1121,10 @@ mod tests {
             assert!(err.contains("left where it was"), "{lane}: says what it did: {err}");
             assert!(!root.join("Secrets").exists(), "{lane}: the folder did not stay moved");
             assert!(!root.join("Areas/Private").exists(), "{lane}");
-            assert!(root.join("Private").join(SCOPE_MARKER).is_file(), "{lane}: back with its marker");
+            assert!(
+                root.join("Private").join(SCOPE_MARKER).is_file(),
+                "{lane}: back with its marker"
+            );
 
             // and the seal it never left is still enforced where it always was
             let scopes = engine.sealed_scopes();

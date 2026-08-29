@@ -1,10 +1,12 @@
 :root {
-  /* The grey ramp carries no hue: --text-1..4 are dead neutral (equal
-     R/G/B channels), and the surface greys sit within one step of neutral.
-     The cool cast that used to sit in the text ramp — cool-tinted greys
-     under a comment claiming otherwise — is gone. The accent family lives
-     only in interactive tokens (--accent/--link), never in surfaces or
-     text greys */
+  /* The text ramp carries a faint cool cast — one to six points of blue
+     over the red channel, below naming as a hue but present at whole-app
+     scale. The 2026-08-28 dead-neutral ramp shipped in 0.29 and the owner
+     called it back the same day from the live app ("weirdly gray"): the
+     cast IS the look, not a drift to correct (vision.md, Neutral ground —
+     the SURFACE greys stay strictly neutral). The accent family still
+     lives only in interactive tokens (--accent/--link), never in surfaces
+     or text greys */
   --bg: #090909;
   --bg-panel: #101011;
   --bg-elevated: #1a1a1b;
@@ -12,11 +14,25 @@
   --border-soft: rgba(255, 255, 255, 0.06);
   --border-strong: rgba(255, 255, 255, 0.14);
   /* `db-grid` column rules only — fainter than --border-soft so the
-     grid orients without competing with the row hairlines */
+     grid orients without competing with the row hairlines. The database
+     TABLE no longer uses it (it kept the heatmap's zero tier): see the
+     --line-panel pair below. */
   --grid-line: rgba(255, 255, 255, 0.04);
-  --text-1: #f6f6f6;
-  --text-2: #ababab;
-  --text-3: #777777;
+  /* Solid twins of the hairline alphas, pre-composited over --bg-panel, for
+     the database table's collapsed-border grid. Translucent borders crossing
+     at right angles paint their crossing pixel twice, and the doubled alpha
+     reads as a dot at every intersection (owner flag, from the live app,
+     2026-08-28). Solid, a crossing paints one value — and BOTH axes take the
+     soft weight, so the grid reads as one even lattice rather than ruled
+     rows with fainter columns. Panel-ground surfaces only: over any other
+     ground these are the wrong grey. */
+  --line-panel: #262626; /* --border's weight on the panel — the 9% composite
+     rounds to equal channels, unlike its two siblings; not a typo */
+  --line-panel-soft: #1e1e1f; /* --border-soft's weight on the panel */
+  --line-panel-strong: #313132; /* --border-strong's weight on the panel */
+  --text-1: #f5f6f6;
+  --text-2: #a9abae;
+  --text-3: #75777b;
   /* The interactive family, routed through the tone presets further
      down: the Settings tone dial moves the WHOLE app at once — cell cursor,
      focus rings, text selection, filled buttons, links and dashboard
@@ -125,8 +141,8 @@
   /* Dashboard instrument language. Mono carries data and labels,
      Inter carries the title and sentences; structure is hairlines, never
      boxes; hue stays in the interactive/state tokens above. --text-4 extends
-     the neutral ramp one step below --text-3 — no tint on either, the step
-     is brightness alone — for plot axes and page footers only. */
+     the text ramp one step below --text-3 — same faint cool cast, one step
+     of brightness — for plot axes and page footers only. */
   --hair: rgba(255, 255, 255, 0.1);
   --hair-soft: rgba(255, 255, 255, 0.055);
   /* The strong page rule, routed through the tone family. The
@@ -139,7 +155,7 @@
     color-mix(in srgb, var(--tone-accent-text) 85%, transparent) 70%,
     transparent
   );
-  --text-4: #565656;
+  --text-4: #54565a;
   --bg-input: #0d0d0e;
   /* The radius ladder — four steps, assigned by ROLE, not by whichever
      literal a surface happened to be typed with. The app's roundness is
@@ -220,11 +236,16 @@
                it is this one.
        --fs-4  reading and emphasis at UI scale: prose and hints, a card
                title, a form's section body, the dashboard sentence voice.
-       --fs-5  the reading surface and stat values — the note editor's own
-               body text, a stat tile's number, a pane's own title.
+       --fs-5  stat values and a pane's own title — a stat tile's number,
+               the one large UI voice.
        --fs-6  display: a note title, a page heading, the one number a screen
                is about.
-     Two things are deliberately NOT on this ramp. `em`/`%` sizes stay
+     The note editor's body text is NOT on --fs-5: the round-up rule swallowed
+     its 15px into 17px and the owner called it back from the live app the day
+     0.29 shipped ("weirdly big and clunky", 2026-08-28). Reading a note is the
+     app's one long-form surface, so it keeps its own step, --fs-reading, and
+     the editor's em-sized headings and inline code scale from it as before.
+     Two things more are deliberately NOT on this ramp. `em`/`%` sizes stay
      relative — an editor heading at 1.5em and inline code at 0.85em are
      ratios OF the reading surface, so pinning them to a step would break the
      very thing they express. And the two PAPER surfaces (`print.css`, the
@@ -239,6 +260,7 @@
   --fs-4: 13px;
   --fs-5: 17px;
   --fs-6: 21px;
+  --fs-reading: 15px;
   /* Three weights, and only three. The variable font will render any number
      between 400 and 700, which is how the tree ended up with sixteen of them
      — twelve of those on a handful of sites each, differing by ten units

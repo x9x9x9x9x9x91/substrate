@@ -64,5 +64,15 @@ export async function seedNotes(page: Page, folder: string, count: number) {
   }, { folder, count });
 }
 
+/** Seed a folder whose last-edited, created and name orders each put a
+    different note on top, plus a pair sharing a timestamp with no `created:`
+    — the tiebreak and the undated-last rule. Runs before boot, so the first
+    vault_list already carries them. */
+export async function seedSortable(page: Page, folder: string) {
+  await page.addInitScript((sortable) => {
+    (window.__mockPendingSeeds ??= []).push({ sortable });
+  }, { folder });
+}
+
 export { expect } from "@playwright/test";
 export type { Browser, BrowserContext, Locator, Page, TestInfo } from "@playwright/test";

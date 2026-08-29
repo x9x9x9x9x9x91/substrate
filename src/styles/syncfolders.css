@@ -1,0 +1,41 @@
+/* Settings → Vault — the folders that don't sync.
+
+   Almost nothing of its own: the list is the settings pane's ordinary switch
+   rows, because a folder's sync state is the same kind of thing as any other
+   preference and should not arrive looking like a different feature.
+
+   What IS its own is the refusal — the block that appears under a folder whose
+   files are too large to sync. It is the one place in the section where the app
+   says no, so it gets the one piece of structure: an inset rule marking it as
+   consequence rather than caption, and the file names under it in the reading
+   face they are written in, so a path reads as a path. */
+
+/* A row carrying a refusal is several lines tall, and the settings row centres
+   its control — which floats the switch down to the middle of the block,
+   away from the folder name it belongs to. Top-align it instead, nudged to
+   the label's own optical centre so the row reads the same whether it is one
+   line or five. */
+.settings-row.syncfolders-row-open {
+  align-items: flex-start;
+}
+
+.settings-row.syncfolders-row-open .settings-switch {
+  margin-top: 2px;
+}
+
+.syncfolders-refusal {
+  margin-top: 6px;
+  padding-left: 9px;
+  border-left: 1px solid var(--line-panel-strong);
+  display: grid;
+  gap: 2px;
+}
+
+/* The named files. Mono because every one of them is a path, and tabular sizes
+   at the end of each line stay comparable down the list. */
+.syncfolders-oversize {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+  word-break: break-all;
+}

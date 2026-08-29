@@ -1,0 +1,60 @@
+{
+  "summary": "one line, one verdict \u2014 the column markers and the fence scanner, answered identically by the renderer (TypeScript) and the indexer (Rust)",
+  "why": "Both sides call themselves lockstep twins in their doc comments, and until this file nothing checked it. The drift that got here on comments alone: the indexer recognized <!-- /col --> as a marker and the renderer did not, so a line an author can see in their editor was blanked out of their search snippets; and the renderer treated a no-break space, a form feed or a vertical tab as indentation while the indexer did not, so a marker one side hid the other printed. Add a case here when either side learns a spelling.",
+  "runners": [
+    "src/lib/columnLockstep.test.ts \u2014 isColumnsOpen / isColumnsDivider / isColumnsClose, fenceOpening, fenceCloses",
+    "src-tauri/src/vault/mod.rs, the_lockstep_fixture_gets_the_same_answers \u2014 is_column_marker, opening_fence, closes_fence"
+  ],
+  "markers": [
+    {"line": "<!-- columns -->", "kind": "open"},
+    {"line": "<!-- col -->", "kind": "divider"},
+    {"line": "<!-- /columns -->", "kind": "close"},
+    {"line": "<!--columns-->", "kind": "open", "note": "the spaces inside are the author's"},
+    {"line": "<!--col-->", "kind": "divider"},
+    {"line": "<!--/columns-->", "kind": "close"},
+    {"line": "<!-- COLUMNS -->", "kind": "open", "note": "case is the author's too"},
+    {"line": "<!--   Col   -->", "kind": "divider"},
+    {"line": "  <!-- col -->", "kind": "divider", "note": "spaces indent"},
+    {"line": "\t<!-- columns -->", "kind": "open", "note": "a tab indents"},
+    {"line": "<!-- col --> ", "kind": "divider", "note": "trailing space"},
+    {"line": "<!-- col -->\r", "kind": "divider", "note": "a CRLF file's line arrives carrying its return"},
+    {"line": "<!-- /col -->", "kind": null, "note": "closes nothing: three markers exist and this is not one of them"},
+    {"line": "<!--/col-->", "kind": null},
+    {"line": "\u00a0<!-- columns -->", "kind": null, "note": "a no-break space is not indentation someone typed on purpose"},
+    {"line": "\f<!-- columns -->", "kind": null, "note": "a form feed is not either"},
+    {"line": "\u000b<!-- columns -->", "kind": null, "note": "nor a vertical tab"},
+    {"line": "Write <!-- col --> to split a column.", "kind": null, "note": "prose mentioning one is prose"},
+    {"line": "<!-- columns --> and then some", "kind": null},
+    {"line": "<!-- column -->", "kind": null},
+    {"line": "<!-- /columns", "kind": null},
+    {"line": "", "kind": null}
+  ],
+  "fences": [
+    {"line": "```", "opens": "```"},
+    {"line": "```ts", "opens": "```"},
+    {"line": "~~~", "opens": "~~~"},
+    {"line": "~~~`js", "opens": "~~~", "note": "a tilde opener takes any info string, backticks included"},
+    {"line": "```a`b", "opens": null, "note": "a backtick opener's info string may not hold a backtick"},
+    {"line": "   ```", "opens": "```", "note": "three spaces still open a fence"},
+    {"line": "    ```", "opens": null, "note": "four make an indented code block"},
+    {"line": "\t```", "opens": null},
+    {"line": "``", "opens": null},
+    {"line": "````", "opens": "````"},
+    {"line": "~~~~~ csv", "opens": "~~~~~"},
+    {"line": "```\r", "opens": "```", "note": "a CRLF line's return is not part of the info string"},
+    {"line": "not a fence", "opens": null},
+    {"line": "", "opens": null}
+  ],
+  "closers": [
+    {"line": "```", "run": "```", "closes": true},
+    {"line": "````", "run": "```", "closes": true, "note": "a longer run closes a shorter one"},
+    {"line": "```", "run": "````", "closes": false, "note": "and not the reverse"},
+    {"line": "~~~", "run": "```", "closes": false, "note": "same character or nothing"},
+    {"line": "~~~", "run": "~~~", "closes": true},
+    {"line": "```ts", "run": "```", "closes": false, "note": "a closer carries no info string"},
+    {"line": "``` ", "run": "```", "closes": true, "note": "trailing space is not an info string"},
+    {"line": "```\r", "run": "```", "closes": true},
+    {"line": "   ```", "run": "```", "closes": true},
+    {"line": "    ```", "run": "```", "closes": false}
+  ]
+}

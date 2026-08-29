@@ -10,11 +10,13 @@ import {
   parseDbGrid,
   parseTaskStaleChips,
   parseDropHint,
+  parseFeedTopics,
   parseFeedCurator,
   parseModHud,
   parseShowAppFiles,
   parseTerminalActions,
   parseTerminalSettings,
+  parseUpcomingDock,
   parseWindowOpacity,
   terminalActionsToText,
   terminalFontFamily,
@@ -350,6 +352,56 @@ test("terminal actions survive the form round trip unchanged (SUB-476)", () => {
   // back out of the box verbatim, so a half-typed line isn't eaten
   const stored = ["Cal: /cal", "bare-command", "Label:"];
   assert.deepEqual(textToTerminalActions(terminalActionsToText(stored)), stored);
+});
+
+test("parseUpcomingDock: null when unasked, bottom when unreadable", () => {
+  // absent is not the same answer as junk: an absent key means nothing has
+  // written the note yet, and the boot read is allowed to honour an older
+  // profile's stored placement instead
+  assert.equal(parseUpcomingDock({}), null);
+  assert.equal(parseUpcomingDock({ "terminal-dock": "right" }), null);
+  // only the exact word rails it, trimmed and case-folded like its neighbour
+  assert.equal(parseUpcomingDock({ "upcoming-dock": "right" }), "right");
+  assert.equal(parseUpcomingDock({ "upcoming-dock": " RIGHT " }), "right");
+  // a key that is present but says something else reads as the shape the
+  // panel has always had — a typo costs nothing
+  assert.equal(parseUpcomingDock({ "upcoming-dock": "bottom" }), "bottom");
+  assert.equal(parseUpcomingDock({ "upcoming-dock": "rightish" }), "bottom");
+  assert.equal(parseUpcomingDock({ "upcoming-dock": "" }), "bottom");
+  assert.equal(parseUpcomingDock({ "upcoming-dock": true }), "bottom");
+  assert.equal(parseUpcomingDock({ "upcoming-dock": 1 }), "bottom");
+  assert.equal(parseUpcomingDock({ "upcoming-dock": null }), "bottom");
+  assert.equal(parseUpcomingDock({ "upcoming-dock": ["right"] }), "bottom");
+  // hand-cased keys read like every other setting
+  assert.equal(parseUpcomingDock({ "Upcoming-Dock": "right" }), "right");
+  assert.equal(parseUpcomingDock({ "UPCOMING-DOCK": "nonsense" }), "bottom");
+});
+
+test("parseFeedTopics: null when unasked, a clean slug list when asked", () => {
+  // absent is not the same answer as empty: an absent key means nothing has
+  // written the note yet, and the boot read is allowed to honour a selection
+  // an older profile left in the browser store
+  assert.equal(parseFeedTopics({}), null);
+  assert.equal(parseFeedTopics({ "feed-curator": "curate.sh" }), null);
+  // present and empty is a real answer — no filter, the whole stream
+  assert.deepEqual(parseFeedTopics({ "feed-topics": [] }), []);
+  // the shape the chips write: lowercased slugs in pick order
+  assert.deepEqual(parseFeedTopics({ "feed-topics": ["plugins", "ai"] }), ["plugins", "ai"]);
+  // hand-edited notes: cased, padded, duplicated, and a bare string for one
+  assert.deepEqual(parseFeedTopics({ "feed-topics": [" Plugins ", "AI", "plugins"] }), [
+    "plugins",
+    "ai",
+  ]);
+  assert.deepEqual(parseFeedTopics({ "feed-topics": "Plugins" }), ["plugins"]);
+  // junk hides nothing rather than hiding everything
+  assert.deepEqual(parseFeedTopics({ "feed-topics": ["", "  "] }), []);
+  assert.deepEqual(parseFeedTopics({ "feed-topics": [1, true, null, { a: 1 }] }), []);
+  assert.deepEqual(parseFeedTopics({ "feed-topics": true }), []);
+  assert.deepEqual(parseFeedTopics({ "feed-topics": null }), []);
+  // a non-string entry never takes the good ones down with it
+  assert.deepEqual(parseFeedTopics({ "feed-topics": ["scene", 7] }), ["scene"]);
+  // hand-cased keys read like every other setting
+  assert.deepEqual(parseFeedTopics({ "Feed-Topics": ["wild"] }), ["wild"]);
 });
 
 test("parseDropHint: only an explicit false hides the hint (SUB-438)", () => {

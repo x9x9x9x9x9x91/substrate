@@ -466,3 +466,82 @@ tr.db-draft-tr,
   background: var(--hover);
   color: var(--text-2);
 }
+
+/* ── the calendar layout ── the Calendar pane's month grid as a database
+   layout. It reuses the pane's cell, chip and pager classes verbatim (one
+   visual language for one surface); only the outer sizing and the binding
+   line differ, because a database pane carries its own head and tab rows
+   above the grid. */
+
+.db-calhead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 20px 8px;
+}
+
+.db-calbind {
+  font: var(--dash-label);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.db-calnav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.db-calmonth {
+  font-size: var(--fs-3);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* the grid scrolls with the pane body rather than filling it: six rows of a
+   flex-filled body would collapse to nothing once a month's cells grow, and a
+   loaded cell must be able to push its row taller */
+.db-calendar {
+  display: flex;
+  flex-direction: column;
+  padding: 0 20px 24px;
+  overflow: auto;
+}
+
+.db-calendar .cal-grid.month {
+  flex: none;
+  grid-auto-rows: minmax(96px, auto);
+}
+
+/* narrow panes scroll the grid sideways rather than crush seven columns —
+   the trade the pane and the dashboard fence both make */
+.db-calendar > .cal-weekdays,
+.db-calendar > .cal-grid {
+  min-width: 620px;
+}
+
+.db-calendar > .cal-weekdays {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg);
+}
+
+/* the layout's chips open a note, and the open one reads as open — the same
+   cue every other database layout gives its current row */
+.db-calendar .cal-entry {
+  cursor: pointer;
+}
+
+/* A month span sets its own tint fill at four classes
+   (calendar.css `.cal-grid.month .cal-entry.span`), which outranks the three
+   here — so an open multi-day row kept the span fill and never showed the
+   wash. Outranked back the way the selection wash handles the same collision:
+   one longer selector, same declaration. */
+.db-calendar .cal-entry.open,
+.db-calendar .cal-grid.month .cal-entry.open {
+  background: var(--active);
+}
+

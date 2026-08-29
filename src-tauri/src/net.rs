@@ -578,7 +578,9 @@ mod tests {
         // enrichment fetch fails. The path and query stay — they are what
         // makes the line diagnosable — but the key does not reach the disk.
         assert_eq!(
-            redact_url("https://relay.example/l/abc123#0123456789012345678901234567890123456789012"),
+            redact_url(
+                "https://relay.example/l/abc123#0123456789012345678901234567890123456789012"
+            ),
             "https://relay.example/l/abc123"
         );
         // ordinary fragments go too: no fetch is ever explained by one, since

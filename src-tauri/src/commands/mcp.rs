@@ -23,11 +23,7 @@ pub(crate) struct McpGrantView {
 
 impl From<&Grant> for McpGrantView {
     fn from(grant: &Grant) -> Self {
-        Self {
-            client: grant.client.clone(),
-            prefix: grant.prefix.clone(),
-            access: grant.access,
-        }
+        Self { client: grant.client.clone(), prefix: grant.prefix.clone(), access: grant.access }
     }
 }
 

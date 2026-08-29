@@ -54,7 +54,12 @@ export function displayTitle(n: Pick<NoteMeta, "path" | "title">): string {
 }
 
 /** Journal folder order: daily notes newest-first by filename date,
-    non-daily strays after by updated_ms desc. Returns a new array. */
+    non-daily strays after by updated_ms desc. Returns a new array.
+
+    Both halves end in the path tiebreak every other list ends in. A vault
+    restored from a clone has one mtime across the whole tree, so without it
+    the strays come back in whatever order the index handed them — a
+    different order per render of notes nothing touched. */
 export function journalOrder(notes: NoteMeta[]): NoteMeta[] {
   const daily: { note: NoteMeta; date: string }[] = [];
   const rest: NoteMeta[] = [];
@@ -63,7 +68,8 @@ export function journalOrder(notes: NoteMeta[]): NoteMeta[] {
     if (date) daily.push({ note, date });
     else rest.push(note);
   }
-  daily.sort((a, b) => b.date.localeCompare(a.date));
-  rest.sort((a, b) => b.updated_ms - a.updated_ms);
+  const byPath = (a: NoteMeta, b: NoteMeta) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+  daily.sort((a, b) => b.date.localeCompare(a.date) || byPath(a.note, b.note));
+  rest.sort((a, b) => b.updated_ms - a.updated_ms || byPath(a, b));
   return daily.map((d) => d.note).concat(rest);
 }

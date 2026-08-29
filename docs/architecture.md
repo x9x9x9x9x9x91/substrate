@@ -78,6 +78,82 @@ prose, and the check holds that declaration against the tip registry, against
 the markup the pane still renders, and against the kind's privacy, so a pane
 cannot ship explaining itself only as "a dashboard".
 
+## Where a command runs, and what it waits for
+
+A command's answer is not free of where it runs. Tauri hands a synchronous
+`#[tauri::command]` to its IPC thread and waits for it there, so a slow one
+does not queue behind the others — it holds up every command behind it, and
+the window with them. Anything that reads the disk, walks the vault or runs a
+query therefore declares itself `async` and puts its body through
+`blocking()`, which moves the work onto a background thread and lets the IPC
+thread go. Such a command takes an `AppHandle` rather than a `State<_>` and
+resolves its state inside the closure: a mutex guard cannot be held across an
+await point, so the state has to be fetched where the work happens. Every
+read-hot command — search, full search, list, metas, backlinks, related,
+resolve, image hit — is on that path.
+
+The note-writing commands are not. `vault_create`, `vault_write_body`,
+`vault_set_prop`, `vault_rename`, `vault_delete`, `vault_delete_many` and the
+folder operations are all plain synchronous commands, so they run on the IPC
+thread and hold it for the write. That is tolerable because each is one
+user-sized edit rather than a scan, and it is why the published copy below
+matters more than it would otherwise: the writes that DO take a long time —
+the mount scan, the seal conversion, the folder sync — are background work
+that no foreground read should have to wait for.
+
+Leaving the IPC thread is only half of it. All vault state lives behind one
+lock, because the engine owns a SQLite connection and an image memo that
+cannot be shared between threads; it cannot become a read/write lock without
+giving those up. So a mount scan, a seal conversion or a folder sync excludes
+everything else that touches the vault for as long as it runs, which used to
+mean a note open in the foreground waiting on a background scan.
+
+What gets out of that queue is a published copy. The engine keeps a snapshot
+of the note table, the link table, and two derived tables — links by target
+name for backlinks, relation-prop values by named target for related — and
+hands it out behind an `Arc`. Listing, metas, backlinks and related answer
+from the snapshot and take no lock at all, ever.
+
+The writer does the publishing, and it does it at the END of the write. A
+write moves the index revision as it begins, but the published copy stays up
+and readers keep answering from it; the writer builds a new copy and installs
+it under the engine lock, in the moment before it releases the lock. Every
+path that touches the vault reaches the engine through a guard that publishes
+when it is dropped, so no writer has to remember to do it, and a writer that
+panics mid-way still hands over what it managed to write.
+
+So a read that lands during a write sees the vault as it stood when that
+write began — a note opened during a 5,000-file mount scan answers
+immediately, from the pre-scan copy, instead of waiting for the scan. A read
+that starts after a write finished sees that write, because the write
+republished before it unlocked. A caller that writes and then reads through
+the same held lock sees its own write, because the engine's own read path
+rebuilds on a stale revision rather than waiting for the publication.
+
+The copy costs one clone of the note and link tables and one sort, on the
+writing thread, per write. That is the accepted floor: the tables have to be
+read consistently, so there is nowhere but under the lock to read them from.
+What made it expensive before was paying it once per reader that missed,
+rather than once per write.
+
+Search is the exception, and the reason is where its answer lives: the
+full-text tables are inside the engine's in-memory SQLite connection, not in
+the note table. An in-memory database is private to its one connection, that
+handle cannot be used from two threads at once, and scoped search rewrites a
+temp table inside that same connection on every query — so there is nothing a
+snapshot could carry and no second connection that could read the tables. The
+writers' transactions are short (per indexing batch, per FTS rebuild), which
+does not change the answer: however briefly a writer holds the engine, search
+needs the one connection the writer is using. Search runs off the IPC thread
+like everything else, but it still queues behind a writer. Fixing that means
+moving the full-text tables to a file-backed database with reader
+connections, which is a change to the index's lifecycle rather than to this
+lock.
+
+The snapshot also changes what `related` costs. Resolving every note's type
+against the schema and lowercasing its relation values happens once per index
+change, not once per note open.
+
 ## The mock lane
 
 `npm run dev` serves the front end against a deterministic mock backend in an

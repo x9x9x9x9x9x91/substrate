@@ -88,6 +88,73 @@
   color: var(--text-1);
 }
 
+/* The suggestions under the capture line. It hangs off the line rather than
+   pushing the day down: the lanes below must not jump a row every time a
+   keystroke changes how many tasks match. Drawn as the app's other floating
+   lists are — a soft panel, one hairline, rows that light on the cursor.
+
+   It hangs INSIDE the day's scrollport rather than in a portal, so a window
+   too short to hold seven rows below the capture line clips the last of them
+   and the scroller's edge fade dims them on the way out. Accepted: the panel
+   sits at the top of the day where the room is, it is capped at seven rows,
+   and the rows it might cut are the weakest matches — a real fix costs the
+   anchor-tracking a portal needs (reposition on every scroll and resize) to
+   buy back two rows in a window nobody triages a day in. */
+.today-add {
+  position: relative;
+}
+
+.today-suggest {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  margin-top: 4px;
+  padding: 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-3);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-float);
+}
+
+.today-suggest-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 8px;
+  border-radius: var(--r-2);
+  color: var(--text-2);
+  font-size: var(--fs-4);
+  cursor: default;
+}
+
+.today-suggest-row.selected {
+  background: var(--active);
+  color: var(--text-1);
+}
+
+.today-suggest-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* the verb the row runs, quiet until the row is the one under the cursor or
+   the keyboard walk — the lanes below label their actions the same way */
+.today-suggest-verb {
+  flex: none;
+  color: var(--text-3);
+  font-size: var(--fs-2);
+  opacity: 0;
+}
+
+.today-suggest-row.selected .today-suggest-verb {
+  opacity: 1;
+}
+
 .today-section {
   margin-top: 24px;
   padding-top: 20px;

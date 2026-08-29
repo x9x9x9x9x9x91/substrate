@@ -129,3 +129,38 @@ test("feed: an unparseable stamp keeps the neutral count — never a parse gate"
   await expect(page.locator(".dash-state .dash-dot")).toHaveAttribute("style", /--opt-blue/);
   await expect(page.locator(".feed-curated")).toHaveText("last curated whenever the agent ran");
 });
+
+test("feed: the topic chips are a setting — the selection lives in Settings.md", async ({
+  page,
+}) => {
+  await openFeed(page);
+  // the seeded key is present and empty, so the whole stream is showing
+  await expect(page.locator(".feed-item")).toHaveCount(5);
+
+  await page.locator(".feed-chip", { hasText: "hardware" }).click();
+  await expect(page.locator(".feed-item")).toHaveCount(1);
+  await expect(page.locator(".feed-title")).toContainText("M8 firmware");
+
+  // where the selection went: the vault, not a browser store — an agent or an
+  // editor reading Settings.md sees the same answer the chips do
+  await expect
+    .poll(() => page.evaluate(() => window.__mockPropOf!("Settings.md", "feed-topics")))
+    .toEqual(["hardware"]);
+
+  // a fresh mount reads the note rather than any memory of its own: leave the
+  // pane and come back and the selection is still the note's answer. (A page
+  // RELOAD would prove nothing here — the mock vault is per-page, so it would
+  // re-seed the key; that a real second machine sees this is what putting it
+  // in the vault buys, and what a browser store never could.)
+  await page.locator(".side-item", { hasText: "Overview" }).click();
+  await page.locator(".side-item", { hasText: "News" }).click();
+  await expect(page.locator(".feed-item")).toHaveCount(1);
+  await expect(page.locator(".feed-chip.is-on")).toHaveText("hardware");
+
+  // an agent writing the key moves the chips, same as any external edit
+  await page.evaluate(() => window.__mockEditProp!("Settings.md", "feed-topics", ["scene"]));
+  await page.locator(".side-item", { hasText: "Overview" }).click();
+  await page.locator(".side-item", { hasText: "News" }).click();
+  await expect(page.locator(".feed-item")).toHaveCount(1);
+  await expect(page.locator(".feed-title")).toContainText("Umbra");
+});

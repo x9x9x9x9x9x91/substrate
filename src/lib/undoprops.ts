@@ -34,6 +34,19 @@ export type PropWriter = (
 const defaultWrite: PropWriter = (path, key, value, guard) =>
   vaultSetProp(path, key, value, guard);
 
+/** What the note actually holds once `value` has been written.
+
+    The write domain removes a key written as `null` OR as an EMPTY LIST
+    (`Engine::set_prop_value`), so those two land in the same place: no key at
+    all. The guards below claim "the prop is still what we wrote", and an
+    empty list claiming to be on disk is a claim no note can ever satisfy —
+    which would refuse the inverse of every clear-to-nothing write as a
+    conflict against the very state that write produced. Guard on the
+    absence instead. */
+function storedAfter(value: PropValue): PropValue {
+  return Array.isArray(value) && value.length === 0 ? null : value;
+}
+
 /** Human phrasing for the toast and the shortcut hint: "Status → in review". */
 function propLabel(key: string, value: PropValue): string {
   if (value === null) return `Clear ${key}`;
@@ -75,11 +88,11 @@ export async function setPropUndoable(opts: {
     // guarded on what we wrote: if the prop moved since, refuse rather than
     // overwrite whatever replaced it
     undo: async () => {
-      await vaultSetProp(path, key, prior, { value });
+      await vaultSetProp(path, key, prior, { value: storedAfter(value) });
       await opts.onApplied?.();
     },
     redo: async () => {
-      await vaultSetProp(path, key, value, { value: prior });
+      await vaultSetProp(path, key, value, { value: storedAfter(prior) });
       await opts.onApplied?.();
     },
   });
@@ -139,7 +152,8 @@ export async function addTagsUndoable(opts: {
       await opts.onApplied?.();
     },
     redo: async () => {
-      await vaultSetProp(path, writtenKey, written, { value: prior });
+      // `prior` is what undo just wrote, so an empty list there left no key
+      await vaultSetProp(path, writtenKey, written, { value: storedAfter(prior) });
       await opts.onApplied?.();
     },
   });
@@ -187,10 +201,11 @@ export async function setPropsUndoable(opts: {
     paths: [path],
     // undo walks backwards: the last write is the first to be taken back
     undo: async () => {
-      for (const e of [...done].reverse()) await vaultSetProp(path, e.key, e.prior, { value: e.value });
+      for (const e of [...done].reverse())
+        await vaultSetProp(path, e.key, e.prior, { value: storedAfter(e.value) });
     },
     redo: async () => {
-      for (const e of done) await vaultSetProp(path, e.key, e.value, { value: e.prior });
+      for (const e of done) await vaultSetProp(path, e.key, e.value, { value: storedAfter(e.prior) });
     },
   });
   if (failure) throw failure;
@@ -268,12 +283,12 @@ export async function setPropUndoableBulk(opts: {
     // it just pushed onto the other side of the stack
     undo: async () => {
       for (const { path, key: actualKey, prior } of priors)
-        await vaultSetProp(path, actualKey, prior, { value });
+        await vaultSetProp(path, actualKey, prior, { value: storedAfter(value) });
       noteOwnWrite(priors.map((p) => p.path));
     },
     redo: async () => {
       for (const { path, key: actualKey, prior } of priors)
-        await vaultSetProp(path, actualKey, value, { value: prior });
+        await vaultSetProp(path, actualKey, value, { value: storedAfter(prior) });
       noteOwnWrite(priors.map((p) => p.path));
     },
   });

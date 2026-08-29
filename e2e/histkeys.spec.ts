@@ -8,7 +8,7 @@ async function openHistory(page: Page) {
   await page.goto("/");
   await page.locator(".side-item", { hasText: /^Scratch/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
-  await page.getByRole("button", { name: "History" }).click();
+  await page.getByRole("button", { name: "History", exact: true }).click();
   await expect(page.locator(".hist")).toBeVisible();
 }
 
@@ -157,7 +157,7 @@ test("phone history keeps its stacked list and diff geometry", async ({ browser 
   await page.locator(".sidebar .side-item", { hasText: /^Scratch/ }).click();
   await page.locator('.list .row[data-path="Welcome.md"]').click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
-  await page.getByRole("button", { name: "History" }).click();
+  await page.getByRole("button", { name: "History", exact: true }).click();
 
   const listbox = page.getByRole("listbox", { name: "Snapshots" });
   await expect(listbox.getByRole("option")).toHaveCount(3);
