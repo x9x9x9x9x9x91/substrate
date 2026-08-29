@@ -3,7 +3,8 @@ import { todayBase } from "./clock";
 
 // The rebuilt Today surface: a day-agenda decision surface — three
 // quiet lanes (Scheduled, Due & overdue, Picked for today), the one verb Pick
-// (writes the `today` date prop), and a leftovers row for stale picks. Entry
+// (writes the `today` date prop), a leftovers row for stale picks, and a Done
+// section that only exists on a day something got finished. Entry
 // points are back (sidebar, palette, ⌘1) but cold open stays on Scratch.
 // Same deterministic mock backend as smoke.spec.ts.
 
@@ -296,6 +297,59 @@ test("⌫ only clears a row that carries a pick (SUB-1162)", async ({ page }) =>
   await expect(picked.locator(".today-row", { hasText: "Umbra listening session" })).toHaveCount(0);
 });
 
+test("finishing a due-today task moves it to Done, out of the decision lane", async ({ page }) => {
+  const due = lane(page, "Due & overdue");
+  await expect(due.locator(".today-row", { hasText: "Approve SMP-030 artwork" })).toBeVisible();
+  await expect(lane(page, "Done"), "no finished deadline yet, so no section").toHaveCount(0);
+
+  // the real completion path: the Tasks board's checkoff writes status: done
+  await page
+    .locator(".side-item", { has: page.locator(".side-label-text", { hasText: /^Tasks$/ }) })
+    .filter({ hasNot: page.locator(".side-db-chip") })
+    .first()
+    .click();
+  await page
+    .locator(".tasks-row", { hasText: "Approve SMP-030 artwork" })
+    .locator(".tasks-check")
+    .click();
+  await page.keyboard.press("Meta+1");
+
+  const done = lane(page, "Done");
+  const row = done.locator(".today-row", { hasText: "Approve SMP-030 artwork" });
+  await expect(row).toBeVisible();
+  await expect(row).toHaveClass(/done/);
+  await expect(row.locator(".today-act"), "picking a finished thing is noise").toHaveCount(0);
+  await expect(
+    lane(page, "Due & overdue").locator(".today-row", { hasText: "Approve SMP-030 artwork" })
+  ).toHaveCount(0);
+
+  /* It is still a row of the one flat list, in render order: the last row of
+     the lane above it is one ArrowDown away, which is the assertion an offset
+     drift would break — a hover lands on the row without ever consulting the
+     order. */
+  await page.locator(".today-rows").focus();
+  const dueRows = lane(page, "Due & overdue").locator(".today-row");
+  await dueRows.last().hover();
+  await expect(dueRows.last()).toHaveClass(/selected/);
+  await page.keyboard.press("ArrowDown");
+  await expect(row, "Done follows Due & overdue with nothing picked between").toHaveClass(
+    /selected/
+  );
+
+  // the pick key finds nothing to do here — the missing button is the whole
+  // truth about the row, and the key is still swallowed rather than scrolling
+  await page.keyboard.press("p");
+  await expect(row).toBeVisible();
+  await expect(lane(page, "Picked for today").locator(".today-quiet")).toHaveText(
+    "Nothing picked yet."
+  );
+  await expect(row, "the selection did not move either").toHaveClass(/selected/);
+
+  // Enter opens its note — the only thing a done row does
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".note-title")).toHaveValue("Approve SMP-030 artwork");
+});
+
 test("Today rows offer Pick in the context menu (SUB-1162)", async ({ page }) => {
   const row = lane(page, "Due & overdue").locator(".today-row", { hasText: "Renew Bandcamp plan" });
   await row.click({ button: "right" });
@@ -384,4 +438,83 @@ test("focus makes one picked note the day's headline, on top", async ({ page }) 
   await expect(picked.locator(".today-row.headline")).toHaveCount(1);
   await rows.first().locator(".today-act", { hasText: "Unfocus" }).click();
   await expect(picked.locator(".today-row.headline")).toHaveCount(0);
+});
+
+/* The day whose ONLY content is a finished deadline: nothing scheduled,
+   nothing else due, nothing overdue, nothing picked, no leftovers. No
+   sequence of in-app actions reaches it — the seed always lands something on
+   today — so the fixture's relative dates are carried off the day
+   (`__mockDayShift`) and the one row is built here through the ordinary
+   external-writer seams.
+
+   What it pins is the `emptyDay` split in TodayPane: the whole-day empty
+   state counts the done lane, so a day holding one done deadline is NOT
+   "Nothing on today". It keeps the three lanes with their quiet lines —
+   which lane is clear is information on a partially full day — plus the Done
+   section carrying that single row. That is the one state the Done section
+   arrived without cover for. */
+
+/** far enough that every seeded date lands in the future: the oldest
+    relative deadline is 8 days back and the oldest relative day() 30, so
+    nothing reads as due, overdue or stale, and no offset in the fixture maps
+    onto today */
+const OFF_TODAY_DAYS = 40;
+/** the fixture's own due-today task, re-dated onto the cleared day */
+const DONE_TASK = "Tasks/Approve SMP-030 artwork.md";
+
+function todayIso(): string {
+  const d = todayBase();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+    d.getDate()
+  ).padStart(2, "0")}`;
+}
+
+test("a day holding only a finished deadline keeps its lanes, not the empty state", async ({
+  page,
+}) => {
+  await page.addInitScript((shift) => {
+    (window as unknown as { __mockDayShift?: number }).__mockDayShift = shift;
+  }, OFF_TODAY_DAYS);
+  await page.reload();
+  await expect(page.locator(".list-title")).toHaveText("Scratch");
+  await page.keyboard.press("Meta+1");
+  await expect(page.locator(".today-pane")).toBeVisible();
+
+  // the shift landed: with nothing on the day at all, this IS the whole-day
+  // empty state — one message, no stack of three quiet lines
+  await expect(page.locator(".today-empty")).toBeVisible();
+  await expect(page.locator(".today-empty")).toContainText("Nothing on today");
+  await expect(page.locator(".today-quiet")).toHaveCount(0);
+  await expect(page.locator(".today-row")).toHaveCount(0);
+
+  // one finished deadline arrives on the day, and nothing else
+  await page.evaluate(
+    ({ path, iso }) => {
+      window.__mockEditProp?.(path, "due", iso);
+      window.__mockEditProp?.(path, "status", "done");
+      window.__mockEmit?.("vault:changed", [path]);
+    },
+    { path: DONE_TASK, iso: todayIso() }
+  );
+
+  // that one row is enough to make the day a day: the empty state goes
+  await expect(page.locator(".today-empty")).toHaveCount(0);
+
+  // the three lanes are back, each saying which way it is clear
+  await expect(lane(page, "Scheduled").locator(".today-quiet")).toHaveText("Nothing scheduled.");
+  await expect(lane(page, "Due & overdue").locator(".today-quiet")).toHaveText("Nothing due.");
+  await expect(lane(page, "Picked for today").locator(".today-quiet")).toHaveText(
+    "Nothing picked yet."
+  );
+  await expect(lane(page, "Leftovers"), "no stale pick on a day nothing was picked").toHaveCount(0);
+
+  // …and the Done section holds exactly the one row, dimmed and verbless
+  const done = lane(page, "Done");
+  const row = done.locator(".today-row");
+  await expect(row).toHaveCount(1);
+  await expect(row).toHaveText(/Approve SMP-030 artwork/);
+  await expect(row).toHaveClass(/done/);
+  await expect(row.locator(".today-act")).toHaveCount(0);
+  // the whole pane holds that row and no other
+  await expect(page.locator(".today-row")).toHaveCount(1);
 });

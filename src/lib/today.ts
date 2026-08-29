@@ -1,6 +1,7 @@
 /* The Today surface's data: one pure pass over the vault snapshot
    shaping the day-agenda decision surface — what's Scheduled today, what's
-   Due & overdue, and what's been Picked for today. The one verb is Pick: it
+   Due & overdue, what's been Picked for today, and what's already Done. The
+   one verb is Pick: it
    writes an ordinary date prop (`today: YYYY-MM-DD`) on the note, so
    persistence, query, and calendar visibility ride the existing date-prop
    machinery. A stale pick (yesterday or older) surfaces as a leftover for a
@@ -139,9 +140,11 @@ export interface TodayData {
       timed ascending) — picked notes and the pick prop itself stay out */
   scheduled: AgendaItem[];
   /** deadline entries needing the decision: overdue first (oldest first),
-      then today's. Complete today-items ride along for the dimmed payoff;
-      complete or repeating past ones never nag */
+      then today's. Complete or repeating past ones never nag */
   due: AgendaItem[];
+  /** today's deadline entries already finished — the payoff, kept off the
+      due lane so a done thing never reads as overdue clutter */
+  done: AgendaItem[];
   /** notes whose `today` prop is today — the committed agenda */
   picked: PickedItem[];
   /** notes whose `today` prop is stale (yesterday or older), freshest first */
@@ -174,6 +177,7 @@ export function todayData(notes: NoteMeta[], schema: SchemaConfig, today: string
   // which is why a repeating entry never counts as overdue
   const scheduled: AgendaItem[] = [];
   const due: AgendaItem[] = [];
+  const done: AgendaItem[] = [];
   const timeByPath = new Map<string, string>();
   for (const e of calendarEntries(notes, schema, { start: today, end: today })) {
     // the pick prop never feeds the candidate lanes — its entry IS the pick
@@ -186,7 +190,13 @@ export function todayData(notes: NoteMeta[], schema: SchemaConfig, today: string
     if (pickedPaths.has(e.path)) continue;
     const deadline = isDeadline(schema, e.type, e.prop);
     if (e.day === today) {
-      (deadline ? due : scheduled).push({ ...e, deadline });
+      // a finished deadline is the day's payoff, not a decision: it leaves
+      // the due lane for its own section instead of sitting there dimmed,
+      // where the dim read as leftover clutter. Other kinds of entry keep
+      // their scheduled slot when complete — a cancelled gig still says
+      // something about the shape of the day
+      const lane = deadline ? (isComplete(e.status) ? done : due) : scheduled;
+      lane.push({ ...e, deadline });
       // a range still running is not overdue — its today-row above
       // already carries it
     } else if (
@@ -207,6 +217,7 @@ export function todayData(notes: NoteMeta[], schema: SchemaConfig, today: string
     compareEntryTime(a, b) || a.title.localeCompare(b.title) || a.prop.localeCompare(b.prop);
   scheduled.sort(agendaOrder);
   due.sort((a, b) => a.day.localeCompare(b.day) || agendaOrder(a, b));
+  done.sort(agendaOrder);
 
   for (const p of picked) {
     const t = timeByPath.get(p.note.path);
@@ -226,5 +237,5 @@ export function todayData(notes: NoteMeta[], schema: SchemaConfig, today: string
   for (let i = 1; i < picked.length; i++) picked[i].focused = false;
   leftovers.sort((a, b) => b.day.localeCompare(a.day) || a.note.title.localeCompare(b.note.title));
 
-  return { today, title: todayTitle(today), scheduled, due, picked, leftovers };
+  return { today, title: todayTitle(today), scheduled, due, done, picked, leftovers };
 }

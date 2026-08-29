@@ -37,16 +37,38 @@ export interface MockNote extends Omit<NoteMeta, "sealed"> {
 
 export const now = Date.now();
 
+/** How many days the fixture's RELATIVE dates sit away from the day the app
+    believes it is — 0 unless a spec set `window.__mockDayShift` before the
+    app booted, in which case every `day(n)`/`isoDay(n)` below lands `n +
+    shift` days out instead.
+
+    It exists because some days cannot be reached by any sequence of in-app
+    actions: the seed always puts something on today (an event, an open
+    deadline, a stale pick), so a day whose ONLY content is one finished
+    deadline — the Today pane's "not empty, but every lane quiet" state — had
+    no way to be tested. A shift large enough to carry every seeded date off
+    today (past ones included, so nothing reads as overdue) clears the day,
+    and the spec then builds the one row it wants through the ordinary
+    `__mockEditProp` seam.
+
+    Unset, `base` IS `now`: no fixture date moves for any other spec, and
+    `npm run dev` is untouched. Read here at module scope rather than through
+    a seed hook because these dates are computed as the module evaluates,
+    which is before any hook could be called. */
+const dayShift =
+  Number((globalThis as { __mockDayShift?: unknown }).__mockDayShift ?? 0) || 0;
+const base = now + dayShift * 86_400_000;
+
 /** An ISO day `d` days from today — the ```progress fixtures need
     deadlines that stay in the future, since a fence's pace line reads against
     the real calendar and a hard-coded date would rot the fixture. Built on
     daysAgoIso so the day is a LOCAL calendar day: a UTC slice would land a day
     off near local midnight, against the todayIso() the pace line reads. */
-const isoDay = (d: number) => daysAgoIso(-d, new Date(now));
+const isoDay = (d: number) => daysAgoIso(-d, new Date(base));
 /** local YYYY-MM-DD, `offset` days from today — keeps demo calendar entries
     near whatever day the app is opened */
 export const day = (offset: number) => {
-  const d = new Date(now + offset * 86_400_000);
+  const d = new Date(base + offset * 86_400_000);
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
   return `${d.getFullYear()}-${m}-${dd}`;

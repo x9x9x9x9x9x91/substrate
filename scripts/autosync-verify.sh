@@ -48,7 +48,17 @@
 # password file kept outside the checkout, made the default for the length of
 # the run, and put back afterwards. The app is not changed and does not know:
 # it writes to the default keychain either way. Attended mode is what runs
-# when the variable is unset, and is unchanged.
+# when the variable is unset.
+#
+# Unattended keychain mode is the full proof path for credential hygiene, and
+# the mode a release proof should use: only there can the run say both halves
+# — that the real default keychain holds nothing keyed by this run's vaults,
+# AND that the credentials the app made went to the throwaway keychain
+# instead. Attended, there is only one keychain and the app's credentials
+# belong in it while the app is up, so the same assertion is asked after
+# teardown has run: it proves this run leaves nothing behind, not that it
+# stayed out. Both modes still check the config file, which is where the
+# XDG redirect is provable on either. An attended run can be fully green.
 #
 # Bundle mode compiles the real frontend into the real binary (`tauri build
 # --debug --no-bundle`, the same mechanism the real-app smoke lane uses) and
@@ -894,6 +904,11 @@ no_run_keyed_credentials() {
     # read is indistinguishable here from an empty one — which is why the
     # positive check below, that the credentials went to the test keychain
     # instead, is the half that carries the claim in this mode.
+    # Attended mode has no second keychain to name, so the question is asked
+    # unqualified — of the real default keychain, which is where the app put
+    # this run's credentials by design. The caller forgets them first, so what
+    # is being asked there is whether teardown emptied it, not whether the app
+    # kept out of it.
     local -a where=()
     [[ -n "$KEYCHAIN_PRIOR_DEFAULT" ]] && where=("$KEYCHAIN_PRIOR_DEFAULT")
     # Both spellings of each root: the app stores under the canonicalized
@@ -910,8 +925,23 @@ no_run_keyed_credentials() {
   fi
   return 0
 }
-check "the real credential store holds nothing keyed by this run's vaults" \
-  no_run_keyed_credentials
+# Attended mode has no throwaway keychain: the app writes to the user's real
+# default keychain because that is the shipped behaviour, so this run's
+# credentials are legitimately sitting in it right now and the question below
+# could only ever answer "no". What is worth asserting attended is the other
+# end — that the run takes them back out again. So teardown is pulled forward
+# to here and the assertion reads it: the app is already stopped above and
+# nothing below touches a credential, so forgetting them early costs the run
+# nothing, and cleanup() still runs the same function again on exit (it is
+# idempotent, and prefix-guarded to roots this script created).
+# Unattended must NOT do this — the positive check further down needs the
+# test keychain's entries still there to have anything to find.
+CRED_CHECK="the real credential store holds nothing keyed by this run's vaults"
+if [[ -z "$KEYCHAIN" ]]; then
+  forget_credentials
+  CRED_CHECK="$CRED_CHECK once this run has forgotten them"
+fi
+check "$CRED_CHECK" no_run_keyed_credentials
 # Unattended mode only, and the reason the assertion above still means
 # something there: the credentials this run made exist, and they are in the
 # throwaway keychain. Without this, "not in the real store" would also be true

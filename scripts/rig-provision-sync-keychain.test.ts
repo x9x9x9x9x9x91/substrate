@@ -35,6 +35,14 @@ function makeStubs(dir: string): { bin: string; calls: () => string[] } {
       `if [[ "$1" == create-keychain ]]; then : >"\${@: -1}"; fi\n` +
       `if [[ "$1" == default-keychain ]]; then echo '    "/dev/null/login.keychain-db"'; fi\n` +
       `if [[ "$1" == delete-keychain ]]; then rm -f "\${@: -1}"; fi\n` +
+      // The script feeds the password to unlock-keychain down a pipe, under
+      // `set -o pipefail`. A stub that exits without reading it leaves the cat
+      // ahead of it writing into a closed pipe — SIGPIPE, 141, and a script
+      // that reports it could not unlock a keychain it had just created. Who
+      // wins that race depends on how loaded the box is, which is why it read
+      // as a different single test failing on a different rig each time. The
+      // real security(1) reads its stdin, so the stub does too.
+      `if [[ "$1" == unlock-keychain ]]; then cat >/dev/null; fi\n` +
       `exit 0\n`,
     { mode: 0o755 },
   );
@@ -49,17 +57,38 @@ function makeStubs(dir: string): { bin: string; calls: () => string[] } {
   };
 }
 
+// The script under test is a real entry point in scripts/, so it opens with the
+// checkout-freshness guard: sourced from a detached checkout that sits behind
+// origin/main, it prints its refusal and exits 1 before reaching a line this
+// file has anything to say about. That is a property of the CHECKOUT the runner
+// happens to be pointed at, not of the code under test — the same tree passed
+// 6/6 from a branch worktree and failed five of six from the read-mostly
+// primary checkout on the same machine, minutes apart. So the child gets a
+// built environment rather than an inherited one: the guard waived by name, a
+// PATH whose stubs cannot be reordered away, and a HOME under the fixture so
+// that even a run which somehow lost the two AUTOSYNC_ variables would write
+// into the temporary directory instead of the real ~/Library/Keychains.
+function childEnv(dir: string, bin: string, extra: Record<string, string> = {}): Record<string, string> {
+  const home = join(dir, "home");
+  mkdirSync(home, { recursive: true });
+  return {
+    // Ahead of the inherited PATH, not instead of it: the stubs win either way,
+    // and a host that keeps its coreutils somewhere unusual still finds them.
+    PATH: `${bin}:/usr/bin:/bin:${process.env.PATH ?? ""}`,
+    HOME: home,
+    LC_ALL: "C",
+    SUBSTRATE_ALLOW_STALE_SCRIPTS: "1",
+    AUTOSYNC_KEYCHAIN: join(dir, "substrate-autosync.keychain-db"),
+    AUTOSYNC_KEYCHAIN_PASSWORD_FILE: join(dir, "conf/autosync-keychain-password"),
+    ...extra,
+  };
+}
+
 function run(dir: string, bin: string, args: string[] = [], extra: Record<string, string> = {}) {
   return spawnSync("bash", [SCRIPT, ...args], {
     cwd: ROOT,
     encoding: "utf8",
-    env: {
-      ...process.env,
-      PATH: `${bin}:${process.env.PATH}`,
-      AUTOSYNC_KEYCHAIN: join(dir, "substrate-autosync.keychain-db"),
-      AUTOSYNC_KEYCHAIN_PASSWORD_FILE: join(dir, "conf/autosync-keychain-password"),
-      ...extra,
-    },
+    env: childEnv(dir, bin, extra),
   });
 }
 
@@ -77,6 +106,10 @@ test("provisioning leaves the password owner-only and free of a trailing newline
     const { bin } = makeStubs(dir);
     const r = run(dir, bin);
     assert.equal(r.status, 0, r.stderr);
+    // Nothing on stderr is also how this file proves its own isolation: the
+    // checkout guard's other outcome is a warning rather than a refusal, and a
+    // warning here would mean the run was reading the checkout again.
+    assert.equal(r.stderr, "", "a provisioning run that worked has nothing to say on stderr");
     const file = join(dir, "conf/autosync-keychain-password");
     const password = readFileSync(file, "utf8");
     assert.equal(password.length, 40, "the password should be 40 characters");
@@ -88,7 +121,8 @@ test("provisioning leaves the password owner-only and free of a trailing newline
 test("provisioning does not touch the default keychain or the search list", () => {
   withDir((dir) => {
     const { bin, calls } = makeStubs(dir);
-    assert.equal(run(dir, bin).status, 0);
+    const r = run(dir, bin);
+    assert.equal(r.status, 0, r.stderr);
     const made = calls();
     assert.ok(
       made.some((c) => c.startsWith("create-keychain ")),
@@ -108,7 +142,8 @@ test("provisioning does not touch the default keychain or the search list", () =
 test("provisioning clears the auto-lock timeout, which a twenty-minute run needs", () => {
   withDir((dir) => {
     const { bin, calls } = makeStubs(dir);
-    assert.equal(run(dir, bin).status, 0);
+    const r = run(dir, bin);
+    assert.equal(r.status, 0, r.stderr);
     assert.ok(
       calls().some((c) => c.startsWith("set-keychain-settings ")),
       "a keychain that relocks after five minutes strands the run halfway through",
@@ -132,18 +167,44 @@ test("provisioning refuses to be pointed at the login keychain", () => {
 test("a second run leaves the existing password in place unless forced", () => {
   withDir((dir) => {
     const { bin } = makeStubs(dir);
-    assert.equal(run(dir, bin).status, 0);
+    const first_run = run(dir, bin);
+    assert.equal(first_run.status, 0, first_run.stderr);
     const file = join(dir, "conf/autosync-keychain-password");
     const first = readFileSync(file, "utf8");
 
     const again = run(dir, bin);
-    assert.equal(again.status, 0);
+    assert.equal(again.status, 0, again.stderr);
     assert.match(again.stdout, /already provisioned/);
     assert.equal(readFileSync(file, "utf8"), first, "an accidental re-run must not orphan the keychain");
 
     const forced = run(dir, bin, ["--force"]);
-    assert.equal(forced.status, 0);
+    assert.equal(forced.status, 0, forced.stderr);
     assert.notEqual(readFileSync(file, "utf8"), first, "--force should mint a new one");
+  });
+});
+
+test("residue from an earlier run is replaced rather than read", () => {
+  // The state a re-run actually meets on a rig: a keychain file and a password
+  // file both left behind by the run before it. Unforced, the script must keep
+  // them and say so; forced, it must mint over both, and neither branch may
+  // depend on what the previous run happened to write.
+  withDir((dir) => {
+    const { bin } = makeStubs(dir);
+    const keychain = join(dir, "substrate-autosync.keychain-db");
+    const file = join(dir, "conf/autosync-keychain-password");
+    mkdirSync(join(dir, "conf"), { recursive: true });
+    writeFileSync(keychain, "");
+    writeFileSync(file, "stale-password-from-a-previous-run", { mode: 0o600 });
+
+    const kept = run(dir, bin);
+    assert.equal(kept.status, 0, kept.stderr);
+    assert.match(kept.stdout, /already provisioned/);
+    assert.equal(readFileSync(file, "utf8"), "stale-password-from-a-previous-run");
+
+    const forced = run(dir, bin, ["--force"]);
+    assert.equal(forced.status, 0, forced.stderr);
+    assert.match(readFileSync(file, "utf8"), /^[A-Za-z0-9]{40}$/, "the stale password must be gone");
+    assert.ok(existsSync(keychain), "and a keychain must be there for the run to unlock");
   });
 });
 

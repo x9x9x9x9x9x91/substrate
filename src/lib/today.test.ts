@@ -111,22 +111,52 @@ test("the due lane fronts overdue oldest-first, today's deadlines after", () => 
   assert.deepEqual(d.scheduled, []);
 });
 
-test("done today stays visible in its lane (SUB-205); done overdue never nags", () => {
+test("a finished deadline leaves the due lane for Done; done overdue never nags", () => {
   const notes = [
     note("Tasks/Done today.md", { type: "task", status: "done", due: TODAY }, 0, "Tasks"),
     note("Tasks/Done late.md", { type: "task", status: "done", due: "2026-07-15" }, 0, "Tasks"),
+    note("Tasks/Open today.md", { type: "task", status: "todo", due: TODAY }, 0, "Tasks"),
     note("Calendar/Wrapped.md", { type: "event", date: TODAY, status: "cancelled" }, 0, "Calendar"),
   ];
   const d = todayData(notes, schema, TODAY);
   assert.deepEqual(
-    d.due.map((i) => `${i.title}:${i.status}`),
+    d.due.map((i) => i.title),
+    ["Open today"],
+    "the lane holds only what still needs the decision"
+  );
+  assert.deepEqual(
+    d.done.map((i) => `${i.title}:${i.status}`),
     ["Done today:done"],
-    "the payoff rides along for the pane to dim"
+    "the payoff moves to its own section; the past one stays dropped"
   );
   assert.deepEqual(
     d.scheduled.map((i) => i.title),
     ["Wrapped"],
     "a cancelled event keeps its scheduled slot, dimmed"
+  );
+});
+
+test("the done lane keeps the agenda's order and never holds a picked note", () => {
+  const notes = [
+    note("Tasks/Late one.md", { type: "task", status: "done", due: `${TODAY} 18:00` }, 0, "Tasks"),
+    note("Tasks/All day.md", { type: "task", status: "done", due: TODAY }, 0, "Tasks"),
+    note("Tasks/Morning.md", { type: "task", status: "done", due: `${TODAY} 09:00` }, 0, "Tasks"),
+    note(
+      "Tasks/Picked and done.md",
+      { type: "task", status: "done", due: TODAY, [TODAY_PROP]: TODAY },
+      0,
+      "Tasks"
+    ),
+  ];
+  const d = todayData(notes, schema, TODAY);
+  assert.deepEqual(
+    d.done.map((i) => `${i.title}:${i.time ?? "all-day"}`),
+    ["All day:all-day", "Morning:09:00", "Late one:18:00"]
+  );
+  assert.deepEqual(
+    d.picked.map((p) => p.note.title),
+    ["Picked and done"],
+    "a finished pick stays on the day's agenda, dimmed where it was decided"
   );
 });
 
@@ -187,6 +217,7 @@ test("an undated vault renders three quiet lanes, not a crash", () => {
   const d = todayData([note("Plain.md", { created: "2026-01-01" })], schema, TODAY);
   assert.deepEqual(d.scheduled, []);
   assert.deepEqual(d.due, []);
+  assert.deepEqual(d.done, []);
   assert.deepEqual(d.picked, []);
   assert.deepEqual(d.leftovers, []);
 });

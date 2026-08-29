@@ -219,6 +219,14 @@ declare global {
       | { matching: Parameters<NonNullable<Window["__mockSeedMatching"]>>[0] }
       | { sortable: { folder: string } }
     >;
+    /** days to move every RELATIVE fixture date away from today, staged from
+        an init script before the app's modules evaluate (the fixture dates
+        itself as `mockseeds.ts` loads, so no post-boot hook is early enough).
+        A shift past the oldest seeded deadline empties the day — nothing
+        scheduled, nothing due, nothing overdue, no stale pick — which is the
+        only way to reach a day whose content a spec fully owns. Unset, not
+        one fixture date moves. */
+    __mockDayShift?: number;
     /** stage the no-vault first-run state — the mock vault always exists,
         so this is the only way to reach the onboarding screen.
         Boot resolution happens on mount, so a spec staging first-run must

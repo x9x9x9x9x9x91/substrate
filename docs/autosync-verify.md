@@ -37,7 +37,7 @@ allowed"). That is what kept this run a desktop ritual: it could catch a sync
 regression only if somebody sat down and asked it. Preflight says so up front
 rather than after twenty minutes of building.
 
-**Attended** is the default and is unchanged — run it in a desktop session on
+**Attended** is the default — run it in a desktop session on
 the machine itself, the same constraint that keeps release signing attended:
 
 ```sh
@@ -93,7 +93,22 @@ wrongly. That keychain is locked over ssh, so a locked read there is
 indistinguishable from an empty one; the half that carries the claim
 unattended is the positive one next to it, that the credentials went to the
 dedicated test keychain. Together they say the redirect happened and landed
-where it was aimed.
+where it was aimed. **This is the full proof path for credential hygiene**,
+and the mode a release proof should use.
+
+Attended, there is only one keychain, and the app's credentials belong in it
+for as long as the app is up — that is the shipped behaviour on macOS, not a
+leak. So attended the same assertion is asked *after* teardown: the run
+forgets its own credentials (this run's `/tmp` roots only, both spellings,
+the same prefix-guarded function that runs from cleanup) immediately before
+the check, and the check then says the real keychain holds nothing keyed by
+either vault. That is a real claim — this run leaves nothing behind — but it
+is a weaker one than unattended's: it does not say the app stayed out of the
+real store, because it did not. Nothing in the run needs a credential by that
+point (the app and the tee are already stopped), and cleanup still forgets
+them again on exit. Both modes check the config file the same way, which is
+where the `XDG_CONFIG_HOME` redirect is provable on either. An attended run
+can go green end to end.
 
 **Not a gate leg.** `verify-gates.sh` legs fail rather than skip, on the rule
 that a leg which skips itself reads as green — and a ~20-minute run whose
@@ -131,8 +146,9 @@ Three processes and two vaults, all created and removed by the script:
   privacy files over the real vault's. **macOS caveat:** the config dir there
   is not XDG-based and the credentials live in the login keychain, so the
   redirect does not reach them — the script deletes its own keychain entries on
-  exit instead, and the outside assertions prove the real store holds nothing
-  keyed by either of the run's vaults. The health and privacy files are still
+  exit instead (and attended, just before the assertion as well), and the
+  outside assertions prove the real store holds nothing keyed by either of the
+  run's vaults. The health and privacy files are still
   shared on macOS, which is one more reason this lane belongs on a test box.
 - **the second device** — `gitsync::autosync_peer::peer_action` in
   `src-tauri/src/gitsync.rs`, an `#[ignore]`d test driven by

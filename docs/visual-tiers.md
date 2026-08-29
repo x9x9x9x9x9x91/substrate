@@ -40,6 +40,15 @@ is only to answer "did this change?", never "is this right?".
   snapshot path on `{platform}`; both specs skip themselves on anything but
   Linux with a named reason, so a Mac gate run stays green and never writes a
   second baseline set.
+- **Which means the merge path does not run this tier.** The union gate's `e2e`
+  leg is Mac-scoped by split-group construction (`scripts/verify-gates-remote.sh`
+  — e2e rides the native half, which `ios`/`smoke` make Mac-only), and these
+  specs skip on macOS — so a union run carries the tier and learns nothing from
+  it. A branch subset can still land `e2e` on the Linux runner, and the
+  recurring cover at `origin/main` is the nightly Linux canary
+  (`scripts/nightly-linux-e2e.sh`, `--only e2e` on px1). A red there is either a
+  rendering change owing new PNGs — re-record per the next rule — or a host that
+  has drifted, which is the quarantine below.
 - **Updating them is deliberate.** A UI change that moves these pixels
   re-records on Linux and commits the new PNGs *in the same branch as the
   change*, so review sees the before/after in the diff. On a Linux host, from a

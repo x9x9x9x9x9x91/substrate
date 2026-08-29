@@ -35,7 +35,8 @@ import { errText } from "../lib/errtext";
    Sixty seconds every morning and the day is decided — three quiet lanes fed
    by the existing machinery (Scheduled: today's calendar entries; Due &
    overdue: deadline props; Picked for today: notes carrying the `today` date
-   prop) and the one verb Pick. Picking writes `today: <YYYY-MM-DD>` on the
+   prop), a Done section for the day's finished deadlines, and the one verb
+   Pick. Picking writes `today: <YYYY-MM-DD>` on the
    note, unpicking clears it — persistence, query, and calendar visibility
    ride the date-prop machinery. A stale pick shows as a leftover with
    one-click keep-or-clear, never silently carried. Rows open their note
@@ -451,6 +452,39 @@ function PickedRow({
   );
 }
 
+/** One finished deadline: the day's payoff, kept out of the decision lanes.
+    It opens its note and nothing else — picking a thing that is already done
+    is noise, so the row carries no verb at all. */
+function DoneRow({
+  item,
+  icons,
+  onOpenNote,
+  onRowContextMenu,
+  chrome,
+}: {
+  item: AgendaItem;
+  icons: Record<string, DbIcon>;
+  onOpenNote: (path: string) => void;
+  onRowContextMenu: (path: string, x: number, y: number) => void;
+  chrome: RowChrome;
+}) {
+  return (
+    <div
+      {...optionProps(chrome, "today-row done")}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        onRowContextMenu(item.path, e.clientX, e.clientY);
+      }}
+    >
+      <button type="button" className="today-open" onClick={() => onOpenNote(item.path)}>
+        <EntryIcon type={item.type} icons={icons} />
+        {item.time && <span className="cal-entry-time">{item.time}</span>}
+        <span className="today-row-title">{item.title}</span>
+      </button>
+    </div>
+  );
+}
+
 /** One stale pick: keep rolls the pick forward to today, clear drops it. */
 function LeftoverRow({
   item,
@@ -704,12 +738,15 @@ export default function TodayPane({
     data.leftovers.length === 0 &&
     data.scheduled.length === 0 &&
     data.due.length === 0 &&
+    data.done.length === 0 &&
     data.picked.length === 0;
 
   /* One flat option list over the lanes, in the order they render —
-     leftovers, scheduled, due, picked. Each row knows its own verb, so Enter
-     and the pick key route through the same two writes the buttons call and
-     the keyboard can never drift from the mouse.
+     leftovers, scheduled, due, picked, done. Each row knows its own verb, so
+     Enter and the pick key route through the same two writes the buttons call
+     and the keyboard can never drift from the mouse. A done row's verb is
+     `none`: it opens, and the pick key finds nothing to do there, exactly as
+     the missing button says.
 
      `key` is the row's identity, not its slot: a note can hold two date props
      and so occupy two candidate rows, which is why the path alone can't name
@@ -719,7 +756,7 @@ export default function TodayPane({
     const out: {
       key: string;
       path: string;
-      verb: "pick" | "unpick";
+      verb: "pick" | "unpick" | "none";
       clearable: boolean;
       /** the headline state of a picked row; absent on candidates */
       focused?: boolean;
@@ -738,6 +775,8 @@ export default function TodayPane({
         clearable: true,
         focused: p.focused ?? false,
       });
+    for (const it of data.done)
+      out.push({ key: `dn:${it.path}:${it.prop}`, path: it.path, verb: "none", clearable: false });
     return out;
   }, [data]);
 
@@ -804,10 +843,12 @@ export default function TodayPane({
       onOpenNote(row.path);
     } else if ((e.key === "p" || e.key === " ") && bare && row) {
       // the one verb on the selected row: a candidate or a leftover picks for
-      // today, a picked row unpicks — the same toggle the row's button runs
+      // today, a picked row unpicks — the same toggle the row's button runs.
+      // A done row has no button and so no write; the key stays swallowed
+      // rather than scrolling the column out from under the selection
       e.preventDefault();
       if (row.verb === "pick") pick(row.path);
-      else unpick(row.path);
+      else if (row.verb === "unpick") unpick(row.path);
     } else if (e.key === "f" && bare && row && row.verb === "unpick") {
       // the day's headline, from the keyboard: only a picked row can be it —
       // a candidate has not been decided on yet, and focus is a decision
@@ -834,6 +875,7 @@ export default function TodayPane({
   const offScheduled = data.leftovers.length;
   const offDue = offScheduled + data.scheduled.length;
   const offPicked = offDue + data.due.length;
+  const offDone = offPicked + data.picked.length;
   const chromeAt = (i: number): RowChrome => ({
     id: rowId(i),
     idx: i,
@@ -965,6 +1007,25 @@ export default function TodayPane({
                     />
                   ))
                 )}
+              </section>
+            )}
+
+            {/* The payoff, and only when there is one: an empty Done section
+                would announce a lane that says nothing about the day, so it
+                stands down like Leftovers rather than leaving a quiet line. */}
+            {data.done.length > 0 && (
+              <section className="today-section" role="group" aria-label="Done">
+                <div className="today-eyebrow">Done</div>
+                {data.done.map((it, i) => (
+                  <DoneRow
+                    key={`${it.path}:${it.prop}`}
+                    chrome={chromeAt(offDone + i)}
+                    item={it}
+                    icons={icons}
+                    onOpenNote={onOpenNote}
+                    onRowContextMenu={onRowContextMenu}
+                  />
+                ))}
               </section>
             )}
           </div>
