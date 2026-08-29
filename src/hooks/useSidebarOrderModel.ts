@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
 import type { RefObject } from "react";
-import { mergeGroupOrder } from "../lib/sidebar";
+import { isDbHidden, mergeGroupOrder, pruneHiddenDbs } from "../lib/sidebar";
 import type { SidebarOrder } from "../lib/types";
 import { setSidebarOrderUndoable, type ViewsApply } from "../lib/undoviews";
 import type { UndoRecorder } from "../lib/undoprops";
@@ -36,9 +36,19 @@ export function useSidebarOrderModel(opts: {
   apply: ViewsApply;
   /** the caller's "it didn't stick" recovery: toast and re-read */
   onWriteError: (e: unknown) => void;
+  /** database type → its home folder, for the hidden set's pruning */
+  homeByDb: Record<string, string>;
 }) {
-  const { sidebarOrder, sidebarOrderRef, setSidebarOrder, dashGroupIds, record, apply, onWriteError } =
-    opts;
+  const {
+    sidebarOrder,
+    sidebarOrderRef,
+    setSidebarOrder,
+    dashGroupIds,
+    record,
+    apply,
+    onWriteError,
+    homeByDb,
+  } = opts;
 
   /** One persisted sidebar edit: adopt it optimistically, queue the write,
       and record the whole prior order as its inverse (every one of these is a
@@ -144,6 +154,29 @@ export function useSidebarOrderModel(opts: {
     [sidebarOrderRef, commit]
   );
 
+  // The databases removed from the sidebar. The row they own is their
+  // home folder's — hiding takes that row and its subtree out of the tree and
+  // leaves the home assignment alone, so showing the database again puts the
+  // row back where it was.
+  const hiddenDbs = useMemo(() => sidebarOrder.hidden_dbs ?? [], [sidebarOrder]);
+
+  const setDbHidden = useCallback(
+    (type: string, hidden: boolean) => {
+      const cur = sidebarOrderRef.current;
+      const set = cur.hidden_dbs ?? [];
+      if (isDbHidden(set, type) === hidden) return;
+      // pruned on the way out, not on read: entries whose database or home
+      // folder is gone can never be acted on again, but a vault mid-load has
+      // an empty schema and would take every flag with it
+      const edited = hidden
+        ? [...set, type]
+        : set.filter((t) => t.toLowerCase() !== type.toLowerCase());
+      const next: SidebarOrder = { ...cur, hidden_dbs: pruneHiddenDbs(edited, homeByDb) };
+      commit(cur, next, hidden ? "Remove from sidebar" : "Show in sidebar");
+    },
+    [sidebarOrderRef, homeByDb, commit]
+  );
+
   // User-assigned keys live in `$sidebar.keys` as key token → sidebar
   // target token. Same persistence shape as the pins above; the engine
   // retargets and drops the VALUES through renames and trash.
@@ -169,6 +202,8 @@ export function useSidebarOrderModel(opts: {
     collapsedIds,
     pinnedPaths,
     setPinned,
+    hiddenDbs,
+    setDbHidden,
     customKeys,
     writeKeys,
   };

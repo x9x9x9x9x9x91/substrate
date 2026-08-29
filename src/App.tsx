@@ -117,6 +117,8 @@ import {
   orderedRootNodes,
   orderedSiblingFolders,
   hiddenFromSidebar,
+  hiddenDbHomes,
+  foldersWithoutSubtrees,
   splitDashboards,
   splitPins,
 } from "./lib/sidebar";
@@ -1336,6 +1338,10 @@ export default function App() {
       .catch(console.error);
   }, [schemaDbKey, dbIcons, undoApi]);
 
+  // `setDbHidden`'s home is the sidebar order model, destructured hundreds of
+  // lines below — this ref is how `setDbHome` reaches it from up here
+  const setDbHiddenRef = useRef<((dbType: string, hidden: boolean) => void) | null>(null);
+
   // a database's home folder, set/cleared from the All databases
   // manager, a folder's "Open as database…", or the
   // tree row's "Stop opening as database" — clearing is the exit
@@ -1354,6 +1360,12 @@ export default function App() {
             record: undoApi.record,
             adopt: setSchema,
           });
+          // a home that actually moved re-decides visibility too: setting,
+          // moving or clearing one takes the database out of the hidden set.
+          // Here and not around the call, so a REFUSED move (a taken folder)
+          // changes nothing and every caller reveals on success. Through a
+          // ref because `setDbHidden` is destructured further down the file.
+          setDbHiddenRef.current?.(dbType, false);
           showToast(
             home
               ? `“${dbType}” now lives in “${home}”`
@@ -2648,6 +2660,8 @@ export default function App() {
     collapsedIds,
     pinnedPaths,
     setPinned,
+    hiddenDbs,
+    setDbHidden,
     customKeys,
     writeKeys,
   } = useSidebarOrderModel({
@@ -2658,7 +2672,34 @@ export default function App() {
     record: undoApi.record,
     apply: applyViewsWrite,
     onWriteError: sidebarWriteFailed,
+    homeByDb,
   });
+  // kept current in an effect, not during render — every caller of
+  // `setDbHome` runs from an event, long after the commit
+  useEffect(() => {
+    setDbHiddenRef.current = setDbHidden;
+  }, [setDbHidden]);
+
+  /** The folder rows the tree must skip: each hidden database's home
+      folder, its subtree with it. Derived rather than persisted — the flag
+      names the DATABASE, so the row follows the home wherever it moves. */
+  const hiddenDbFolders = useMemo(() => hiddenDbHomes(hiddenDbs, homeByDb), [hiddenDbs, homeByDb]);
+
+  /** The folder rows the tree actually DRAWS — `folders` minus every hidden
+      database's subtree, the same list `Sidebar` renders from. The Move
+      up/down lanes below index this and not `folders`: a menu counting rows
+      the sidebar doesn't show reorders invisibly. Only the lane math is
+      filtered — pickers and "move to folder" menus still see every folder. */
+  const treeFolders = useMemo(
+    () => foldersWithoutSubtrees(folders, hiddenDbFolders),
+    [folders, hiddenDbFolders]
+  );
+
+  /** `orderedRootFolders`, hidden-aware — the roots the tree draws, in order. */
+  const orderedRootTreeFolders = useMemo(
+    () => orderedRootNodes(treeFolders, sidebarFolderOrder).map((n) => n.path),
+    [treeFolders, sidebarFolderOrder]
+  );
 
   // The key HUD is open. Session-only by design — assign mode is a
   // thing you do, not a setting you keep.
@@ -2723,8 +2764,8 @@ export default function App() {
   // The same three-way dashboard split the sidebar renders — shared
   // here so the row menu's Move lane is the one the row actually reorders in
   const dashSplit = useMemo(
-    () => splitDashboards(mobileDashboards, folders),
-    [mobileDashboards, folders]
+    () => splitDashboards(mobileDashboards, folders, hiddenDbFolders),
+    [mobileDashboards, folders, hiddenDbFolders]
   );
 
   // The group headers in the order the sidebar draws them — the menu's
@@ -2736,7 +2777,10 @@ export default function App() {
 
   // The split the sidebar renders pins with — flat section rows vs
   // per-folder tree groups. Shared here so pin menus run the same lane math.
-  const pinSplit = useMemo(() => splitPins(pinnedNotes, dashPaths), [pinnedNotes, dashPaths]);
+  const pinSplit = useMemo(
+    () => splitPins(pinnedNotes, dashPaths, hiddenDbFolders),
+    [pinnedNotes, dashPaths, hiddenDbFolders]
+  );
 
   // the non-drag reorder path: every reorderable sidebar lane also moves by
   // menu — dashboards, folder sibling groups at any depth (roots
@@ -2761,9 +2805,9 @@ export default function App() {
               : section.startsWith("pins:")
                 ? (pinSplit.byFolder.get(section.slice("pins:".length)) ?? []).map((n) => n.path)
                 : section === "folders"
-                  ? orderedRootFolders
+                  ? orderedRootTreeFolders
                   : orderedSiblingFolders(
-                      folders,
+                      treeFolders,
                       sidebarFolderOrder,
                       section.slice("folders:".length)
                     );
@@ -2785,8 +2829,8 @@ export default function App() {
       ];
     },
     [
-      orderedRootFolders,
-      folders,
+      orderedRootTreeFolders,
+      treeFolders,
       sidebarFolderOrder,
       dashSplit,
       orderedDashGroups,
@@ -2841,6 +2885,9 @@ export default function App() {
     pinIds,
     pinnedPaths,
     setPinned,
+    hiddenDbs,
+    hiddenDbFolders,
+    setDbHidden,
     customKeys,
     writeKeys,
     sectionMoveItems,
@@ -3406,11 +3453,14 @@ export default function App() {
   );
   const onSidebarDropDb = useCallback(
     (type: string, folder: string) => {
+      // dragging a database back onto the tree is the other way to re-add it:
+      // whatever else the drop does, the row it lands on must appear
+      setDbHidden(type, false);
       // a database dropped on its own home row is a quiet no-op
       if (typeHome(typeSchemaFor(schema, type)) === folder) return;
       setDbHome(type, folder);
     },
-    [schema, setDbHome]
+    [schema, setDbHome, setDbHidden]
   );
   const onSidebarJournal = useCallback(() => {
     setMobileSidebarOpen(false);
@@ -3768,6 +3818,7 @@ export default function App() {
         onToggleCollapse={toggleCollapsed}
         icons={dbIcons}
         homeDbByFolder={homeDbByFolder}
+        hiddenDbFolders={hiddenDbFolders}
         mountDbs={mountDbNames}
         onOpenDb={openDatabase}
         dashboards={mobileDashboards}
@@ -3867,6 +3918,7 @@ export default function App() {
         openPastVersion={openPastVersion}
         onRowMenu={onRowMenu}
         databases={databases}
+        hiddenDbs={hiddenDbs}
         dbIcons={dbIcons}
         schema={schema}
         dbManagerMenu={dbManagerMenu}

@@ -78,10 +78,35 @@ umask 077
 head -c 4096 /dev/urandom | LC_ALL=C tr -dc 'A-Za-z0-9' | cut -c1-40 | tr -d '\n' >"$PASSWORD_FILE" \
   || fail "could not write $PASSWORD_FILE"
 chmod 600 "$PASSWORD_FILE" || fail "could not restrict $PASSWORD_FILE"
+# An empty file would be fed to create-keychain below as an empty password,
+# and an empty password is one create-keychain accepts without complaint.
+[[ -s "$PASSWORD_FILE" ]] || fail "wrote an empty $PASSWORD_FILE"
 
 security delete-keychain "$KEYCHAIN" >/dev/null 2>&1 || true
-security create-keychain -p "$(cat "$PASSWORD_FILE")" "$KEYCHAIN" \
-  || fail "could not create $KEYCHAIN"
+# `-p <password>` is how the obvious version of this line reads, and it is the
+# one shape that puts the password in an argument list `ps` can read — the very
+# thing the comment above says never happens (security(1)'s own help calls -p
+# insecure). Given no -p, create-keychain prompts instead, and the prompt reads
+# stdin when stdin is not a terminal — twice, since it asks for a confirmation
+# — so the password reaches it on stdin, as it does the unlock below.
+# Fed by process substitution rather than a pipe, for the same reason the unlock
+# is fed by a redirect: create-keychain does not drain its stdin, so a writer
+# left on the far side of a pipe can die of SIGPIPE and hand pipefail a 141 for
+# a keychain that was created perfectly well.
+# Its stderr goes to a file rather than to /dev/null: the prompt text lands
+# there on a run that works, but so does the only diagnostic a failed run has
+# ("A keychain with the same name already exists.", exit 48 — reachable
+# whenever the delete-keychain above fails on a stale or wrong-owner file).
+CREATE_ERR="$(mktemp "${TMPDIR:-/tmp}/autosync-create-keychain.XXXXXX")" \
+  || fail "could not create a temporary file for create-keychain's output"
+if ! security create-keychain "$KEYCHAIN" \
+  < <(cat "$PASSWORD_FILE"; printf '\n'; cat "$PASSWORD_FILE"; printf '\n') \
+  2>"$CREATE_ERR"; then
+  why="$(tail -n 1 "$CREATE_ERR")"
+  rm -f "$CREATE_ERR"
+  fail "could not create $KEYCHAIN${why:+: $why}"
+fi
+rm -f "$CREATE_ERR"
 # A new keychain locks itself after five minutes and on sleep; the run takes
 # twenty. Bare set-keychain-settings clears both, and only works on an unlocked
 # keychain — which a freshly created one is not, from a second process.

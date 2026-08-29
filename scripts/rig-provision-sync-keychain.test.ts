@@ -32,16 +32,26 @@ function detail(r: ReturnType<typeof run>): string {
 }
 
 /** A PATH whose `security` records its arguments and whose `uname` says Darwin. */
-function makeStubs(dir: string, opts: { slowCat?: boolean } = {}): { bin: string; calls: () => string[] } {
+function makeStubs(
+  dir: string,
+  opts: { slowCat?: boolean } = {},
+): { bin: string; calls: () => string[]; createStdin: () => string } {
   const bin = join(dir, "bin");
   mkdirSync(bin, { recursive: true });
   const log = join(dir, "security-calls.txt");
+  const createStdinLog = join(dir, "create-keychain-stdin.txt");
   writeFileSync(
     join(bin, "security"),
     `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >>${JSON.stringify(log)}\n` +
       // create-keychain is the one call with a side effect the script checks
       // for afterwards, so the stub has to leave the file behind.
-      `if [[ "$1" == create-keychain ]]; then : >"\${@: -1}"; fi\n` +
+      // create-keychain is fed the password on stdin too, so the stub reads it
+      // for the same reason unlock-keychain does (see below) — and keeps what
+      // it read, because "not in argv" is only half the contract: a script that
+      // delivered nothing at all would also pass that half, and the real
+      // create-keychain answers an empty stdin by making a keychain with an
+      // EMPTY password at exit 0.
+      `if [[ "$1" == create-keychain ]]; then cat >${JSON.stringify(createStdinLog)}; : >"\${@: -1}"; fi\n` +
       `if [[ "$1" == default-keychain ]]; then echo '    "/dev/null/login.keychain-db"'; fi\n` +
       `if [[ "$1" == delete-keychain ]]; then rm -f "\${@: -1}"; fi\n` +
       // The script feeds the password to unlock-keychain down a pipe, under
@@ -76,6 +86,7 @@ function makeStubs(dir: string, opts: { slowCat?: boolean } = {}): { bin: string
   return {
     bin,
     calls: () => (existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean) : []),
+    createStdin: () => (existsSync(createStdinLog) ? readFileSync(createStdinLog, "utf8") : ""),
   };
 }
 
@@ -137,6 +148,46 @@ test("provisioning leaves the password owner-only and free of a trailing newline
     assert.equal(password.length, 40, "the password should be 40 characters");
     assert.match(password, /^[A-Za-z0-9]{40}$/, "no newline and nothing but the password");
     assert.equal(statSync(file).mode & 0o777, 0o600, "the password file must be owner-only");
+  });
+});
+
+test("the password never reaches an argument list", () => {
+  withDir((dir) => {
+    const { bin, calls } = makeStubs(dir);
+    const r = run(dir, bin);
+    assert.equal(r.status, 0, detail(r));
+    // The password is what this script exists to keep; an argument list is
+    // world-readable through `ps` for as long as the call runs. Every call the
+    // script makes is checked, not just create-keychain, because the leak is
+    // one `-p "$(cat ...)"` away in any of them.
+    const password = readFileSync(join(dir, "conf/autosync-keychain-password"), "utf8");
+    const leaked = calls().filter((c) => c.includes(password));
+    assert.deepEqual(leaked, [], "no security(1) call may carry the password in its arguments");
+    assert.ok(
+      !calls().some((c) => c.startsWith("create-keychain") && c.includes(" -p ")),
+      "create-keychain must take the password on stdin, not with -p",
+    );
+  });
+});
+
+test("the password reaches create-keychain on stdin, twice and newline-terminated", () => {
+  withDir((dir) => {
+    const { bin, createStdin } = makeStubs(dir);
+    const r = run(dir, bin);
+    assert.equal(r.status, 0, detail(r));
+    // The other half of the contract above. Keeping the password out of argv
+    // is easy to do by not sending it at all — `< /dev/null` passes every
+    // assertion in that test — and against the real security(1) that shape
+    // creates a keychain with an EMPTY password and exits 0, which the unlock
+    // that follows then accepts. So: exactly the password, twice (the tool
+    // asks for a confirmation), each newline-terminated so the second read
+    // does not hit EOF and reprompt.
+    const password = readFileSync(join(dir, "conf/autosync-keychain-password"), "utf8");
+    assert.equal(
+      createStdin(),
+      `${password}\n${password}\n`,
+      "create-keychain must be fed the password and its confirmation",
+    );
   });
 });
 

@@ -1,6 +1,6 @@
 import type { DbIcon, MountInfo, SchemaConfig } from "../lib/types";
 import { typeHome } from "../lib/types";
-import { DB_DRAG_MIME } from "../lib/sidebar";
+import { DB_DRAG_MIME, isDbHidden } from "../lib/sidebar";
 import { iconForType } from "../lib/dbicons";
 import { typeSchemaFor } from "../lib/schemalookup";
 import { mountSubtitle } from "../lib/mounts";
@@ -17,6 +17,9 @@ interface DbManagerPaneProps {
       `mount` is a mounted folder: same list, same menu, a glyph and
       its folder instead of a home. */
   databases: { type: string; count: number; mount?: MountInfo }[];
+  /** type names removed from the sidebar — marked here, since this pane is
+      where they are found again and shown back */
+  hiddenDbs: string[];
   /** per-type database icons, keyed by type name */
   icons: Record<string, DbIcon>;
   /** the raw schema — each row's home folder reads its reserved `home` key
@@ -35,6 +38,7 @@ interface DbManagerPaneProps {
     folder) lives on the row menu so the list stays quiet. */
 export default function DbManagerPane({
   databases,
+  hiddenDbs,
   icons,
   schema,
   onOpen,
@@ -72,10 +76,16 @@ export default function DbManagerPane({
           databases.map((d) => {
             const home = typeHome(typeSchemaFor(schema, d.type));
             const name = d.type.charAt(0).toUpperCase() + d.type.slice(1);
+            // removed from the sidebar: a dim row and one quiet word, no
+            // second action — the row menu already carries "Show in sidebar".
+            // Homeless with the flag still set (its home folder was trashed
+            // out from under it) says nothing true — there is no row to be
+            // missing from — so the mark waits until a home comes back.
+            const hidden = isDbHidden(hiddenDbs, d.type) && home != null;
             return (
               <div
                 key={d.type}
-                className="dbmgr-row"
+                className={`dbmgr-row${hidden ? " dbmgr-row-hidden" : ""}`}
                 // rows double as drag sources: dropping one on a
                 // sidebar folder sets that folder as the database's home
                 draggable
@@ -98,6 +108,11 @@ export default function DbManagerPane({
                       // signal in the list; the folder itself is in the sub
                       <span className="dbmgr-mount" title="Mounted folder">
                         <MountIcon />
+                      </span>
+                    )}
+                    {hidden && (
+                      <span className="dbmgr-tag" title="Removed from the sidebar">
+                        hidden
                       </span>
                     )}
                   </span>

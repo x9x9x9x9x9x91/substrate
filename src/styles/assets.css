@@ -81,6 +81,26 @@ span.asset-thumb svg {
   flex: none;
 }
 
+/* a database removed from the sidebar: the row dims and wears one quiet
+   word. Not disabled — it still opens, drags and menus like any other; the
+   mark only says why it isn't in the tree. */
+.dbmgr-row-hidden .dbmgr-row-title,
+.dbmgr-row-hidden .dbmgr-row-sub,
+.dbmgr-row-hidden .type-icon {
+  opacity: 0.55;
+}
+
+.dbmgr-tag {
+  margin-left: 6px;
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: var(--fs-1);
+  font-weight: var(--fw-normal);
+  color: var(--text-3);
+  vertical-align: 1px;
+}
+
 /* ----- reality mounts ----- */
 
 /* the glyph that marks a database as a real folder on disk, in the manager

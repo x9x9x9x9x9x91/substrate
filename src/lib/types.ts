@@ -641,7 +641,14 @@ export interface SavedView {
     `dashgroups` holds the FOLDER paths of the Dashboards section's
     subfolder group headers in the user's drag order — its own lane
     because a group header orders against its sibling headers, never against
-    the dashboard rows in `dashboards` or the tree folders in `folders`. */
+    the dashboard rows in `dashboards` or the tree folders in `folders`.
+    `hidden_dbs` holds the TYPE NAMES of databases the user removed
+    from the sidebar: their home folder row (and its subtree) leaves the
+    Folders tree while the home assignment itself stays, so showing one again
+    from the All databases manager puts the row back where it was. Distinct
+    from clearing a home folder, which keeps the row and drops the database
+    behind it. The engine follows the names through a database rename and
+    drops them on delete. */
 export interface SidebarOrder {
   dashboards: string[];
   databases: string[];
@@ -650,6 +657,7 @@ export interface SidebarOrder {
   dashgroups?: string[];
   pins?: string[];
   keys?: Record<string, string>;
+  hidden_dbs?: string[];
 }
 
 /** One allowed value of a select-type property; `color` names a muted
@@ -1045,6 +1053,24 @@ export interface SyncReport {
       objects one sync can work through. Absent on an ordinary sync. It is not
       an error: the sync succeeded, and the next one will too. */
   notice?: string | null;
+  /** Files this sync would not carry, left on disk untouched. A pull keeps
+      another device's copy of a file that a re-included folder brought back
+      into sync, and one past the transport's per-object ceiling cannot be
+      committed at all — one such object would fail every push the vault makes
+      afterwards. Named here so the pane can say which file is holding sync up
+      rather than leaving the user with a push that fails whole. */
+  refused?: SyncRefused | null;
+}
+
+/** The two reasons a sync leaves a file where it is. */
+export interface SyncRefused {
+  /** Files past the transport's per-object ceiling, with the size that got
+      them refused. */
+  oversize: { path: string; size: number }[];
+  /** Files whose size could not be read at all — refused for the same reason,
+      since treating "no answer" as zero bytes is how an oversize file walks
+      past a size check. */
+  unreadable: string[];
 }
 
 export interface VaultSyncStatus {

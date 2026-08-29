@@ -169,10 +169,44 @@
   line-height: 1.45;
 }
 
-.vault-sync-conflicts {
+.vault-sync-conflicts,
+/* Amber like the notice above and not red, for the same reason: nothing was
+   lost and nothing was overwritten — these files are still on this device,
+   exactly as they were. What they need is to be made smaller. */
+.vault-sync-refused {
   margin-top: 16px;
   padding-top: 14px;
   border-top: 1px solid var(--border-soft);
+}
+
+.vault-sync-refused h3 {
+  margin-bottom: 8px;
+  color: var(--warn);
+  font-size: var(--fs-4);
+  font-weight: var(--fw-strong);
+}
+
+.vault-sync-refused ul {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  list-style: none;
+}
+
+.vault-sync-refused li {
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-2);
+  background: var(--bg-elevated);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.vault-sync-refused code {
+  font-family: var(--mono);
+  color: var(--text-2);
+  font-size: var(--fs-2);
 }
 
 .vault-sync-conflicts h3 {

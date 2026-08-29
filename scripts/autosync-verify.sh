@@ -260,8 +260,15 @@ stop() {  # only ever processes this script started
 # before anything moves, so the restore does not have to guess.
 #
 # The password is read from a file the rig owns. It is never echoed, never put
-# in a command line where `ps` could read it, and never exported: it reaches
-# `security` on stdin and nowhere else.
+# in a command line where `ps` could read it, and never exported: `security`
+# gets it by a redirect straight from that file, so it is never copied anywhere
+# else either — not into a shell variable held for the length of the run, and
+# not into the temp file a here-string is under bash 3.2 (measured: `<<<` is a
+# pipe under bash 5 but a regular file in $TMPDIR under /bin/bash on macOS, and
+# nothing here requires bash 4+).
+#
+# This function is the guard on that file rather than the way its contents
+# travel: it is called for its checks, and its output is discarded.
 keychain_password() {
   local file="$KEYCHAIN_PASSWORD_FILE" perms
   [[ -f "$file" ]] || fail "no keychain password file at $file — run
@@ -274,9 +281,12 @@ keychain_password() {
   perms="$(stat -f '%Lp' "$file" 2>/dev/null || stat -c '%a' "$file" 2>/dev/null)"
   [[ "$perms" == "600" || "$perms" == "400" ]] \
     || fail "$file is mode $perms — it must be 600, readable by its owner only (chmod 600)."
-  # Trailing newline stripped: a password file edited by hand has one, and
-  # `security` reads stdin literally — a run that failed to unlock over one
-  # invisible byte would look exactly like a wrong password.
+  # Trailing newline stripped, for a caller that wants the password as a value.
+  # `security unlock-keychain` itself reads only as far as the first newline
+  # (measured: one trailing newline, two, and CRLF all unlock at 0; one extra
+  # non-newline character gives 51), so a file with a hand-added newline
+  # unlocks fine either way — the stripping is for anything that compares or
+  # stores it, not for the unlock.
   printf '%s' "$(cat "$file")"
 }
 
@@ -336,7 +346,20 @@ keychain_open() {
   (( ${#KEYCHAIN_PRIOR_LIST[@]} > 0 )) || fail "could not read this user's keychain search list, so the
   swap below would have nothing to restore."
 
-  keychain_password | security unlock-keychain "$KEYCHAIN" >/dev/null 2>&1 \
+  # Fed by a redirect from the password file rather than `keychain_password |
+  # security`: the password arrives on stdin, never appears in an argument list
+  # `ps` could read, and there is no writer left holding a pipe. A reader that
+  # exits before the writer's first write kills the writer with SIGPIPE, and
+  # under pipefail that 141 becomes the status of the whole pipeline — a
+  # keychain that unlocked fine, reported as a bad password, intermittently and
+  # only when the machine is loaded enough to lose the race. A here-string
+  # would fix the pipe and open a worse hole: under /bin/bash 3.2 on macOS it
+  # is a regular file in $TMPDIR, so the password would be written to disk.
+  # keychain_password still runs first, for its checks alone — a missing,
+  # in-checkout or world-readable password file reports its own reason instead
+  # of arriving here as a failed unlock.
+  keychain_password >/dev/null || exit 1
+  security unlock-keychain "$KEYCHAIN" <"$KEYCHAIN_PASSWORD_FILE" >/dev/null 2>&1 \
     || fail "could not unlock $KEYCHAIN with the password in $KEYCHAIN_PASSWORD_FILE."
   # A fresh keychain locks itself after five minutes, and this run takes twenty.
   # Bare set-keychain-settings clears both the timeout and lock-on-sleep, and

@@ -13,7 +13,13 @@ import {
   pinTreeFolder,
   reorderIds,
   hiddenFromSidebar,
+  foldersWithoutSubtrees,
+  hiddenDbHomes,
+  isDbHidden,
+  pruneHiddenDbs,
   splitDashboards,
+  pinLaneFolder,
+  dashLaneFolder,
   splitPins,
 } from "./sidebar.ts";
 
@@ -1064,4 +1070,197 @@ test("splitPins: a pinned hidden dashboard keeps its pin row", () => {
   // under the hidden Dashboards/ root there is no tree row to nest into, so
   // that pin stays a flat Pinned row
   assert.deepEqual(paths(flat), ["Studio/Uptime.md", "Dashboards/Finance/Budgets.md"]);
+});
+
+test("hidden databases: the home folder's row and subtree leave the tree", () => {
+  const homeByDb = { gear: "Studio/Gear", release: "Releases" };
+  const folders = ["Studio", "Studio/Gear", "Studio/Gear/Pedals", "Studio/Notes", "Releases"];
+
+  // nothing hidden: the tree is the folder list untouched, same array
+  assert.equal(foldersWithoutSubtrees(folders, []), folders, "no roots, no copy");
+
+  const homes = hiddenDbHomes(["gear"], homeByDb);
+  assert.deepEqual(homes, ["Studio/Gear"]);
+  assert.deepEqual(
+    foldersWithoutSubtrees(folders, homes),
+    ["Studio", "Studio/Notes", "Releases"],
+    "the row goes, its subfolder with it — a sibling folder and the parent stay"
+  );
+
+  // the flag names the DATABASE, so a spelling difference between the row and
+  // the schema key can't strand it hidden-but-unfindable
+  assert.equal(isDbHidden(["Gear"], "gear"), true);
+  assert.equal(isDbHidden(["gear"], "release"), false);
+  assert.deepEqual(hiddenDbHomes(["GEAR"], homeByDb), ["Studio/Gear"]);
+
+  // a hidden database with no home left contributes no folder — and a
+  // vault-root home would swallow the whole tree, so it never counts
+  assert.deepEqual(hiddenDbHomes(["ghost"], homeByDb), []);
+  assert.deepEqual(foldersWithoutSubtrees(folders, [""]), folders);
+});
+
+test("hidden databases: the set prunes to what still has a row", () => {
+  const homeByDb = { gear: "Studio/Gear", release: "Releases" };
+  assert.deepEqual(
+    pruneHiddenDbs(["gear", "ghost", "Release"], homeByDb),
+    ["gear", "Release"],
+    "a database whose type or home is gone drops out; spelling is kept as stored"
+  );
+  assert.deepEqual(pruneHiddenDbs(["gear"], {}), [], "no homes at all, nothing to hide");
+});
+
+test("splitPins: a pin inside a hidden database's subtree falls back to the flat section", () => {
+  const pins = [
+    { path: "Studio/Gear/Pedals/Big Muff.md", folder: "Studio/Gear/Pedals" },
+    { path: "Studio/Notes/Room.md", folder: "Studio/Notes" },
+  ];
+  // gear hidden: its subtree has no rows, so the pin rides flat — the
+  // sibling folder's pin keeps its tree group
+  const { flat, byFolder } = splitPins(pins, undefined, ["Studio/Gear"]);
+  assert.deepEqual(
+    flat.map((p) => p.path),
+    ["Studio/Gear/Pedals/Big Muff.md"],
+    "the pin outlives its hidden folder row"
+  );
+  assert.deepEqual([...byFolder.keys()], ["Studio/Notes"]);
+  // nothing hidden: both nest as before
+  const plain = splitPins(pins, undefined, []);
+  assert.equal(plain.flat.length, 0);
+});
+
+test("splitDashboards: a dashboard inside a hidden database's subtree falls back to the section", () => {
+  const dashboards = [
+    { path: "Dashboards/Week.md" },
+    { path: "Studio/Gear/Pedals/Rig.md" },
+    { path: "Studio/Notes/Room.md" },
+  ];
+  const folders = [
+    "Dashboards",
+    "Studio",
+    "Studio/Gear",
+    "Studio/Gear/Pedals",
+    "Studio/Notes",
+  ];
+
+  // gear hidden: the tree row the rig dashboard nested under is gone, so it
+  // joins the section's flat rows rather than rendering nowhere. The sibling
+  // folder's dashboard still nests in the tree.
+  const hid = splitDashboards(dashboards, folders, ["Studio/Gear"]);
+  assert.equal(hid.home, "Dashboards");
+  assert.deepEqual(
+    hid.flat.map((d) => d.path),
+    ["Dashboards/Week.md", "Studio/Gear/Pedals/Rig.md"],
+    "the rescued dashboard keeps its input position among the flat rows",
+  );
+  assert.deepEqual([...hid.byFolder.keys()], ["Studio/Notes"]);
+  assert.deepEqual(
+    hid.groups,
+    [],
+    "the rescue is a flat row, never a new group header",
+  );
+
+  // nothing hidden: both foldered dashboards stay in the tree
+  const plain = splitDashboards(dashboards, folders, []);
+  assert.deepEqual(
+    plain.flat.map((d) => d.path),
+    ["Dashboards/Week.md"],
+  );
+  assert.deepEqual(
+    [...plain.byFolder.keys()],
+    ["Studio/Gear/Pedals", "Studio/Notes"],
+  );
+  assert.deepEqual(
+    splitDashboards(dashboards, folders),
+    plain,
+    "no roots, same split",
+  );
+
+  // `sidebar: false` still wins over the rescue — an opted-out dashboard is
+  // listed nowhere, hidden subtree or not
+  const optedOut = splitDashboards(
+    [
+      { path: "Dashboards/Week.md" },
+      { path: "Studio/Gear/Rig.md", props: { sidebar: false } },
+    ],
+    folders,
+    ["Studio/Gear"],
+  );
+  assert.deepEqual(
+    optedOut.flat.map((d) => d.path),
+    ["Dashboards/Week.md"],
+  );
+  assert.equal(optedOut.byFolder.size, 0);
+});
+
+test("hidden databases: the Move up/down lanes index the rows the tree draws", () => {
+  const folders = [
+    "Studio",
+    "Studio/Gear",
+    "Studio/Gear/Pedals",
+    "Studio/Notes",
+    "Releases",
+  ];
+  const homes = hiddenDbHomes(["gear"], { gear: "Studio/Gear" });
+  const treeFolders = foldersWithoutSubtrees(folders, homes);
+
+  // the roots lane: the hidden home is a nested folder, so the roots are
+  // unchanged — but the lane must read the filtered list all the same
+  assert.deepEqual(
+    orderedRootNodes(treeFolders, ["Releases"]).map((n) => n.path),
+    ["Releases", "Studio"],
+  );
+
+  // the sibling lane under Studio: `Studio/Gear` is not drawn, so it is not
+  // in the lane either — a Move up against it would otherwise swap two rows
+  // the user cannot see
+  assert.deepEqual(orderedSiblingFolders(treeFolders, [], "Studio"), [
+    "Studio/Notes",
+  ]);
+  assert.deepEqual(
+    orderedSiblingFolders(folders, [], "Studio"),
+    ["Studio/Gear", "Studio/Notes"],
+    "unfiltered, the hidden row is still in the lane — the bug this guards",
+  );
+
+  // the row menus read the lane decision straight, so they can't disagree
+  // with the split about which lane a rescued row is in
+  assert.equal(
+    pinLaneFolder(
+      "Studio/Gear/Pedals",
+      "Studio/Gear/Pedals/Big Muff.md",
+      undefined,
+      homes,
+    ),
+    null,
+  );
+  assert.equal(
+    pinLaneFolder("Studio/Notes", "Studio/Notes/Room.md", undefined, homes),
+    "Studio/Notes",
+  );
+  assert.equal(dashLaneFolder("Studio/Gear/Rig.md", "Dashboards", homes), null);
+  assert.equal(
+    dashLaneFolder("Studio/Notes/Rig.md", "Dashboards", homes),
+    "Studio/Notes",
+  );
+
+  // the pins lane: a pin rescued out of the hidden subtree is a flat row, so
+  // it has a neighbour to move against
+  const pins = [
+    { path: "Studio/Uptime.md", folder: "" },
+    { path: "Studio/Gear/Pedals/Big Muff.md", folder: "Studio/Gear/Pedals" },
+  ];
+  const lane = splitPins(pins, undefined, homes).flat.map((p) => p.path);
+  assert.deepEqual(lane, [
+    "Studio/Uptime.md",
+    "Studio/Gear/Pedals/Big Muff.md",
+  ]);
+  assert.deepEqual(moveId(lane, "Studio/Gear/Pedals/Big Muff.md", -1), [
+    "Studio/Gear/Pedals/Big Muff.md",
+    "Studio/Uptime.md",
+  ]);
+  assert.equal(
+    splitPins(pins, undefined, []).flat.length,
+    1,
+    "hidden-blind, the rescued pin is missing from the lane and Move up is dead",
+  );
 });

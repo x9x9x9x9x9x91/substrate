@@ -123,6 +123,7 @@ export interface PaneRouterProps
 
   /* ----- databases, dashboards, calendar ----- */
   databases: DbManagerProps["databases"];
+  hiddenDbs: DbManagerProps["hiddenDbs"];
   dbIcons: DbManagerProps["icons"];
   schema: DbManagerProps["schema"];
   dbManagerMenu: DbManagerProps["onRowMenu"];
@@ -330,6 +331,7 @@ export default function PaneRouter(props: PaneRouterProps) {
     openPastVersion,
     onRowMenu,
     databases,
+    hiddenDbs,
     dbIcons,
     schema,
     dbManagerMenu,
@@ -492,6 +494,7 @@ export default function PaneRouter(props: PaneRouterProps) {
         <div className="main">
           <DbManagerPane
             databases={databases}
+            hiddenDbs={hiddenDbs}
             icons={dbIcons}
             schema={schema}
             onOpen={openDatabase}

@@ -23,7 +23,7 @@ import { assignKey, keyForTarget, keyLabel, splitFreeKeys, unassignKey } from ".
 import { addTagsUndoable, setPropUndoable } from "../lib/undoprops";
 import { trashFolderUndoable } from "../lib/undostruct";
 import { vaultRoot, vaultTagFoldersRead, vaultTagFoldersWrite } from "../lib/ipc";
-import { dashTreeFolder, pinTreeFolder, splitDashboards } from "../lib/sidebar";
+import { dashLaneFolder, isDbHidden, pinLaneFolder, splitDashboards } from "../lib/sidebar";
 import { buildNoteActions } from "../lib/noteactions";
 import type { SealedNoteMode } from "../components/SealedNoteDialog";
 import { buildNoteExtras, type NoteExtras } from "../lib/noteextras";
@@ -41,6 +41,7 @@ import {
   CopyIcon,
   DbIcon as DbGlyphIcon,
   ExportIcon,
+  EyeOffIcon,
   FolderIcon,
   KeyboardIcon,
   MountIcon,
@@ -50,6 +51,7 @@ import {
   PinIcon,
   PlusIcon,
   RepeatIcon,
+  SidebarIcon,
   TableIcon,
   TrashIcon,
   XIcon,
@@ -87,6 +89,12 @@ type SidebarMenusDeps = {
   pinIds: string[];
   pinnedPaths: string[];
   setPinned: (path: string, pinned: boolean) => void;
+  /** type names of the databases removed from the sidebar — `$sidebar.hidden_dbs` */
+  hiddenDbs: string[];
+  /** their home folders: the subtrees the tree doesn't draw, so a row's Move
+      lane is the one it actually renders in */
+  hiddenDbFolders: string[];
+  setDbHidden: (type: string, hidden: boolean) => void;
   customKeys: Record<string, string>;
   writeKeys: (edit: (cur: Record<string, string>) => Record<string, string>) => void;
   sectionMoveItems: (section: Section, id: string) => MenuItem[];
@@ -178,6 +186,9 @@ export function useSidebarMenus(deps: SidebarMenusDeps) {
     pinIds,
     pinnedPaths,
     setPinned,
+    hiddenDbs,
+    hiddenDbFolders,
+    setDbHidden,
     customKeys,
     writeKeys,
     sectionMoveItems,
@@ -496,6 +507,9 @@ export function useSidebarMenus(deps: SidebarMenusDeps) {
     (type: string, anchor: AnchorRect): MenuItem[] => {
       const label = type.charAt(0).toUpperCase() + type.slice(1);
       const home = byFoldedKey(homeByDb, type);
+      // a hidden database only ever meets this menu in the All databases
+      // manager — the tree row it would otherwise open from is gone
+      const hidden = isDbHidden(hiddenDbs, type);
       return [
         { label: "Open", icon: <DbGlyphIcon />, onSelect: () => setView({ kind: "db", type }) },
         {
@@ -543,16 +557,31 @@ export function useSidebarMenus(deps: SidebarMenusDeps) {
               },
             ]
           : []),
-        // The non-destructive exit — un-home straight from the tree
-        // row, same lane as the manager picker's clear (setDbHome toasts).
-        // Label: the folder row stays in the sidebar after this, so
-        // "Remove from sidebar" lied — the click target reverts, that's all
+        // The two exits, side by side because they read alike and are
+        // not: hiding takes the whole row out of the tree and KEEPS the home,
+        // so showing the database again restores the row where it was;
+        // un-homing keeps the row and gives back a plain folder.
         ...(home
           ? [
+              hidden
+                ? {
+                    label: "Show in sidebar",
+                    icon: <SidebarIcon />,
+                    separatorAbove: true,
+                    onSelect: () => setDbHidden(type, false),
+                  }
+                : {
+                    label: "Remove from sidebar",
+                    icon: <EyeOffIcon />,
+                    separatorAbove: true,
+                    // says what it does NOT do: no file moves, and the
+                    // database keeps its place in the manager
+                    hint: "stays under All databases",
+                    onSelect: () => setDbHidden(type, true),
+                  },
               {
                 label: "Stop opening as database",
                 icon: <XIcon />,
-                separatorAbove: true,
                 onSelect: () => setDbHome(type, null),
               },
             ]
@@ -567,7 +596,7 @@ export function useSidebarMenus(deps: SidebarMenusDeps) {
         },
       ];
     },
-    [homeByDb, dbIcons, saveSchemaIcon, setDbHome]
+    [homeByDb, dbIcons, saveSchemaIcon, setDbHome, hiddenDbs, setDbHidden]
   );
 
   // the All-databases manager's row menu: the database's standard
@@ -1086,7 +1115,7 @@ export function useSidebarMenus(deps: SidebarMenusDeps) {
         // folder group it nests under, or the flat Pinned section).
         const n = notes.find((n) => n.path === target.path);
         if (n) {
-          const home = pinTreeFolder(n.folder, n.path, dashPaths);
+          const home = pinLaneFolder(n.folder, n.path, dashPaths, hiddenDbFolders);
           const lane: Section = home === null ? "pins" : `pins:${home}`;
           setMenu({
             x,
@@ -1106,7 +1135,7 @@ export function useSidebarMenus(deps: SidebarMenusDeps) {
           );
           // The Move lane is the row's OWN surface — the Dashboards
           // section, or the folder tree row it nests under
-          const treeFolder = dashTreeFolder(target.path, dashSplit.home);
+          const treeFolder = dashLaneFolder(target.path, dashSplit.home, hiddenDbFolders);
           const lane: Section = treeFolder === null ? "dashboards" : `dashes:${treeFolder}`;
           setMenu({
             x,
@@ -1122,6 +1151,7 @@ export function useSidebarMenus(deps: SidebarMenusDeps) {
       dbMenuItems,
       savedViewMenuItems,
       noteMenuItems,
+      hiddenDbFolders,
       sectionMoveItems,
       keyMenuItems,
       dashPaths,

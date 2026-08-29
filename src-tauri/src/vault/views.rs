@@ -165,7 +165,12 @@ impl ViewPref {
 /// deterministic. `dashgroups` holds the folder paths of the
 /// Dashboards section's subfolder GROUP HEADERS in the user's drag order — its
 /// own lane, since a header orders against its sibling headers rather than
-/// against the dashboard rows in `dashboards`; every field is
+/// against the dashboard rows in `dashboards`. `hidden_dbs` holds the
+/// type names of databases the user removed from the sidebar — their home
+/// folder row leaves the tree while the home itself stays put, so re-adding
+/// one from the All-databases manager restores the row where it was; the names
+/// follow a database rename and die with a delete, same lane as
+/// `databases`. Every field is
 /// `#[serde(default)]`, so a views.json written before this field existed still
 /// loads unchanged.
 #[derive(Clone, Debug, Default, Serialize, serde::Deserialize)]
@@ -184,6 +189,8 @@ pub struct SidebarOrder {
     pub pins: Vec<String>,
     #[serde(default)]
     pub keys: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    pub hidden_dbs: Vec<String>,
 }
 
 impl SidebarOrder {
@@ -1146,6 +1153,19 @@ impl Engine {
                 None => touched = true,
             }
         }
+        // a database hidden from the sidebar stays hidden under its new name,
+        // and a deleted one takes its flag with it — otherwise the flag would
+        // outlive the database and re-hide a later namesake
+        let mut hidden = Vec::with_capacity(order.hidden_dbs.len());
+        for name in &order.hidden_dbs {
+            match f(name) {
+                Some(new) => {
+                    touched |= new != *name;
+                    hidden.push(new);
+                }
+                None => touched = true,
+            }
+        }
         // a key bound to a database follows the rename and dies with the
         // delete — the same truthfulness the note/folder/saved-view hooks give
         let mut keys = std::collections::BTreeMap::new();
@@ -1165,6 +1185,7 @@ impl Engine {
         }
         if touched {
             order.databases = mapped;
+            order.hidden_dbs = hidden;
             order.keys = keys;
             views.insert(
                 SidebarOrder::KEY.to_string(),
@@ -2281,6 +2302,7 @@ mod tests {
             dashgroups: vec!["Dashboards/Money".into()],
             pins: vec!["Inbox/Scratch.md".into()],
             keys: [("mod+5".to_string(), "folder:Projects".to_string())].into_iter().collect(),
+            hidden_dbs: vec!["gear".into()],
         };
         let back = e.set_sidebar_order(&order).unwrap();
         assert_eq!(back.databases, vec!["gear", "release"]);
@@ -2299,6 +2321,10 @@ mod tests {
         // Assigned keys round-trip too
         assert_eq!(back.keys["mod+5"], "folder:Projects");
         assert_eq!(e.sidebar_order().keys["mod+5"], "folder:Projects");
+        // A database removed from the sidebar stays removed across a reload —
+        // its home folder is untouched, so showing it again restores the row
+        assert_eq!(back.hidden_dbs, vec!["gear"]);
+        assert_eq!(e.sidebar_order().hidden_dbs, vec!["gear"]);
         // view prefs written afterwards keep the sidebar key, and vice versa
         e.set_view_pref(
             "release",
@@ -2357,6 +2383,7 @@ mod tests {
 
         let order = e.sidebar_order();
         assert!(order.dashgroups.is_empty(), "missing field defaults, not an error");
+        assert!(order.hidden_dbs.is_empty(), "the newer hidden-databases lane defaults too");
         assert_eq!(order.dashboards, vec!["Dashboards/Overview.md"]);
         assert_eq!(order.folders, vec!["Projects", "Inbox"]);
         assert_eq!(order.pins, vec!["Inbox/Scratch.md"]);

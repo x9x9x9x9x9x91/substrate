@@ -2125,6 +2125,7 @@ mod tests {
         e.set_sidebar_order(&SidebarOrder {
             dashboards: vec![],
             databases: vec!["books".into(), "films".into()],
+            hidden_dbs: vec!["books".into()],
             ..Default::default()
         })
         .unwrap();
@@ -2155,6 +2156,11 @@ mod tests {
         );
         assert!(e.views().contains_key("library"));
         assert_eq!(e.sidebar_order().databases, ["library", "films"]);
+        assert_eq!(
+            e.sidebar_order().hidden_dbs,
+            ["library"],
+            "a database hidden from the sidebar stays hidden under its new name"
+        );
         assert!(!e.template_list().iter().any(|t| folded_eq(t, "books")));
         assert!(tpl_dir.join("library.md").is_file());
 
@@ -2197,6 +2203,7 @@ mod tests {
         e.set_sidebar_order(&SidebarOrder {
             dashboards: vec![],
             databases: vec!["books".into()],
+            hidden_dbs: vec!["books".into()],
             ..Default::default()
         })
         .unwrap();
@@ -2221,6 +2228,10 @@ mod tests {
         assert!(dir.join("Inbox/A.md").is_file());
         assert!(!e.schema().contains_key("books"));
         assert!(e.sidebar_order().databases.is_empty());
+        assert!(
+            e.sidebar_order().hidden_dbs.is_empty(),
+            "the hidden flag dies with the database, so a later namesake starts visible"
+        );
         assert!(
             !e.template_list().iter().any(|t| folded_eq(t, "books")),
             "folded template identity goes with the database"

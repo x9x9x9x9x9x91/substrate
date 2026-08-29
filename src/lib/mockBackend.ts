@@ -34,6 +34,7 @@ import type {
   SchemaConfig,
   SelectOption,
   SidebarOrder,
+  SyncRefused,
   SyncReport,
   TagFolder,
   TrashEntry,
@@ -377,6 +378,10 @@ declare global {
         sync that worked, not an error, and once set it survives every later
         pull — only a push clears it. */
     __mockSetSyncNotice?: (notice: string | null) => void;
+    /** stage the files the next pull leaves out because the transport cannot
+        carry them — the typed half of the refusal, which the pane lists by
+        name. Null for a pull that carries everything. */
+    __mockSetSyncRefused?: (refused: SyncRefused | null) => void;
     /** unbind a mount on "this machine" without touching its index — the
         other-machine board a dashboard has to keep charting from.
         Pass a folder path to bind it somewhere instead; a path containing
@@ -455,6 +460,7 @@ let mockMcpGrants: {
   prefix: string;
   access: "read" | "write";
 }[] = [];
+
 
 
 
@@ -2160,6 +2166,23 @@ let mockHostedVault: { token: string; passphrase: string } | null = null;
     the store is approaching the number of objects one sync can work through,
     or nothing. Staged by a spec; read only by `vault_sync_push`. */
 let mockSyncNotice: string | null = null;
+
+/** The files the next pull will refuse to carry, as the engine reports them:
+    over the per-object ceiling, or unreadable. Staged by a spec; read only by
+    `vault_sync_pull`, which is the leg that re-includes a folder and so the
+    leg that meets a local copy the transport cannot take. */
+let mockSyncRefused: SyncRefused | null = null;
+
+/** The prose half of a refusal, shaped like `Refused::sentence` in
+    `syncfolders.rs`: the pane shows this and the list, and a spec that staged
+    one without the other would be testing a report the engine never sends. */
+function refusedSentence(refused: SyncRefused): string {
+  const names = [...refused.oversize.map((f) => f.path), ...refused.unreadable];
+  return (
+    `sync carries files up to 64 MB, and ${names.join(", ")} is bigger than that. The copies ` +
+    "on this device are untouched. Making them smaller is what starts sync again"
+  );
+}
 
 /** A purge or trim rewrote this vault's history, so an end-to-end-encrypted
     remote refuses every leg until the server's copy is replaced. Kept OUTSIDE
@@ -4863,6 +4886,11 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         conflicted: [],
         head: "c1ea9d2f4b08",
         changed,
+        // engine parity: a refusal rides a pull that otherwise worked, and
+        // carries both the prose and the list the pane names files from
+        ...(mockSyncRefused === null
+          ? {}
+          : { refused: mockSyncRefused, notice: refusedSentence(mockSyncRefused) }),
       };
       mockVaultSyncStatus = { configured: true, last_result: clean, last_error: null };
       // engine parity: announce_pull emits vault:pulled for a real checkout —
@@ -6692,6 +6720,9 @@ if (!isTauri) {
   };
   window.__mockSetSyncNotice = (notice) => {
     mockSyncNotice = notice;
+  };
+  window.__mockSetSyncRefused = (refused) => {
+    mockSyncRefused = refused;
   };
   // The other-machine board. The index stays exactly as the machine
   // holding the folder left it — only this machine's binding goes — so a

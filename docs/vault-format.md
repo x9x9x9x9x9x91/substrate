@@ -3671,7 +3671,7 @@ file; `vault_doctor` names it and says changes are being refused.
 {
   "release": { "view": "board", "group_by": "status", "sorts": [{ "key": "released", "dir": -1 }], "hidden": ["notion_id"] },
   "gear": { "view": "table", "table_group_by": "category", "aggregations": { "price": "sum", "manual": "count" }, "col_order": ["category", "price"] },
-  "$sidebar": { "dashboards": ["Dashboards/Portfolio.md"], "collapsed": ["folders", "dashgroup:Dashboards/Money"], "folders": ["Projects", "Inbox"], "dashgroups": ["Dashboards/Money"], "pins": ["Inbox/Studio setup.md"], "keys": { "ctrl+1": "today", "mod+2": "dash:Dashboards/Portfolio.md", "mod+3": "db:gear" } },
+  "$sidebar": { "dashboards": ["Dashboards/Portfolio.md"], "collapsed": ["folders", "dashgroup:Dashboards/Money"], "folders": ["Projects", "Inbox"], "dashgroups": ["Dashboards/Money"], "pins": ["Inbox/Studio setup.md"], "hidden_dbs": ["gear"], "keys": { "ctrl+1": "today", "mod+2": "dash:Dashboards/Portfolio.md", "mod+3": "db:gear" } },
   "$folders": { "Life": { "icon": { "emoji": "🌱" } }, "Life/Admin": { "icon": { "glyph": "folder", "tint": "teal" } } },
   "$views": [
     {
@@ -3861,6 +3861,15 @@ rewritten. Current reserved keys:
   and trashing a note or folder, deleting a saved view, or deleting a database
   drops the binding — the key token itself never changes, since the user
   assigned that key and keeps it. Omitted when nothing is assigned.
+  `hidden_dbs` lists the TYPE NAMES of databases removed from the
+  sidebar. A database with a `home` folder renders as that folder's row in the
+  Folders tree; naming it here takes the row — and everything nested under it —
+  out of the tree while leaving the folder, its files and the `home` key
+  untouched, so showing the database again from the All databases manager
+  restores the row exactly where it was. Distinct from clearing `home`, which
+  keeps the row and turns it back into a plain folder. Renaming a database
+  retargets its entry and deleting one drops it; an entry naming a database
+  with no home folder is inert. Always written, the empty list included.
   `collapsed`
   lists the chevron-collapsed sidebar rows, in two shapes. Three are section
   ids — `"dashboards"`, `"pinned"`, `"folders"`; the fourth entry shape is

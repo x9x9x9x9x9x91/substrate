@@ -61,6 +61,13 @@ pub struct SyncReport {
     /// will too; what it buys is the chance to act while there is no urgency.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notice: Option<String>,
+    /// Local files this sync would not carry into history: past the
+    /// transport's per-object ceiling, or unreadable and therefore unweighable.
+    /// The bytes are untouched on disk — this is what was left OUT of a
+    /// snapshot, named, rather than a push that fails whole with a blob id in
+    /// it. Empty on every ordinary sync.
+    #[serde(default, skip_serializing_if = "crate::syncfolders::Refused::is_empty")]
+    pub refused: crate::syncfolders::Refused,
 }
 
 /// Refs that persist a conflicted pull across app restarts. Git is the truth:
@@ -542,10 +549,17 @@ pub(crate) fn history_snapshot_excluding(
             .or_else(|_| Ok::<(), git2::Error>(()))
             .map_err(|e| format!("could not stage vault snapshot: {e}"))?;
     }
+    let parent = repo.head().ok().and_then(|head| head.peel_to_commit().ok());
+    // The same size refusal the desktop snapshot makes, for the same reason:
+    // past this point the file is a committed object, and one over the blob
+    // store's per-object ceiling fails every push the vault ever makes again.
+    let refused = refuse_oversize_staging(&repo, &mut index, parent.as_ref())?;
+    if !refused.is_empty() {
+        applog!("vault snapshot: {}", refused.sentence());
+    }
     index.write().map_err(|e| format!("could not stage vault snapshot: {e}"))?;
     let tree_oid =
         index.write_tree().map_err(|e| format!("could not write vault snapshot tree: {e}"))?;
-    let parent = repo.head().ok().and_then(|head| head.peel_to_commit().ok());
     if parent.is_none() && index.is_empty() {
         return Ok(false);
     }
@@ -569,6 +583,135 @@ pub(crate) fn history_snapshot_excluding(
     )
     .map_err(|e| format!("could not commit vault snapshot: {e}"))?;
     Ok(true)
+}
+
+/// Unstage anything the transport could not carry — libgit2's half of
+/// [`crate::history::History::refuse_oversize_staging`], and the same contract:
+/// the bytes on disk are never touched, and an unstaging never becomes a
+/// staged deletion.
+///
+/// A path the snapshot's parent already holds goes back to the parent's blob
+/// rather than leaving the index, because an index without it reads as "delete
+/// this" and that deletion would travel to every other device. A path the
+/// parent does not hold is simply dropped: it was never in history and the
+/// working tree keeps it.
+///
+/// **What it does not catch.** A rename whose content changed past git's
+/// similarity threshold is not a rename to `find_similar` either — it arrives
+/// as an independent add and delete, and there is no signal left that pairs
+/// them. The oversize add is refused as it should be, and the old path's
+/// deletion is a delete like any other: it commits, and it travels. Nothing is
+/// lost — the bytes stay in history, and on this device they are still on disk
+/// under the new name — but the other devices do see the old name go. No
+/// heuristic fixes it without holding back legitimate deletions.
+fn refuse_oversize_staging(
+    repo: &Repository,
+    index: &mut Index,
+    parent: Option<&git2::Commit<'_>>,
+) -> Result<crate::syncfolders::Refused, String> {
+    if repo.workdir().is_none() {
+        return Ok(crate::syncfolders::Refused::default());
+    }
+    let parent_tree = parent.and_then(|commit| commit.tree().ok());
+    let odb = repo.odb().map_err(|e| format!("could not open vault history storage: {e}"))?;
+    // Only what this snapshot would actually change: weighing every index entry
+    // would read the whole vault's object headers on every snapshot, and a file
+    // that has not moved since the last commit was already weighed by the
+    // snapshot that took it.
+    //
+    // The sizes come from the staged blob, never from the working tree: `add`
+    // captured the bytes before this ran, so a file that shrinks in between
+    // would answer a disk stat with a size the commit is not going to carry.
+    let staged: Vec<(String, Option<String>, Option<u64>)> = {
+        let mut diff = repo
+            .diff_tree_to_index(parent_tree.as_ref(), Some(index), None)
+            .map_err(|e| format!("could not read the vault snapshot's changes: {e}"))?;
+        // Without this the diff has no rename records at all, so a rename git
+        // could perfectly well detect arrives as an add plus a delete — and
+        // refusing only the add would leave the old path's deletion staged, to
+        // travel and erase the file everywhere else. Desktop gets the same
+        // pairing from `status`'s R records.
+        //
+        // Asked for outright rather than left to `find_similar`'s default,
+        // which reads `diff.renames` from the user's git config: whether this
+        // vault's other devices keep their copies is not something a config
+        // line on one machine gets a say in.
+        diff.find_similar(Some(git2::DiffFindOptions::new().renames(true)))
+            .map_err(|e| format!("could not read the vault snapshot's changes: {e}"))?;
+        diff.deltas()
+            .filter(|delta| {
+                !matches!(delta.status(), git2::Delta::Deleted | git2::Delta::Unmodified)
+            })
+            // A folder that is its own git repository is staged as a gitlink,
+            // whose id is a commit in THAT repository — one this object
+            // database has never heard of, so asking it for a size answers
+            // "unreadable" for a thing there is nothing to weigh.
+            .filter(|delta| delta.new_file().mode() != git2::FileMode::Commit)
+            .filter_map(|delta| {
+                let new = delta.new_file().path()?.to_string_lossy().into_owned();
+                let from = matches!(delta.status(), git2::Delta::Renamed | git2::Delta::Copied)
+                    .then(|| delta.old_file().path().map(|p| p.to_string_lossy().into_owned()))
+                    .flatten();
+                let size = odb.read_header(delta.new_file().id()).ok().map(|(size, _)| size as u64);
+                Some((new, from, size))
+            })
+            .collect()
+    };
+    let refused =
+        crate::syncfolders::weigh_staged(staged.iter().map(|(rel, _, size)| (rel.as_str(), *size)));
+    if refused.is_empty() {
+        return Ok(refused);
+    }
+    let names = refused.paths();
+    for (rel, from, _) in &staged {
+        if !names.contains(rel) {
+            continue;
+        }
+        take_back_staging(index, parent_tree.as_ref(), rel)?;
+        // A rename staged the old path's DELETION alongside the new path's
+        // content, and taking back only the half that was too big would leave
+        // that deletion to travel. So the source goes back too, and the rename
+        // waits, whole, for a version the transport can carry.
+        if let Some(from) = from {
+            take_back_staging(index, parent_tree.as_ref(), from)?;
+        }
+    }
+    Ok(refused)
+}
+
+/// Put one staged path back the way the snapshot's parent had it — the version
+/// HEAD already holds, or out of the index entirely where HEAD held none.
+fn take_back_staging(
+    index: &mut Index,
+    parent_tree: Option<&git2::Tree<'_>>,
+    rel: &str,
+) -> Result<(), String> {
+    let path = Path::new(rel);
+    let held = parent_tree.and_then(|tree| tree.get_path(path).ok());
+    // A rename's source is not in the index at all — that is what its staged
+    // deletion means — so there is nothing to remove and the removal is skipped
+    // rather than tolerated failing, which would also swallow a real one.
+    if index.get_path(path, 0).is_some() {
+        index.remove_path(path).map_err(|e| format!("could not stage vault snapshot: {e}"))?;
+    }
+    let Some(held) = held else { return Ok(()) };
+    index
+        .add(&IndexEntry {
+            ctime: git2::IndexTime::new(0, 0),
+            mtime: git2::IndexTime::new(0, 0),
+            dev: 0,
+            ino: 0,
+            mode: held.filemode() as u32,
+            uid: 0,
+            gid: 0,
+            file_size: 0,
+            id: held.id(),
+            flags: 0,
+            flags_extended: 0,
+            path: rel.to_string().into_bytes(),
+        })
+        .map_err(|e| format!("could not stage vault snapshot: {e}"))?;
+    Ok(())
 }
 
 /// A hosted (encrypted blob-store) remote is stored as the reserved remote's
@@ -909,6 +1052,29 @@ pub fn hosted_sync_blocked_by_rewrite(root: &Path) -> bool {
         return false;
     };
     hosted_remote_base(&repo).is_some() && history_rewritten(&repo)
+}
+
+/// Whether sync is standing still on a file the transport cannot carry.
+///
+/// The other standing refusal, reached from the working tree rather than from a
+/// marker: a file past the per-object ceiling is left unstaged by every
+/// snapshot, so it reads as a pending change forever and every leg that wants a
+/// clean tree stops on it. Retrying is not what clears it — the user shrinks the
+/// file or moves it out of a syncing folder, and nothing else does.
+///
+/// Read the same way [`dirty_tree_refusal`] reads it, so the class and the
+/// message can never disagree about whether this is the reason.
+pub fn sync_blocked_by_oversize(root: &Path) -> bool {
+    let Ok(repo) = owned_repo(root) else {
+        return false;
+    };
+    let Some(workdir) = repo.workdir() else {
+        return false;
+    };
+    let Ok(dirty) = dirty_paths(&repo) else {
+        return false;
+    };
+    !crate::syncfolders::weigh_for_transport(workdir, dirty).is_empty()
 }
 
 /// The remote accepted everything this vault has, rewritten history
@@ -2182,18 +2348,44 @@ fn untrack_protected(repo: &Repository, fence: &PullFence) -> Result<(), String>
 /// disk is what turns that into the ordinary "you changed this file" the rest of
 /// the app already knows how to show — and what makes the next snapshot commit
 /// the user's bytes rather than quietly restoring the other device's.
-fn keep_local_copies(repo: &Repository, fence: &PullFence) -> Result<(), String> {
+///
+/// **What it will not stage.** The include scan weighed the copies on the
+/// device that toggled the folder back on; these are somebody else's, and
+/// nothing has ever weighed them. A copy past the transport's per-object
+/// ceiling staged here becomes a committed object no push can carry, and one
+/// such object fails every future push of the vault whole — strictly worse
+/// than not staging it, because a commit cannot be taken back the way a
+/// staging can. So the oversize ones are weighed out and returned for the
+/// report to name, the bytes are left exactly where they are, and the file
+/// reads as the ordinary uncommitted change it is.
+fn keep_local_copies(
+    repo: &Repository,
+    fence: &PullFence,
+) -> Result<crate::syncfolders::Refused, String> {
+    let refused = crate::syncfolders::Refused::default();
     if fence.kept.is_empty() {
-        return Ok(());
+        return Ok(refused);
     }
+    let Some(workdir) = repo.workdir().map(Path::to_path_buf) else {
+        return Ok(refused);
+    };
+    let refused = crate::syncfolders::weigh_for_transport(
+        &workdir,
+        fence.kept.iter().map(|rel| rel.to_string_lossy().replace('\\', "/")),
+    );
+    let skip = refused.paths();
     let mut index =
         repo.index().map_err(|e| format!("vault sync could not open the vault index: {e}"))?;
     for rel in &fence.kept {
+        if skip.contains(&rel.to_string_lossy().replace('\\', "/")) {
+            continue;
+        }
         index
             .add_path(rel)
             .map_err(|e| format!("vault sync could not keep this device's copy: {e}"))?;
     }
-    index.write().map_err(|e| format!("vault sync could not update the vault index: {e}"))
+    index.write().map_err(|e| format!("vault sync could not update the vault index: {e}"))?;
+    Ok(refused)
 }
 
 fn pull_local_phase_inner(
@@ -2308,10 +2500,13 @@ fn pull_local_phase_inner(
             .and_then(|mut r| r.set_target(remote_oid, "vault sync fast-forward"))
             .map_err(|e| format!("vault sync fast-forward ref update failed: {e}"))?;
         untrack_protected(repo, &fence)?;
-        keep_local_copies(repo, &fence)?;
+        let refused = keep_local_copies(repo, &fence)?;
         clear_pending_merge(repo)?;
         let changed = changed_between(repo, Some(local_oid), remote_oid);
-        return Ok(report_changed(0, pulled, Vec::new(), remote_oid, changed));
+        return Ok(with_refusal(
+            report_changed(0, pulled, Vec::new(), remote_oid, changed),
+            refused,
+        ));
     }
     if !analysis.is_normal() {
         return Err("vault sync cannot merge the remote branch in its current state".into());
@@ -2394,13 +2589,13 @@ fn pull_local_phase_inner(
         &mut checkout,
     )?;
     untrack_protected(repo, &fence)?;
-    keep_local_copies(repo, &fence)?;
+    let refused = keep_local_copies(repo, &fence)?;
     // Only once the merge is really on disk: a failed checkout must leave any
     // parked conflict exactly as it was.
     clear_pending_merge(repo)?;
 
     let changed = changed_between(repo, Some(local_oid), merge_oid);
-    Ok(report_changed(0, pulled, Vec::new(), merge_oid, changed))
+    Ok(with_refusal(report_changed(0, pulled, Vec::new(), merge_oid, changed), refused))
 }
 
 /// Rebuild the pending conflicted merge from git. Read-only: it recomputes
@@ -2833,7 +3028,7 @@ pub(crate) fn sync_resolve_finish_gated_in<G>(
         &mut checkout,
     )?;
     untrack_protected(&repo, &fence)?;
-    keep_local_copies(&repo, &fence)?;
+    let refused = keep_local_copies(&repo, &fence)?;
     // Vault only, and with the vault's own flavour. A space's exclude file is
     // `SPACE_EXCLUDE_CONTENT` — deliberately WITHOUT `.assets/`, because a space
     // exists to carry the assets its notes embed — so writing the vault flavour
@@ -2852,7 +3047,7 @@ pub(crate) fn sync_resolve_finish_gated_in<G>(
 
     let pulled = exclusive_commit_count(&repo, remote_oid, Some(local_oid))?;
     let changed = changed_between(&repo, Some(local_oid), merge_oid);
-    Ok(report_changed(0, pulled, Vec::new(), merge_oid, changed))
+    Ok(with_refusal(report_changed(0, pulled, Vec::new(), merge_oid, changed), refused))
 }
 
 #[cfg(test)]
@@ -3798,10 +3993,31 @@ fn current_branch_state(repo: &Repository) -> Result<(String, Option<Oid>), Stri
 
 fn ensure_clean(repo: &Repository) -> Result<(), String> {
     if working_tree_is_dirty(repo)? {
-        Err("vault sync requires a clean working tree; snapshot pending changes first".into())
+        Err(dirty_tree_refusal(repo)?)
     } else {
         Ok(())
     }
+}
+
+/// What to say about a working tree that has something in it.
+///
+/// "Snapshot pending changes first" is a dead end when the pending change is
+/// one the snapshot deliberately refused to take: the user would snapshot, see
+/// nothing happen, and try again. So the size refusal answers for itself here,
+/// naming the file and what to do about it. Every leg that stops on a dirty
+/// tree reads its message from here — the push legs most of all, since the auto
+/// lane fires those the most often and a refused file holds them up for good.
+fn dirty_tree_refusal(repo: &Repository) -> Result<String, String> {
+    if let Some(workdir) = repo.workdir() {
+        let refused = crate::syncfolders::weigh_for_transport(workdir, dirty_paths(repo)?);
+        if !refused.is_empty() {
+            return Ok(format!(
+                "vault sync is held up by a file it cannot carry: {}",
+                refused.sentence()
+            ));
+        }
+    }
+    Ok("vault sync requires a clean working tree; snapshot pending changes first".into())
 }
 
 /// `ensure_clean` for a pull that may be a first join.
@@ -3826,7 +4042,19 @@ fn ensure_clean_for_pull(repo: &Repository) -> Result<(), String> {
     if unborn_on_seeds {
         return Ok(());
     }
-    Err("vault sync requires a clean working tree; snapshot pending changes first".into())
+    Err(dirty_tree_refusal(repo)?)
+}
+
+/// Every path the working tree has something to say about, read through the
+/// same walk [`working_tree_is_dirty`] uses so the three can never disagree
+/// about what counts.
+fn dirty_paths(repo: &Repository) -> Result<Vec<String>, String> {
+    let mut options = StatusOptions::new();
+    options.include_untracked(true).recurse_untracked_dirs(true);
+    let statuses = repo
+        .statuses(Some(&mut options))
+        .map_err(|e| format!("vault sync could not inspect the working tree: {e}"))?;
+    Ok(statuses.iter().filter_map(|entry| entry.path().map(str::to_string)).collect())
 }
 
 /// One path the working tree now has something to say about, read through the
@@ -3886,7 +4114,27 @@ fn report(pushed: u32, pulled: u32, conflicted: Vec<String>, head: Oid) -> SyncR
         head: head.to_string(),
         changed: Vec::new(),
         notice: None,
+        refused: crate::syncfolders::Refused::default(),
     }
+}
+
+/// Carry a staging refusal out on the report that would otherwise say nothing
+/// about it.
+///
+/// Typed in `refused` for anything that wants the files, and spelled out in
+/// `notice` because that is the field the Sync pane already shows — a refusal
+/// nobody reads is the same silence as no refusal at all. `notice` is only
+/// written when it is free: a sync that already had something to say keeps
+/// saying it.
+fn with_refusal(mut report: SyncReport, refused: crate::syncfolders::Refused) -> SyncReport {
+    if refused.is_empty() {
+        return report;
+    }
+    if report.notice.is_none() {
+        report.notice = Some(refused.sentence());
+    }
+    report.refused = refused;
+    report
 }
 
 /// The same report, plus the working-tree paths a checkout just rewrote.
@@ -5830,6 +6078,149 @@ mod tests {
             "b's take, hours of work\n",
             "and B's copy reaches the other device as an edit"
         );
+    }
+
+    /// A re-include must not stage a local copy the transport cannot carry.
+    ///
+    /// The include scan weighs the copy on the device that toggles the folder
+    /// back on. Every OTHER device's copy reaches history through
+    /// `keep_local_copies`, which staged whatever was on disk — so a divergent
+    /// copy over the per-object ceiling became a committed object, and one of
+    /// those fails every push the vault makes afterwards, for good.
+    ///
+    /// Three things are asserted, in the order they matter: B's bytes survive,
+    /// nothing over the ceiling reaches history, and the refusal is said out
+    /// loud instead of turning up later as a blob id in a failed push.
+    #[test]
+    fn a_re_include_refuses_a_local_copy_over_the_transport_ceiling() {
+        let pair = paired_vaults(&[("note.md", "shared\n")]);
+        crate::syncfolders::write_excluded(&pair.a, &["Music".to_string()]).unwrap();
+        pair.history_a.refresh_exclusions().unwrap();
+        pair.history_a.snapshot("stop syncing Music").unwrap();
+        sync_push(&pair.a, &pair.credentials_a).unwrap();
+        sync_pull(&pair.b, &pair.credentials_b).unwrap();
+
+        // A's copy is small; B's is the master and it is past the ceiling.
+        write_note(&pair.a, "Music/take.wav", "a's rough mix\n");
+        let huge = pair.b.join("Music/take.wav");
+        fs::create_dir_all(huge.parent().unwrap()).unwrap();
+        let oversize = blob::MAX_OBJECT_BYTES as u64 + 1;
+        fs::File::create(&huge).unwrap().set_len(oversize).unwrap();
+        pair.history_a.snapshot("a works").unwrap();
+
+        // A lets the folder back in and uploads its own copy as an addition.
+        crate::syncfolders::write_excluded(&pair.a, &[]).unwrap();
+        pair.history_a.refresh_exclusions().unwrap();
+        pair.history_a.snapshot("sync Music again").unwrap();
+        sync_push(&pair.a, &pair.credentials_a).unwrap();
+
+        let report = sync_pull(&pair.b, &pair.credentials_b).unwrap();
+        assert!(report.conflicted.is_empty(), "{:?}", report.conflicted);
+        // 1. the bytes are still B's, untouched.
+        assert_eq!(
+            fs::metadata(&huge).unwrap().len(),
+            oversize,
+            "the refusal must leave this device's file exactly as it was"
+        );
+        // 3. and the refusal is surfaced, naming the file.
+        assert_eq!(
+            report.refused.oversize.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(),
+            vec!["Music/take.wav"],
+            "the pull said nothing about the copy it would not carry"
+        );
+        let notice = report.notice.as_deref().unwrap_or_default();
+        assert!(notice.contains("Music/take.wav"), "{notice:?}");
+
+        // 2. and nothing over the ceiling reaches history — not through the
+        // pull's staging, and not through the snapshot that follows it either.
+        pair.history_b.snapshot("b snapshots after the pull").unwrap();
+        assert_eq!(
+            committed_bytes(&pair.b, "Music/take.wav").as_deref(),
+            Some(b"a's rough mix\n".as_slice()),
+            "the snapshot after the refusal did not leave A's version in history"
+        );
+
+        // The file is a pending change now, so the next pull that has anything
+        // to land stops — and says which file, rather than sending the user
+        // back to a snapshot that deliberately will not take it.
+        write_note(&pair.a, "later.md", "a keeps working\n");
+        pair.history_a.snapshot("a keeps working").unwrap();
+        sync_push(&pair.a, &pair.credentials_a).unwrap();
+        let held = sync_pull(&pair.b, &pair.credentials_b).unwrap_err();
+        assert!(held.contains("Music/take.wav"), "{held:?}");
+
+        // And the push leg answers the same way. It is the leg the auto lane
+        // fires most, so "snapshot pending changes first" there would be a
+        // loop the user cannot get out of.
+        let held = sync_push(&pair.b, &pair.credentials_b).unwrap_err();
+        assert!(held.contains("Music/take.wav"), "the push refusal named no file: {held:?}");
+        assert!(
+            !held.contains("snapshot pending changes first"),
+            "the push sent the user to a snapshot that will not take the file: {held:?}"
+        );
+    }
+
+    /// The blob HEAD holds at `rel`, or `None` where it holds none.
+    fn committed_bytes(root: &Path, rel: &str) -> Option<Vec<u8>> {
+        let repo = Repository::open(root).unwrap();
+        let head = repo.head().and_then(|h| h.peel_to_commit()).ok()?;
+        let tree = head.tree().ok()?;
+        let entry = tree.get_path(Path::new(rel)).ok()?;
+        let object = entry.to_object(&repo).ok()?;
+        let bytes = object.peel_to_blob().ok()?.content().to_vec();
+        Some(bytes)
+    }
+
+    /// A rename the snapshot refuses is taken back whole — the new path's
+    /// content AND the old path's staged deletion — or the deletion travels
+    /// and every other device loses a file this one still has.
+    ///
+    /// The bytes are varied rather than zeros on purpose: libgit2 builds its
+    /// similarity signature out of the content's variation, and a file of
+    /// nothing but zeros gives it nothing to sign, so the rename would arrive
+    /// as an unrelated add and delete and the test would pass for the wrong
+    /// reason.
+    #[test]
+    fn the_libgit2_snapshot_takes_back_both_halves_of_a_refused_rename() {
+        let dir = TempDir::new().unwrap();
+        let root = dir.path().to_path_buf();
+        let history = owned(&root);
+        let limit = blob::MAX_OBJECT_BYTES as u64;
+
+        let old = root.join("Music/old.wav");
+        fs::create_dir_all(old.parent().unwrap()).unwrap();
+        let block: Vec<u8> =
+            (0..65536u32).map(|i| (i.wrapping_mul(2654435761) >> 13) as u8).collect();
+        {
+            let mut file = fs::File::create(&old).unwrap();
+            let mut written = 0u64;
+            while written < limit - 1 {
+                let take = block.len().min((limit - 1 - written) as usize);
+                file.write_all(&block[..take]).unwrap();
+                written += take as u64;
+            }
+        }
+        history.snapshot("the take").unwrap();
+        assert!(committed_bytes(&root, "Music/old.wav").is_some(), "the take never committed");
+
+        // The rename grows the file past the ceiling — same content, two bytes
+        // more, which is a rename to git and an oversize one to the transport.
+        let new = root.join("Music/new.wav");
+        fs::rename(&old, &new).unwrap();
+        fs::OpenOptions::new().append(true).open(&new).unwrap().write_all(b"!!").unwrap();
+
+        let made = history.snapshot("the rename").unwrap();
+        assert!(!made, "a snapshot with nothing left to stage must not commit");
+        assert!(
+            committed_bytes(&root, "Music/old.wav").is_some(),
+            "the refused rename let the old path's deletion through"
+        );
+        assert!(
+            committed_bytes(&root, "Music/new.wav").is_none(),
+            "an object past the transport ceiling reached the vault's history"
+        );
+        assert_eq!(fs::metadata(&new).unwrap().len(), limit + 1, "the refusal touched the bytes");
+        assert!(!old.exists(), "the refusal put a file back on disk");
     }
 
     /// The kind decides, and the working tree never does.

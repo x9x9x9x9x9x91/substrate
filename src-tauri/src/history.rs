@@ -48,6 +48,11 @@ pub struct DiffLine {
     pub text: String,
 }
 
+/// The index mode `ls-files` prints for a gitlink — a folder that is its own
+/// git repository, recorded as a reference to a commit this repository does
+/// not hold.
+const GITLINK_MODE_TEXT: &str = "160000";
+
 
 /// Stamped into every repo Substrate creates or adopts — the marker that
 /// distinguishes "our" history repo from the user's own.
@@ -574,11 +579,180 @@ impl History {
         self.refresh_ghost_index(&excluded);
         self.git(&["add", "-A", "."])?;
         self.untrack_excluded(&excluded)?;
-        if self.git(&["status", "--porcelain"])?.trim().is_empty() {
+        let mut status = self.git(&["status", "--porcelain", "-z"])?;
+        let refused = self.refuse_oversize_staging(&status)?;
+        if !refused.is_empty() {
+            applog!("vault snapshot: {}", refused.sentence());
+            status = self.git(&["status", "--porcelain", "-z"])?;
+        }
+        if !has_staged_change(&status) {
             return Ok(false);
         }
         self.git(&["commit", "-q", "-m", label])?;
         Ok(true)
+    }
+
+    /// Take back the staging of anything the transport could not carry.
+    ///
+    /// The snapshot is the last place a file can be stopped. Past here it is a
+    /// committed object, and an object bigger than the blob store's per-object
+    /// ceiling fails not just its own push but every push the vault makes
+    /// afterwards, for good — the history cannot un-hold it. `git add -A .`
+    /// has no size opinion at all, so it will happily stage a 2 GB video the
+    /// moment its folder comes back into sync on another device.
+    ///
+    /// The bytes are never touched. A file that was not tracked leaves the
+    /// index entirely; one that was goes back to the version HEAD already
+    /// holds, which is the only unstaging that does not stage a DELETION —
+    /// and a deletion here would travel to the other devices and erase the
+    /// copies this whole mechanism exists to protect. Either way the file
+    /// stays on disk and reads as a pending change, which is what
+    /// `gitsync::dirty_tree_refusal` then names to the user.
+    ///
+    /// **What it does not catch.** A rename whose content changed past git's
+    /// similarity threshold is not reported as a rename at all — git gives an
+    /// independent add and delete, and there is no signal left that pairs them.
+    /// The oversize add is refused as it should be, and the old path's deletion
+    /// is a delete like any other: it commits, and it travels. Nothing is lost
+    /// — the bytes stay in history, and on this device they are still on disk
+    /// under the new name — but the other devices do see the old name go. No
+    /// heuristic fixes it without holding back legitimate deletions.
+    #[cfg(not(mobile))]
+    fn refuse_oversize_staging(&self, status: &str) -> Result<crate::syncfolders::Refused, String> {
+        let staged = staged_entries(status);
+        let refused = crate::syncfolders::weigh_staged(self.staged_blob_sizes(&staged)?);
+        if refused.is_empty() {
+            return Ok(refused);
+        }
+        let names = refused.paths();
+        let literal = [("GIT_LITERAL_PATHSPECS", "1")];
+        for entry in &staged {
+            if !names.contains(&entry.path) {
+                continue;
+            }
+            let args: Vec<&str> = if entry.code == 'A' {
+                vec!["rm", "--cached", "-q", "--force", "--", &entry.path]
+            } else {
+                vec!["restore", "--staged", "--", &entry.path]
+            };
+            self.git_env(&args, &literal)?;
+            // A rename staged the old path's DELETION alongside the new path's
+            // content. Taking back only the half that was too big would leave
+            // that deletion staged, and it would travel — every other device
+            // would lose the file while this one still had it. So the source
+            // goes back too, and the rename waits, whole, for a version the
+            // transport can carry.
+            if let Some(from) = &entry.from {
+                self.git_env(&["restore", "--staged", "--", from], &literal)?;
+            }
+        }
+        Ok(refused)
+    }
+
+    /// The size of every staged path's blob, in the order the caller listed
+    /// them, `None` where git could not tell us.
+    ///
+    /// Two commands rather than one `cat-file -s` per path: a first snapshot of
+    /// an existing vault stages every file in it, and a process per file turns
+    /// a snapshot into minutes of forking. `ls-files -s -z` is what keeps the
+    /// path side NUL-safe — a note whose name holds a newline still lines up
+    /// with its own entry — and the object ids it hands on are plain hex, so
+    /// the batch's own line-per-request protocol has nothing left to trip on.
+    ///
+    /// A staged DELETION has no index entry and no blob to weigh, so it is not
+    /// asked about; it is also not something a size ceiling has an opinion on.
+    #[cfg(not(mobile))]
+    fn staged_blob_sizes(
+        &self,
+        staged: &[StagedEntry],
+    ) -> Result<Vec<(String, Option<u64>)>, String> {
+        let wanted: Vec<&str> =
+            staged.iter().filter(|e| e.code != 'D').map(|e| e.path.as_str()).collect();
+        if wanted.is_empty() {
+            return Ok(Vec::new());
+        }
+        let listing = self.git(&["ls-files", "-s", "-z"])?;
+        let mut oids: HashMap<&str, &str> = HashMap::new();
+        let mut gitlinks: HashSet<&str> = HashSet::new();
+        for record in listing.split('\0').filter(|r| !r.is_empty()) {
+            // "<mode> <oid> <stage>\t<path>"
+            let Some((meta, path)) = record.split_once('\t') else { continue };
+            let mut fields = meta.split(' ');
+            let (Some(mode), Some(oid), Some(stage)) =
+                (fields.next(), fields.next(), fields.next())
+            else {
+                continue;
+            };
+            // stage 0 is the ordinary entry; the conflict stages describe a
+            // merge nobody is snapshotting through here
+            if stage != "0" {
+                continue;
+            }
+            // A folder with its own repository in it is recorded as a gitlink:
+            // the id is a commit in THAT repository, which this one has never
+            // heard of and cannot weigh. There is nothing to weigh either — the
+            // transport carries the reference, not the folder's contents.
+            if mode == GITLINK_MODE_TEXT {
+                gitlinks.insert(path);
+                continue;
+            }
+            oids.insert(path, oid);
+        }
+        let asked: Vec<(&str, &str)> =
+            wanted.iter().filter_map(|rel| oids.get(rel).map(|oid| (*rel, *oid))).collect();
+        let mut sizes: HashMap<&str, Option<u64>> = HashMap::new();
+        if !asked.is_empty() {
+            let input = asked.iter().map(|(_, oid)| *oid).collect::<Vec<_>>().join("\n") + "\n";
+            let answered = self.git_stdin(&["cat-file", "--batch-check=%(objectsize)"], &input)?;
+            let mut lines = answered.lines();
+            for (rel, _) in &asked {
+                sizes.insert(rel, lines.next().and_then(|line| line.trim().parse::<u64>().ok()));
+            }
+        }
+        // A path git listed as staged but did not hand back an index entry for
+        // is one this reader could not weigh, and an unweighed file is exactly
+        // what this whole mechanism exists to stop.
+        Ok(wanted
+            .into_iter()
+            .filter(|rel| !gitlinks.contains(rel))
+            .map(|rel| (rel.to_string(), sizes.get(rel).copied().flatten()))
+            .collect())
+    }
+
+    /// `git_env` with something written to git's stdin.
+    #[cfg(not(mobile))]
+    fn git_stdin(&self, args: &[&str], input: &str) -> Result<String, String> {
+        use std::io::Write;
+        let mut child = Command::new("git")
+            .current_dir(&self.root)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_INDEX_FILE")
+            .args(args)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("git unavailable: {e}"))?;
+        child
+            .stdin
+            .take()
+            .ok_or_else(|| "git took no input".to_string())?
+            .write_all(input.as_bytes())
+            .map_err(|e| format!("git {}: {e}", args.first().unwrap_or(&"")))?;
+        let out = child
+            .wait_with_output()
+            .map_err(|e| format!("git {}: {e}", args.first().unwrap_or(&"")))?;
+        if !out.status.success() {
+            return Err(format!(
+                "git {}: {}",
+                args.first().unwrap_or(&""),
+                String::from_utf8_lossy(&out.stderr).trim()
+            ));
+        }
+        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
     }
 
     /// This vault's no-sync folders, or none at all for a space.
@@ -1275,11 +1449,171 @@ impl History {
     }
 }
 
+/// The staged half of `git status --porcelain -z`: the index status letter and
+/// the path it applies to, in the order git listed them.
+///
+/// `-z` rather than the default, so a note whose name holds a quote or a
+/// newline arrives as itself instead of a C-quoted approximation git would
+/// then have to be asked about again. The rename and copy records carry a
+/// SECOND path field (where the file came from); it is skipped rather than
+/// read as the next record, which is what keeps every later entry aligned
+/// with its own status letter.
+#[cfg(not(mobile))]
+#[derive(Debug, PartialEq, Eq)]
+struct StagedEntry {
+    /// The index status letter: `A` for a path git did not track before, `M`
+    /// for one it did, `R` for a rename, and so on.
+    code: char,
+    path: String,
+    /// Where a rename or copy took the content from, and `None` for everything
+    /// else. Carried because that path's staged deletion is the other half of
+    /// the same staging, and the two have to be taken back together.
+    from: Option<String>,
+}
+
+#[cfg(not(mobile))]
+fn staged_entries(porcelain_z: &str) -> Vec<StagedEntry> {
+    let mut fields = porcelain_z.split('\0').filter(|f| !f.is_empty());
+    let mut out = Vec::new();
+    while let Some(record) = fields.next() {
+        let mut chars = record.chars();
+        let (Some(code), Some(_worktree), Some(' ')) = (chars.next(), chars.next(), chars.next())
+        else {
+            continue;
+        };
+        let path = chars.as_str().to_string();
+        let from = matches!(code, 'R' | 'C').then(|| fields.next().map(str::to_string)).flatten();
+        if matches!(code, ' ' | '?' | '!') {
+            continue;
+        }
+        out.push(StagedEntry { code, path, from });
+    }
+    out
+}
+
+/// Is there anything for a commit to take?
+///
+/// Asked of the STAGED column alone, not of the whole status: a file the
+/// snapshot deliberately left unstaged still shows up as a working-tree
+/// change, and treating that as "something to commit" would run a `git commit`
+/// with an empty index and fail the snapshot over a file it meant to skip.
+#[cfg(not(mobile))]
+fn has_staged_change(porcelain_z: &str) -> bool {
+    !staged_entries(porcelain_z).is_empty()
+}
+
 // desktop-only: these tests drive the git-CLI History, whose imports
 // (fs/Command) are compiled out under `mobile`
 #[cfg(all(test, not(mobile)))]
 mod tests {
     use super::*;
+
+    /// The rename record's second path field is the trap: read as a record of
+    /// its own it would shift every later entry onto the wrong status letter,
+    /// and the unstaging would then take back a file nobody weighed.
+    #[test]
+    fn the_staged_reader_keeps_a_rename_from_shifting_the_records_after_it() {
+        let status = "R  new name.md\0old name.md\0 M dirty.md\0A  Music/take.wav\0?? loose.md\0";
+        assert_eq!(
+            staged_entries(status),
+            vec![
+                StagedEntry {
+                    code: 'R',
+                    path: "new name.md".to_string(),
+                    from: Some("old name.md".to_string()),
+                },
+                StagedEntry { code: 'A', path: "Music/take.wav".to_string(), from: None },
+            ],
+            "an unstaged edit or an untracked file is not something to commit"
+        );
+        assert!(has_staged_change(status));
+        assert!(!has_staged_change(" M dirty.md\0?? loose.md\0"));
+        assert!(!has_staged_change(""));
+    }
+
+    /// The snapshot weighs what it STAGED, not what is on disk now.
+    ///
+    /// `add` captures the blob; the weigh happens after. Anything still writing
+    /// to that file in between — a render finishing, an export being truncated,
+    /// a sync from somewhere else — moves the disk answer away from the bytes
+    /// the commit would actually carry. A disk stat here reads the small file
+    /// and lets the big blob through, which is the exact poisoning a size
+    /// refusal exists to stop: past the commit, history cannot un-hold it.
+    #[test]
+    fn the_snapshot_weighs_the_blob_it_staged_not_the_file_on_disk() {
+        let (h, dir) = temp_repo("stagedweigh");
+        fs::write(dir.join("note.md"), "one\n").unwrap();
+        assert!(h.snapshot("first").unwrap());
+
+        let big = dir.join("Music/take.wav");
+        fs::create_dir_all(big.parent().unwrap()).unwrap();
+        let oversize = crate::syncfolders::transport_limit_bytes() + 1;
+        fs::File::create(&big).unwrap().set_len(oversize).unwrap();
+        h.git(&["add", "-A", "."]).unwrap();
+        // the window: the staged blob is oversize, the file on disk no longer is
+        fs::write(&big, "shrunk while the snapshot was running\n").unwrap();
+        assert!(
+            crate::syncfolders::weigh_for_transport(&dir, ["Music/take.wav"]).is_empty(),
+            "the disk weigh must miss this one, or the test is not testing anything"
+        );
+
+        let status = h.git(&["status", "--porcelain", "-z"]).unwrap();
+        let refused = h.refuse_oversize_staging(&status).unwrap();
+        assert_eq!(
+            refused.oversize.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(),
+            vec!["Music/take.wav"],
+            "the oversize blob was weighed by the file that replaced it"
+        );
+        assert!(
+            !h.git(&["diff", "--cached", "--name-only"]).unwrap().contains("Music/take.wav"),
+            "the oversize blob is still staged"
+        );
+        // and the bytes are where the user left them
+        assert_eq!(fs::read_to_string(&big).unwrap(), "shrunk while the snapshot was running\n");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A refused rename takes back BOTH halves, end to end through `snapshot`.
+    ///
+    /// The staging of a rename is a new path's content plus the old path's
+    /// DELETION. Taking back only the half that was too big leaves that deletion
+    /// staged, and it commits and travels: every other device loses the file
+    /// while this one still has it. So the rename waits, whole.
+    #[test]
+    fn a_snapshot_refusing_a_grown_rename_leaves_the_old_path_in_history() {
+        let (h, dir) = temp_repo("renametakeback");
+        let old = dir.join("Music/old.wav");
+        fs::create_dir_all(old.parent().unwrap()).unwrap();
+        let limit = crate::syncfolders::transport_limit_bytes();
+        // just under the ceiling, so the first snapshot takes it
+        fs::File::create(&old).unwrap().set_len(limit - 1).unwrap();
+        assert!(h.snapshot("the take").unwrap());
+
+        // renamed and grown past the ceiling in one edit — near-identical
+        // content, so git reports one R record rather than an add and a delete
+        let new = dir.join("Music/new.wav");
+        fs::rename(&old, &new).unwrap();
+        fs::File::options().write(true).open(&new).unwrap().set_len(limit + 1).unwrap();
+        assert!(
+            !h.snapshot("renamed the take").unwrap(),
+            "a snapshot with nothing left to stage must not commit"
+        );
+
+        let tracked = h.git(&["ls-tree", "-r", "--name-only", "HEAD"]).unwrap();
+        assert!(
+            tracked.contains("Music/old.wav"),
+            "the old path's deletion travelled while its content was refused: {tracked:?}"
+        );
+        assert!(
+            !tracked.contains("Music/new.wav"),
+            "an object past the transport ceiling reached history: {tracked:?}"
+        );
+        // nothing on disk moved: the rename the user made is still the rename
+        // they made, waiting for a version the transport can carry
+        assert!(new.is_file() && !old.exists());
+        assert_eq!(fs::metadata(&new).unwrap().len(), limit + 1);
+        let _ = fs::remove_dir_all(&dir);
+    }
 
     fn temp_repo(name: &str) -> (History, PathBuf) {
         let dir = std::env::temp_dir().join(format!("hist-test-{}-{}", std::process::id(), name));

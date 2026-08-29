@@ -775,8 +775,10 @@ pub(crate) fn create_from_folder<G>(
     Ok(Space { root: plan.root.to_path_buf(), manifest, key, report, left_behind })
 }
 
-/// How big a file is, in the words a person uses about one.
-fn how_big(bytes: u64) -> String {
+/// How big a file is, in the words a person uses about one. Shared with the
+/// snapshot's own size refusal (`syncfolders::Refused`), so a vault and a space
+/// say the same number the same way.
+pub(crate) fn how_big(bytes: u64) -> String {
     const MB: f64 = (1024 * 1024) as f64;
     match bytes {
         n if n >= 10 * 1024 * 1024 => format!("{} MB", (n as f64 / MB).round() as u64),

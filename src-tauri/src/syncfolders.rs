@@ -506,6 +506,166 @@ pub fn scan_for_include(root: &Path, folder: &str) -> IncludeScan {
     scan
 }
 
+/// What a sync refused to carry, and why.
+///
+/// The same two lists [`IncludeScan`] refuses an include on, kept apart from it
+/// because this one answers a different question: not "may this folder come
+/// back into sync?" but "may this file, already on disk and already inside a
+/// syncing folder, go into a snapshot?". The include scan weighs the toggling
+/// device's copy; every other device reaches its own copies through here.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Refused {
+    /// Files past the transport's per-object ceiling. One of them fails the
+    /// whole push it rides in, so a snapshot leaves them out rather than
+    /// committing an object no push can ever carry.
+    pub oversize: Vec<OversizeFile>,
+    /// Files whose size could not be read. Refused for the same reason
+    /// `oversize` is: treating "no answer" as zero bytes is how an oversize
+    /// file walks past a size check.
+    pub unreadable: Vec<String>,
+}
+
+impl Refused {
+    pub fn is_empty(&self) -> bool {
+        self.oversize.is_empty() && self.unreadable.is_empty()
+    }
+
+    /// Every refused path, for the callers that have to skip them.
+    pub fn paths(&self) -> BTreeSet<String> {
+        self.oversize
+            .iter()
+            .map(|f| f.path.clone())
+            .chain(self.unreadable.iter().cloned())
+            .collect()
+    }
+
+    /// The refusal in the words the user reads, naming files rather than a
+    /// blob id — the whole point of weighing here instead of letting the push
+    /// fail whole.
+    ///
+    /// Shrinking is named first because it is the only remedy with no second
+    /// effect. Moving the file out of a syncing folder clears the refusal too,
+    /// but if the other devices already had that file, the move reads to git as
+    /// a deletion and the next snapshot takes their copy with it — so the
+    /// sentence says that rather than leaving the user to find it out.
+    pub fn sentence(&self) -> String {
+        let limit = crate::gitsync::space::how_big(transport_limit_bytes());
+        let mut parts: Vec<String> = self
+            .oversize
+            .iter()
+            .map(|f| format!("{} {}", f.path, over_limit(f.size, &limit)))
+            .chain(self.unreadable.iter().map(|p| format!("{p} could not be read")))
+            .collect();
+        let named = parts.len();
+        parts.truncate(3);
+        let mut sentence = parts.join(", ");
+        if named > 3 {
+            sentence.push_str(&format!(", and {} more", named - 3));
+        }
+        format!(
+            "sync carries files up to {limit}, and {sentence}. The copies on this device are \
+             untouched. Making them smaller is what starts sync again — moving one out of a \
+             syncing folder clears it too, but where the other devices already have that file, \
+             the move deletes their copy at the next snapshot"
+        )
+    }
+}
+
+/// How much over the ceiling one file is, in the words the sentence uses.
+///
+/// [`crate::gitsync::space::how_big`] rounds, so a file one byte past a 64 MiB
+/// ceiling renders as the ceiling itself — "carries files up to 64 MB, and
+/// take.wav is 64 MB" reads as a contradiction rather than a refusal. Where the
+/// two round to the same words, say the relationship instead of the number.
+fn over_limit(size: u64, limit: &str) -> String {
+    let size = crate::gitsync::space::how_big(size);
+    if size == limit {
+        format!("is just over {limit}")
+    } else {
+        format!("is {size}")
+    }
+}
+
+/// The transport's per-object ceiling, as a number the rest of the app can
+/// compare against without reaching into the blob store.
+pub fn transport_limit_bytes() -> u64 {
+    crate::gitsync::blob::MAX_OBJECT_BYTES as u64
+}
+
+/// Weigh already-staged content against the transport's ceiling.
+///
+/// The sizes come from the INDEX, not from the working tree, and that is the
+/// whole point of having a second weigher: `add` captured the blob before the
+/// snapshot weighed anything, so a file that shrinks between the two — a
+/// render finishing, an export being truncated, any writer still working —
+/// answers a disk stat with a size the commit is not going to carry. The
+/// staged bytes are what a push has to lift, so the staged bytes are what gets
+/// weighed.
+///
+/// `None` is "the size could not be read", refused for the same reason
+/// [`weigh_for_transport`] refuses one: treating no answer as zero bytes is how
+/// an oversize file walks past a size check.
+pub fn weigh_staged<I, S>(entries: I) -> Refused
+where
+    I: IntoIterator<Item = (S, Option<u64>)>,
+    S: AsRef<str>,
+{
+    let limit = transport_limit_bytes();
+    let mut refused = Refused::default();
+    for (rel, size) in entries {
+        let rel = rel.as_ref();
+        match size {
+            None => refused.unreadable.push(rel.to_string()),
+            Some(size) if size > limit => {
+                refused.oversize.push(OversizeFile { path: rel.to_string(), size });
+            }
+            Some(_) => {}
+        }
+    }
+    refused
+}
+
+/// Weigh vault-relative paths against the transport's ceiling.
+///
+/// `symlink_metadata` rather than `metadata`, and only ordinary files are
+/// weighed at all: a symlink is stored as its target text however big the
+/// thing it points at is, so following the link would refuse a file git was
+/// never going to carry. A path that has gone missing between the caller
+/// naming it and this walk is not refused either — there is nothing to commit.
+pub fn weigh_for_transport<I, S>(root: &Path, rels: I) -> Refused
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let limit = transport_limit_bytes();
+    let mut refused = Refused::default();
+    for rel in rels {
+        let rel = rel.as_ref();
+        let at = root.join(rel);
+        let Ok(meta) = fs::symlink_metadata(&at) else {
+            // Absent is not refused; unreadable is, because "no answer" read as
+            // zero bytes is how an oversize file walks past a size check.
+            // `try_exists` DOES follow links, which costs nothing here: a
+            // symlink of any kind already answered `symlink_metadata`, so the
+            // only paths reaching this line are ones with no entry at all or
+            // ones a filesystem error hid — and the error is the case that must
+            // not be read as absent.
+            if at.try_exists().unwrap_or(true) {
+                refused.unreadable.push(rel.to_string());
+            }
+            continue;
+        };
+        if !meta.is_file() {
+            continue;
+        }
+        if meta.len() > limit {
+            refused.oversize.push(OversizeFile { path: rel.to_string(), size: meta.len() });
+        }
+    }
+    refused
+}
+
 /// The vault's top-level folders, plus the excluded paths some device has
 /// actually reported on — so a folder excluded on another machine is listed
 /// here even where it has never been on disk.
@@ -550,6 +710,30 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(dir.join(".vault")).unwrap();
         dir
+    }
+
+    #[test]
+    fn the_transport_weigh_refuses_only_what_it_could_actually_carry() {
+        let dir = scratch("weigh");
+        fs::write(dir.join("small.md"), "hello\n").unwrap();
+        let big = dir.join("big.wav");
+        fs::File::create(&big).unwrap().set_len(transport_limit_bytes() + 1).unwrap();
+        fs::create_dir_all(dir.join("folder")).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink("/nowhere/at/all", dir.join("link.md")).unwrap();
+
+        let refused =
+            weigh_for_transport(&dir, ["small.md", "big.wav", "folder", "gone.md", "link.md"]);
+        assert_eq!(
+            refused.oversize,
+            vec![OversizeFile { path: "big.wav".into(), size: transport_limit_bytes() + 1 }],
+            "a folder, a missing path, and a symlink are none of them oversize files"
+        );
+        assert!(refused.unreadable.is_empty(), "{:?}", refused.unreadable);
+        assert_eq!(refused.paths().into_iter().collect::<Vec<_>>(), vec!["big.wav".to_string()]);
+        assert!(refused.sentence().contains("big.wav"), "{}", refused.sentence());
+        assert!(weigh_for_transport(&dir, ["small.md"]).is_empty());
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -153,6 +153,13 @@ export function pinTreeFolder(
   return folder;
 }
 
+/** Does `folder` sit inside one of `roots` (the root itself counts)? The one
+    "this subtree left the tree" test the hidden-database rescues share — the
+    row a pin or a dashboard would nest under is gone exactly when this holds. */
+function insideRoots(folder: string, roots: readonly string[] | undefined): boolean {
+  return roots?.some((r) => r !== "" && (folder === r || folder.startsWith(`${r}/`))) ?? false;
+}
+
 /**
  * Split the pinned notes (already in `$sidebar.pins` order) into the rows the
  * flat Pinned section keeps and the per-folder groups the tree renders.
@@ -160,16 +167,37 @@ export function pinTreeFolder(
  * persist through mergeGroupOrder against the same flat pins list. `dashPaths`
  * is the set of dashboard note paths, forwarded to pinTreeFolder so a pinned
  * dashboard stays flat instead of double-rendering in the tree; the
- * caller passes it (no groupDashboards dependency in here).
+ * caller passes it (no groupDashboards dependency in here). `hiddenRoots`
+ * is the hidden databases' home folders: a pin whose tree row sits inside
+ * one of those subtrees has no folder row to hang off, so it falls back to
+ * the flat Pinned section instead of vanishing with the row — the pin is
+ * the user's explicit ask to see the note.
  */
+/**
+ * The tree folder a pin RENDERS under, or null for the flat Pinned section:
+ * `pinTreeFolder` plus the hidden-database rescue. The one lane decision
+ * `splitPins` and the pin row's Move up/down menu both read, so the menu can
+ * never index a group the sidebar didn't draw.
+ */
+export function pinLaneFolder(
+  folder: string,
+  path: string,
+  dashPaths?: ReadonlySet<string>,
+  hiddenRoots?: readonly string[]
+): string | null {
+  const home = pinTreeFolder(folder, path, dashPaths);
+  return home !== null && insideRoots(home, hiddenRoots) ? null : home;
+}
+
 export function splitPins<T extends { path: string; folder: string }>(
   pins: T[],
-  dashPaths?: ReadonlySet<string>
+  dashPaths?: ReadonlySet<string>,
+  hiddenRoots?: readonly string[]
 ): { flat: T[]; byFolder: Map<string, T[]> } {
   const flat: T[] = [];
   const byFolder = new Map<string, T[]>();
   for (const p of pins) {
-    const home = pinTreeFolder(p.folder, p.path, dashPaths);
+    const home = pinLaneFolder(p.folder, p.path, dashPaths, hiddenRoots);
     if (home === null) {
       flat.push(p);
       continue;
@@ -331,6 +359,21 @@ export function dashTreeFolder(path: string, home: string): string | null {
 }
 
 /**
+ * The tree folder a dashboard RENDERS under, or null for the Dashboards
+ * section: `dashTreeFolder` plus the hidden-database rescue. `splitDashboards`
+ * and the dashboard row's Move up/down menu share it for the same reason
+ * [`pinLaneFolder`] exists.
+ */
+export function dashLaneFolder(
+  path: string,
+  home: string,
+  hiddenRoots?: readonly string[]
+): string | null {
+  const folder = dashTreeFolder(path, home);
+  return folder !== null && insideRoots(folder, hiddenRoots) ? null : folder;
+}
+
+/**
  * Split the dashboards three ways from ONE home decision:
  * the Dashboards section's flat rows, its one level of subfolder groups, and
  * the rows that nest under a folder tree row keyed by their folder.
@@ -363,10 +406,17 @@ export function dashTreeFolder(path: string, home: string): string | null {
  * flat row (or to nothing) does not forget how the user left the chevron; a
  * folder whose dashboards were genuinely moved or deleted is in neither tally
  * and its persisted id still gets pruned.
+ *
+ * `hiddenRoots` is the hidden databases' home folders, the same rescue
+ * `splitPins` takes: a dashboard whose tree row would sit inside one of those
+ * subtrees has no folder row left to nest under, so it falls back to the
+ * section's flat rows instead of rendering nowhere. The home decision above
+ * still runs on the full set — hiding a database never moves the section.
  */
 export function splitDashboards<T extends { path: string; props?: Record<string, unknown> }>(
   dashboards: T[],
-  folders?: readonly string[]
+  folders?: readonly string[],
+  hiddenRoots?: readonly string[]
 ): {
   home: string;
   flat: T[];
@@ -389,7 +439,14 @@ export function splitDashboards<T extends { path: string; props?: Record<string,
   const hiddenPerGroup = new Map<string, number>();
   for (const d of dashboards) {
     const hidden = hiddenFromSidebar(d.props);
-    const treeFolder = dashTreeFolder(d.path, home);
+    const treeFolder = dashLaneFolder(d.path, home, hiddenRoots);
+    // the tree row went with its hidden database — the dashboard falls back
+    // to the section's flat rows below rather than rendering nowhere
+    const rescued = treeFolder === null && dashTreeFolder(d.path, home) !== null;
+    if (rescued) {
+      if (!hidden) sectionRows.push({ d, groupFolder: null, name: "" });
+      continue;
+    }
     if (treeFolder !== null) {
       if (hidden) continue;
       const nested = byFolder.get(treeFolder);
@@ -478,4 +535,76 @@ export function moveId(current: string[], id: string, dir: -1 | 1): string[] {
   const out = [...current];
   [out[i], out[j]] = [out[j], out[i]];
   return out;
+}
+
+/** case-folded membership test over a hidden-database set — the type name a
+    row carries and the one the schema keys it under can differ in case
+    (`byFoldedKey`'s reason for existing), and a flag that only matched one
+    spelling would be a database the user can neither see nor bring back. */
+function foldedHas(set: readonly string[], type: string): boolean {
+  const want = type.toLowerCase();
+  return set.some((t) => t.toLowerCase() === want);
+}
+
+/**
+ * Is this database one the user removed from the sidebar? The flag alone
+ * decides — a hidden database KEEPS its home folder, which is exactly how
+ * re-adding it puts the row back where it was. (Clearing the home folder is
+ * the other, unrelated exit: that leaves a plain folder row behind.)
+ */
+export function isDbHidden(hidden: readonly string[], type: string): boolean {
+  return foldedHas(hidden, type);
+}
+
+/**
+ * The persisted hidden set with the entries that can no longer mean anything
+ * dropped: a database whose type is gone from the schema, or whose home folder
+ * went away, has no sidebar row to be missing from. Written on every edit of
+ * the set rather than derived on read, so a vault still loading its schema
+ * can't wipe the user's flags on the way past.
+ */
+export function pruneHiddenDbs(
+  hidden: readonly string[],
+  homeByDb: Record<string, string>
+): string[] {
+  const homed = new Set(Object.keys(homeByDb).map((t) => t.toLowerCase()));
+  return hidden.filter((t) => homed.has(t.toLowerCase()));
+}
+
+/**
+ * The folder paths the Folders tree must skip: the home folder of every
+ * hidden database. Entries naming a database that no longer has a home
+ * contribute nothing — the same tolerance `applyOrder` gives a stale id.
+ */
+export function hiddenDbHomes(
+  hidden: readonly string[],
+  homeByDb: Record<string, string>
+): string[] {
+  const byFolded = new Map(Object.entries(homeByDb).map(([t, f]) => [t.toLowerCase(), f]));
+  const out: string[] = [];
+  for (const t of hidden) {
+    const home = byFolded.get(t.toLowerCase());
+    if (home && !out.includes(home)) out.push(home);
+  }
+  return out;
+}
+
+/**
+ * `folders` minus every named root AND everything nested under it — how
+ * "Remove from sidebar" takes a homed database's row out of the tree.
+ * Subtree, not just the row: the folder's children have no row to hang off
+ * once their parent is gone, and leaving them behind would promote them to
+ * roots. Nothing on disk changes; the notes stay reachable through search,
+ * the palette and the database itself. Returns the same array when no root
+ * matches, so callers can skip the re-render.
+ */
+export function foldersWithoutSubtrees(
+  folders: readonly string[],
+  roots: readonly string[]
+): string[] {
+  if (roots.length === 0) return folders as string[];
+  const kept = folders.filter(
+    (f) => !roots.some((r) => r !== "" && (f === r || f.startsWith(`${r}/`)))
+  );
+  return kept.length === folders.length ? (folders as string[]) : kept;
 }

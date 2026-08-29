@@ -709,8 +709,8 @@ fn classified_leg(
 
 /// The class a failed leg records under, once the leg itself has run.
 ///
-/// The preflight above covers what a hosted vault loads before it starts. One
-/// standing failure survives it and only shows up in the leg: a hosted vault
+/// The preflight above covers what a hosted vault loads before it starts. The
+/// standing failures that survive it show up only in the leg: a hosted vault
 /// whose history was rewritten here is refused by its own transport, pull
 /// unconditionally and push as soon as the remote holds the old history, and
 /// stays refused until something changes on this disk or at the remote — no
@@ -720,15 +720,22 @@ fn classified_leg(
 /// scheduler was concerned, looking healthy, which is the exact failure the
 /// preflight split exists to prevent.
 ///
-/// Only hosted vaults: a plain Git remote refuses the push after a rewrite but
-/// still serves pulls, so a failing pull there is an ordinary transport miss
-/// and keeps the quiet window it is owed.
+/// The rewrite arm is hosted vaults only: a plain Git remote refuses the push
+/// after a rewrite but still serves pulls, so a failing pull there is an
+/// ordinary transport miss and keeps the quiet window it is owed. The oversize
+/// arm is every vault — the file is refused before any remote is dialled.
 fn class_for_failure(root: &Path) -> FailureClass {
     // The replaced-store pause is the same kind of standing refusal, reached
     // from the other side: it survives every retry until someone adopts or the
-    // store changes again, so the quiet window must not hide it either.
+    // store changes again, so the quiet window must not hide it either. And so
+    // is a file past the transport's per-object ceiling: no snapshot will stage
+    // it, so the tree stays dirty and every leg keeps stopping on it until the
+    // user shrinks or moves the file. Left as Transport it sat in the auto
+    // lane's two-hour quiet window while the pane read "Ready" — a vault that
+    // had stopped syncing for good, looking healthy.
     if gitsync::hosted_sync_blocked_by_rewrite(root)
         || gitsync::hosted_sync_replaced_store(root).is_some()
+        || gitsync::sync_blocked_by_oversize(root)
     {
         FailureClass::Local
     } else {
@@ -1169,6 +1176,7 @@ mod tests {
             head: "0".repeat(40),
             changed: vec!["Note.md".to_string()],
             notice: None,
+            refused: crate::syncfolders::Refused::default(),
         })
     }
 
@@ -1539,6 +1547,61 @@ mod tests {
         // A plain Git remote keeps serving pulls after a rewrite, so its
         // failures stay transport failures and keep the window.
         repo.remote_set_url(crate::gitsync::REMOTE, "https://git.example/vault.git").unwrap();
+        assert_eq!(class_for_failure(&root), FailureClass::Transport);
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// A file the transport cannot carry stops every leg until somebody acts
+    /// on it, so its failures are local and standing — not a remote that went
+    /// missing for a minute.
+    ///
+    /// Nothing about it is hosted, and nothing about it is a marker on disk: the
+    /// tree holds a file no snapshot will stage, so the tree stays dirty and the
+    /// leg keeps refusing. Read as Transport it would sit inside the auto lane's
+    /// two-hour quiet window with the pane reading "Ready".
+    #[test]
+    fn a_leg_held_up_by_a_file_the_transport_cannot_carry_records_local() {
+        let root = std::env::temp_dir().join(format!(
+            "substrate-oversize-class-{}-{}",
+            std::process::id(),
+            line!()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let _history = History::new(root.clone()).unwrap();
+        let repo = git2::Repository::open(&root).unwrap();
+        repo.remote(crate::gitsync::REMOTE, "https://git.example/vault.git").unwrap();
+
+        // An ordinary dirty tree is not this: a snapshot takes that file, so
+        // whatever the leg failed on can perfectly well be a transport miss.
+        fs::write(root.join("note.md"), "an ordinary edit\n").unwrap();
+        assert_eq!(class_for_failure(&root), FailureClass::Transport);
+
+        let huge = root.join("take.wav");
+        fs::File::create(&huge)
+            .unwrap()
+            .set_len(crate::syncfolders::transport_limit_bytes() + 1)
+            .unwrap();
+        assert_eq!(class_for_failure(&root), FailureClass::Local);
+
+        // Local is what gets it past the quiet window on the very first tick.
+        let mut last = VaultSyncLast::default();
+        let mut fail = AutoFail::default();
+        let held: Result<SyncReport, String> =
+            Err("vault sync is held up by a file it cannot carry: take.wav".into());
+        record_outcome_into(
+            &mut last,
+            &mut fail,
+            &held,
+            true,
+            class_for_failure(&root),
+            Instant::now(),
+        );
+        assert!(last.error.is_some(), "a vault held up by one file still read healthy");
+
+        // And it clears the moment the file does — nothing sticky about it.
+        fs::remove_file(&huge).unwrap();
         assert_eq!(class_for_failure(&root), FailureClass::Transport);
 
         let _ = fs::remove_dir_all(&root);

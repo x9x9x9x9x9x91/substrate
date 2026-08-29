@@ -4,6 +4,7 @@ import { viewKey } from "../lib/types";
 import { vaultRoot } from "../lib/ipc";
 import {
   applyOrder,
+  foldersWithoutSubtrees,
   orderedRootNodes,
   orderedSiblingFolders,
   reorderIds,
@@ -110,6 +111,10 @@ interface SidebarProps {
       folder tree renders those rows as the database; every database (homed
       or not) is also reachable from the All databases manager */
   homeDbByFolder: Record<string, string>;
+  /** home folders of the databases removed from the sidebar: each one's
+      row leaves the tree with its subtree, the folder itself untouched on
+      disk and its home assignment kept (`$sidebar.hidden_dbs`) */
+  hiddenDbFolders: string[];
   /** The folded names of databases that are mounted folders. A homed
       db row for one gets the mount glyph, and opens the mount view — which is
       why opening a db goes through `onOpenDb` rather than setView here. */
@@ -234,6 +239,7 @@ function Sidebar({
   onToggleCollapse,
   icons,
   homeDbByFolder,
+  hiddenDbFolders,
   mountDbs,
   onOpenDb,
   dashboards,
@@ -324,23 +330,34 @@ function Sidebar({
     byFolder: dashesByFolder,
     // The folder list so an existing (even empty) `Dashboards/`
     // folder is the section's home outright, inference only without one
-  } = splitDashboards(dashboards, folders);
+    // hidden database subtrees carry no tree rows, so a dashboard filed in
+    // one falls back to the section's flat rows instead of vanishing
+  } = splitDashboards(dashboards, folders, hiddenDbFolders);
 
   // The headers follow their own persisted drag order, groups the
   // user never dragged staying in the split's alphabetical order behind them.
   const dashGroups = applyOrder(rawDashGroups, dashGroupOrder, (g) => g.folder);
 
+  // A database removed from the sidebar takes its home folder's row —
+  // and everything nested under it — out of the tree. Filtered HERE and not in
+  // `folders` itself: the full list still decides the dashboards home above,
+  // and still fills every folder picker, so hiding a database never moves a
+  // dashboard section or shrinks a "move to folder" menu.
+  const treeFolders = foldersWithoutSubtrees(folders, hiddenDbFolders);
+
   // the tree follows the persisted drag order at EVERY depth (roots and
   // nested alike): one flat `$sidebar.folders` list, each sibling group
   // reading its own slice; hidden surfaces (Journal/Dashboards) never render
-  const tree = orderedRootNodes(folders, folderOrder);
+  const tree = orderedRootNodes(treeFolders, folderOrder);
   const orderedChildren = (node: FolderNode) => applyOrder(node.children, folderOrder, (n) => n.path);
 
   // Pinned notes render under their home folder's tree row; only
   // pins with no tree row keep the flat section — vault root, hidden surfaces,
   // and pinned dashboards, which already have a Dashboards-section row
   // (`dashPaths` comes from App so its pin menus split identically)
-  const { flat: flatPins, byFolder: pinsByFolder } = splitPins(pinned, dashPaths);
+  // hidden database subtrees carry no tree rows, so their pins ride the
+  // flat Pinned section instead of vanishing with the folder row
+  const { flat: flatPins, byFolder: pinsByFolder } = splitPins(pinned, dashPaths, hiddenDbFolders);
 
   // a "new subfolder" edit starts visible: make sure the Folders section and
   // its parent folder are expanded
@@ -624,7 +641,7 @@ function Sidebar({
       return (pinsByFolder.get(section.slice("pins:".length)) ?? []).map((n) => n.path);
     }
     if (section.startsWith("folders:")) {
-      return orderedSiblingFolders(folders, folderOrder, section.slice("folders:".length));
+      return orderedSiblingFolders(treeFolders, folderOrder, section.slice("folders:".length));
     }
     return tree.map((n) => n.path);
   };

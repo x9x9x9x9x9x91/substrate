@@ -59,6 +59,7 @@ function Probe({
     record,
     apply,
     onWriteError: () => undefined,
+    homeByDb: {},
   });
   useEffect(() => {
     sink(model);
@@ -144,6 +145,7 @@ function LiveProbe({
     record: () => undefined,
     apply,
     onWriteError: () => undefined,
+    homeByDb: {},
   });
   useEffect(() => {
     sink(model);

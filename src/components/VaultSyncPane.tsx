@@ -23,6 +23,15 @@ type SyncAction = "push" | "pull";
 
 function Result({ report }: { report: SyncReport }) {
   const hasConflicts = report.conflicted.length > 0;
+  /* The refusal is what holds this vault's sync up until someone acts on it, so
+     the pane names the files rather than leaving the prose notice to carry it
+     alone — the notice truncates after three, and the point of weighing here
+     instead of letting the push fail whole is that the user can see which file
+     to shrink. */
+  const refusedPaths = [
+    ...(report.refused?.oversize ?? []).map((f) => f.path),
+    ...(report.refused?.unreadable ?? []),
+  ];
 
   return (
     <div>
@@ -35,6 +44,18 @@ function Result({ report }: { report: SyncReport }) {
            that was just replaced wholesale. */
         <div className="vault-sync-notice" role="status">
           {report.notice}
+        </div>
+      )}
+      {refusedPaths.length > 0 && (
+        <div className="vault-sync-refused" role="status">
+          <h3>Left out — sync cannot carry these</h3>
+          <ul>
+            {refusedPaths.map((path) => (
+              <li key={path}>
+                <code>{path}</code>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
       {report.head && (
