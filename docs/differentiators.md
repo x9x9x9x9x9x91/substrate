@@ -365,10 +365,10 @@ Capacities, Affine).*
 
 ## In flight — don't advertise yet
 
-- **iOS**: the app runs on the phone and the sync round-trip is proven in the
-  simulator; not yet distributed (TestFlight pipeline in progress). Say "iOS
-  in development", nothing more. Real-device + real-Mac endpoint handshake is
-  explicitly unverified; assets deliberately don't sync to the
+- **iOS**: the app runs on the phone and the sync round-trip is proven on a
+  real device against the real Mac endpoint (2026-08-29, HTTPS+token, pinned
+  cert); not yet distributed (TestFlight pipeline in progress). Say "iOS
+  in development", nothing more. Assets deliberately don't sync to the
   phone — notes-only.
 - **iOS home-screen widgets**: WidgetKit dashboard tiles are code-complete —
   any metrics card as a glanceable, honestly-timestamped widget, values
