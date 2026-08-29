@@ -74,7 +74,9 @@
 # /tmp by this script, the app runs with a config dir of its own under /tmp so
 # its credentials never land in the real store, the second-device helper
 # refuses a vault outside /tmp, and the in-app driver refuses a root without
-# "vault-smoke-autosync" in it.
+# "vault-smoke-autosync" in it. The drives shelf is pointed at an empty scratch
+# root too (SUBSTRATE_VOLUME_ROOTS), so the app never catalogs the machine's
+# real mounted disks into the harness vault.
 # The hosted store it talks to is a loopback instance of the shipped server
 # binary, started and stopped here — a shared deployment is single-tenant and
 # is never a test target.
@@ -115,6 +117,13 @@ BUILD_STAMP="$SIGNAL/build-start"
 # — and writes its health and privacy files over the real vault's. So the app
 # gets a config dir of its own, inside the run's scratch directory.
 CONFIG="$SIGNAL/config"
+# The drives shelf catalogs every volume mounted on the machine, and a real
+# external disk is a real vault's worth of file names — the 2026-08-29 attended
+# run watched it write a Time Machine drive's whole listing into the scratch
+# vault, and the rewrites kept the tree dirty so sync could never engage. The
+# app is pointed at an empty scratch root instead, through the same hook the
+# drives tests use.
+VOLUME_ROOTS="$SIGNAL/volumes"
 # Must match CREDENTIAL_SERVICE in src-tauri/src/gitsync.rs.
 CRED_SERVICE="com.substrate.vault-sync"
 if [[ "$(uname -s)" == "Darwin" ]]; then
@@ -503,6 +512,7 @@ fi
 fresh_dir "$SIGNAL"
 mkdir "$STORE" || fail "could not create $STORE"
 mkdir "$CONFIG" || fail "could not create $CONFIG"
+mkdir "$VOLUME_ROOTS" || fail "could not create $VOLUME_ROOTS"
 mkdir -p "$WIRE" || fail "could not create $WIRE"
 : >"$TRANSCRIPT" || fail "could not write $TRANSCRIPT"
 : >"$BUILD_STAMP" || fail "could not write $BUILD_STAMP"
@@ -659,6 +669,7 @@ $(tail -30 "$LOG")"
   set -m
   env VAULT_DIR="$VAULT_A" \
       XDG_CONFIG_HOME="$CONFIG" \
+      SUBSTRATE_VOLUME_ROOTS="$VOLUME_ROOTS" \
       SUBSTRATE_SMOKE=1 \
       SUBSTRATE_SMOKE_DIR="$SIGNAL" \
       "$APP_BIN" >>"$LOG" 2>&1 &
@@ -669,6 +680,7 @@ else
   set -m
   env VAULT_DIR="$VAULT_A" \
       XDG_CONFIG_HOME="$CONFIG" \
+      SUBSTRATE_VOLUME_ROOTS="$VOLUME_ROOTS" \
       SUBSTRATE_SMOKE=1 \
       SUBSTRATE_SMOKE_DIR="$SIGNAL" \
       VITE_SUBSTRATE_AUTOSYNC_VERIFY=1 \

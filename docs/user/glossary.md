@@ -71,9 +71,10 @@ has no folder row to sit under.
 So the sidebar can show you two kinds of pin at once: saved views under their
 databases, and pinned notes under their folders.
 
-**3. Pinned to Now.** On the tasks board, a task you have hand-picked into
-today's focus list carries `now: true` and shows a **Pinned to Now** marker.
-It is about attention, not about the sidebar.
+**3. Picked for today.** On the tasks board, a task you have picked for today
+carries `today:` with that date — the same mark the Today pane's Pick verb
+writes — and shows a **Picked for today** marker. It is about attention, not
+about the sidebar.
 
 **4. Pin as a plain verb** — fixing something in place. A custom kind's
 consent is *pinned* to exact files, so changed code stops running until you

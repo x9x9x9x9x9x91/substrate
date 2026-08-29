@@ -662,3 +662,160 @@ test("a file embed that missed heals on the next vault bump", async (t) => {
   assert.equal(rendered.one(".cm-filechip-missing"), null, "the missing chip stood down");
   assert.ok(rendered.one(".cm-filechip"), "and the named chip is what stands there");
 });
+
+test("a tilde view fence inside a column draws, like every other spelling", async (t) => {
+  // lezer recognizes every fence spelling outside a column, so the column's
+  // own scanner has to as well — a `~~~view` used to render as paragraph text
+  const TILDE = [
+    "<!-- columns -->",
+    "~~~view",
+    "from: notes",
+    "~~~",
+    "<!-- /columns -->",
+  ].join("\n");
+  const { rendered } = await editor(t, TILDE, { embedQuery: () => VIEW_ANSWER });
+
+  const [column] = rendered.all(".cm-column");
+  assert.ok(column.querySelector(".embed-view"), "the fence mounted the view widget");
+  assert.ok(!/from: notes/.test(column.textContent ?? ""), "and its config is not on screen");
+});
+
+test("an indented dashboard fence keeps its source box and its hint", async (t) => {
+  const INDENTED = [
+    "<!-- columns -->",
+    "  ```chart",
+    "  type: bar",
+    "  ```",
+    "<!-- /columns -->",
+  ].join("\n");
+  const { rendered } = await editor(t, INDENTED);
+
+  const [column] = rendered.all(".cm-column");
+  assert.match(column.textContent ?? "", /type: bar/, "the source box rendered");
+  const hint = column.querySelector(".cm-dash-hint");
+  assert.ok(hint, "and the hint the same fence gets outside a column");
+  assert.match(hint!.textContent ?? "", /dashboard/i);
+});
+
+test("a dashboard fence under a list item gets the hint it gets outside a column", async (t) => {
+  const IN_LIST = [
+    "<!-- columns -->",
+    "- the numbers",
+    "  ```chart",
+    "  type: bar",
+    "  ```",
+    "<!-- /columns -->",
+  ].join("\n");
+  const { rendered } = await editor(t, IN_LIST);
+
+  const [column] = rendered.all(".cm-column");
+  assert.equal(column.querySelectorAll("li").length, 1, "the item is still an item");
+  assert.match(column.textContent ?? "", /type: bar/, "the fence is a source box, not prose");
+  assert.ok(column.querySelector(".cm-dash-hint"), "and it says where it draws");
+});
+
+test("the epoch joins the identity for a view fence in any spelling", async () => {
+  const { ColumnsWidget } = await import("./editor-widgets.ts");
+  const region = (open: string, close: string) =>
+    `<!-- columns -->\n${open}\nfrom: notes\n${close}\n<!-- /columns -->`;
+  assert.equal(new ColumnsWidget(region("~~~view", "~~~"), 0).liveData, true);
+  assert.equal(new ColumnsWidget(region("````view", "````"), 0).liveData, true);
+  assert.equal(new ColumnsWidget(region("  ```view", "  ```"), 0).liveData, true);
+  assert.equal(new ColumnsWidget(region("~~~viewport", "~~~"), 0).liveData, false);
+});
+
+test("emphasis opened before an embed and closed after it is still emphasis", async (t) => {
+  const ACROSS = [
+    "<!-- columns -->",
+    "**a ![[render-v3.wav]] b**",
+    "",
+    "`![[literal.wav]]` stays a code span",
+    "<!-- /columns -->",
+  ].join("\n");
+  const { rendered } = await editor(t, ACROSS);
+
+  const [cell] = rendered.all(".cm-column");
+  const strong = cell.querySelector("strong");
+  assert.ok(strong, "the run closed across the mount");
+  assert.match(strong!.textContent ?? "", /a/, "the text either side is inside it");
+  assert.ok(strong!.querySelector("[data-live-mount]"), "and the player is inside it too");
+  assert.ok(!/\*\*/.test(cell.textContent ?? ""), "no marker printed literally");
+  // a code span is still the literal it is everywhere else
+  assert.match(cell.querySelector("code")?.textContent ?? "", /!\[\[literal\.wav\]\]/);
+});
+
+test("an annotations fence inside a column binds to its player", async (t) => {
+  const BOUND = [
+    "<!-- columns -->",
+    "![[render-v3.wav]]",
+    "```annotations",
+    "audio: render-v3.wav",
+    "00:12 — the drop lands early",
+    "```",
+    "",
+    "After the fence.",
+    "<!-- /columns -->",
+  ].join("\n");
+  const { rendered } = await editor(t, BOUND);
+
+  const [cell] = rendered.all(".cm-column");
+  // outside a region this pair is one block: the player carries the marker and
+  // the note, and the fence is not a code box on the page
+  assert.ok(!/audio: render-v3\.wav/.test(cell.textContent ?? ""), "the fence is not source");
+  assert.equal(cell.querySelectorAll(".cm-audio-marker").length, 1, "the timestamp is a marker");
+  assert.match(cell.textContent ?? "", /the drop lands early/, "and the note is listed");
+  assert.ok(cell.querySelector(".cm-audio-annotation-compose"), "the composer is there to write with");
+  // the prose under the block still renders, in its own right
+  assert.match(cell.textContent ?? "", /After the fence\./);
+});
+
+test("an annotation written inside a column lands in its own fence", async (t) => {
+  const TWO_PLAYERS = [
+    "<!-- columns -->",
+    "![[one.wav]]",
+    "```annotations",
+    "audio: one.wav",
+    "00:05 — first",
+    "```",
+    "<!-- col -->",
+    "![[two.wav]]",
+    "```annotations",
+    "audio: two.wav",
+    "00:09 — second",
+    "```",
+    "<!-- /columns -->",
+  ].join("\n");
+  const { rendered, view } = await editor(t, TWO_PLAYERS);
+
+  // the write-back address is resolved from the REGION's position plus the
+  // player's own line offset — the second column's player must not write into
+  // the first column's fence
+  const [, right] = rendered.all(".cm-column");
+  const input = right.querySelector(".cm-audio-annotation-compose input") as HTMLInputElement;
+  assert.ok(input, "the second player carries a composer");
+  input.value = "written from the right column";
+  await act(async () => {
+    input.closest("form")!.dispatchEvent(new (win as unknown as { Event: typeof Event }).Event("submit", { bubbles: true, cancelable: true }));
+  });
+  await rendered.settle();
+
+  const doc = view.state.doc.toString();
+  const inSecondFence = doc.slice(doc.indexOf("audio: two.wav"));
+  assert.match(inSecondFence, /written from the right column/, "it landed under audio: two.wav");
+  assert.ok(
+    !/written from the right column/.test(doc.slice(0, doc.indexOf("audio: two.wav"))),
+    "and nothing was written into the first column's fence"
+  );
+});
+
+test("a video embed inside a column is the chip it is outside one", async (t) => {
+  // the app ships no video player anywhere — outside a region `![[clip.mp4]]`
+  // is the named file chip, so that is what the column owes it
+  const VIDEO = ["<!-- columns -->", "![[clip.mp4]]", "<!-- /columns -->"].join("\n");
+  const { rendered } = await editor(t, VIDEO);
+
+  const [cell] = rendered.all(".cm-column");
+  assert.equal(cell.querySelectorAll("[data-live-mount]").length, 1, "one mount, not print text");
+  assert.match(cell.textContent ?? "", /clip\.mp4/, "and it says which file it stands for");
+  assert.ok(!/embedded file ·/.test(cell.textContent ?? ""), "no print placeholder");
+});

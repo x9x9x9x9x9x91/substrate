@@ -706,10 +706,11 @@ skipped, and missing counts read as 0.
 ### `tasks` — the working board
 
 Reads every `type: task` note in the vault. The
-board's spine, in render order: **Overdue**, **Due today**, the hand-picked
-**Now** list (`now: true` on the task), then a section per `area:`. Empty
-sections are omitted. Urgency outranks the pin — a pinned task that is overdue
-or due today sits in that section instead of Now — and `due:` accepts a bare
+board's spine, in render order: **Overdue**, **Due today**, the tasks picked
+for today (`today:` carrying that day, the same mark the Today pane's Pick
+verb writes), then a section per `area:`. Empty sections are omitted. Urgency
+outranks the pick — a picked task that is overdue or due today sits in that
+section instead of Today — and `due:` accepts a bare
 `YYYY-MM-DD` or a timed `YYYY-MM-DD HH:MM`; a malformed value reads as no due
 date rather than bucketing the row as urgent or dropping it.
 
@@ -724,10 +725,10 @@ still drives the secondary chips, on list rows and board cards alike: a task
 past the stale threshold reads `stale`, one whose frontmatter has no `created:`
 date at all reads `undated` (that chip is about the created date, never a
 missing `due:`). Those are diagnostics, never a task's reason for being on the
-board — and pinned Now rows carry neither, since they're already chosen; the
-exact age lives in the hover title in both views. A pinned task wears a small
-pin glyph in that same chip slot instead, on rows and on board cards: in the
-Board view there is no **Now** heading to explain the missing chip, so the pin
+board — and rows picked for today carry neither, since they're already chosen;
+the exact age lives in the hover title in both views. A picked task wears a
+small pin glyph in that same chip slot instead, on rows and on board cards: in
+the Board view there is no **Today** heading to explain the missing chip, so the pin
 says "exempt, not overlooked" on the card face itself.
 
 Age chips are switchable, because staleness assumes every task wants touching

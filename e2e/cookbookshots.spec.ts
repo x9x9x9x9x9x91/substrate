@@ -125,7 +125,7 @@ async function installNote(page: Page, target: string, raw: string, cloneFrom?: 
         // task-row props — the same rule: a cloned task fixture must not lend
         // its due date, its priority or its age to a recipe task that ships
         // without one, or the board shows rows the recipe's bytes don't explain
-        "due", "priority", "now", "snoozed_until", "area", "created"]) {
+        "due", "priority", "today", "snoozed_until", "area", "created"]) {
         w.__mockEditProp(targetPath as string, k, null);
       }
       for (const [k, v] of Object.entries(nextProps as Record<string, unknown>)) {

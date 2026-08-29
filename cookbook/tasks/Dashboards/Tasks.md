@@ -8,8 +8,10 @@ stale_days: 21
 created: 2026-07-23
 ---
 Working board over the `task` notes in `Tasks/`. What is late comes first:
-Overdue, then Due today, then the hand-picked Now list, then the rest grouped by
-area. Inside every section the order is due bucket, then priority, then age —
+Overdue, then Due today, then the rest grouped by area. Pick a task for today
+(a `today:` date — the same pick the Today pane uses) and it lifts into its
+own Today section ahead of the groups.
+Inside every section the order is due bucket, then priority, then age —
 rot is the tiebreaker, not the headline. Rows check off, edit inline, and get
 added straight from the board. Done tasks stay off it; snoozed ones fall into
 their own collapsed section rather than vanishing.

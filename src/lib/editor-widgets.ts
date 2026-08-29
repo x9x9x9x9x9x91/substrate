@@ -20,6 +20,7 @@ import {
   type EmbedSize,
 } from "./wikilinks.ts";
 import {
+  findAudioAnnotationBlocks,
   formatAnnotationTime,
   formatAudioAnnotation,
   newAudioAnnotationFence,
@@ -1419,6 +1420,19 @@ const FILE_SVG = `<svg width="12" height="12" viewBox="0 0 16 16" fill="none" st
 
 const AUDIO_CLEANUP = Symbol("audio-cleanup");
 
+/** Where in the document a player's own embed line starts. `posAtDOM` answers
+    for the widget CodeMirror mounted, which for a player inside a column
+    region is the region's first line — the offset walks from there to the
+    embed, so an annotation written from inside a region lands on the right
+    fence. Resolved at click time, never carried in the widget's identity, the
+    same discipline the column task box keeps. */
+function annotationAnchor(view: EditorView, wrap: HTMLElement, offset: number): number {
+  const doc = view.state.doc;
+  const base = doc.lineAt(view.posAtDOM(wrap));
+  if (!offset) return base.from;
+  return doc.line(Math.min(doc.lines, base.number + offset)).from;
+}
+
 /** Audio embeds share one player per name (getPlayer), so a healthy widget's
  * identity stays name-only — a vault epoch bump must NOT restart playback or
  * re-decode peaks. Only a widget whose lookup failed carries the epoch in eq:
@@ -1435,7 +1449,13 @@ export class AudioWidget extends WidgetType {
     /** null means no bound fence; an empty array is a valid empty fence. */
     readonly annotations: readonly AudioAnnotation[] | null = null,
     /** Inline embeds and embeds guarding malformed fences remain seek-only. */
-    readonly canAnnotate = false
+    readonly canAnnotate = false,
+    /** How many lines past the position `posAtDOM` resolves to this player's
+        embed sits. Zero for a player CodeMirror mounted itself, where that
+        position IS the embed's line; a player mounted inside a bigger block
+        widget (a column region) counts from that widget's first line, the
+        same address a column task box carries. */
+    readonly lineOffset = 0
   ) {
     super();
   }
@@ -1443,6 +1463,7 @@ export class AudioWidget extends WidgetType {
   eq(other: AudioWidget) {
     if (other.name !== this.name) return false;
     if (other.canAnnotate !== this.canAnnotate) return false;
+    if (other.lineOffset !== this.lineOffset) return false;
     if ((other.annotations === null) !== (this.annotations === null)) return false;
     const ours = this.annotations ?? [];
     const theirs = other.annotations ?? [];
@@ -1580,7 +1601,7 @@ export class AudioWidget extends WidgetType {
         if (!text) return;
         const target = resolveAudioAnnotationTarget(
           view.state.doc,
-          view.posAtDOM(wrap),
+          annotationAnchor(view, wrap, this.lineOffset),
           this.name
         );
         if (!target) return;
@@ -1628,7 +1649,7 @@ export class AudioWidget extends WidgetType {
       edit.addEventListener("click", () => {
         const target = resolveAudioAnnotationTarget(
           view.state.doc,
-          view.posAtDOM(wrap),
+          annotationAnchor(view, wrap, this.lineOffset),
           this.name
         );
         if (!target) return;
@@ -2132,11 +2153,14 @@ export class DashFenceHintWidget extends WidgetType {
  *   region, and a click resolves the widget's document position at click time
  *   (`posAtDOM`, the same move `CheckboxWidget` makes) — identity stays
  *   position-free, so typing above the region never rebuilds it;
- * - a ```view fence draws through the app's own `ViewWidget`;
+ * - a ```view fence draws through the app's own `ViewWidget`, in every
+ *   spelling of a fence the block scanner opens;
  * - an audio / PDF / other file embed mounts the app's own player or chip.
  *   Playback and the remembered PDF page live in module-level registries, so
- *   the rebuild a toggle causes never interrupts either. Audio inside a column
- *   is the seek-only inline form — an annotations fence does not bind to it;
+ *   the rebuild a toggle causes never interrupts either. A standalone audio
+ *   embed with an annotations fence under it is the annotating player, one
+ *   block, as it is outside a region; an embed inside a sentence stays the
+ *   seek-only inline form;
  * - a callout renders as a callout: kind glyph, quiet frame, accent honored.
  *
  * The dashboard fences (```chart, ```progress, ```heatmap and the rest) stay
@@ -2162,9 +2186,10 @@ export class ColumnsWidget extends WidgetType {
       state does — a missing .wav heals on the epoch that brings the file).
       The epoch then joins the identity, and `updateDOM` below turns the
       resulting rebuild into an in-place repaint. The fence test mirrors what
-      the renderer mounts: `scanMdBlocks` opens a fence only on three
-      backticks at line start, the info string's first word is matched
-      case-folded, and a longer word (```viewport) is a different language.
+      the renderer mounts: `scanMdBlocks` opens a fence on any CommonMark
+      spelling of one (three or more backticks or tildes, up to three spaces
+      of indent), the info string's first word is matched case-folded, and a
+      longer word (```viewport) is a different language.
       One knowing looseness: a "```view" line or an embed QUOTED inside a
       fence still matches — that errs toward a no-op repaint, never toward
       stale rows or a permanently missing player. */
@@ -2182,7 +2207,7 @@ export class ColumnsWidget extends WidgetType {
     readonly dashboardNote = false
   ) {
     super();
-    this.liveData = /^```view(\s|$)/im.test(source) || hasFileEmbed(source);
+    this.liveData = /^ {0,3}(?:`{3,}|~{3,})view(\s|$)/im.test(source) || hasFileEmbed(source);
   }
 
   eq(other: ColumnsWidget) {
@@ -2303,7 +2328,15 @@ function embedMountFailed(widget: WidgetType): boolean {
 /** A fresh widget for a failed embed mount, at the new epoch — the same
     constructor call `liveInline` made, re-read from the failed instance. */
 function rebuildEmbedMount(widget: WidgetType, epoch: number): WidgetType | null {
-  if (widget instanceof AudioWidget) return new AudioWidget(widget.name, epoch);
+  if (widget instanceof AudioWidget) {
+    return new AudioWidget(
+      widget.name,
+      epoch,
+      widget.annotations,
+      widget.canAnnotate,
+      widget.lineOffset
+    );
+  }
   if (widget instanceof PdfWidget) return new PdfWidget(widget.name, epoch, widget.size);
   if (widget instanceof FileWidget) return new FileWidget(widget.name, epoch, widget.locale);
   return null;
@@ -2320,8 +2353,22 @@ const LIVE_CONTROL_SELECTOR =
     parses an anchor and an alias off. */
 const CELL_PRINT_OPTS: PrintOptions = { linkHref: (inner) => inner };
 
-/** Render one column's blocks into its cell — the print pass for everything
-    static, the app's own widgets for the four live slots (class comment). */
+/** One run of a column's lines, and where it sits: `firstLine` is the offset
+    of `lines[0]` from the region's first line, which is the address a live
+    control inside the cell writes back through. A cell is one slice, unless a
+    bound annotations fence splits it (see {@link renderLiveColumn}). */
+interface CellSlice {
+  lines: string[];
+  firstLine: number;
+}
+
+/** Render one column into its cell — the print pass for everything static,
+    the app's own widgets for the live slots (class comment).
+
+    A standalone audio embed with its `annotations` fence under it is ONE
+    thing, exactly as it is outside a region: the pair is lifted out of the
+    block walk and mounted as the annotating player, and the lines either side
+    of it render as their own slices. */
 function renderLiveColumn(
   cell: HTMLElement,
   column: ColumnPart,
@@ -2329,7 +2376,72 @@ function renderLiveColumn(
   widget: ColumnsWidget,
   mounts: ColumnMount[]
 ) {
-  const blocks = scanMdBlocks(column.text, { splitListsOnMarkerFlip: true });
+  const lines = column.text.split("\n");
+  let at = 0;
+  for (const bound of boundAudioLines(column.text)) {
+    if (bound.startLine < at) continue;
+    renderCellSlice(
+      cell,
+      { lines: lines.slice(at, bound.startLine), firstLine: column.startLine + at },
+      view,
+      widget,
+      mounts
+    );
+    mountLive(
+      cell,
+      mounts,
+      new AudioWidget(
+        bound.name,
+        widget.epoch,
+        bound.annotations,
+        true,
+        column.startLine + bound.startLine
+      ),
+      view
+    );
+    at = bound.endLine + 1;
+  }
+  renderCellSlice(
+    cell,
+    { lines: lines.slice(at), firstLine: column.startLine + at },
+    view,
+    widget,
+    mounts
+  );
+}
+
+/** The embed+fence pairs in a column's text as LINE spans — the block scanner
+    counts lines, the annotation scanner counts characters, and this is the
+    one place the two meet. `endLine` is the fence's closing line. */
+function boundAudioLines(text: string): {
+  name: string;
+  annotations: readonly AudioAnnotation[];
+  startLine: number;
+  endLine: number;
+}[] {
+  const lineAt = (position: number) => {
+    let count = 0;
+    for (let i = 0; i < position && i < text.length; i++) if (text[i] === "\n") count++;
+    return count;
+  };
+  return findAudioAnnotationBlocks(text).map((block) => ({
+    name: block.name,
+    annotations: block.annotations,
+    startLine: lineAt(block.from),
+    endLine: lineAt(block.to),
+  }));
+}
+
+/** One slice of a cell, block by block. */
+function renderCellSlice(
+  cell: HTMLElement,
+  slice: CellSlice,
+  view: EditorView,
+  widget: ColumnsWidget,
+  mounts: ColumnMount[]
+) {
+  if (!slice.lines.length) return;
+  const blocks = scanMdBlocks(slice.lines.join("\n"), { splitListsOnMarkerFlip: true });
   for (const block of blocks) {
     if (block.kind === "fence") {
       if (block.lang.toLowerCase() === "view") {
@@ -2350,7 +2462,7 @@ function renderLiveColumn(
       continue;
     }
     if (block.kind === "list") {
-      cell.appendChild(liveList(block, column, view, widget, mounts));
+      cell.appendChild(liveList(block, slice, view, widget, mounts));
       continue;
     }
     if (block.kind === "quote") {
@@ -2406,12 +2518,12 @@ function mountLive(parent: HTMLElement, mounts: ColumnMount[], widget: WidgetTyp
     the mark, exactly what it gets outside a region. */
 function liveList(
   block: Extract<MdBlock, { kind: "list" }>,
-  column: ColumnPart,
+  slice: CellSlice,
   view: EditorView,
   widget: ColumnsWidget,
   mounts: ColumnMount[]
 ): HTMLElement {
-  const lines = column.text.split("\n");
+  const lines = slice.lines;
   const listEl = document.createElement(block.ordered ? "ol" : "ul");
   for (const item of block.items) {
     const li = document.createElement("li");
@@ -2423,7 +2535,7 @@ function liveList(
         box.className = "cm-task-toggle";
         box.checked = item.done;
         box.setAttribute("aria-label", "Toggle task");
-        box.dataset.line = String(column.startLine + item.line);
+        box.dataset.line = String(slice.firstLine + item.line);
         // toggle in place without moving the cursor into the region — a caret
         // in there would stand the whole widget down
         box.addEventListener("mousedown", (e) => e.preventDefault());
@@ -2469,9 +2581,14 @@ function toggleColumnTask(view: EditorView, box: HTMLInputElement) {
 /** One inline run: static text through the print pass, non-image embeds as
     the app's own players. Code spans are split out first so `` `![[x.wav]]` ``
     stays the literal it is everywhere else; image embeds stay in the static
-    text and ride the blank-pixel/`loadColumnImages` path. One knowing loss:
-    emphasis opened before an embed and closed after it renders as its literal
-    markers, because the run is cut at the mount. */
+    text and ride the blank-pixel/`loadColumnImages` path.
+
+    A live embed leaves a SLOT behind in the text the print pass renders, and
+    the mount is swapped into that slot afterwards — so emphasis opened before
+    an embed and closed after it (`**a ![[x.wav]] b**`) is still emphasis, the
+    way it is outside a region, rather than a run cut in two at the mount and
+    its `**` printed literally. The slot is a private-use character, which no
+    inline rule reads and the escaper passes through untouched. */
 function liveInline(
   parent: HTMLElement,
   text: string,
@@ -2484,33 +2601,66 @@ function liveInline(
       parent.insertAdjacentHTML("beforeend", renderInlineMd(seg, () => BLANK_PIXEL, CELL_PRINT_OPTS));
       continue;
     }
-    const embedRe = /!\[\[([^[\]]+)\]\]/g;
-    let cursor = 0;
-    let m: RegExpExecArray | null;
-    while ((m = embedRe.exec(seg))) {
-      const target = embedTarget(m[1]);
-      if (isImageEmbed(target)) continue;
-      if (m.index > cursor) {
-        parent.insertAdjacentHTML(
-          "beforeend",
-          renderInlineMd(seg.slice(cursor, m.index), () => BLANK_PIXEL, CELL_PRINT_OPTS)
-        );
-      }
+    const live: WidgetType[] = [];
+    const slotted = seg.replace(/!\[\[([^[\]]+)\]\]/g, (whole, inner: string) => {
+      const target = embedTarget(inner);
+      if (isImageEmbed(target)) return whole;
       // the same dispatch the editor makes for a bare embed line — audio in
-      // its inline, seek-only form (no annotation fence binds in here)
-      const live = isAudioName(target)
-        ? new AudioWidget(target, widget.epoch)
-        : isPdfName(target)
-          ? new PdfWidget(target, widget.epoch, embedSize(m[1]))
-          : new FileWidget(target, widget.epoch, view.state.facet(calcConfig).locale);
-      mountLive(parent, mounts, live, view);
-      cursor = m.index + m[0].length;
-    }
-    if (cursor < seg.length) {
-      parent.insertAdjacentHTML(
-        "beforeend",
-        renderInlineMd(seg.slice(cursor), () => BLANK_PIXEL, CELL_PRINT_OPTS)
+      // its inline, seek-only form (an annotations fence binds to the
+      // standalone shape above, never to an embed inside a sentence)
+      live.push(
+        isAudioName(target)
+          ? new AudioWidget(target, widget.epoch)
+          : isPdfName(target)
+            ? new PdfWidget(target, widget.epoch, embedSize(inner))
+            : new FileWidget(target, widget.epoch, view.state.facet(calcConfig).locale)
       );
+      return `${SLOT_OPEN}${live.length - 1}${SLOT_CLOSE}`;
+    });
+    const holder = document.createElement("span");
+    holder.insertAdjacentHTML("beforeend", renderInlineMd(slotted, () => BLANK_PIXEL, CELL_PRINT_OPTS));
+    if (live.length) fillSlots(holder, live, view, mounts);
+    while (holder.firstChild) parent.appendChild(holder.firstChild);
+  }
+}
+
+/** The two private-use characters that fence a live mount's slot while the
+    text around it goes through the print pass. Private use because nothing —
+    not the inline grammar, not the HTML escaper, not a font an author would
+    notice — reads them, so the emphasis either side closes across the slot
+    exactly as it closes across a word. */
+const SLOT_OPEN = "\uE000";
+const SLOT_CLOSE = "\uE001";
+const SLOT_RE = /\uE000(\d+)\uE001/;
+
+/** Swap each slot in the rendered text for the widget it stands for, in
+    place — so a mount inside `<strong>` is inside the `<strong>`. A slot that
+    lost its widget (an inline rule ate the text it sat in) simply leaves
+    nothing behind rather than printing its markers. */
+function fillSlots(
+  node: Node,
+  live: readonly WidgetType[],
+  view: EditorView,
+  mounts: ColumnMount[]
+) {
+  for (const child of [...node.childNodes]) {
+    if (child.nodeType !== 3) {
+      fillSlots(child, live, view, mounts);
+      continue;
+    }
+    let text = child as Text;
+    let m: RegExpExecArray | null;
+    while ((m = SLOT_RE.exec(text.data))) {
+      const after = text.splitText(m.index);
+      after.data = after.data.slice(m[0].length);
+      const mounted = live[Number(m[1])];
+      if (mounted) {
+        const dom = mounted.toDOM(view);
+        dom.setAttribute("data-live-mount", "");
+        mounts.push({ widget: mounted, dom });
+        after.parentNode?.insertBefore(dom, after);
+      }
+      text = after;
     }
   }
 }

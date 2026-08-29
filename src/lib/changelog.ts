@@ -633,7 +633,7 @@ export const CHANGELOG: ChangelogRelease[] = [
     title: "A board that knows what's next",
     items: [
       {
-        text: "The Tasks board knows what's next: a Now/Later split so today's list stays short, check-off straight from the board, and snooze to push a task out of sight until it matters.",
+        text: "The Tasks board knows what's next: check-off straight from the board, and snooze to push a task out of sight until it matters.",
         kind: "new",
         headline: true,
       },

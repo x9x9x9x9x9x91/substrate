@@ -439,7 +439,7 @@ test("the ContextMenu key reaches the row menu without a pointer", async (t) => 
   );
 });
 
-test("a task already picked says so and the menu entry stays inert", async (t) => {
+test("a task already picked offers the unpick, and it clears the pick", async (t) => {
   const before = await vaultNotes();
   const committed = before.find((n) => n.path === DONE_PATH);
   assert.ok(committed, "the committed fixture is in the vault");
@@ -453,17 +453,22 @@ test("a task already picked says so and the menu entry stays inert", async (t) =
     row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
   });
 
-  const pick = [...document.querySelectorAll(".ctx-item")][0];
-  assert.match(pick?.textContent ?? "", /Pick for today/);
-  assert.ok(pick?.classList.contains("disabled"), "the verb is spent, and looks it");
-  assert.match(pick?.querySelector(".ctx-hint")?.textContent ?? "", /picked/);
+  // one mark means one toggle: a picked row's menu leads with the undo of the
+  // verb, live — not a spent "Pick for today" sitting there disabled
+  const unpick = [...document.querySelectorAll(".ctx-item")][0];
+  assert.match(unpick?.textContent ?? "", /Unpick from today/);
+  assert.ok(!unpick?.classList.contains("disabled"), "the undo is a live verb");
 
   await act(async () => {
-    pick?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    unpick?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
   });
   await r.settle();
 
   const after = await vaultNotes();
-  assert.equal(after.find((n) => n.path === DONE_PATH)?.props[TODAY_PROP], todayIso());
-  assert.equal(after.length, before.length, "and the dead click wrote nothing");
+  assert.equal(
+    after.find((n) => n.path === DONE_PATH)?.props[TODAY_PROP],
+    undefined,
+    "the unpick cleared the day's mark"
+  );
+  assert.equal(after.length, before.length, "and wrote nothing else");
 });

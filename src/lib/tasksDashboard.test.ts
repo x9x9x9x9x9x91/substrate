@@ -8,7 +8,6 @@ import {
   taskAgeDays,
   taskDueBucket,
   taskDueDays,
-  taskIsNow,
   taskIsSnoozed,
   taskPriorityWeight,
   tasksDashboardConfig,
@@ -66,7 +65,7 @@ test("reads task note properties case-insensitively", () => {
         Area: "Studio",
       }),
       note("done", { Type: "task", Status: "done" }),
-      note("pinned", { type: "task", Now: true }),
+      note("pinned", { type: "task", Today: "2026-08-01" }),
       note("parked", { type: "task", Snoozed_Until: "2026-09-01" }),
     ],
     {},
@@ -90,7 +89,7 @@ test("reads task note properties case-insensitively", () => {
       due: "2026-08-01",
     }
   );
-  assert.deepEqual(sectionNamed(model, "Now")?.rows.map((row) => row.title), ["pinned"]);
+  assert.deepEqual(sectionNamed(model, "Today")?.rows.map((row) => row.title), ["pinned"]);
   assert.deepEqual(model.snoozedRows.map((row) => row.title), ["parked"]);
   assert.equal(model.total, 2);
 });
@@ -272,31 +271,48 @@ test("an unreadable stale value ages normally (SUB-1125)", () => {
   }
 });
 
-test("now accepts YAML true and the string form, nothing else (SUB-786)", () => {
-  assert.equal(taskIsNow(true), true);
-  assert.equal(taskIsNow(" TRUE "), true);
-  assert.equal(taskIsNow("false"), false);
-  assert.equal(taskIsNow(false), false);
-  assert.equal(taskIsNow("yes"), false);
-  assert.equal(taskIsNow(undefined), false);
-});
-
-test("now rows pin to a cross-area focus section, carry no findings, and leave groups (SUB-786)", () => {
+test("the section reads the pick, not the retired `now` prop (SUB-1692)", () => {
   const model = buildTasksDashboard(
     [
-      note("pinned old", { type: "task", area: "Studio", now: true, created: "2026-05-01" }),
-      note("pinned undated", { type: "task", area: "Label", now: "true" }),
+      note("picked", { type: "task", area: "Studio", today: "2026-08-01" }),
+      note("picked with a time", { type: "task", area: "Studio", today: "2026-08-01 09:30" }),
+      note("picked yesterday", { type: "task", area: "Studio", today: "2026-07-31" }),
+      note("picked tomorrow", { type: "task", area: "Studio", today: "2026-08-02" }),
+      note("old pin", { type: "task", area: "Studio", now: true }),
+      note("garbled pick", { type: "task", area: "Studio", today: "someday" }),
+    ],
+    {},
+    NOW
+  );
+  assert.deepEqual(
+    sectionNamed(model, "Today")?.rows.map((row) => row.title),
+    ["picked", "picked with a time"]
+  );
+  // a `now: true` left over from the two-mark era is inert, and a pick for any
+  // other day is not this day's pick — both stay in their area group
+  assert.deepEqual(
+    areaSections(model)[0]?.rows.map((row) => row.title),
+    ["garbled pick", "old pin", "picked tomorrow", "picked yesterday"]
+  );
+  assert.equal(model.pickedCount, 2);
+});
+
+test("picked rows sit in a cross-area section, carry no findings, and leave groups (SUB-786)", () => {
+  const model = buildTasksDashboard(
+    [
+      note("picked old", { type: "task", area: "Studio", today: "2026-08-01", created: "2026-05-01" }),
+      note("picked undated", { type: "task", area: "Label", today: "2026-08-01" }),
       note("later stale", { type: "task", area: "Studio", created: "2026-05-01" }),
       note("later fresh", { type: "task", area: "Studio", created: "2026-07-30" }),
     ],
     {},
     NOW
   );
-  // stale + undated rows pinned to Now raise nothing; the one Later stale row does
-  const now = sectionNamed(model, "Now");
-  assert.deepEqual(now?.rows.map((row) => row.title), ["pinned old", "pinned undated"]);
-  assert.deepEqual(now?.rows.map((row) => row.finding), [null, null]);
-  assert.equal(model.nowCount, 2);
+  // stale + undated rows picked for today raise nothing; the one Later stale row does
+  const picked = sectionNamed(model, "Today");
+  assert.deepEqual(picked?.rows.map((row) => row.title), ["picked old", "picked undated"]);
+  assert.deepEqual(picked?.rows.map((row) => row.finding), [null, null]);
+  assert.equal(model.pickedCount, 2);
   // the one Later stale row is the only finding on the board
   assert.deepEqual(
     model.sections.flatMap((s) => s.rows).filter((row) => row.finding !== null).map((row) => row.title),
@@ -370,12 +386,12 @@ test("due days count local calendar days and bucket around today (SUB-870)", () 
   assert.equal(taskDueBucket(null), null);
 });
 
-test("the spine is Overdue, Due today, Now, then areas — empty sections are omitted (SUB-870)", () => {
+test("the spine is Overdue, Due today, Today, then areas — empty sections are omitted (SUB-870)", () => {
   const model = buildTasksDashboard(
     [
       note("late", { type: "task", area: "Label", due: "2026-07-20", created: "2026-07-01" }),
       note("today", { type: "task", area: "Studio", due: "2026-08-01", created: "2026-07-01" }),
-      note("pinned", { type: "task", area: "Studio", now: true, created: "2026-07-01" }),
+      note("pinned", { type: "task", area: "Studio", today: "2026-08-01", created: "2026-07-01" }),
       note("someday", { type: "task", area: "Admin", due: "2026-09-09", created: "2026-07-01" }),
       note("no date", { type: "task", area: "Admin", created: "2026-07-01" }),
     ],
@@ -387,14 +403,14 @@ test("the spine is Overdue, Due today, Now, then areas — empty sections are om
     [
       ["overdue", "Overdue"],
       ["today", "Due today"],
-      ["now", "Now"],
+      ["picked", "Today"],
       ["area", "Admin"],
     ]
   );
   assert.equal(model.overdue, 1);
   assert.equal(model.dueToday, 1);
-  assert.equal(model.nowCount, 1);
-  // Studio's only rows went to Due today and Now, so the group disappears
+  assert.equal(model.pickedCount, 1);
+  // Studio's only rows went to Due today and Today, so the group disappears
   assert.deepEqual(areaSections(model).map((s) => s.label), ["Admin"]);
   assert.deepEqual(sectionNamed(model, "Admin")?.rows.map((r) => r.title), ["someday", "no date"]);
 
@@ -402,26 +418,26 @@ test("the spine is Overdue, Due today, Now, then areas — empty sections are om
   assert.deepEqual(empty.sections.map((s) => s.kind), ["area"]);
 });
 
-test("urgency outranks the Now pin: a late pinned task shows under Overdue (SUB-870)", () => {
+test("urgency outranks the pick: a late picked task shows under Overdue (SUB-870)", () => {
   const model = buildTasksDashboard(
     [
-      note("pinned late", { type: "task", area: "Studio", now: true, due: "2026-07-25" }),
-      note("pinned due today", { type: "task", area: "Studio", now: true, due: "2026-08-01" }),
-      note("pinned undated", { type: "task", area: "Studio", now: true }),
+      note("pinned late", { type: "task", area: "Studio", today: "2026-08-01", due: "2026-07-25" }),
+      note("pinned due today", { type: "task", area: "Studio", today: "2026-08-01", due: "2026-08-01" }),
+      note("pinned undated", { type: "task", area: "Studio", today: "2026-08-01" }),
     ],
     {},
     NOW
   );
   assert.deepEqual(sectionNamed(model, "Overdue")?.rows.map((r) => r.title), ["pinned late"]);
   assert.deepEqual(sectionNamed(model, "Due today")?.rows.map((r) => r.title), ["pinned due today"]);
-  assert.deepEqual(sectionNamed(model, "Now")?.rows.map((r) => r.title), ["pinned undated"]);
-  assert.equal(model.nowCount, 1);
+  assert.deepEqual(sectionNamed(model, "Today")?.rows.map((r) => r.title), ["pinned undated"]);
+  assert.equal(model.pickedCount, 1);
   // a row never appears twice, and never falls out of the board
   assert.equal(model.total, 3);
   assert.equal(model.sections.reduce((n, s) => n + s.rows.length, 0), 3);
 });
 
-test("ranking inside a section is due bucket → priority → age, with rot only a tiebreaker (SUB-870)", () => {
+test("ranking inside a section is due bucket → priority → date → age, with rot only a tiebreaker (SUB-870)", () => {
   const input = [
     // same area, no due dates: priority now leads where age×priority used to
     note("Old low", { type: "task", area: "A", priority: "low", created: "2026-01-01" }),
@@ -439,7 +455,8 @@ test("ranking inside a section is due bucket → priority → age, with rot only
   );
   assert.deepEqual(input, before, "input notes and props are not mutated");
 
-  // inside one due bucket, ties fall through priority → age → title
+  // inside one due bucket, ties fall through priority → exact date → age →
+  // title (the two highs share both, so the title tail decides them)
   const overdue = buildTasksDashboard(
     [
       note("later day medium", { type: "task", area: "A", priority: "medium", due: "2026-07-31" }),
@@ -454,6 +471,25 @@ test("ranking inside a section is due bucket → priority → age, with rot only
     sectionNamed(overdue, "Overdue")?.rows.map((row) => row.title),
     ["alpha high", "zulu high", "later day medium", "earlier day low"]
   );
+});
+
+test("inside one bucket and priority, the sooner date outranks the older row", () => {
+  // both upcoming, both high: the board used to fall through to age here, so
+  // a card due 9 Aug could sit above one due 3 Aug — dates in a column must
+  // read in order once bucket and priority agree
+  const model = buildTasksDashboard(
+    [
+      note("later old", { type: "task", area: "A", priority: "high", due: "2026-08-09", created: "2026-06-01" }),
+      note("sooner young", { type: "task", area: "A", priority: "high", due: "2026-08-03", created: "2026-07-30" }),
+      // priority still outranks the date: a low row due sooner stays below
+      note("low soonest", { type: "task", area: "A", priority: "low", due: "2026-08-02", created: "2026-06-01" }),
+    ],
+    {},
+    NOW
+  );
+  const order = ["sooner young", "later old", "low soonest"];
+  assert.deepEqual(areaSections(model)[0]?.rows.map((r) => r.title), order);
+  assert.deepEqual(model.columns[0]?.rows.map((r) => r.title), order);
 });
 
 test("a malformed due date leaves the row in its area group rather than hiding it (SUB-870)", () => {
@@ -613,16 +649,16 @@ test("board columns regroup every visible row by area — urgency claims nothing
   const model = buildTasksDashboard(
     [
       note("late", { type: "task", area: "Label", due: "2026-07-25", created: "2026-07-01" }),
-      note("pinned", { type: "task", area: "Studio", now: true, created: "2026-07-01" }),
+      note("pinned", { type: "task", area: "Studio", today: "2026-08-01", created: "2026-07-01" }),
       note("plain", { type: "task", area: "Label", created: "2026-07-01" }),
       note("parked", { type: "task", area: "Label", snoozed_until: "2026-09-01", created: "2026-07-01" }),
     ],
     {},
     NOW
   );
-  // the list spine pulled `late` into Overdue and `pinned` into Now…
+  // the list spine pulled `late` into Overdue and `picked` into Today…
   assert.equal(sectionNamed(model, "Overdue")?.rows.length, 1);
-  assert.equal(sectionNamed(model, "Now")?.rows.length, 1);
+  assert.equal(sectionNamed(model, "Today")?.rows.length, 1);
   // …but the columns keep them home; the snoozed row stays off both views
   assert.deepEqual(model.columns.map((c) => c.area), ["Label", "Studio"]);
   assert.deepEqual(model.columns[0]?.rows.map((r) => r.title), ["late", "plain"]);

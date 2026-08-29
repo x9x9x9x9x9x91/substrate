@@ -2679,7 +2679,17 @@ function NotePane({
               onEscape={onEscape ? () => onEscape(meta.path) : undefined}
               onToast={onToast}
               onExtractNote={extractToNote}
-              emptyHint={ghost ? "No entry — start writing" : undefined}
+              emptyHint={
+                ghost
+                  ? "No entry — start writing"
+                  : isDashboardNote
+                    ? // the "open source note" landing: an untouched board keeps
+                      // clean frontmatter, so the buffer is empty and the click
+                      // reads as "it made a blank note" unless the page says
+                      // what it is
+                      "This dashboard's source note — its configuration lives here, and an untouched dashboard keeps its defaults, so an empty page is normal."
+                    : undefined
+              }
               readOnly={readOnly}
               outlineOpen={outlineOpen}
               onOutlineAvailable={setOutlineAvailable}

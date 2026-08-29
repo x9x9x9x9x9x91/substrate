@@ -87,9 +87,9 @@
   background: var(--active);
 }
 
-/* Now is the one elevated surface on the board: the chosen list earns a card
+/* Today is the one elevated surface on the board: the chosen list earns a card
    with an accent edge, everything else stays flat hairline rows. */
-.tasks-now {
+.tasks-picked {
   padding: 12px 10px 10px;
   border: 1px solid var(--border-soft);
   border-left: 2px solid var(--accent);
@@ -97,15 +97,15 @@
   background: var(--bg-elevated);
 }
 
-.tasks-now .tasks-group-head {
+.tasks-picked .tasks-group-head {
   padding-left: 6px;
 }
 
-.tasks-now .tasks-group-name {
+.tasks-picked .tasks-group-name {
   color: var(--text-1);
 }
 
-.tasks-now .tasks-row:hover {
+.tasks-picked .tasks-row:hover {
   background: var(--hover);
 }
 
@@ -337,7 +337,7 @@
   font: var(--fw-medium) var(--fs-2) / 15px var(--font);
 }
 
-/* the pin mark: the accent hue the Now section already wears, at
+/* the pin mark: the accent hue the Today section already wears, at
    glyph weight rather than chip weight — it names a state the user chose, so
    it should read below the amber findings beside it, never above them */
 .tasks-pin {
@@ -508,9 +508,18 @@
 
 .tasks-card-top {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 2px;
   min-width: 0;
+}
+
+/* the ring rides the first title line — centered against a wrapped title it
+   floats into the middle of the text block and reads as clipping into it. The
+   offset re-centers the 22px button on the title's own line box (13px × the
+   1.5 line-height baked into --dash-sentence — a change there moves the line
+   this centers on), keeping the full 22px hit target the list rows have. */
+.tasks-card-top .tasks-check {
+  margin-top: calc((var(--fs-4) * 1.5 - 22px) / 2);
 }
 
 /* the card title may wrap to two lines — a 240px column truncating every
@@ -526,10 +535,11 @@
 /* a card carrying due + priority + a rot chip can outrun 240px, so the meta
    line is allowed to wrap rather than squash its chips. Measured on
    the board: due + priority + the two hover verbs already exceed the 240px
-   column minus this 22px indent, so the verbs take a row of their own on every
+   column minus this indent, so the verbs take a row of their own on every
    card, chip or no chip — the chips wrap among themselves above them. That
    second row is ~18px of quiet space at rest, since the verbs are invisible
-   until the card is hovered. */
+   until the card is hovered. The indent is the 22px check plus its 2px gap,
+   so the chips share the title's left edge instead of hanging 2px out. */
 .tasks-card-meta {
   display: flex;
   flex-wrap: wrap;
@@ -537,7 +547,7 @@
   gap: 4px;
   row-gap: 3px;
   min-width: 0;
-  padding-left: 22px;
+  padding-left: 24px;
 }
 
 /* the chip is a signal, not a control: tighter than the list's so it rides the

@@ -1186,7 +1186,7 @@ export const TIPS: TipEntry[] = [
     selector: ".tasks-act",
     tip: (element) => ({
       title: elementLabel(element, "Task action"),
-      body: "Pull the task into Now, push it back to later, park it until a day you choose, or wake a parked one.",
+      body: "Pick the task for today or unpick it again, park it until a day you choose, or wake a parked one.",
     }),
   },
   {

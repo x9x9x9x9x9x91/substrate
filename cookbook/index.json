@@ -180,8 +180,8 @@
       "id": "tasks",
       "title": "Working task board",
       "kind": "tasks",
-      "blurb": "Every open `type: task` note as one board, late work first: overdue, due today, the hand-picked now list, then a section per area. Inside a section the order is due bucket, then priority, then age, so rot is the tiebreaker rather than the headline. Rows check off and edit in place, done work drops off, and a snoozed task falls into its own collapsed section instead of vanishing.",
-      "adapt": "List under areas: the areas you want sections for — leave it out and every area gets one — and set stale_days: to the age at which an untouched row should start showing its rot. The tasks are ordinary notes: type: task and status:, plus any of due:, priority:, area:, now: true to pin one to the top, or snoozed_until: to put one down for a while.",
+      "blurb": "Every open `type: task` note as one board, late work first: overdue, due today, then a section per area — and a task you pick for today lifts into its own Today section ahead of the groups. Inside a section the order is due bucket, then priority, then age, so rot is the tiebreaker rather than the headline. Rows check off and edit in place, done work drops off, and a snoozed task falls into its own collapsed section instead of vanishing.",
+      "adapt": "List under areas: the areas you want sections for — leave it out and every area gets one — and set stale_days: to the age at which an untouched row should start showing its rot. The tasks are ordinary notes: type: task and status:, plus any of due:, priority:, area:, today: with a date to pick one for that day, or snoozed_until: to put one down for a while.",
       "expects": { "sheets": [], "databases": ["task"] },
       "files": [
         "Dashboards/Tasks.md",

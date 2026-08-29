@@ -208,7 +208,7 @@ Capacities, Affine).*
   dashboard composed by writing it, no code),
   food/kcal tracking (quantity grammar — "200g oats" logs itself,
   weight-curve overlay), tasks (an urgency-led board:
-  Overdue/Due today sections, quick-add, checkoff with a real undo, Now/Later,
+  Overdue/Due today sections, quick-add, checkoff with a real undo, pick for today,
   snooze round trip, a kanban view by area with drag-to-recategorize, and a
   sort switch — urgency/priority/due/age), news feed with a pluggable agent
   curator (its ↻ runs whatever `feed-curator` command you plug in — trust-gated

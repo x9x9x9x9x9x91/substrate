@@ -154,6 +154,9 @@ export const mockAssets = new Map<string, string>([
   ["blueprint-sketch.png", PIXEL_PNG],
   ["stale-screenshot.png", PIXEL_PNG],
   ["old-bounce.wav", ""],
+  // no video player anywhere in the app: a video resolves like any other
+  // file and is drawn as its named chip, in a column or out of one
+  ["clip.mp4", ""],
   ["some.pdf", MOCK_PDF],
   ["some.docx", ""],
   /* Five more documents so the browser gate can put more PDFs on one note than
@@ -785,9 +788,10 @@ export const mockNotes: MockNote[] = [
       status: "doing",
       area: "Studio",
       priority: "High",
-      // pinned to the board's Now section — hand-picked focus,
-      // so its 46-day age raises no stale finding there
-      now: true,
+      // picked for today — the board's chosen list and the Today pane's
+      // Picked lane are the one mark, so its 46-day age raises no stale
+      // finding on either
+      today: day(0),
       due: day(2),
       created: day(-46),
     },

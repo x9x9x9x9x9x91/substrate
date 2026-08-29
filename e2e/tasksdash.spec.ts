@@ -4,7 +4,7 @@ import { expect, test, type Page } from "./fixtures";
 // Label/Studio/Admin). The board leads with urgency, so the seed lands as:
 // Overdue = Chase the test pressing approvals (Label, high, −1d) then Renew
 // Bandcamp plan (Admin, low, −2d, stale at 74d); Due today = Approve SMP-030
-// artwork; Now = the `now: true` Master Vessel Songs v3 (due +2, so its pin
+// artwork; Today = the picked-for-today Master Vessel Songs v3 (due +2, so its pick
 // still holds); area groups = Studio and Admin for the two upcoming rows; and
 // Send SMP-029 promos sits in the collapsed Snoozed section. The remaining
 // dense filler tasks carry no area, so the allowlist keeps them off entirely.
@@ -25,11 +25,11 @@ test("tasks: the spine is urgency-first and the header counts what's pressing (S
 }) => {
   await openTasks(page);
 
-  await expect(page.locator(".dash-state")).toHaveText("2 overdue, 1 today, 1 now");
+  await expect(page.locator(".dash-state")).toHaveText("2 overdue, 1 due today, 1 picked");
   await expect(page.locator(".tasks-group-name")).toHaveText([
     "Overdue",
     "Due today",
-    "Now",
+    "Today",
     "Studio",
     "Admin",
     "Snoozed",
@@ -187,31 +187,31 @@ test("tasks: the priority pill edits priority inline, including on a row with no
   await expect(quote.locator(".opt-pill")).toHaveCount(0);
 });
 
-test("tasks: Now/Later verbs move a row between the focus card and its group (SUB-786)", async ({
+test("tasks: Pick/Unpick move a row between today's card and its group (SUB-786)", async ({
   page,
 }) => {
   await openTasks(page);
 
-  // pin an upcoming row: it joins Now and leaves its group
+  // pick an upcoming row: it joins Today and leaves its group
   const quote = page.locator(".tasks-row", { hasText: "Send the live-room recording quote" });
   await quote.hover();
-  await quote.locator(".tasks-act", { hasText: /^Now$/ }).click();
-  const nowGroup = page.locator(".tasks-group.tasks-now");
-  await expect(nowGroup.locator(".tasks-row")).toHaveCount(2);
+  await quote.locator(".tasks-act", { hasText: /^Pick$/ }).click();
+  const pickedGroup = page.locator(".tasks-group.tasks-picked");
+  await expect(pickedGroup.locator(".tasks-row")).toHaveCount(2);
   await expect(page.locator(".tasks-group-name", { hasText: /^Studio$/ })).toHaveCount(0);
 
-  // the pin glyph follows the pin: both Now rows carry it, the
+  // the pin glyph follows the pick: both picked rows carry it, the
   // overdue rows below carry none
-  await expect(nowGroup.locator(".tasks-row .tasks-pin")).toHaveCount(2);
+  await expect(pickedGroup.locator(".tasks-row .tasks-pin")).toHaveCount(2);
   await expect(page.locator(".tasks-overdue .tasks-row .tasks-pin")).toHaveCount(0);
 
-  // unpin the original pin: Master Vessel returns to Studio, group reappears
-  const vessel = nowGroup.locator(".tasks-row", { hasText: "Master Vessel Songs v3" });
+  // unpick the seeded one: Master Vessel returns to Studio, group reappears
+  const vessel = pickedGroup.locator(".tasks-row", { hasText: "Master Vessel Songs v3" });
   await vessel.hover();
-  await vessel.locator(".tasks-act", { hasText: /^Later$/ }).click();
-  await expect(nowGroup.locator(".tasks-row")).toHaveCount(1);
+  await vessel.locator(".tasks-act", { hasText: /^Unpick$/ }).click();
+  await expect(pickedGroup.locator(".tasks-row")).toHaveCount(1);
   await expect(page.locator(".tasks-group-name", { hasText: /^Studio$/ })).toHaveCount(1);
-  // unpinned, it drops the glyph with the pin rather than keeping a stale mark
+  // unpicked, it drops the glyph with the pick rather than keeping a stale mark
   await expect(
     page
       .locator(".tasks-group.tasks-area .tasks-row", { hasText: "Master Vessel Songs v3" })
@@ -302,8 +302,8 @@ test("tasks: the Board view groups every open row by area, urgency claiming noth
   await expect(page.locator(".tasks-cols")).toBeVisible();
   await expect(page.locator(".tasks-board")).toHaveCount(0);
 
-  // the overdue and pinned rows sit in their home columns as cards — the
-  // list's Overdue/Now sections never relocate a card on the board
+  // the overdue and picked rows sit in their home columns as cards — the
+  // list's Overdue/Today sections never relocate a card on the board
   const label = page.locator(".tasks-col", { has: page.locator(".tasks-col-name", { hasText: /^Label$/ }) });
   await expect(label.locator(".tasks-card .tasks-title")).toHaveText([
     "Chase the test pressing approvals",
@@ -315,10 +315,10 @@ test("tasks: the Board view groups every open row by area, urgency claiming noth
     "Renew the webshop shipping rates",
   ]);
 
-  // the pinned card wears the pin glyph: on the board there is no
-  // Now heading, so the mark is the only thing saying the missing stale chip
-  // is an exemption. An unpinned card carries none — including the 74-day
-  // Bandcamp row, which is chipped `stale` precisely because it isn't pinned.
+  // the picked card wears the pin glyph: on the board there is no
+  // Today heading, so the mark is the only thing saying the missing stale chip
+  // is an exemption. An unpicked card carries none — including the 74-day
+  // Bandcamp row, which is chipped `stale` precisely because it isn't picked.
   const studio = page.locator(".tasks-col", {
     has: page.locator(".tasks-col-name", { hasText: /^Studio$/ }),
   });
@@ -501,4 +501,30 @@ test("tasks: board cards carry the rot layer the list rows do (SUB-1055)", async
   // age stays in the tooltip — no third number on a 240px meta line
   await expect(bandcamp).toHaveAttribute("title", /Created 74 days ago/);
   await expect(chase).toHaveAttribute("title", /Created 3 days ago/);
+});
+
+// Evidence run only (SHOTS=1) — the two surfaces the board polish lands on:
+// the Board layout's cards (checkbox against wrapped titles, chip indent,
+// within-column date order) and the page the header's source button opens
+// (the empty buffer now carries a hint saying what the note is).
+test("shots: the board's cards and the source-note landing", async ({ page }) => {
+  test.skip(!process.env.SHOTS, "evidence run only");
+  const dir = process.env.SHOT_DIR || "/tmp/sub-shots-tasks";
+
+  await openTasks(page);
+  await page.locator(".tasks-view button", { hasText: /^Board$/ }).click();
+  await expect(page.locator(".tasks-cols")).toBeVisible();
+  await page.waitForTimeout(1200);
+  await page.screenshot({ path: `${dir}/tasks-board.png`, fullPage: true });
+
+  // the source note: seeded with a body, so empty the buffer to land on the
+  // exact page an untouched board shows — the case the hint exists for
+  await page.locator(".dash-source").click();
+  const editor = page.locator(".cm-content");
+  await expect(editor).toBeVisible();
+  await editor.click();
+  await page.keyboard.press("ControlOrMeta+a");
+  await page.keyboard.press("Backspace");
+  await page.waitForTimeout(600);
+  await page.screenshot({ path: `${dir}/tasks-source-note.png`, fullPage: true });
 });

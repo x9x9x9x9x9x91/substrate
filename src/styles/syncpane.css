@@ -78,7 +78,7 @@
 }
 /* The tasks dashboard, third layout: one grid across every section head and
    row, with the row actions inline. Urgency carries the
-   color: red overdue, amber due today, accent for the hand-picked Now; area
+   color: red overdue, amber due today, accent for today's pick; area
    groups take the quiet blue so grouping never competes with what's late. Rot
    (stale/undated) is demoted to a secondary chip. The always-visible checkbox
    is this surface's documented exception to the "visible button per row"

@@ -90,14 +90,17 @@ function rowTitle(row: TasksDashboardRow, now: Date): string {
 function stateLabel(
   overdue: number,
   dueToday: number,
-  nowCount: number,
+  pickedCount: number,
   total: number,
   filtered: number
 ): string {
   const parts: string[] = [];
   if (overdue > 0) parts.push(`${overdue} overdue`);
-  if (dueToday > 0) parts.push(`${dueToday} today`);
-  if (nowCount > 0) parts.push(`${nowCount} now`);
+  // the picked tally says "picked", not "today": the section is named Today,
+  // but two tallies both leaning on that word ("1 due today, 1 today") read
+  // as a stutter — the verb names the state without borrowing the day
+  if (dueToday > 0) parts.push(`${dueToday} due today`);
+  if (pickedCount > 0) parts.push(`${pickedCount} picked`);
   if (parts.length > 0) return parts.join(", ");
   if (total > 0) return `${total} open`;
   // An `areas:` filter that matched none of the open work is not work
@@ -132,26 +135,26 @@ const SORT_LABELS: Record<TasksSort, string> = {
 const SECTION_TINT: Record<TasksDashboardSection["kind"], string> = {
   overdue: "var(--danger)",
   today: "var(--opt-orange)",
-  now: "var(--accent)",
+  picked: "var(--accent)",
   area: "var(--opt-blue)",
 };
 
-/** The pin mark: a pinned task carries no `stale`/`undated` chip —
-    Now is the chosen list, so rot isn't a diagnostic for it
-    (tasksDashboard.ts). In the list that reads off the **Now** heading, but a
-    pinned card on the board sits in its area column with no heading to explain
+/** The pin mark: a task picked for today carries no `stale`/`undated` chip —
+    today's pick is the chosen list, so rot isn't a diagnostic for it
+    (tasksDashboard.ts). In the list that reads off the **Today** heading, but a
+    picked card on the board sits in its area column with no heading to explain
     the gap, so the absent chip looks like a missing chip rather than an
     exemption. This glyph is the anchor, and it rides the meta row in the very
     slot the finding chip would occupy — one quiet mark, always visible (a
     tooltip-only cue would be no anchor at all), never a second verb: the
-    Now/Later button next to it stays the way to change the pin. */
+    Pick/Unpick button next to it stays the way to change the pick. */
 function PinMark() {
   return (
     <span
       className="tasks-pin"
       role="img"
-      aria-label="Pinned to Now"
-      title="Pinned to Now — stale and undated chips don’t apply to a task you’ve already chosen"
+      aria-label="Picked for today"
+      title="Picked for today — stale and undated chips don’t apply to a task you’ve already chosen"
     >
       <PinIcon />
     </span>
@@ -401,8 +404,16 @@ export default function TasksDashboard({
       .finally(() => setCompleting((paths) => paths.filter((p) => p !== row.path)));
   };
 
-  const setNow = (row: TasksDashboardRow, on: boolean) =>
-    write(row.path, "now", on ? true : null, `${on ? "Now" : "Later"} — ${row.title}`);
+  /** Pick for today, and its undo-shaped opposite. One mark: the board's
+      chosen list and the Today pane's Picked lane are the same `today` prop,
+      so a row lifted here appears there and expires with the day. */
+  const setPicked = (row: { path: string; title: string }, on: boolean) =>
+    write(
+      row.path,
+      TODAY_PROP,
+      on ? todayIso() : null,
+      `${on ? "Picked for today" : "Unpicked"} — ${row.title}`
+    );
 
   /** A board drop re-areas the card through the same undoable path (the
       DatabasePane board convention: name the target on the toast, offer
@@ -442,14 +453,6 @@ export default function TasksDashboard({
       onSelect: () => moveToArea(row, col.area),
     }));
 
-  /** Pick for today: the Today pane's one verb, reachable from the board a
-      task is actually triaged on. It writes the very prop that pane writes,
-      so a row picked here lands in its Picked lane with everything else —
-      no second notion of "today" and no copy of the task. A row already
-      picked says so and stays inert rather than writing the same day twice. */
-  const pickForToday = (row: { path: string; title: string }) =>
-    write(row.path, TODAY_PROP, todayIso(), `Picked for today — ${row.title}`);
-
   /** The row menu, one shape in both views. Pick leads — it is the verb a
       reader comes to the board for — and the board's own area moves follow it
       behind a hairline. The areas are the model's, not the kanban's: they are
@@ -459,10 +462,8 @@ export default function TasksDashboard({
     const picked = notes.some((n) => n.path === row.path && isPickedToday(n, todayIso()));
     return [
       {
-        label: "Pick for today",
-        disabled: picked,
-        hint: picked ? "picked" : undefined,
-        onSelect: () => pickForToday(row),
+        label: picked ? "Unpick from today" : "Pick for today",
+        onSelect: () => setPicked(row, !picked),
       },
       ...moveItems(row).map((it, i) => (i === 0 ? { ...it, separatorAbove: true } : it)),
     ];
@@ -670,7 +671,7 @@ export default function TasksDashboard({
                   "＋ priority"
                 )}
               </button>
-              {row.now && <PinMark />}
+              {row.picked && <PinMark />}
               {row.finding && (
                 <span className="tasks-finding">
                   {row.finding === "stale" ? "stale" : "undated"}
@@ -686,8 +687,8 @@ export default function TasksDashboard({
             </button>
           ) : (
             <>
-              <button type="button" className="tasks-act" onClick={() => setNow(row, !row.now)}>
-                {row.now ? "Later" : "Now"}
+              <button type="button" className="tasks-act" onClick={() => setPicked(row, !row.picked)}>
+                {row.picked ? "Unpick" : "Pick"}
               </button>
               <button
                 type="button"
@@ -828,13 +829,13 @@ export default function TasksDashboard({
           >
             {row.priority ? <OptionPill color={tint}>{row.priority}</OptionPill> : "＋ priority"}
           </button>
-          {row.now && <PinMark />}
+          {row.picked && <PinMark />}
           {row.finding && (
             <span className="tasks-finding">{row.finding === "stale" ? "stale" : "undated"}</span>
           )}
           <span className="tasks-card-acts">
-            <button type="button" className="tasks-act" onClick={() => setNow(row, !row.now)}>
-              {row.now ? "Later" : "Now"}
+            <button type="button" className="tasks-act" onClick={() => setPicked(row, !row.picked)}>
+              {row.picked ? "Unpick" : "Pick"}
             </button>
             <button
               type="button"
@@ -878,7 +879,7 @@ export default function TasksDashboard({
             label: stateLabel(
               model.overdue,
               model.dueToday,
-              model.nowCount,
+              model.pickedCount,
               model.total,
               model.filtered
             ),

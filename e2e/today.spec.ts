@@ -86,10 +86,12 @@ test("the three lanes render from fixtures, leftovers on top", async ({ page }) 
   await expect(stale.locator(".cal-dot")).toHaveCount(0);
   await expect(stale.locator(".today-row-day")).not.toHaveClass(/overdue/);
 
-  // Picked: empty until the user decides — the quiet state, not a dashboard
+  // Picked: the seed's one pick, and nothing else — the day's committed lane
+  // is what a person put there. It is the same mark the Tasks board reads for
+  // its own Today section, so the fixture is picked in exactly one place.
   const picked = lane(page, "Picked for today");
-  await expect(picked.locator(".today-quiet")).toHaveText("Nothing picked yet.");
-  await expect(picked.locator(".today-row")).toHaveCount(0);
+  await expect(picked.locator(".today-row")).toHaveCount(1);
+  await expect(picked.locator(".today-row", { hasText: "Master Vessel Songs v3" })).toBeVisible();
 });
 
 test("picking moves the row to Picked and writes the today prop", async ({ page }) => {
@@ -118,7 +120,7 @@ test("unpick clears the prop and sends the row back", async ({ page }) => {
   await expect(row).toBeVisible();
 
   await row.locator(".today-act", { hasText: "Unpick" }).click();
-  await expect(picked.locator(".today-quiet")).toHaveText("Nothing picked yet.");
+  await expect(row).toHaveCount(0);
   await expect(due.locator(".today-row", { hasText: "Approve SMP-030 artwork" })).toBeVisible();
 
   // the prop is gone from the note
@@ -142,9 +144,9 @@ test("leftover Clear drops the stale pick", async ({ page }) => {
   await stale.locator(".today-act", { hasText: "Clear" }).click();
 
   await expect(lane(page, "Leftovers")).toHaveCount(0);
-  await expect(lane(page, "Picked for today").locator(".today-quiet")).toHaveText(
-    "Nothing picked yet."
-  );
+  await expect(
+    lane(page, "Picked for today").locator(".today-row", { hasText: "Resequence the live set" })
+  ).toHaveCount(0);
   // the prop is gone — the note no longer carries any today chip
   await page.keyboard.press("Meta+k");
   await page.locator(".palette-input").fill("Resequence");
@@ -201,9 +203,9 @@ test("a dateless note reaches Today by palette, and the ⋯ menu takes it off (S
   await expect(chip(page, "today")).toHaveCount(0);
 
   await page.keyboard.press("Meta+1");
-  await expect(lane(page, "Picked for today").locator(".today-quiet")).toHaveText(
-    "Nothing picked yet."
-  );
+  await expect(
+    lane(page, "Picked for today").locator(".today-row", { hasText: "Capture anything" })
+  ).toHaveCount(0);
 });
 
 test("the pane's rows are one keyboard list across the lanes (SUB-1162)", async ({ page }) => {
@@ -253,7 +255,7 @@ test("the pane's rows are one keyboard list across the lanes (SUB-1162)", async 
   await pickedRow.hover();
   await expect(pickedRow).toHaveClass(/selected/);
   await page.keyboard.press("Backspace");
-  await expect(picked.locator(".today-quiet")).toHaveText("Nothing picked yet.");
+  await expect(pickedRow).toHaveCount(0);
   // Backspace stayed the pane's key — it did not also walk the view history
   await expect(page.locator(".today-pane")).toBeVisible();
 
@@ -332,17 +334,26 @@ test("finishing a due-today task moves it to Done, out of the decision lane", as
   await dueRows.last().hover();
   await expect(dueRows.last()).toHaveClass(/selected/);
   await page.keyboard.press("ArrowDown");
-  await expect(row, "Done follows Due & overdue with nothing picked between").toHaveClass(
+  const seededPick = lane(page, "Picked for today").locator(".today-row", {
+    hasText: "Master Vessel Songs v3",
+  });
+  await expect(seededPick, "Picked follows Due & overdue in the one flat list").toHaveClass(
     /selected/
   );
+  await page.keyboard.press("ArrowDown");
+  await expect(row, "Done follows Picked for today in render order").toHaveClass(/selected/);
 
   // the pick key finds nothing to do here — the missing button is the whole
   // truth about the row, and the key is still swallowed rather than scrolling
   await page.keyboard.press("p");
   await expect(row).toBeVisible();
-  await expect(lane(page, "Picked for today").locator(".today-quiet")).toHaveText(
-    "Nothing picked yet."
-  );
+  await expect(
+    lane(page, "Picked for today").locator(".today-row"),
+    "the done row did not join the seeded pick"
+  ).toHaveCount(1);
+  await expect(
+    lane(page, "Picked for today").locator(".today-row", { hasText: "Approve SMP-030 artwork" })
+  ).toHaveCount(0);
   await expect(row, "the selection did not move either").toHaveClass(/selected/);
 
   // Enter opens its note — the only thing a done row does
@@ -382,7 +393,7 @@ test("entry points: sidebar row and palette command reach the surface", async ({
 
 test("the capture line creates a note already picked for today", async ({ page }) => {
   const picked = lane(page, "Picked for today");
-  await expect(picked.locator(".today-quiet")).toHaveText("Nothing picked yet.");
+  const before = await picked.locator(".today-row").count();
 
   const line = page.locator(".today-add-input");
   await line.fill("Bounce the dub stems");
@@ -392,6 +403,7 @@ test("the capture line creates a note already picked for today", async ({ page }
   // hunting for the note that did not exist a moment ago
   const row = picked.locator(".today-row", { hasText: "Bounce the dub stems" });
   await expect(row).toBeVisible();
+  await expect(picked.locator(".today-row")).toHaveCount(before + 1);
   // the line empties itself for the next thought
   await expect(line).toHaveValue("");
 
@@ -423,11 +435,12 @@ test("focus makes one picked note the day's headline, on top", async ({ page }) 
   const picked = lane(page, "Picked for today");
   // pick two, then crown the second: it has to jump the first
   const scheduled = lane(page, "Scheduled").locator(".today-row");
+  const seeded = await picked.locator(".today-row").count();
   await scheduled.first().locator(".today-act").click();
-  await expect(picked.locator(".today-row")).toHaveCount(1);
+  await expect(picked.locator(".today-row")).toHaveCount(seeded + 1);
   await scheduled.first().locator(".today-act").click();
   const rows = picked.locator(".today-row");
-  await expect(rows).toHaveCount(2);
+  await expect(rows).toHaveCount(seeded + 2);
   const second = rows.nth(1);
   const title = await second.locator(".today-row-title").innerText();
   await second.locator(".today-act", { hasText: "Focus" }).click();

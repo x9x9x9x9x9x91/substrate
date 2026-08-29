@@ -221,7 +221,7 @@ type: release
 | `index`, `scanned` | music-work dashboard config: work-index sheet name, and the scanner's own last-run stamp, rendered verbatim (§5.2) |
 | `areas`, `stale_days` | tasks dashboard area allowlist and stale-age threshold (§5.2) |
 | `view`, `sort` | tasks dashboard layout (`list`/`board`) and ordering (`urgency`/`priority`/`due`/`age`) (§5.2) |
-| `now`, `snoozed_until` | tasks board: pinned to the focus section / parked until a wake day, both board-scoped (§5.2) |
+| `today`, `snoozed_until` | picked for a day — the Today pane's pick and the tasks board's Today section are the one mark — / parked until a wake day (§5.2) |
 | `stale` | tasks board: `never` exempts one task from age chips for good (§5.2) |
 | `captured`, `duration`, `transcribed` | voice notes: recording start (full ISO datetime, text), length in seconds, and the datetime the transcript landed — absent means pending, `unavailable`/`failed` are the two non-datetime answers (§5.11) |
 | `handles` | the addresses a person answers to — the appearances rail on a person page matches them across the vault (§5.13) |
@@ -942,10 +942,19 @@ Right body with a [[Static Bouquet]] link.
   - a **task box** is a real toggle: clicking it flips the `[ ]` on its own
     source line, exactly as it does outside a region, and the layout stays put;
   - an **audio, PDF or file embed** in body text, a list item or a heading is
-    the app's own player or chip — audio in its inline, seek-only form (an
-    `annotations` fence does not bind to a player inside a region); images
-    render as they always did;
-  - a ` ```view ` fence draws the live table, and its cells edit in place;
+    the app's own player or chip — including a video, which has no player
+    anywhere in the app and is the named chip inside a region exactly as it is
+    outside one; images render as they always did;
+  - an **`annotations` fence** under a standalone audio embed binds to that
+    player, the way it does outside a region: the timestamps are markers on
+    the waveform, the notes are listed under it, and a note written from in
+    there is appended to that embed's own fence;
+  - emphasis **carries across an embed** — `**a ![[take.wav]] b**` is bold
+    prose with a player in it, not literal asterisks;
+  - a ` ```view ` fence draws the live table, and its cells edit in place —
+    in every spelling of a fence markdown has (tildes, a run longer than
+    three, up to three spaces of indent), the same set the editor recognizes
+    outside a region;
   - a **callout** (`> [!note]`, §5.3a) renders as a callout — kind glyph,
     quiet frame, the author's `|accent` honored;
   - clicks on any of these belong to the control; clicking the prose around
@@ -959,8 +968,7 @@ Right body with a [[Static Bouquet]] link.
     dashboard's own source, where the line would be noise);
   - **quote interiors** — a task inside a quote or a callout body is still a
     printed mark, and a file embed there (or in a table cell) is still a
-    named placeholder;
-  - a **video embed** is still a named placeholder.
+    named placeholder.
 
   Put the caret in the region and all of it is the plain markdown that was
   always on disk — that rule is unchanged.
@@ -1262,8 +1270,8 @@ bundle is absent — the card names the value it could not find a renderer for.
 task notes, led by due dates. Row clicks open the source note; the board also
 authors and writes task state through the standard paths (`vault_create` for
 the composer, `vault_set_prop` — undoable — for the rest): checkoff sets
-`status` to the task type's own done-like option, the Now/Later verb
-sets/removes `now`, the snooze menu sets `snoozed_until` and Wake clears it.
+`status` to the task type's own done-like option, the Pick/Unpick verb
+sets/clears `today`, the snooze menu sets `snoozed_until` and Wake clears it.
 Its dashboard note holds only optional config:
 
 ```yaml
@@ -1285,12 +1293,12 @@ sort: due              # `priority` | `due` | `age`; default (or `urgency`) = ur
   means none. Without an allowlist groups sort by name with missing `area`
   under `Unassigned` last.
 - **Sections**: the board's spine is **Overdue**, **Due today**,
-  **Now**, then the area groups, and an empty section is omitted rather than
+  **Today**, then the area groups, and an empty section is omitted rather than
   rendered blank. `due` is a strict `YYYY-MM-DD`, optionally with a trailing
   ` HH:MM` that buckets by its day; it places a row in Overdue
-  (before today) or Due today, wherever its area is. Urgency outranks the pin:
-  a `now: true` task that is overdue or due today shows in that section, not
-  in Now. Everything else — upcoming and undated alike — stays in its area
+  (before today) or Due today, wherever its area is. Urgency outranks the pick:
+  a task picked for today that is overdue or due today shows in that section,
+  not in Today. Everything else — upcoming and undated alike — stays in its area
   group. A missing or malformed `due` is simply no due date: never a finding,
   never a reason to move or hide the row.
 - **Ranking (sort switch)**: the default order within every
@@ -1314,10 +1322,10 @@ sort: due              # `priority` | `due` | `age`; default (or `urgency`) = ur
   (the default `list` clears the prop). Columns follow the area allowlist's
   order — every listed area keeps a column even when empty, as a drop
   target — or, without an allowlist, populated areas alphabetically with
-  `Unassigned` last. Urgency never relocates a card: the Overdue/Today/Now
-  sections are a list-view reading, and on the board each card stays in its
-  area column with due/priority chips carrying the urgency signal. Cards keep
-  the row's verbs (checkoff, due/priority edit, Now, Snooze); dragging a card
+  `Unassigned` last. Urgency never relocates a card: the Overdue/Due today/
+  Today sections are a list-view reading, and on the board each card stays in
+  its area column with due/priority chips carrying the urgency signal. Cards
+  keep the row's verbs (checkoff, due/priority edit, Pick, Snooze); dragging a card
   to another column rewrites its `area` through the same undoable path, and
   dropping on `Unassigned` clears the prop. The snoozed section, composer,
   and header tallies are view-independent.
@@ -1339,11 +1347,12 @@ sort: due              # `priority` | `due` | `age`; default (or `urgency`) = ur
   Suppression covers the whole age family — `stale` and `undated` both, and the
   `stale` flag on the row model with them — since opting out of age wants
   neither.
-- **Now**: a task with `now: true` (YAML boolean, or the string
-  `"true"` after trim/case folding) pins to a cross-area "Now" section, the
-  hand-picked focus list, while nothing is due on it. Pinned rows never carry
-  `stale`/`undated` findings: Now is chosen work, not rot. Unpinning removes
-  the key. There is deliberately no cap.
+- **Today**: a task whose `today` prop is the local calendar day — the same
+  pick the Today pane writes, one mark for both surfaces — lifts to a
+  cross-area **Today** section while nothing is due on it. Picked rows never
+  carry `stale`/`undated` findings: chosen work is not rot. Unpicking removes
+  the key, and a pick simply stops matching once the day turns, where the
+  Today pane offers it back as a leftover. There is deliberately no cap.
 - **Snooze (round trip)**: a task whose `snoozed_until` is a
   strict future `YYYY-MM-DD` (local calendar) leaves the board for a collapsed
   **Snoozed** section listing each row with its wake day, soonest first;

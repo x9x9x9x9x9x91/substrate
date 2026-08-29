@@ -35,7 +35,7 @@ export const NEW_DASHBOARD_KINDS: readonly DashboardKindOption[] = [
     kind: "tasks",
     blurb: "every `type: task` note, late work first",
     title: "Tasks",
-    body: "A working board over the `type: task` notes in this vault: overdue, due today, the hand-picked `now: true` list, then a section per `area:`.\n\nOptional frontmatter: `areas:` to allow-list the sections, `stale_days:` for when age raises a row.\n",
+    body: "A working board over the `type: task` notes in this vault: overdue, due today, the tasks picked for today, then a section per `area:`.\n\nOptional frontmatter: `areas:` to allow-list the sections, `stale_days:` for when age raises a row.\n",
   },
   {
     kind: "hub",

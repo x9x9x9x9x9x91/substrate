@@ -179,3 +179,46 @@ test("CRLF is the caller's business — the scanner splits on \\n only", () => {
   const [block] = scanMdBlocks("plain\r\n", PRINT);
   assert.deepEqual(block.kind === "para" ? block.lines : null, ["plain\r"]);
 });
+
+test("every CommonMark fence spelling opens a fence, not a paragraph", () => {
+  // lezer (the editor's own grammar) recognizes all of these outside a column,
+  // so a scanner that only knew ``` made the same note render two ways
+  const tilde = scanMdBlocks("~~~view\nfrom: notes\n~~~\n", PRINT);
+  assert.deepEqual(kinds(tilde), ["fence"]);
+  assert.equal(tilde[0].kind === "fence" ? tilde[0].lang : null, "view");
+  assert.equal(tilde[0].kind === "fence" ? tilde[0].inner : null, "from: notes");
+
+  // a run longer than three is the expensive one: the short closer never
+  // fires, so the rest of the note used to read as prose after it
+  const long = scanMdBlocks("````view\nfrom: notes\n````\n\nafter\n", PRINT);
+  assert.deepEqual(kinds(long), ["fence", "para"]);
+  assert.equal(long[0].kind === "fence" ? long[0].lang : null, "view");
+
+  // a backtick opener's info string may not itself contain a backtick
+  assert.deepEqual(kinds(scanMdBlocks("``` ``a``\n", PRINT)), ["para"]);
+});
+
+test("an indented fence is a fence, and its body loses the opener's indent", () => {
+  const blocks = scanMdBlocks("  ```chart\n  type: bar\n  ```\n", PRINT);
+  assert.deepEqual(kinds(blocks), ["fence"]);
+  assert.equal(blocks[0].kind === "fence" ? blocks[0].lang : null, "chart");
+  // the opener's own two spaces come off every body line — CommonMark's rule,
+  // and what keeps the config parseable rather than uniformly shifted
+  assert.equal(blocks[0].kind === "fence" ? blocks[0].inner : null, "type: bar");
+  // four spaces is an indented code block, not a fence opener
+  assert.deepEqual(kinds(scanMdBlocks("    ```chart\n", PRINT)), ["para"]);
+});
+
+test("a fence under a list item ends the list and comes back as a fence", () => {
+  const blocks = scanMdBlocks("- item\n  ```chart\n  type: bar\n  ```\n", PRINT);
+  assert.deepEqual(kinds(blocks), ["list", "fence"]);
+  assert.equal(blocks[1].kind === "fence" ? blocks[1].lang : null, "chart");
+});
+
+test("a closer matches its own opener's character and length", () => {
+  // ``` inside a ~~~ block is content, and a short run never closes a long one
+  const [block] = scanMdBlocks("~~~text\n```\nstill inside\n~~~\n", PRINT);
+  assert.equal(block.kind === "fence" ? block.inner : null, "```\nstill inside");
+  const [longer] = scanMdBlocks("````text\n```\nstill inside\n````\n", PRINT);
+  assert.equal(longer.kind === "fence" ? longer.inner : null, "```\nstill inside");
+});

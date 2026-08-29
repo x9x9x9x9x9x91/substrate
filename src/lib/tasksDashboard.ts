@@ -1,4 +1,6 @@
 import { isComplete } from "./calendar.ts";
+import { daysAgoIso } from "./dates.ts";
+import { isPickedToday } from "./today.ts";
 import { byFoldedKey } from "./schemalookup.ts";
 import { foldedPropKey, foldedPropStr, type NoteMeta } from "./types.ts";
 
@@ -50,24 +52,24 @@ export interface TasksDashboardRow {
   stale: boolean;
   /** Secondary diagnostics, never the row's reason for being on the board. */
   finding: "stale" | "undated" | null;
-  /** Pinned to the hand-picked Now section. */
-  now: boolean;
+  /** Picked for today — the one mark, shared with the Today pane. */
+  picked: boolean;
   /** The wake day, on snoozed rows only. */
   snoozedUntil: string | null;
 }
 
-export type TaskSectionKind = "overdue" | "today" | "now" | "area";
+export type TaskSectionKind = "overdue" | "today" | "picked" | "area";
 
 export interface TasksDashboardSection {
   kind: TaskSectionKind;
-  /** "Overdue" / "Due today" / "Now", or the area's own name. */
+  /** "Overdue" / "Due today" / "Today", or the area's own name. */
   label: string;
   rows: TasksDashboardRow[];
 }
 
 /** One kanban column: an area and every visible row in it. Unlike the list's
     sections, urgency never pulls a row out of its column — the column IS the
-    category, and Overdue/Now live on as chip state inside the cards. */
+    category, and Overdue/Today live on as chip state inside the cards. */
 export interface TasksBoardColumn {
   area: string;
   rows: TasksDashboardRow[];
@@ -75,7 +77,7 @@ export interface TasksBoardColumn {
 
 export interface TasksDashboardModel {
   config: TasksDashboardConfig;
-  /** The list view's spine, in render order: Overdue, Due today, Now, then
+  /** The list view's spine, in render order: Overdue, Due today, Today, then
       the area groups. Empty sections are omitted entirely. */
   sections: TasksDashboardSection[];
   /** The board view: one column per area, in the same order the area groups
@@ -88,7 +90,7 @@ export interface TasksDashboardModel {
   total: number;
   overdue: number;
   dueToday: number;
-  nowCount: number;
+  pickedCount: number;
   /** Open tasks hidden by a future `snoozed_until` (after the area filter). */
   snoozed: number;
   /** Open tasks the `areas:` allowlist excluded. Zero without an allowlist.
@@ -225,15 +227,9 @@ export function taskDueBucket(dueDays: number | null): TaskDueBucket | null {
   return dueDays < 0 ? "overdue" : dueDays === 0 ? "today" : "upcoming";
 }
 
-/** YAML `now: true` arrives as a boolean from the engine or as the string
-    "true" through prop round-trips; both count. Anything else is off. */
-export function taskIsNow(value: unknown): boolean {
-  return value === true || clean(value)?.toLowerCase() === "true";
-}
-
 /** `stale: never` on a task note exempts it from age findings for good
     — some notes just aren't touched, and a rot chip on one is
-    noise about a decision already made, exactly like a pinned Now row. A
+    noise about a decision already made, exactly like a row picked for today. A
     boolean/string `false` reads the same way, since that is how the key gets
     typed by hand. Anything else — including a typo and including `true` — is
     ignored and the task ages normally: an unreadable value must never error,
@@ -324,15 +320,19 @@ const compareTail = (a: TasksDashboardRow, b: TasksDashboardRow): number =>
   compareText(a.title, b.title) || compareText(a.path, b.path);
 
 /** The four orderings behind the sort switch. `urgency` is the
-    default — due bucket, then priority, then age. The others promote one
-    dimension to the front and keep the remaining ones as tiebreakers, so
-    switching sorts re-ranks rather than shuffles. */
+    default — due bucket, then priority, then the exact date, then age. The
+    others promote one dimension to the front and keep the remaining ones as
+    tiebreakers, so switching sorts re-ranks rather than shuffles. The exact
+    date breaks ties before age everywhere: a bucket groups "upcoming" but the
+    dates inside it still read in order — "31 Aug" above "1 Sep" — instead of
+    whatever the age spread happens to be. */
 function rowComparator(sort: TasksSort): (a: TasksDashboardRow, b: TasksDashboardRow) => number {
   switch (sort) {
     case "priority":
       return (a, b) =>
         b.priorityWeight - a.priorityWeight ||
         bucketRank(a) - bucketRank(b) ||
+        dueRank(a) - dueRank(b) ||
         (b.ageDays ?? -1) - (a.ageDays ?? -1) ||
         compareTail(a, b);
     case "due":
@@ -346,11 +346,13 @@ function rowComparator(sort: TasksSort): (a: TasksDashboardRow, b: TasksDashboar
         (b.ageDays ?? -1) - (a.ageDays ?? -1) ||
         bucketRank(a) - bucketRank(b) ||
         b.priorityWeight - a.priorityWeight ||
+        dueRank(a) - dueRank(b) ||
         compareTail(a, b);
     case "urgency":
       return (a, b) =>
         bucketRank(a) - bucketRank(b) ||
         b.priorityWeight - a.priorityWeight ||
+        dueRank(a) - dueRank(b) ||
         (b.ageDays ?? -1) - (a.ageDays ?? -1) ||
         compareTail(a, b);
   }
@@ -374,6 +376,10 @@ export function buildTasksDashboard(
   staleChipsDefault = true
 ): TasksDashboardModel {
   const config = tasksDashboardConfig(dashboardProps, staleChipsDefault);
+  // the board's pinned section IS the Today pane's pick — one mark, read off
+  // the same `today` prop against the local calendar day this model is built
+  // for, so a pick expires at midnight here exactly as it does on the pane
+  const todayDay = daysAgoIso(0, now);
   const allowed = config.areas
     ? new Map(config.areas.map((area) => [area.toLowerCase(), area]))
     : null;
@@ -404,7 +410,7 @@ export function buildTasksDashboard(
     // so the flag never claims rot the board deliberately isn't reporting.
     const ages = config.staleChips && !taskStaleExempt(foldedProp(note.props, "stale"));
     const stale = ages && ageDays !== null && ageDays >= config.staleDays;
-    const isNow = taskIsNow(foldedProp(note.props, "now"));
+    const picked = isPickedToday(note, todayDay);
     const dueDays = taskDueDays(due, now);
     const row: TasksDashboardRow = {
       path: note.path,
@@ -418,12 +424,12 @@ export function buildTasksDashboard(
       dueDays,
       dueBucket: taskDueBucket(dueDays),
       stale,
-      // a pinned task carries no finding: Now is the chosen list, and rot
-      // chips there would just re-shame decisions already made. `undated`
+      // a picked task carries no finding: today's pick is the chosen list, and
+      // rot chips there would just re-shame decisions already made. `undated`
       // rides the same switch as `stale` — both are age diagnostics, and a
       // board (or a note) that has opted out of age wants neither.
-      finding: isNow || !ages ? null : ageDays === null ? "undated" : stale ? "stale" : null,
-      now: isNow,
+      finding: picked || !ages ? null : ageDays === null ? "undated" : stale ? "stale" : null,
+      picked,
       snoozedUntil: null,
     };
 
@@ -437,15 +443,15 @@ export function buildTasksDashboard(
 
   const compareRows = rowComparator(config.sort);
 
-  // Urgency outranks the pin: a task that is late is late whether or not the
-  // user pinned it, and the board's promise is that its top is what's due. A
-  // pinned row reaches Now only while it isn't overdue or due today.
+  // Urgency outranks the pick: a task that is late is late whether or not the
+  // user picked it, and the board's promise is that its top is what's due. A
+  // picked row reaches Today only while it isn't overdue or due today.
   const overdueRows = rows.filter((row) => row.dueBucket === "overdue").sort(compareRows);
   const todayRows = rows.filter((row) => row.dueBucket === "today").sort(compareRows);
-  const nowRows = rows
-    .filter((row) => row.now && row.dueBucket !== "overdue" && row.dueBucket !== "today")
+  const pickedRows = rows
+    .filter((row) => row.picked && row.dueBucket !== "overdue" && row.dueBucket !== "today")
     .sort(compareRows);
-  const sectioned = new Set([...overdueRows, ...todayRows, ...nowRows]);
+  const sectioned = new Set([...overdueRows, ...todayRows, ...pickedRows]);
 
   const grouped = new Map<string, TasksDashboardRow[]>();
   for (const row of rows) {
@@ -467,7 +473,8 @@ export function buildTasksDashboard(
   if (overdueRows.length > 0)
     sections.push({ kind: "overdue", label: "Overdue", rows: overdueRows });
   if (todayRows.length > 0) sections.push({ kind: "today", label: "Due today", rows: todayRows });
-  if (nowRows.length > 0) sections.push({ kind: "now", label: "Now", rows: nowRows });
+  if (pickedRows.length > 0)
+    sections.push({ kind: "picked", label: "Today", rows: pickedRows });
   for (const area of areaOrder)
     sections.push({
       kind: "area",
@@ -476,7 +483,7 @@ export function buildTasksDashboard(
     });
 
   // The kanban columns regroup EVERY visible row by area — urgency never
-  // relocates a card the way it claims a list row for Overdue/Today/Now.
+  // relocates a card the way it claims a list row for Overdue/Due today/Today.
   // With an allowlist each listed area keeps a column even when empty (it is
   // a drop target); without one only populated areas appear.
   const byArea = new Map<string, TasksDashboardRow[]>();
@@ -505,7 +512,7 @@ export function buildTasksDashboard(
     total: rows.length,
     overdue: overdueRows.length,
     dueToday: todayRows.length,
-    nowCount: nowRows.length,
+    pickedCount: pickedRows.length,
     snoozed: snoozedRows.length,
     filtered,
   };

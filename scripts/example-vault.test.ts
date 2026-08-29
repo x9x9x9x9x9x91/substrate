@@ -807,22 +807,25 @@ test("Tasks dashboard builds a board over the demo task notes (SUB-868/870)", ()
   const model = buildTasksDashboard(taskNotes, dash.props, now);
   assert.equal(model.config.staleDays, 21);
   assert.deepEqual(model.config.areas, ["Label", "Studio"]);
-  // the v3 spine, in render order: Overdue, Due today, Now, then area groups.
-  // The demo deliberately ships no due-today task — a due-today row can only be
-  // produced by a generated date, which would defeat the fixed clock — so the
-  // "today" section is absent and every other kind is present.
+  // the v3 spine, in render order: Overdue, Due today, Today, then area groups.
+  // The demo deliberately ships neither a due-today task nor a picked one —
+  // both are day-scoped, so only a generated date could produce them, which
+  // would defeat the fixed clock (and an installed pick would greet the reader
+  // as a stale leftover on the Today pane). So those sections are absent and
+  // every other kind is present; the pick's behavior is pinned in the
+  // tasksDashboard unit tests instead.
   assert.deepEqual(
     model.sections.map((s) => [s.kind, s.label]),
     [
       ["overdue", "Overdue"],
-      ["now", "Now"],
+      ["area", "Label"],
       ["area", "Studio"],
     ]
   );
   assert.equal(model.total, 4);
   assert.equal(model.overdue, 2);
   assert.equal(model.dueToday, 0);
-  assert.equal(model.nowCount, 1);
+  assert.equal(model.pickedCount, 0);
   for (const s of model.sections) assert.ok(s.rows.length > 0, `${s.label} section is empty`);
 
   const section = (kind: string) => model.sections.find((s) => s.kind === kind);
@@ -839,34 +842,22 @@ test("Tasks dashboard builds a board over the demo task notes (SUB-868/870)", ()
     ]
   );
 
-  // the hand-picked Now pin lands in its own section, out of the area groups.
-  // Its due is upcoming, not late: urgency only outranks the pin for overdue
-  // and due-today rows.
-  const nowSection = section("now");
-  assert.deepEqual(
-    nowSection?.rows.map((r) => [r.title, r.area, r.dueBucket, r.dueDays]),
-    [["Chase Night Circuit master v3", "Label", "upcoming", 13]]
-  );
+  // an upcoming, unpicked task rides its area group; the dateless note
+  // surfaces as the `undated` finding, not as age zero
   const areaSections = model.sections.filter((s) => s.kind === "area");
-  assert.ok(
-    areaSections.every((s) => s.rows.every((r) => !r.now)),
-    "a pinned task must not also sit in its area section"
-  );
-
-  // the dateless note surfaces as the `undated` finding, not as age zero, and
-  // it is the only row left in an area group
   assert.deepEqual(
     areaSections.flatMap((s) => s.rows).map((r) => [r.title, r.finding, r.ageDays]),
-    [["Archive the granular sketch stems", "undated", null]]
+    [
+      ["Chase Night Circuit master v3", null, 8],
+      ["Archive the granular sketch stems", "undated", null],
+    ]
   );
 
-  // two demo tasks are stale past the 21-day threshold; a pinned row never
-  // carries a finding even when it is old
+  // two demo tasks are stale past the 21-day threshold
   assert.deepEqual(
     model.sections.flatMap((s) => s.rows).filter((r) => r.stale).map((r) => r.title).sort(),
     ["Recalibrate the monitor room", "Slow Bloom EP repress decision"]
   );
-  assert.equal(nowSection?.rows[0]?.finding, null);
 
   // the snoozed row is counted and parked in its own collapsed list, never in
   // a section; the `done` one is excluded outright

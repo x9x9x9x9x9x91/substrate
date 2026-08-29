@@ -14,6 +14,8 @@
 //
 // Pure TS, erasable syntax only — runs in the app and under `node --test`.
 
+import { fenceCloses, fenceOpening } from "./fences.ts";
+
 /** A list item's body plus its checkbox state; `done` is null when the item
     is not a task at all (an ordinary bullet). */
 export interface MdListItem {
@@ -28,11 +30,14 @@ export interface MdListItem {
 }
 
 export type MdBlock =
-  /** A fenced block. `lang` is the info string's first word verbatim (callers
-      that match on it fold case themselves); `tail` is the rest of the info
-      string INCLUDING its leading whitespace, which is what tells a live
-      machine fence (```calendar) from a tailed opener that is only prose
-      (```calendar month). `inner` excludes both fence lines. */
+  /** A fenced block, in every spelling CommonMark calls one: three or more
+      backticks or tildes, up to three spaces of indent. `lang` is the info
+      string's first word verbatim (callers that match on it fold case
+      themselves); `tail` is the rest of the info string INCLUDING its leading
+      whitespace, which is what tells a live machine fence (```calendar) from
+      a tailed opener that is only prose (```calendar month). `inner` excludes
+      both fence lines, with the opener's indent removed from each line the
+      way CommonMark removes it. */
   | { kind: "fence"; lang: string; tail: string; inner: string }
   /** `level` is the number of `#`; the hub renders one heading style and
       ignores it, print maps it to h1..h6. */
@@ -61,8 +66,12 @@ export interface MdScanOptions {
   splitListsOnMarkerFlip: boolean;
 }
 
-const FENCE_OPEN_RE = /^```(\S*)(\s[^`]*)?$/;
-const FENCE_CLOSE_RE = /^```\s*$/;
+// the info string of an opener, split the way MdBlock's `lang`/`tail` are:
+// the first word, then the rest INCLUDING its leading whitespace. The run
+// itself and the CommonMark rules around it (tildes, indent, runs longer than
+// three, what closes what) live in `fences.ts` — one grammar, so a spelling
+// the column parser hides markers inside is a spelling this opens.
+const FENCE_INFO_RE = /^(\S*)([\s\S]*)$/;
 const HEADING_RE = /^(#{1,6})\s+(.*)$/;
 const HR_RE = /^\s*([-*_])\s*\1\s*\1[\s\-*_]*$/;
 const QUOTE_RE = /^\s*>/;
@@ -79,6 +88,16 @@ function tableRow(line: string): string[] {
     .replace(/\|$/, "")
     .split("|")
     .map((c) => c.trim());
+}
+
+/** A fence body line with the opener's own indent taken off — CommonMark's
+    rule, and the one that keeps an indented ```view fence's config parseable
+    rather than uniformly shifted. Only spaces the opener itself carried are
+    removed; deeper indentation is the author's. */
+function stripIndent(line: string, indent: number): string {
+  let cut = 0;
+  while (cut < indent && line[cut] === " ") cut++;
+  return line.slice(cut);
 }
 
 const isTableDivider = (l: string) => /^\s*\|?[\s:|-]+\|[\s:|-]*$/.test(l) && l.includes("-");
@@ -102,16 +121,18 @@ export function scanMdBlocks(md: string, opts: MdScanOptions): MdBlock[] {
   while (i < lines.length) {
     const line = lines[i];
     // the opener accepts a full info string (```rust ignore, ```js title=x) —
-    // only the closing ``` is bare, so a spaced info string must not demote
-    // the opener to prose and promote its closer to an opener
-    const fence = FENCE_OPEN_RE.exec(line);
-    if (fence) {
+    // only the closer is bare, so a spaced info string must not demote the
+    // opener to prose and promote its closer to an opener
+    const run = fenceOpening(line);
+    if (run !== null) {
       flushPara();
+      const indent = line.indexOf(run[0]);
+      const info = FENCE_INFO_RE.exec(line.slice(indent + run.length).replace(/\r$/, ""))!;
       const code: string[] = [];
       i++;
-      while (i < lines.length && !FENCE_CLOSE_RE.test(lines[i])) code.push(lines[i++]);
+      while (i < lines.length && !fenceCloses(lines[i], run)) code.push(stripIndent(lines[i++], indent));
       i++; // closing fence (or EOF)
-      out.push({ kind: "fence", lang: fence[1], tail: fence[2] ?? "", inner: code.join("\n") });
+      out.push({ kind: "fence", lang: info[1], tail: info[2], inner: code.join("\n") });
       continue;
     }
     const heading = HEADING_RE.exec(line);
