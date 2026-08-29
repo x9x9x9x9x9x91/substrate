@@ -85,7 +85,14 @@ security create-keychain -p "$(cat "$PASSWORD_FILE")" "$KEYCHAIN" \
 # A new keychain locks itself after five minutes and on sleep; the run takes
 # twenty. Bare set-keychain-settings clears both, and only works on an unlocked
 # keychain — which a freshly created one is not, from a second process.
-cat "$PASSWORD_FILE" | security unlock-keychain "$KEYCHAIN" >/dev/null 2>&1 \
+# Fed from a redirect rather than `cat ... | security`: the password still
+# arrives on stdin and still never appears in an argument list `ps` can read,
+# but there is no writer left holding a pipe. A reader that exits before the
+# writer's first write kills `cat` with SIGPIPE, and under pipefail that 141
+# becomes the status of the whole pipeline — a keychain unlocked fine and then
+# reported as a failure, intermittently and only when the machine is loaded
+# enough to lose the race.
+security unlock-keychain "$KEYCHAIN" <"$PASSWORD_FILE" >/dev/null 2>&1 \
   || fail "created $KEYCHAIN but could not unlock it."
 security set-keychain-settings "$KEYCHAIN" \
   || fail "could not clear the auto-lock timeout on $KEYCHAIN."

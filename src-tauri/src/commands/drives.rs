@@ -108,8 +108,23 @@ pub(crate) fn sync_volumes(
                 continue;
             }
         };
+        // The catalog walk is the long pole — minutes on a multi-terabyte
+        // disk — and the engine is the one mutex every window command queues
+        // behind, so a scan that held it throughout froze the window for the
+        // duration. It is three steps here: read what the walk needs under
+        // the lock, walk the disk with the lock RELEASED, take it back for
+        // the catalog write, which is vault-sized.
+        //
+        // The plan is bound in a statement of its OWN. Chained onto the walk
+        // it would read as three steps and behave as one: the guard is a
+        // temporary that lives to the end of the statement it appears in, so
+        // the walk would run with the lock still held.
+        let plan = state.0.lock().unwrap().scan_plan(&id, &vol.root);
+        let walk = plan.walk();
         let mut engine = state.0.lock().unwrap();
-        let stats = engine.scan_mount(&id, &vol.root);
+        // where this mount points now, not where it pointed when we planned:
+        // the disk can be rebound while its own walk runs
+        let stats = engine.scan_commit(walk, bindings(cfg_dir).get(&id).map(|p| p.as_path()));
         match &stats.error {
             None => jobs.extend(engine.mount_extract_jobs(&id, &vol.root)),
             Some(e) => failed.push(format!("{}: {e}", vol.label)),

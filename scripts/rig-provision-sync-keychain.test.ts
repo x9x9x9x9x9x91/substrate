@@ -22,8 +22,17 @@ import { fileURLToPath } from "node:url";
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
 const SCRIPT = join(ROOT, "scripts/rig-provision-sync-keychain.sh");
 
+/** Everything a failed run knows about itself, for the assertion that reports it. */
+function detail(r: ReturnType<typeof run>): string {
+  return [
+    `exit ${r.status}${r.signal ? ` (signal ${r.signal})` : ""}`,
+    `stdout: ${r.stdout?.trim() || "(empty)"}`,
+    `stderr: ${r.stderr?.trim() || "(empty)"}`,
+  ].join("\n");
+}
+
 /** A PATH whose `security` records its arguments and whose `uname` says Darwin. */
-function makeStubs(dir: string): { bin: string; calls: () => string[] } {
+function makeStubs(dir: string, opts: { slowCat?: boolean } = {}): { bin: string; calls: () => string[] } {
   const bin = join(dir, "bin");
   mkdirSync(bin, { recursive: true });
   const log = join(dir, "security-calls.txt");
@@ -46,6 +55,19 @@ function makeStubs(dir: string): { bin: string; calls: () => string[] } {
       `exit 0\n`,
     { mode: 0o755 },
   );
+  // A `cat` that always loses the race to the far side of a pipe. The
+  // provisioner used to feed the password to `security unlock-keychain`
+  // through one, and a reader that exits before the writer's first write
+  // kills `cat` with SIGPIPE — status 141, which pipefail hands to the whole
+  // pipeline. On a loaded rig that was an intermittent "created it but could
+  // not unlock it" against a keychain that was fine.
+  if (opts.slowCat) {
+    writeFileSync(
+      join(bin, "cat"),
+      `#!/usr/bin/env bash\nsleep 0.2\nexec /bin/cat "$@"\n`,
+      { mode: 0o755 },
+    );
+  }
   writeFileSync(
     join(bin, "uname"),
     `#!/usr/bin/env bash\n[[ "\${1:-}" == -s ]] && { echo Darwin; exit 0; }\nexec /usr/bin/uname "$@"\n`,
@@ -105,7 +127,7 @@ test("provisioning leaves the password owner-only and free of a trailing newline
   withDir((dir) => {
     const { bin } = makeStubs(dir);
     const r = run(dir, bin);
-    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.status, 0, detail(r));
     // Nothing on stderr is also how this file proves its own isolation: the
     // checkout guard's other outcome is a warning rather than a refusal, and a
     // warning here would mean the run was reading the checkout again.
@@ -122,7 +144,7 @@ test("provisioning does not touch the default keychain or the search list", () =
   withDir((dir) => {
     const { bin, calls } = makeStubs(dir);
     const r = run(dir, bin);
-    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.status, 0, detail(r));
     const made = calls();
     assert.ok(
       made.some((c) => c.startsWith("create-keychain ")),
@@ -143,7 +165,7 @@ test("provisioning clears the auto-lock timeout, which a twenty-minute run needs
   withDir((dir) => {
     const { bin, calls } = makeStubs(dir);
     const r = run(dir, bin);
-    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.status, 0, detail(r));
     assert.ok(
       calls().some((c) => c.startsWith("set-keychain-settings ")),
       "a keychain that relocks after five minutes strands the run halfway through",
@@ -157,8 +179,8 @@ test("provisioning refuses to be pointed at the login keychain", () => {
     const r = run(dir, bin, [], {
       AUTOSYNC_KEYCHAIN: join(dir, "login.keychain-db"),
     });
-    assert.notEqual(r.status, 0);
-    assert.match(r.stderr, /refusing to touch the login keychain/);
+    assert.notEqual(r.status, 0, detail(r));
+    assert.match(r.stderr, /refusing to touch the login keychain/, detail(r));
     assert.deepEqual(calls(), [], "it must not have run security(1) at all");
     assert.ok(!existsSync(join(dir, "conf/autosync-keychain-password")), "and must not have written a password");
   });
@@ -167,18 +189,18 @@ test("provisioning refuses to be pointed at the login keychain", () => {
 test("a second run leaves the existing password in place unless forced", () => {
   withDir((dir) => {
     const { bin } = makeStubs(dir);
-    const first_run = run(dir, bin);
-    assert.equal(first_run.status, 0, first_run.stderr);
+    const firstRun = run(dir, bin);
+    assert.equal(firstRun.status, 0, detail(firstRun));
     const file = join(dir, "conf/autosync-keychain-password");
     const first = readFileSync(file, "utf8");
 
     const again = run(dir, bin);
-    assert.equal(again.status, 0, again.stderr);
-    assert.match(again.stdout, /already provisioned/);
+    assert.equal(again.status, 0, detail(again));
+    assert.match(again.stdout, /already provisioned/, detail(again));
     assert.equal(readFileSync(file, "utf8"), first, "an accidental re-run must not orphan the keychain");
 
     const forced = run(dir, bin, ["--force"]);
-    assert.equal(forced.status, 0, forced.stderr);
+    assert.equal(forced.status, 0, detail(forced));
     assert.notEqual(readFileSync(file, "utf8"), first, "--force should mint a new one");
   });
 });
@@ -205,6 +227,22 @@ test("residue from an earlier run is replaced rather than read", () => {
     assert.equal(forced.status, 0, forced.stderr);
     assert.match(readFileSync(file, "utf8"), /^[A-Za-z0-9]{40}$/, "the stale password must be gone");
     assert.ok(existsSync(keychain), "and a keychain must be there for the run to unlock");
+  });
+});
+
+test("provisioning survives a password reader that is slow to reach the pipe", () => {
+  // That flake, made deterministic: with a `cat` that is always late,
+  // any pipeline carrying the password to a tool that exits first reports 141
+  // under pipefail and the run fails with a keychain that was never wrong.
+  // Feeding stdin from a redirect instead leaves nobody holding a pipe.
+  withDir((dir) => {
+    const { bin, calls } = makeStubs(dir, { slowCat: true });
+    const r = run(dir, bin);
+    assert.equal(r.status, 0, detail(r));
+    assert.ok(
+      calls().some((c) => c.startsWith("unlock-keychain ")),
+      `it should still have unlocked the keychain, saw: ${calls().join(" | ")}`,
+    );
   });
 });
 

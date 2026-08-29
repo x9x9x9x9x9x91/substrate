@@ -41,7 +41,7 @@ count, is the contract.
 | `url_capture` | `:200` | `create_reference` `vault/mod.rs:1456` | Creates `Inbox/<slug>.md`, then **asynchronously** may rename + write body (`spawn_url_enrichment`, `commands/notes.rs:122`) | 🟡 sync part inverts by trashing; the async tail lands after the undo record is taken | ❌ none |
 | `history_restore` | `:1310` | `write_raw` `vault/mod.rs:1207` | Whole file (FM included) overwritten from git, then snapshotted | ✅ the pre-restore commit id — the inverse is another restore. **No guard**: `write_raw` has no `expected` | n/a (additive by design) |
 | `mount_annotate` | `commands/mounts.rs:151` | `mount_annotate` `vault/mounts.rs:514` | Sets one prop on a mount row's sidecar, **creating** the note on first annotation | ✅ same shape as `vault_set_prop` (prior `Option<Value>`); the create case inverts by trashing | ❌ none |
-| `mount_rescan` | `commands/mounts.rs:117` | `scan_mount` `vault/mounts.rs:580` | Rewrites `.vault/mounts/<id>.json`; refreshes drifted `mount_file`/`mount_identity` on sidecars. **No note content, no file on disk** | n/a — re-derivable; re-run it | n/a |
+| `mount_rescan` | `commands/mounts.rs:117` | `scan_plans` + `commit_scans` `vault/mounts.rs:1943` | Rewrites `.vault/mounts/<id>.json`; refreshes drifted `mount_file`/`mount_identity` on sidecars. **No note content, no file on disk** | n/a — re-derivable; re-run it | n/a |
 
 ### 1.2 Property edits
 

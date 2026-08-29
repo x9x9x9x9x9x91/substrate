@@ -1720,13 +1720,29 @@ pub fn run() {
                         let state: State<AppState> = folders_handle.state();
                         let mounts = appcfg::read_config(&folders_cfg_dir).mounts;
                         let mut arrived: Vec<(String, String)> = Vec::new();
+                        // The mount walks run with the engine RELEASED, the
+                        // same three steps the shelf and the palette rescan
+                        // take: a watched folder mount hashes
+                        // every byte it finds, and every window command
+                        // queues behind this lock.
+                        let plans = match state.0.lock() {
+                            Ok(engine) => engine.scan_plans(&mounts),
+                            Err(_) => Vec::new(),
+                        };
+                        let walks: Vec<_> = plans.into_iter().map(|p| p.walk()).collect();
                         let (changed, jobs) = match state.0.lock() {
                             Ok(mut engine) => {
                                 let folders = engine
                                     .sync_folders()
                                     .iter()
                                     .any(|s| s.created + s.updated + s.missing > 0);
-                                let stats = engine.sync_mounts(&mounts);
+                                // read under this lock, the one a rebind
+                                // writes its binding under: a mount moved
+                                // during the walks has a newer catalog, and
+                                // the stale walk is refused, not written
+                                let bound =
+                                    appcfg::read_config(&folders_cfg_dir).mounts;
+                                let stats = engine.commit_scans(walks, &bound);
                                 let mounted = stats
                                     .iter()
                                     .any(|s| s.added + s.updated + s.renamed + s.missing > 0);

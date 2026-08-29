@@ -6,7 +6,7 @@
 //! command here that touches a path also touches `appcfg`, and the ones that
 //! only touch identity do not.
 
-use crate::vault::{ExtractQueue, Mount, MountRow, MountScanStats};
+use crate::vault::{ExtractQueue, Mount, MountRow, MountScanPlan, MountScanStats, MountScanWalk};
 use crate::{appcfg, blocking, AppState, OnboardingState, SnapDirty};
 use tauri::{Emitter, Manager, State};
 
@@ -15,18 +15,28 @@ use tauri::{Emitter, Manager, State};
 /// push onto a bounded deque, and everything slow happens on the queue's own
 /// threads. Files past the queue's capacity are simply not taken — the next
 /// scan offers them again.
+/// Where this machine points a mount right now. The engine holds catalogs
+/// and identities, never bindings, so a commit that has to know whether the
+/// folder moved under its walk is handed the answer from here.
+fn bound_now(cfg_dir: &std::path::Path, id: &str) -> Option<std::path::PathBuf> {
+    appcfg::read_config(cfg_dir).mounts.get(id).cloned()
+}
+
 fn queue_extraction(app: &tauri::AppHandle, jobs: Vec<crate::vault::ExtractJob>) {
     if !jobs.is_empty() {
         app.state::<ExtractQueue>().enqueue(jobs);
     }
 }
 
-fn bind_mount_on_machine(
+/// Point a mount at a folder on this machine (or at none), and hand back the
+/// scan that binding is owed — planned, not yet walked. Everything here needs
+/// the engine; the walk the caller runs next does not.
+fn plan_mount_binding(
     engine: &mut crate::vault::Engine,
     cfg_dir: &std::path::Path,
     id: &str,
     path: Option<&std::path::Path>,
-) -> Result<MountScanStats, String> {
+) -> Result<MountScanPlan, String> {
     // A refused folder must not replace a previously valid binding. Keep
     // validation ahead of the config write, exactly like `mount_add`.
     if let Some(path) = path {
@@ -34,13 +44,14 @@ fn bind_mount_on_machine(
     }
     appcfg::write_mount_binding(cfg_dir, id, path)?;
     Ok(match path {
-        Some(path) => engine.scan_mount(id, path),
+        Some(path) => engine.scan_plan(id, path),
         None => {
             // Unbinding leaves the mount and its index alone, but this
             // machine's document text describes files it can no longer open
             // and nothing will read it again.
             engine.forget_mount_text(id);
-            MountScanStats { id: id.to_string(), ..Default::default() }
+            // nothing to walk: the stats go straight back out at commit
+            MountScanPlan::settled(MountScanStats { id: id.to_string(), ..Default::default() })
         }
     })
 }
@@ -114,14 +125,27 @@ pub(crate) async fn mount_add(
         // validate the folder BEFORE anything is written: a bad path used to
         // leave a registered mount, an empty database and a binding behind,
         // with only the scan stats carrying the error
-        // Keep validation, registration and the initial scan under one engine
-        // lock. Otherwise the folder can change between validation and use,
-        // reopening the same TOCTOU window `mount_bind` closes below.
+        // Validation, registration, the binding and the scan's plan stay
+        // under ONE engine lock. Otherwise the folder can change between
+        // validation and use, reopening the same TOCTOU window `mount_bind`
+        // closes below.
         let mut engine = state.0.lock().unwrap();
         engine.check_mount_path(path.as_ref())?;
         let mount = engine.add_mount(&name, globs, watch)?;
         appcfg::write_mount_binding(&onboarding.config_dir, &mount.id, Some(path.as_ref()))?;
-        let stats = engine.scan_mount(&mount.id, path.as_ref());
+        let plan = engine.scan_plan(&mount.id, path.as_ref());
+        drop(engine);
+        // The first scan reads and hashes every byte of every file in the
+        // folder the user picked — minutes on a sample library — so it walks
+        // with the engine RELEASED and takes it back only for the catalog
+        // write.
+        let walk = plan.walk();
+        let mut engine = state.0.lock().unwrap();
+        // read back rather than reused: the user can locate this mount
+        // somewhere else while its first walk is still running, and that
+        // newer binding's catalog is the one that must survive
+        let bound = bound_now(&onboarding.config_dir, &mount.id);
+        let stats = engine.scan_commit(walk, bound.as_deref());
         let jobs = engine.mount_extract_jobs(&mount.id, path.as_ref());
         drop(engine);
         queue_extraction(&app, jobs);
@@ -145,12 +169,18 @@ pub(crate) async fn mount_bind(
         let state: State<AppState> = app.state();
         let onboarding: State<OnboardingState> = app.state();
         let mut engine = state.0.lock().unwrap();
-        let stats = bind_mount_on_machine(
+        let plan = plan_mount_binding(
             &mut engine,
             &onboarding.config_dir,
             &id,
             path.as_deref().map(std::path::Path::new),
         )?;
+        drop(engine);
+        // the relocated folder is walked off the lock, same as the first scan
+        let walk = plan.walk();
+        let mut engine = state.0.lock().unwrap();
+        let bound = bound_now(&onboarding.config_dir, &id);
+        let stats = engine.scan_commit(walk, bound.as_deref());
         let jobs = match path.as_deref() {
             Some(p) => engine.mount_extract_jobs(&id, std::path::Path::new(p)),
             None => Vec::new(),
@@ -180,9 +210,21 @@ pub(crate) async fn mount_rescan(
         if let Some(id) = &id {
             bindings.retain(|k, _| k == id);
         }
+        // Three steps rather than `sync_mounts`, for the same reason the
+        // drive shelf does it: the walks are the slow part and a
+        // folder mount hashes every byte it finds, so they run with the
+        // engine lock released and only the plan and the index writes take
+        // it.
+        let plans: Vec<MountScanPlan> = state.0.lock().unwrap().scan_plans(&bindings);
+        let walks: Vec<MountScanWalk> = plans.into_iter().map(MountScanPlan::walk).collect();
         let (stats, jobs) = {
             let mut engine = state.0.lock().unwrap();
-            let stats = engine.sync_mounts(&bindings);
+            // the bindings as they read NOW, and read under this lock, which
+            // is the one every rebind writes its own binding under: a mount
+            // relocated while these walks ran has a newer catalog, and the
+            // stale walk is refused rather than written over it
+            let bound = appcfg::read_config(&onboarding.config_dir).mounts;
+            let stats = engine.commit_scans(walks, &bound);
             let jobs = engine.extract_jobs(&bindings);
             (stats, jobs)
         };
@@ -256,13 +298,17 @@ mod tests {
         let mut engine = crate::vault::Engine::new(vault.path().to_path_buf())
             .with_local_dir(cfg.path().to_path_buf());
         let mount = engine.add_mount("Papers", Vec::new(), true).unwrap();
-        bind_mount_on_machine(&mut engine, cfg.path(), &mount.id, Some(folder.path())).unwrap();
+        let walk = plan_mount_binding(&mut engine, cfg.path(), &mount.id, Some(folder.path()))
+            .unwrap()
+            .walk();
+        engine.scan_commit(walk, Some(folder.path()));
         let store =
             cfg.path().join(crate::vault::MOUNT_TEXT_DIR).join(format!("{}.json", mount.id));
         std::fs::create_dir_all(store.parent().unwrap()).unwrap();
         std::fs::write(&store, r#"{"version":1,"files":{}}"#).unwrap();
 
-        bind_mount_on_machine(&mut engine, cfg.path(), &mount.id, None).unwrap();
+        let walk = plan_mount_binding(&mut engine, cfg.path(), &mount.id, None).unwrap().walk();
+        engine.scan_commit(walk, None);
 
         assert!(!store.exists(), "the text store outlived the binding");
         assert_eq!(engine.mounts().len(), 1, "unbinding removed the mount itself");
@@ -282,8 +328,9 @@ mod tests {
         let mount = engine.add_mount("Pool", Vec::new(), true).unwrap();
 
         appcfg::write_mount_binding(cfg.path(), &mount.id, Some(valid.path())).unwrap();
-        let err = bind_mount_on_machine(&mut engine, cfg.path(), &mount.id, Some(vault.path()))
-            .unwrap_err();
+        let err = plan_mount_binding(&mut engine, cfg.path(), &mount.id, Some(vault.path()))
+            .err()
+            .expect("the vault's own folder is not mountable");
 
         assert!(err.contains("vault"), "overlap is explained: {err}");
         assert_eq!(

@@ -275,6 +275,146 @@ pub struct MountScanStats {
     pub error: Option<String>,
 }
 
+/// A scan, planned but not yet walked: everything the walk needs, read off
+/// the engine, and nothing that needs the engine again until the write.
+///
+/// The split exists because the walk is the whole cost of a scan — minutes on
+/// a multi-terabyte disk — and the engine is a single mutex the window's own
+/// commands queue behind. Plan under the lock, [`walk`] with it released,
+/// [`Engine::scan_commit`] to take it back for the write.
+///
+/// A plan with nothing to walk — unknown mount, unmountable root, or a caller
+/// that had no scan to do at all — is not a special case for the caller. It
+/// carries the stats the scan would have returned and hands them back at
+/// commit ([`settled`]), so a caller planning several mounts at once still
+/// gets one row per mount, in order.
+///
+/// [`settled`]: Self::settled
+///
+/// [`walk`]: Self::walk
+#[must_use = "a scan that is planned and never walked and committed changes nothing"]
+pub struct MountScanPlan {
+    /// Seeded with the mount's id and name, and with `error` already set on a
+    /// plan that will never walk.
+    stats: MountScanStats,
+    /// `None` on such a plan; the walk and the commit both pass it through.
+    target: Option<ScanTarget>,
+}
+
+/// The folder a planned scan will read, as plain data — no borrow of the
+/// engine survives into the walk.
+struct ScanTarget {
+    root: PathBuf,
+    globs: Vec<String>,
+    ignore: Vec<String>,
+    /// A drive mount: cataloged rather than hashed, and capped. See the walk.
+    drive: bool,
+    cap: usize,
+}
+
+/// One file as the walk saw it on disk, before anything is matched against
+/// what the index already knew. The fields are exactly the ones a
+/// [`MountFile`] takes from the filesystem — the rest of that row comes from
+/// the prior index at commit.
+struct ScannedFile {
+    rel: String,
+    size: u64,
+    modified: String,
+    created: String,
+    identity: String,
+}
+
+/// A walked mount, ready to be written. Holds no engine and no open file —
+/// it can be carried across a lock boundary, which is the entire point.
+#[must_use = "a walked scan that is never committed changes nothing"]
+pub struct MountScanWalk {
+    stats: MountScanStats,
+    /// `None` when the plan was never walkable; commit returns its stats.
+    files: Option<Vec<ScannedFile>>,
+    /// The folder these files were read from, resolved. `None` alongside
+    /// `files`. The commit compares it against where the mount points by
+    /// then: nothing else can tell a fresh walk from one whose folder was
+    /// swapped underneath it while it ran.
+    root: Option<PathBuf>,
+}
+
+impl MountScanPlan {
+    /// A plan that is already finished: [`Engine::scan_commit`] hands these
+    /// stats straight back, having read and written nothing. Both a refusal
+    /// (`error` set) and a caller with no folder to scan — an unbind — take
+    /// this shape, so neither needs a branch of its own downstream.
+    pub fn settled(stats: MountScanStats) -> Self {
+        Self { stats, target: None }
+    }
+
+    /// Read the folder. This is the slow half of a scan and it touches
+    /// nothing shared: the caller runs it with the engine lock released.
+    ///
+    /// A file that vanishes between the walk and its `metadata` is simply not
+    /// collected — the same race an unsplit scan already had — and stays in
+    /// `scanned`, which counts what the walk found.
+    pub fn walk(self) -> MountScanWalk {
+        self.walk_watched(|| {})
+    }
+
+    /// [`walk`](Self::walk) with a hook that runs after the directory pass
+    /// and before the per-file one — with the walk, in other words, provably
+    /// in flight. A test that has to observe the rest of the world DURING a
+    /// walk rather than after it uses this; every caller in the app uses
+    /// `walk`.
+    pub(crate) fn walk_watched(self, midway: impl FnOnce()) -> MountScanWalk {
+        let Self { mut stats, target } = self;
+        let Some(target) = target else {
+            midway();
+            return MountScanWalk { stats, files: None, root: None };
+        };
+        // A drive stops COLLECTING at the cap and only counts the rest
+        // (`walk_folder_files_capped`, which also owns the stable-prefix
+        // reasoning): the disk it catalogs can be far larger than anything a
+        // hand-made folder mount points at, and this runs off a background
+        // poll. Both walks honour `mount.ignore`; on the capped one the
+        // ignored subtrees are pruned before the cap applies, so they never
+        // eat a drive's budget.
+        let paths = if target.drive {
+            let (paths, over) =
+                walk_folder_files_capped(&target.root, &target.globs, &target.ignore, target.cap);
+            stats.capped = over;
+            paths
+        } else {
+            walk_folder_files(&target.root, &target.globs, &target.ignore)
+        };
+        stats.scanned = paths.len();
+        midway();
+        let mut files: Vec<ScannedFile> = Vec::with_capacity(paths.len());
+        for path in paths {
+            let Ok(md) = fs::metadata(&path) else { continue };
+            let Ok(rel) = path.strip_prefix(&target.root) else { continue };
+            let rel = rel.to_string_lossy().replace('\\', "/");
+            let (modified, _) = file_stamp(&md);
+            // A drive is CATALOGED, not hashed. `file_identity` reads every
+            // byte of every file — right for a folder of Ableton sets someone
+            // picked, ruinous for the multi-terabyte archive the shelf
+            // catalogs the moment it is plugged in. A drive's files are
+            // identified by what the stat already said (`stat_identity`),
+            // which still follows a rename and still keys the extraction
+            // cache, at no read cost.
+            let identity = if target.drive {
+                stat_identity(&md)
+            } else {
+                file_identity(&path).unwrap_or_default()
+            };
+            files.push(ScannedFile {
+                rel,
+                size: md.len(),
+                modified,
+                created: created_stamp(&md),
+                identity,
+            });
+        }
+        MountScanWalk { stats, files: Some(files), root: Some(target.root) }
+    }
+}
+
 /// What the folders.json → mounts migration did, for the caller that owns
 /// the machine-local config write and the user-facing report.
 #[derive(Clone, Debug, Default, Serialize)]
@@ -1299,6 +1439,13 @@ impl Engine {
     /// content changed in place has a new identity and is matched by its
     /// relative path instead, refreshing the identity while keeping the row.
     /// Anything the index knew and the scan didn't find is kept as `missing`.
+    ///
+    /// One call, so a caller holding the engine lock holds it across the walk
+    /// too. No command takes this shape any more — every one of them plans,
+    /// walks and commits as three steps and keeps the lock only for the first
+    /// and the last (see [`scan_plan`](Self::scan_plan)). It stays as the
+    /// one-call seam the older scan tests drive, which is what pins the split
+    /// to the behaviour that shipped before it.
     pub fn scan_mount(&mut self, id: &str, path: &Path) -> MountScanStats {
         self.scan_mount_capped(id, path, DRIVE_FILE_CAP)
     }
@@ -1307,22 +1454,84 @@ impl Engine {
     /// the cap's own test drives, so that behaviour is exercised on six files
     /// rather than on a hundred thousand.
     pub fn scan_mount_capped(&mut self, id: &str, path: &Path, cap: usize) -> MountScanStats {
+        let walk = self.scan_plan_capped(id, path, cap).walk();
+        self.scan_commit(walk, Some(path))
+    }
+
+    /// The first third of a scan: what the walk needs to read this mount's
+    /// folder, taken off the engine so the walk itself can run without it.
+    /// See [`MountScanPlan`] for why a scan is three steps at all.
+    pub fn scan_plan(&self, id: &str, path: &Path) -> MountScanPlan {
+        self.scan_plan_capped(id, path, DRIVE_FILE_CAP)
+    }
+
+    /// [`Engine::scan_plan`] with the drive cap given explicitly.
+    pub fn scan_plan_capped(&self, id: &str, path: &Path, cap: usize) -> MountScanPlan {
         let Some(mount) = self.mount(id) else {
-            return MountScanStats {
+            return MountScanPlan::settled(MountScanStats {
                 id: id.into(),
                 error: Some(format!("no such mount: {id}")),
                 ..Default::default()
-            };
+            });
         };
-        let mut stats =
+        let stats =
             MountScanStats { id: mount.id.clone(), name: mount.name.clone(), ..Default::default() };
         let root = resolve_mount_path(path);
         if let Err(e) = self.check_mount_root(&root, path) {
-            stats.error = Some(e);
+            return MountScanPlan::settled(MountScanStats { error: Some(e), ..stats });
+        }
+        MountScanPlan {
+            stats,
+            target: Some(ScanTarget {
+                root,
+                globs: mount.globs,
+                ignore: mount.ignore,
+                drive: mount.volume.is_some(),
+                cap,
+            }),
+        }
+    }
+
+    /// The last third: match a walk against what the index knew, write the
+    /// index, and re-index. Everything here is vault-sized — the prior index,
+    /// the sidecars, the search rows — never disk-sized, which is what makes
+    /// the hold short enough to take under the engine lock.
+    ///
+    /// `bound` is where the mount points on this machine *now*, read by the
+    /// caller under this same lock — the engine holds catalogs and identities,
+    /// never machine-local bindings, so it cannot look this up itself. Both
+    /// ways a walk can go stale while it runs are refused here rather than
+    /// written: the mount forgotten (its catalog would come back), and the
+    /// mount rebound to another folder (one folder's rows would land under
+    /// another folder's binding — rows nothing can open, sidecars relinked to
+    /// identities that are not there).
+    ///
+    /// What is NOT refused, deliberately: two scans of the SAME root in
+    /// flight at once — the drive poll and a hand-driven rescan can overlap —
+    /// where the last to commit wins. The loser's rows are not lost, only
+    /// older: anything it saw and the winner did not is carried as `missing`
+    /// and re-matches as `updated` on the next scan, so the drift is bounded
+    /// and heals itself.
+    pub fn scan_commit(&mut self, walk: MountScanWalk, bound: Option<&Path>) -> MountScanStats {
+        let MountScanWalk { mut stats, files, root } = walk;
+        let Some(files) = files else { return stats };
+        let id = stats.id.clone();
+        let Some(mount) = self.mount(&id) else {
+            stats.error = Some(format!("no such mount: {id}"));
+            return stats;
+        };
+        // Read again rather than carried from the plan: a mount renamed while
+        // its own scan walked would otherwise send the old name on into the
+        // reflexes these stats feed.
+        stats.name = mount.name;
+        if bound.map(resolve_mount_path).as_deref() != root.as_deref() {
+            stats.error = Some(format!(
+                "mount {id} moved off the folder this scan walked; the older catalog was not written"
+            ));
             return stats;
         }
 
-        let prior = read_index(&self.root, id);
+        let prior = read_index(&self.root, &id);
         // Every row of an identity, not just the first: byte-identical copies
         // are ordinary in a sample library, and a rename inside such a group
         // still has to find a row that no other copy has taken.
@@ -1340,36 +1549,9 @@ impl Engine {
         // never re-read (see `rekey_mount_text`)
         let mut renames: Vec<(String, String)> = Vec::new();
 
-        // A drive is CATALOGED, not hashed. `file_identity` reads every byte
-        // of every file — right for a folder of Ableton sets someone picked,
-        // ruinous for the multi-terabyte archive the shelf catalogs the
-        // moment it is plugged in. A drive's files are identified by what the
-        // stat already said (`stat_identity`), which still follows a rename
-        // and still keys the extraction cache, at no read cost.
-        let drive = mount.volume.is_some();
-        // A drive stops COLLECTING at the cap and only counts the rest
-        // (`walk_folder_files_capped`, which also owns the stable-prefix
-        // reasoning): the disk it catalogs can be far larger than anything a
-        // hand-made folder mount points at, and this runs under the engine
-        // lock off a background poll. Both walks honour `mount.ignore`; on the
-        // capped one the ignored subtrees are pruned before the cap applies,
-        // so they never eat a drive's budget.
-        let files = if drive {
-            let (files, over) = walk_folder_files_capped(&root, &mount.globs, &mount.ignore, cap);
-            stats.capped = over;
-            files
-        } else {
-            walk_folder_files(&root, &mount.globs, &mount.ignore)
-        };
-        stats.scanned = files.len();
         let mut out: Vec<MountFile> = Vec::with_capacity(files.len());
         for file in files {
-            let Ok(md) = fs::metadata(&file) else { continue };
-            let Ok(rel) = file.strip_prefix(&root) else { continue };
-            let rel = rel.to_string_lossy().replace('\\', "/");
-            let (modified, _) = file_stamp(&md);
-            let identity =
-                if drive { stat_identity(&md) } else { file_identity(&file).unwrap_or_default() };
+            let ScannedFile { rel, size, modified, created, identity } = file;
 
             // A file's own row first, while its bytes are unchanged — otherwise
             // a byte-identical twin can take it, and this file reads as brand
@@ -1396,7 +1578,7 @@ impl Engine {
                 if was.rel != rel {
                     stats.renamed += 1;
                     renames.push((was.rel.clone(), rel.clone()));
-                } else if was.size != md.len()
+                } else if was.size != size
                     || was.modified != modified
                     || was.identity != identity
                     || was.missing
@@ -1414,9 +1596,9 @@ impl Engine {
             }
             out.push(MountFile {
                 rel,
-                size: md.len(),
+                size,
                 modified,
-                created: created_stamp(&md),
+                created,
                 identity,
                 missing: false,
                 ..carried
@@ -1449,18 +1631,18 @@ impl Engine {
             files: out,
             capped: stats.capped,
         };
-        if let Err(e) = write_index(&self.root, id, &index) {
+        if let Err(e) = write_index(&self.root, &id, &index) {
             stats.error = Some(e);
             return stats;
         }
-        if let Err(e) = self.reattach_sidecars(id, &index) {
+        if let Err(e) = self.reattach_sidecars(&id, &index) {
             stats.error = Some(e);
         }
-        self.rekey_mount_text(id, &renames);
+        self.rekey_mount_text(&id, &renames);
         // the index the search reads is this one — a file that moved, arrived
         // or went missing has to be findable (or not) under the path the board
         // now shows it at
-        self.index_mount(id);
+        self.index_mount(&id);
         stats
     }
 
@@ -1774,14 +1956,46 @@ impl Engine {
     /// Scan every mount bound on this machine. Unbound mounts are skipped
     /// entirely — their last-known index stays exactly as the machine that
     /// does have the folder left it.
+    ///
+    /// Holds the engine for the whole sweep, walks included, which is why no
+    /// caller in the app takes this shape: the poll and the palette command
+    /// both split it — [`scan_plans`](Self::scan_plans), a walk per plan, then
+    /// [`commit_scans`](Self::commit_scans) — and hold the lock only for the
+    /// two vault-sized halves. Like [`scan_mount`](Self::scan_mount) it is the
+    /// one-call seam the older sweep tests drive.
     pub fn sync_mounts(&mut self, bindings: &BTreeMap<String, PathBuf>) -> Vec<MountScanStats> {
-        let mut out = Vec::new();
-        for m in self.mounts() {
-            let Some(path) = bindings.get(&m.id) else { continue };
-            let path = path.clone();
-            out.push(self.scan_mount(&m.id, &path));
-        }
-        out
+        let walks: Vec<MountScanWalk> =
+            self.scan_plans(bindings).into_iter().map(MountScanPlan::walk).collect();
+        self.commit_scans(walks, bindings)
+    }
+
+    /// [`Engine::scan_plan`] for every mount bound on this machine, in
+    /// `mounts()` order — the planning half of [`sync_mounts`].
+    pub fn scan_plans(&self, bindings: &BTreeMap<String, PathBuf>) -> Vec<MountScanPlan> {
+        self.mounts()
+            .iter()
+            .filter_map(|m| bindings.get(&m.id).map(|path| self.scan_plan(&m.id, path)))
+            .collect()
+    }
+
+    /// [`Engine::scan_commit`] for a batch of walks, one row of stats each,
+    /// in the order they were planned. `bound` is this machine's bindings as
+    /// they read NOW, under the commit lock — a mount rebound since its plan
+    /// is refused rather than written, per [`scan_commit`].
+    ///
+    /// [`scan_commit`]: Self::scan_commit
+    pub fn commit_scans(
+        &mut self,
+        walks: Vec<MountScanWalk>,
+        bound: &BTreeMap<String, PathBuf>,
+    ) -> Vec<MountScanStats> {
+        walks
+            .into_iter()
+            .map(|w| {
+                let at = bound.get(&w.stats.id).cloned();
+                self.scan_commit(w, at.as_deref())
+            })
+            .collect()
     }
 
     /// The extraction work every mount bound on this machine is owed
@@ -2037,6 +2251,216 @@ mod tests {
         assert_eq!(e.mount_index(&m.id).files.len(), 2, "still two rows");
         let _ = fs::remove_dir_all(&dir);
         let _ = fs::remove_dir_all(&watched);
+    }
+
+    /// The three-step scan every caller runs (plan under the lock, walk off
+    /// it, commit under it) against the one-call `scan_mount`, on the first
+    /// meeting and then on the round where the matching does its work: a
+    /// rename, an edit in place, a deletion.
+    ///
+    /// `scan_mount` IS the three steps now, so both arms run the same code
+    /// and this proves no equivalence on its own — what pins the split to the
+    /// behaviour that shipped before it is the untouched older scan tests in
+    /// `vault/drives.rs` and `vault/search.rs`. It earns its place as a churn
+    /// fixture: a later round that gives the split a path of its own has a
+    /// full stats-and-rows comparison already written.
+    #[test]
+    fn a_split_scan_catalogs_a_tree_exactly_as_one_call_does() {
+        fn fixture(name: &str) -> PathBuf {
+            let dir = temp_watched(name);
+            fs::create_dir_all(dir.join("sets/old")).unwrap();
+            fs::write(dir.join("a.als"), b"one").unwrap();
+            fs::write(dir.join("b.als"), b"two").unwrap();
+            fs::write(dir.join("sets/c.als"), b"three").unwrap();
+            fs::write(dir.join("sets/old/d.als"), b"four").unwrap();
+            dir
+        }
+        // (what changed, and the rows it produced) — the whole comparison
+        fn shape(s: &MountScanStats, index: &MountIndex) -> String {
+            let rows: Vec<String> = index
+                .files
+                .iter()
+                .map(|f| format!("{}|{}|{}|{}", f.rel, f.size, f.identity, f.missing))
+                .collect();
+            format!(
+                "{} {} {} {} {} {:?} :: {}",
+                s.scanned,
+                s.added,
+                s.updated,
+                s.renamed,
+                s.missing,
+                s.added_files,
+                rows.join(",")
+            )
+        }
+        fn churn(dir: &Path) {
+            fs::rename(dir.join("a.als"), dir.join("sets/a moved.als")).unwrap();
+            fs::write(dir.join("b.als"), b"two, rewritten").unwrap();
+            fs::remove_file(dir.join("sets/old/d.als")).unwrap();
+        }
+
+        let (mut one, one_vault) = temp_vault("msplit-one");
+        let one_tree = fixture("msplit-one");
+        let m1 = one.add_mount("Album Pool", vec![], false).unwrap();
+
+        let (mut split, split_vault) = temp_vault("msplit-split");
+        let split_tree = fixture("msplit-split");
+        let m2 = split.add_mount("Album Pool", vec![], false).unwrap();
+
+        for round in 0..2 {
+            if round == 1 {
+                churn(&one_tree);
+                churn(&split_tree);
+            }
+            let a = one.scan_mount(&m1.id, &one_tree);
+            // the shape the shelf runs: nothing of the engine survives into
+            // the walk, and the walk's result is written afterwards
+            let walk = split.scan_plan(&m2.id, &split_tree).walk();
+            let b = split.scan_commit(walk, Some(&split_tree));
+            assert_eq!(
+                shape(&a, &one.mount_index(&m1.id)),
+                shape(&b, &split.mount_index(&m2.id)),
+                "round {round}: the split scan cataloged the same tree differently"
+            );
+        }
+
+        for d in [one_vault, one_tree, split_vault, split_tree] {
+            let _ = fs::remove_dir_all(&d);
+        }
+    }
+
+    /// The walk is the minutes-long half of a scan of a multi-terabyte disk,
+    /// and every window command queues behind the engine mutex. Another
+    /// thread must be able to take the engine WHILE a scan is walking — not
+    /// merely once it has returned, which is true of any scan and proves
+    /// nothing.
+    ///
+    /// So the waiting is done from INSIDE the walk, through `walk_watched`:
+    /// the walk stops midway and refuses to go on until a second thread has
+    /// been all the way in and out of the engine. A walk that holds the lock
+    /// never sees that happen and the test fails on the timeout instead of
+    /// hanging. This is what goes red against the one-statement
+    /// `state.0.lock().unwrap().scan_plan(..).walk()` shape, where the guard
+    /// is a temporary that outlives the walk.
+    #[test]
+    fn another_thread_takes_the_engine_while_a_scan_walks() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let (mut e, dir) = temp_vault("mwalklock");
+        let watched = temp_watched("mwalklock");
+        for i in 0..64 {
+            fs::write(watched.join(format!("take {i}.als")), format!("take {i}")).unwrap();
+        }
+        let m = e.add_mount("Album Pool", vec![], false).unwrap();
+        let engine = std::sync::Mutex::new(e);
+
+        let plan = engine.lock().unwrap().scan_plan(&m.id, &watched);
+        let (took, taken) = mpsc::channel();
+        let stats = std::thread::scope(|s| {
+            s.spawn(|| {
+                let held = engine.lock().unwrap();
+                took.send(held.mounts().len()).unwrap();
+            });
+            let walk = plan.walk_watched(|| {
+                assert_eq!(
+                    taken.recv_timeout(Duration::from_secs(30)).ok(),
+                    Some(1),
+                    "the walk is in flight and the engine is still locked against it"
+                );
+            });
+            engine.lock().unwrap().scan_commit(walk, Some(&watched))
+        });
+
+        assert_eq!((stats.scanned, stats.added), (64, 64));
+        assert_eq!(engine.lock().unwrap().mount_index(&m.id).files.len(), 64);
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&watched);
+    }
+
+    /// A drive can be forgotten while its own catalog walk runs — the walk
+    /// holds no lock, so nothing stops it. Its commit must not write the
+    /// index back and resurrect the catalog that was just dropped.
+    #[test]
+    fn a_mount_forgotten_mid_walk_is_not_written_back() {
+        let (mut e, dir) = temp_vault("mforget");
+        let watched = temp_watched("mforget");
+        fs::write(watched.join("a.als"), b"one").unwrap();
+        let m = e.add_mount("Album Pool", vec![], false).unwrap();
+
+        let walk = e.scan_plan(&m.id, &watched).walk();
+        e.remove_mount(&m.id, false).unwrap();
+        let stats = e.scan_commit(walk, Some(&watched));
+
+        assert!(
+            stats.error.as_deref().unwrap_or_default().contains("no such mount"),
+            "a commit onto a removed mount has to say so: {:?}",
+            stats.error
+        );
+        assert!(e.mount_index(&m.id).files.is_empty(), "the dropped catalog came back");
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&watched);
+    }
+
+    /// A mount can be pointed at a different folder while its own walk runs
+    /// — the walk holds no lock. The newer binding scans and commits first;
+    /// the older walk arrives last and must NOT write its folder's rows under
+    /// the binding that has since moved, which would leave a catalog of rows
+    /// nothing can open.
+    #[test]
+    fn a_mount_rebound_mid_walk_does_not_overwrite_the_new_catalog() {
+        let (mut e, dir) = temp_vault("mrebind");
+        let was = temp_watched("mrebind-was");
+        let now = temp_watched("mrebind-now");
+        fs::write(was.join("on the old disk.als"), b"old").unwrap();
+        fs::write(now.join("on the new disk.als"), b"new").unwrap();
+        let m = e.add_mount("Album Pool", vec![], false).unwrap();
+
+        // the old folder is walked, and while it walks the user relocates the
+        // mount — that binding does a whole scan of its own and lands first
+        let stale = e.scan_plan(&m.id, &was).walk();
+        let fresh = e.scan_mount(&m.id, &now);
+        assert_eq!((fresh.added, fresh.error), (1, None));
+
+        let stats = e.scan_commit(stale, Some(&now));
+        assert!(
+            stats.error.as_deref().unwrap_or_default().contains("moved off"),
+            "a commit onto a folder the mount has left has to say so: {:?}",
+            stats.error
+        );
+        let index = e.mount_index(&m.id);
+        let rows: Vec<&str> = index.files.iter().map(|f| f.rel.as_str()).collect();
+        assert_eq!(rows, ["on the new disk.als"], "the stale walk overwrote the new catalog");
+
+        for d in [dir, was, now] {
+            let _ = fs::remove_dir_all(&d);
+        }
+    }
+
+    /// The same refusal from the batch seam, which is what the palette rescan
+    /// and the folder watcher call: an unbound mount's walk has nowhere to
+    /// land either.
+    #[test]
+    fn commit_scans_refuses_a_walk_whose_mount_moved() {
+        let (mut e, dir) = temp_vault("mrebindbatch");
+        let was = temp_watched("mrebindbatch-was");
+        let now = temp_watched("mrebindbatch-now");
+        fs::write(was.join("a.als"), b"a").unwrap();
+        let m = e.add_mount("Album Pool", vec![], false).unwrap();
+
+        let walks: Vec<MountScanWalk> =
+            e.scan_plans(&bind(&m.id, &was)).into_iter().map(MountScanPlan::walk).collect();
+        let stats = e.commit_scans(walks, &bind(&m.id, &now));
+        assert!(
+            stats[0].error.as_deref().unwrap_or_default().contains("moved off"),
+            "{:?}",
+            stats[0].error
+        );
+        assert!(e.mount_index(&m.id).files.is_empty(), "the stale walk was written anyway");
+
+        for d in [dir, was, now] {
+            let _ = fs::remove_dir_all(&d);
+        }
     }
 
     #[test]

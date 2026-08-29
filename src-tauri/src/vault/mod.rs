@@ -4257,7 +4257,9 @@ use foldersync::{read_folder_mappings, write_folder_mappings};
 
 mod mounts;
 use mounts::read_mounts;
-pub use mounts::{Mount, MountRow, MountScanStats, VolumeMark, MOUNTS_REL_PATH};
+pub use mounts::{
+    Mount, MountRow, MountScanPlan, MountScanStats, MountScanWalk, VolumeMark, MOUNTS_REL_PATH,
+};
 
 // Shared spaces: the registry of folders this vault mounts from a repository
 // of their own, and this machine's bindings for them. The lifecycle half —

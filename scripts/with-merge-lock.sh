@@ -46,6 +46,23 @@
 #  - no stashes may exist repo-wide (refs/stash is shared across
 #    worktrees; a cross-session "pop after merge" stash is a booby trap
 #    under concurrent merges) — override with WITH_MERGE_LOCK_IGNORE_STASH=1
+# Asked once more with the lock IN HAND, never before it (see the train gate
+# below):
+#  - local main must not already be AHEAD of origin/main. Somebody merged and
+#    has not pushed, so a train is mid-flight (or died mid-flight) and their
+#    commits are ungated as far as anything here can tell. Merging on top
+#    adopts them: the union gate this run goes on to pass certifies work this
+#    session never reviewed, and the push ships it. That is exactly step 2 of
+#    the 2026-08-29 incident, where a session took the lock over another
+#    session's unpushed union and the whole stack reached origin unverified.
+#    The release-time UNPUSHED COMMITS warning below only fires AFTER the
+#    damage; this refuses before it. A session RESUMING ITS OWN stranded train
+#    (the documented retry after a fleet-busy rc 75) passes with a warning by
+#    presenting the resume token that train's release printed —
+#    WITH_MERGE_LOCK_RESUME_TRAIN=<token> — which is bound to one tip and one
+#    train and is not an override. Deliberately adopting SOMEONE ELSE'S dead
+#    train is still the override, WITH_MERGE_LOCK_ALLOW_UNPUSHED_MAIN=1, which
+#    prints the commit list either way.
 #
 
 set -euo pipefail
@@ -112,6 +129,28 @@ fi
 GITDIR="$(git rev-parse --path-format=absolute --git-common-dir)" \
   || die "not inside a git repository"
 
+main_sha() { git rev-parse -q --verify 'refs/heads/main^{commit}' 2>/dev/null || true; }
+origin_main_sha() { git rev-parse -q --verify 'refs/remotes/origin/main^{commit}' 2>/dev/null || true; }
+
+# Was local main already unpushed before we ever took the lock? Then the
+# stranded commits at release are not necessarily ours, and the warning says
+# so rather than blaming the wrong session.
+main_ahead_count() {
+  local local_main remote_main
+  local_main="$(main_sha)"
+  remote_main="$(origin_main_sha)"
+  # A missing origin/main reads as "not ahead" — deliberately fail-open. The
+  # ref is absent in exactly two situations: a repository that has never
+  # fetched (nothing to strand), and a checkout whose remote is unreachable.
+  # Neither is evidence of a foreign train, and refusing every merge on a
+  # missing tracking ref would wedge the estate on an offline morning.
+  if [[ -z "$local_main" || -z "$remote_main" || "$local_main" == "$remote_main" ]]; then
+    printf '0'
+    return 0
+  fi
+  git rev-list --count "$remote_main..$local_main" 2>/dev/null || printf '0'
+}
+
 # Prints the refusal reason if the repo is not in a state we may merge in, and
 # nothing at all when it is. A function because --wait has to ask twice: once
 # before queueing, once after the lock is finally in hand (see below).
@@ -126,8 +165,77 @@ preflight_reason() {
   fi
 }
 
+# The commits the train gate is about. Printed before the one-line reason, in
+# the same shape as the release-time UNPUSHED COMMITS block, because "3 commits
+# ahead" is not enough to decide anything: whether this is your own stalled
+# push or another session's live train is a question only the log answers.
+show_foreign_train() {
+  local ahead remote_main
+  ahead="$(main_ahead_count)"
+  [[ "$ahead" =~ ^[0-9]+$ ]] || return 0
+  [[ "$ahead" -gt 0 ]] || return 0
+  remote_main="$(origin_main_sha)"
+  {
+    printf '\n'
+    printf '=================== UNPUSHED TRAIN ALREADY ON main =====================\n'
+    printf 'with-merge-lock: local main is %s commit(s) AHEAD of origin/main before\n' "$ahead"
+    printf 'with-merge-lock: this run has merged anything. Someone merged and did not\n'
+    printf 'with-merge-lock: push — their train is mid-flight, or it died:\n'
+    git log --no-decorate --format='with-merge-lock:   %h %an  %s' -n 10 "$remote_main..refs/heads/main" 2>/dev/null || true
+    if [[ "$ahead" -gt 10 ]]; then
+      printf 'with-merge-lock:   ... and %s more\n' "$(( ahead - 10 ))"
+    fi
+    printf 'with-merge-lock:\n'
+    printf 'with-merge-lock: Merging on top of those makes them YOUR riders: the union\n'
+    printf 'with-merge-lock: gate you run afterwards certifies commits you never\n'
+    printf 'with-merge-lock: reviewed, and the push ships them. That is the 2026-08-29\n'
+    printf 'with-merge-lock: incident, step 2.\n'
+    printf 'with-merge-lock:\n'
+    printf 'with-merge-lock: Wait for the owner to push; resume YOUR OWN stranded train\n'
+    printf 'with-merge-lock: with the token it printed (WITH_MERGE_LOCK_RESUME_TRAIN); or —\n'
+    printf 'with-merge-lock: if the train is dead and you are adopting its commits — re-run\n'
+    printf 'with-merge-lock: once with\n'
+    printf 'with-merge-lock:   WITH_MERGE_LOCK_ALLOW_UNPUSHED_MAIN=1\n'
+    printf 'with-merge-lock: and gate the tip you end up with, not the branch you added.\n'
+    printf '=======================================================================\n'
+  } >&2
+}
+
+# The train marker. One line in the common gitdir naming the train this machine
+# left in flight: time, the tip it was stranded at, a resume token, the pid that
+# stranded it, the host. Written at release when main is ahead, removed when it
+# is level again.
+#
+# It exists for exactly one case the refusal above would otherwise wedge: a run
+# that merged, was told the fleet was busy (rc 75) before it could gate and
+# push, and comes back to finish ITS OWN train. Without a marker that run is
+# indistinguishable from a stranger adopting someone else's commits, and the
+# only way through would be the override — which teaches the operator to reach
+# for the override on the ordinary retry path, and an override reached for
+# routinely stops being read.
+#
+# The token is bound to one train and one tip: it is printed only in that run's
+# own release block, never in a refusal, so a stranger looking at a refused
+# console cannot adopt a dead train from what it says. Same trust boundary as
+# the gate-evidence receipt — an unsigned file on disk stops the accident, not
+# an actor who is trying.
+TRAIN_MARKER="$GITDIR/substrate-merge-train"
+
+train_marker_field() { # 1=time 2=tip 3=token 4=pid 5=host
+  head -n 1 "$TRAIN_MARKER" 2>/dev/null | cut -f"$1"
+}
+
+mint_train_token() {
+  local token
+  token="$(od -An -tx1 -N6 /dev/urandom 2>/dev/null | tr -d ' \n')"
+  [[ -n "$token" ]] || token="$(printf '%04x%04x%04x' "$RANDOM" "$RANDOM" "$RANDOM")"
+  printf '%s' "$token"
+}
+
 PREFLIGHT="$(preflight_reason)"
-[[ -z "$PREFLIGHT" ]] || die "$PREFLIGHT"
+if [[ -n "$PREFLIGHT" ]]; then
+  die "$PREFLIGHT"
+fi
 
 LOCK_DIR="$GITDIR/substrate-merge.lock"
 
@@ -152,25 +260,8 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 trap 'exit 129' HUP
 
-main_sha() { git rev-parse -q --verify 'refs/heads/main^{commit}' 2>/dev/null || true; }
-origin_main_sha() { git rev-parse -q --verify 'refs/remotes/origin/main^{commit}' 2>/dev/null || true; }
-
-# Was local main already unpushed before we ever took the lock? Then the
-# stranded commits at release are not necessarily ours, and the warning says
-# so rather than blaming the wrong session.
-main_ahead_count() {
-  local local_main remote_main
-  local_main="$(main_sha)"
-  remote_main="$(origin_main_sha)"
-  if [[ -z "$local_main" || -z "$remote_main" || "$local_main" == "$remote_main" ]]; then
-    printf '0'
-    return 0
-  fi
-  git rev-list --count "$remote_main..$local_main" 2>/dev/null || printf '0'
-}
-
-warn_unpushed_main() {
-  local ahead remote_main
+warn_unpushed_main() { # resume-token
+  local ahead remote_main token="${1:-}"
   ahead="$(main_ahead_count)"
   [[ "$ahead" =~ ^[0-9]+$ ]] || return 0
   [[ "$ahead" -gt 0 ]] || return 0
@@ -197,6 +288,14 @@ warn_unpushed_main() {
     printf 'with-merge-lock: (push the gated COMMIT, not the branch name — a plain\n'
     printf 'with-merge-lock:  `git push origin main` ships whatever landed on main\n'
     printf 'with-merge-lock:  since the gate run, ungated.)\n'
+    if [[ -n "$token" ]]; then
+      printf 'with-merge-lock:\n'
+      printf 'with-merge-lock: If the fleet was busy (rc 75) and you are coming BACK to\n'
+      printf 'with-merge-lock: finish this same train, the next run resumes it with\n'
+      printf 'with-merge-lock:   WITH_MERGE_LOCK_RESUME_TRAIN=%s\n' "$token"
+      printf 'with-merge-lock: That token is good for this tip only, and is not an\n'
+      printf 'with-merge-lock: override — it says "these commits are mine", nothing more.\n'
+    fi
     printf '========================================================================\n'
   } >&2
 }
@@ -394,6 +493,14 @@ drop_steal_lock() {
 HELD=0
 PRE_AHEAD=0
 
+# Did the train gate below let this run proceed? Until it does, this run has no
+# claim on whatever is sitting unpushed on main, so it neither mints a marker
+# for it nor prints the UNPUSHED COMMITS block: a run refused at the gate that
+# stamped its own token over the marker would hand the stranded train away to
+# the very session the gate just turned back.
+TRAIN_OK=0
+RESUME_TOKEN=""
+
 release() {
   local owner
   owner="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
@@ -401,7 +508,7 @@ release() {
     # The lock names us, so we hold it — a fact that is true from the instant
     # the lock exists, because the pid file arrives in the same rename as the
     # directory. That is the whole reason ownership decides this and not a flag.
-    warn_unpushed_main || true
+    settle_train || true
     # Leaving the lock standing on a failed evict is the safe failure: it still
     # carries our pid, and the next session steals it once we are gone. Tearing
     # it down in place instead would expose the empty state nothing else here has
@@ -414,8 +521,30 @@ release() {
   # its way out and admit a third session mid-merge. It did merge under the lock
   # though, so it still owes the warning.
   if [[ "$HELD" -eq 1 ]]; then
-    warn_unpushed_main || true
+    settle_train || true
   fi
+}
+
+# At release: is a train still in flight, and whose is it? Level with
+# origin/main means the train landed and the marker is stale, so it goes.
+# Ahead means these commits are stranded under this run's name — record the
+# marker (keeping the token we resumed with, so a train that takes three
+# attempts keeps one token) and print the block that carries it.
+settle_train() {
+  local ahead token
+  [[ "$TRAIN_OK" -eq 1 ]] || return 0
+  ahead="$(main_ahead_count)"
+  if [[ ! "$ahead" =~ ^[0-9]+$ || "$ahead" -eq 0 ]]; then
+    rm -f "$TRAIN_MARKER" 2>/dev/null || true
+    return 0
+  fi
+  token="$RESUME_TOKEN"
+  [[ -n "$token" ]] || token="$(mint_train_token)"
+  printf '%s\t%s\t%s\t%s\t%s\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(main_sha)" "$token" "$$" \
+    "$(hostname -s 2>/dev/null || printf 'unknown')" \
+    >"$TRAIN_MARKER" 2>/dev/null || true
+  warn_unpushed_main "$token" || true
 }
 
 # Removes the scratch names that carry our pid. Nothing else ever touches them,
@@ -572,6 +701,97 @@ if [[ -n "$PREFLIGHT" ]]; then
   release
   trap - EXIT
   die "$PREFLIGHT (it appeared while this run was waiting for the lock)"
+fi
+
+# The train gate. Asked HERE and nowhere earlier, on purpose: asked before the
+# queue it turned "another session is mid-train" into an immediate exit 1, so a
+# --wait caller that should have queued for thirty minutes and retried instead
+# died with a code its callers read as "broken", not as "busy". The condition it
+# refuses is also the condition that resolves itself while you wait — the owner
+# pushes — so the answer taken before queueing was the one most likely to be
+# stale by the time it mattered.
+#
+# Cases, exhaustively. Let AHEAD be local main's lead over origin/main at this
+# moment:
+#   AHEAD == 0                                   -> pass, silent.
+#   ALLOW_UNPUSHED_MAIN=1                        -> pass, loud (adoption).
+#   RESUME_TRAIN=<token>, marker matches token
+#     AND marker tip == current main tip         -> pass, loud (resumption).
+#   RESUME_TRAIN set, no marker / wrong token /
+#     tip moved on                               -> refuse, naming which.
+#   AHEAD > 0, nothing presented                 -> refuse.
+train_gate() {
+  local ahead tip supplied m_tip m_token m_pid m_time mismatch
+  ahead="$(main_ahead_count)"
+  if [[ ! "$ahead" =~ ^[0-9]+$ || "$ahead" -eq 0 ]]; then
+    TRAIN_OK=1
+    return 0
+  fi
+
+  if [[ "${WITH_MERGE_LOCK_ALLOW_UNPUSHED_MAIN:-0}" == "1" ]]; then
+    # The override is never silent. Same reasoning as the gate-evidence guard:
+    # the failure mode is a session that adopted someone else's commits without
+    # noticing, and a quiet escape hatch reproduces it exactly.
+    show_foreign_train
+    printf 'with-merge-lock: WITH_MERGE_LOCK_ALLOW_UNPUSHED_MAIN=1 — adopting the %s commit(s) above.\n' "$ahead" >&2
+    TRAIN_OK=1
+    return 0
+  fi
+
+  tip="$(main_sha)"
+  m_time="$(train_marker_field 1)"
+  m_tip="$(train_marker_field 2)"
+  m_token="$(train_marker_field 3)"
+  m_pid="$(train_marker_field 4)"
+  supplied="${WITH_MERGE_LOCK_RESUME_TRAIN:-}"
+
+  if [[ -n "$supplied" ]]; then
+    if [[ -z "$m_token" ]]; then
+      mismatch="no train marker exists on this machine ($TRAIN_MARKER) — the stranded commits were not left by a run that recorded one"
+    elif [[ "$supplied" != "$m_token" ]]; then
+      mismatch="the token does not match the train recorded on this machine"
+    elif [[ "$m_tip" != "$tip" ]]; then
+      mismatch="the token names a train stranded at ${m_tip:0:12}, but main is at ${tip:0:12} now — main moved, so this is no longer the same train"
+    else
+      {
+        printf '\n'
+        printf '============== RESUMING A TRAIN THIS MACHINE STRANDED =================\n'
+        printf 'with-merge-lock: local main is %s commit(s) ahead of origin/main, and\n' "$ahead"
+        printf 'with-merge-lock: the resume token matches the train stranded at %s\n' "${m_tip:0:12}"
+        printf 'with-merge-lock: on %s by pid %s. Proceeding on top of it.\n' "$m_time" "$m_pid"
+        printf 'with-merge-lock: Those commits become riders on whatever you gate and\n'
+        printf 'with-merge-lock: push next — gate the TIP you end up with.\n'
+        printf '=======================================================================\n'
+      } >&2
+      RESUME_TOKEN="$supplied"
+      TRAIN_OK=1
+      return 0
+    fi
+  fi
+
+  show_foreign_train
+  {
+    if [[ -n "$m_token" ]]; then
+      printf 'with-merge-lock: a train marker records pid %s stranding main at %s on %s.\n' \
+        "$m_pid" "${m_tip:0:12}" "$m_time"
+    fi
+    if [[ -n "$supplied" ]]; then
+      printf 'with-merge-lock: WITH_MERGE_LOCK_RESUME_TRAIN was presented and REFUSED: %s.\n' "$mismatch"
+    else
+      printf 'with-merge-lock: resuming your OWN train after a busy-fleet rc 75 needs the\n'
+      printf 'with-merge-lock: token that run printed in its own UNPUSHED COMMITS block:\n'
+      printf 'with-merge-lock:   WITH_MERGE_LOCK_RESUME_TRAIN=<token>\n'
+      printf 'with-merge-lock: (it is deliberately not repeated here — a console someone\n'
+      printf 'with-merge-lock:  else is looking at must not hand them a live train.)\n'
+    fi
+  } >&2
+  return 1
+}
+
+if ! train_gate; then
+  release
+  trap - EXIT
+  die "local main is ahead of origin/main — an unpushed train is already in progress (listed above)"
 fi
 
 

@@ -38,7 +38,7 @@ const ROOT = fileURLToPath(new URL("../", import.meta.url));
 // Every hook install-git-hooks.sh puts into .git/hooks. Kept here rather than
 // inline so the installer test asserts the whole set and not just the two the
 // merge-lock rigs happen to need.
-const INSTALLED_HOOKS = ["post-checkout", "pre-commit", "pre-merge-commit"];
+const INSTALLED_HOOKS = ["post-checkout", "pre-commit", "pre-merge-commit", "pre-push"];
 
 const git = (cwd: string, ...args: string[]) =>
   execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8" }).trim();

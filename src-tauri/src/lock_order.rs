@@ -270,6 +270,15 @@ fn taken(region: &str, at: usize, src: &str) -> Vec<Taken> {
         // ends there. `state.0.lock().unwrap().root.clone()` binds the root,
         // not the guard: that one is a temporary, released at the semicolon,
         // and cannot nest anything.
+        //
+        // "Released at the semicolon" is as late as it sounds, and it is a
+        // trap rather than a technicality: everything chained onto an unbound
+        // guard still runs under the lock, however long it takes.
+        // `state.0.lock().unwrap().scan_plan(..).walk()` walks a whole disk
+        // holding the engine. This pass is about lock ORDER and says nothing
+        // about that — a lock held too long nests nothing, so it reads clean
+        // here. Long work goes in a statement of its own, after the one the
+        // guard's life ends with.
         let binding = PAT.bound.captures(&region[line_start..start]).map(|b| b[1].to_string());
         let tail = &region[m.get(0).unwrap().end()..];
         let tail = tail.split(|c| c == ';' || c == '\n').next().unwrap_or("").trim();
