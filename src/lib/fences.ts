@@ -51,6 +51,30 @@ export const BARE_MACHINE_FENCE_LANGS: readonly string[] = FENCE_REGISTRY.filter
   (f) => f.form === "bare"
 ).map((f) => f.id);
 
+/** The bare-form langs whose OPENER is read leniently, because their readers
+    read it leniently: everything the hub canvas draws. `renderMarkdown`
+    (HubDashboard.tsx) and the editor take the info string the way CommonMark
+    hands it over — leading whitespace trimmed, tilde marker as good as
+    backtick — so ``` ␠heatmap and ~~~calendar draw the live board and their
+    config must leave the search index with it. */
+export const HUB_BARE_MACHINE_FENCE_LANGS: readonly string[] = FENCE_REGISTRY.filter(
+  (f) => f.form === "bare" && f.hub
+).map((f) => f.id);
+
+/** The sheet pair (csv/formulas) — the bare-form langs with no hub reader, and
+    the only fences in the app whose opener must HUG a backtick marker. Their
+    one parser is `findFence` (sheet.ts, and its Rust twin `find_fence` in
+    vault/sheetcsv.rs), which looks for the literal "```csv" at the start of a
+    line: `~~~csv` and ``` ␠csv ``` are prose to it, and to every other reader
+    in the app. Stripping those spellings took a user's own content out of
+    search with no leak closed anywhere — the exact trade the comment below
+    rules out — so the marker alternation and the space-before-info allowance
+    stop at this group. A trailing space is a different case and IS allowed:
+    both sheet parsers skip horizontal whitespace after the lang word. */
+export const SHEET_BARE_MACHINE_FENCE_LANGS: readonly string[] = FENCE_REGISTRY.filter(
+  (f) => f.form === "bare" && !f.hub
+).map((f) => f.id);
+
 /** The case rule is a SEPARATE axis from the tail rule above, and it follows
     each lang's own dispatcher — whatever spelling dispatch accepts, the
     stripper strips.
@@ -130,19 +154,63 @@ export function isTailedBareFence(lang: string, tail: string): boolean {
 
 /** The app parsers' fence semantics: "```<lang>\n" anywhere opens, the next
     "```" (or EOF) closes — the same regex shape the view/chart parsers use.
-    The sheet pair (csv/formulas) is NARROWER: `findFence` takes an opener only
-    at the start of a line, so an indented ```csv is prose there while this
-    pattern still strips it. Deliberate — stripping a block no parser renders
-    costs a little config searchability, and the reverse leaks machine content
-    into the index. User code fences (```ts, ```python foo, …) are prose and
+    A TILDE opener (~~~view) opens the same way and a tilde run closes it:
+    lezer parses one as a `FencedCode` with the same `CodeInfo`, so the editor
+    draws a ~~~view embed live exactly like the backtick spelling, and a
+    rendering fence whose config stays in the search index is the
+    machine-fence leak this pass exists to close.
+
+    The two markers share ONE alternation rather than being spelled as two
+    marker-paired branches: the closer is "the next ``` or ~~~ anywhere", not
+    "a run of the character the opener used". CommonMark pairs them, and a
+    backreference is the natural spelling — but the Rust twin's `regex` crate
+    has none, so pairing would mean writing the whole grammar twice on both
+    sides, four lang runs to keep in step. The cost of not pairing is one
+    contrived shape: a machine fence whose BODY carries a bare run of the
+    other marker closes early and leaves the rest of its config indexed.
+    Machine-fence bodies are `source:`/`target:` config lines and csv rows, so
+    that shape is not one a note reaches; the body rule was already
+    deliberately lenient here ("the next ``` ANYWHERE", not a bare closer
+    line), and this stays inside that leniency.
+    The sheet pair (csv/formulas) has its OWN branch, off the marker
+    alternation and off the space-before-info allowance, because its one parser
+    (`findFence`, sheet.ts, twinned by `find_fence` in vault/sheetcsv.rs) looks
+    for the literal "```csv" at the start of a line. `~~~csv` and ``` ␠csv ```
+    draw nothing anywhere in the app, so stripping them would take a user's own
+    content out of search with no leak closed — the trade this file rules out
+    two paragraphs down, run backwards. What the sheet branch keeps is the
+    trailing `[ \t]*`, which both sheet parsers keep too (```csv␠ is the bare
+    opener with a stray space, and they skip it).
+    The pair stays NARROWER than its parser in one direction, deliberately:
+    `findFence` takes an opener only at the start of a line, so an indented
+    ```csv is prose there while this pattern still strips it — stripping a
+    block no parser renders costs a little config searchability, and the
+    reverse leaks machine content into the index. User code fences (```ts, ```python foo, …) are prose and
     stay searchable, tail and all. Tails are accepted for the live-dispatch
     languages only, and a tail may not contain a backtick — an inline prose
     mention of a fence opener (`` ```chart `` in running text) must never
     swallow the rest of its line and blank prose to the next fence
     review finding; the guard also closes the same pre-existing leak for
-    ```view tails). CRLF openers (```view\r\n) strip too.
+    ```view tails). The backtick guard holds for the tilde spelling too, which
+    is NARROWER than CommonMark — a tilde fence's info string may carry
+    backticks there — but the shape it refuses is the same inline mention
+    written in prose (`` `~~~chart …` ``), and refusing it costs at most a
+    tail nobody writes. CRLF openers (```view\r\n) strip too.
 
-    The bare-form group carries `[ \t]*` before the newline because its
+    The opener carries `[ \t]*` BEFORE the language because CommonMark reads
+    the info string with its leading whitespace stripped, and every reader that
+    DRAWS one does too: lezer hands the editor `view` for "``` view", and the
+    block scanner behind the hub takes its first word off the trimmed info
+    string (mdblocks.ts). A pattern that required the language to hug the
+    marker left that spelling's `source:`/`target:` lines in the search index
+    while three surfaces drew the widget — the editor at top level, the
+    editor's column cells and the hub canvas; print is NOT one of them and
+    never has been, it emits every fence as the code box its author typed
+    (`renderMdBlock`, print.ts). A run of spaces and no language still matches
+    nothing: the group after it demands a lang, and the sheet pair is not in
+    the group this allowance reaches.
+
+    Both bare-form branches carry `[ \t]*` before the newline because their
     parsers do: ```calendar␠ is the likeliest way to mistype an opener by
     hand, it renders the live board, and a rendering fence whose config stays
     in the search index is the machine-fence leak. The live-dispatch group
@@ -159,14 +227,16 @@ export function isTailedBareFence(lang: string, tail: string): boolean {
     side mirrors these lists AND this spelling by hand; change both together.
     Exported for scripts/check-fence-langs.ts, which compares this pattern
     against the Rust one and fails `npm test` when the two drift. */
+const spellBare = (l: string) => (CASE_FOLDING_BARE_LANGS.has(l) ? foldCase(l) : l);
+
 export const MACHINE_FENCE_RE = new RegExp(
-  "```(?:(?:" +
+  "(?:(?:```|~~~)[ \\t]*(?:(?:" +
     TAILED_MACHINE_FENCE_LANGS.map(foldCase).join("|") +
     ")(?:[ \\t][^`\\n]*)?|(?:" +
-    BARE_MACHINE_FENCE_LANGS.map((l) => (CASE_FOLDING_BARE_LANGS.has(l) ? foldCase(l) : l)).join(
-      "|"
-    ) +
-    ")[ \\t]*)\\r?\\n[\\s\\S]*?(?:```|$)",
+    HUB_BARE_MACHINE_FENCE_LANGS.map(spellBare).join("|") +
+    ")[ \\t]*)|```(?:" +
+    SHEET_BARE_MACHINE_FENCE_LANGS.map(spellBare).join("|") +
+    ")[ \\t]*)\\r?\\n[\\s\\S]*?(?:```|~~~|$)",
   "g"
 );
 

@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { isTailedBareFence } from "./fences.ts";
 import { scanMdBlocks, type MdBlock } from "./mdblocks.ts";
 
 // print's reading and the hub's reading, named once so every case says which
@@ -196,6 +197,21 @@ test("every CommonMark fence spelling opens a fence, not a paragraph", () => {
 
   // a backtick opener's info string may not itself contain a backtick
   assert.deepEqual(kinds(scanMdBlocks("``` ``a``\n", PRINT)), ["para"]);
+
+  // CommonMark strips the info string's leading whitespace before reading the
+  // language, and so does lezer — "``` view" drew the widget in the editor and
+  // printed as a config box here, which is the same note rendering two ways
+  const spaced = scanMdBlocks("```  view\nfrom: notes\n```\n", PRINT);
+  assert.deepEqual(kinds(spaced), ["fence"]);
+  assert.equal(spaced[0].kind === "fence" ? spaced[0].lang : null, "view");
+  assert.equal(spaced[0].kind === "fence" ? spaced[0].tail : null, "");
+
+  // the tail keeps its own meaning: a second word after a spaced info word is
+  // still a tail, so a bare-form lang spelled that way is still prose
+  const spacedTail = scanMdBlocks("~~~ calendar month\nx\n~~~\n", PRINT);
+  assert.equal(spacedTail[0].kind === "fence" ? spacedTail[0].lang : null, "calendar");
+  assert.equal(spacedTail[0].kind === "fence" ? spacedTail[0].tail : null, " month");
+  assert.equal(isTailedBareFence("calendar", " month"), true);
 });
 
 test("an indented fence is a fence, and its body loses the opener's indent", () => {

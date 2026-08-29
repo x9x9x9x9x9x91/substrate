@@ -40,7 +40,43 @@ test.describe.configure({ mode: "serial" });
 
 const RUNS = 3;
 
-// Both boot legs assert the FASTEST of the three samples, not the median.
+// How long ONE boot may take on the wall clock before the round writes that
+// sample off and moves to the next. This is a HARNESS bound, not a budget:
+// every number the ceilings below assert is stamped inside the page by
+// `installMarks`, so wall clock spent on a stolen core, a starved dev-server
+// transform or a slow driver round trip never lands in a sample. What it
+// bounds is how long the round is willing to WAIT for a sample it may not
+// even need.
+//
+// 40s against boots that measure in hundreds of milliseconds is deliberately
+// enormous: at the point a boot has taken forty seconds, nothing about it is
+// evidence any more, and the only useful thing left to do with it is give up
+// and take the next one.
+const SAMPLE_DEADLINE_MS = 40_000;
+
+// A sample the deadline caught is DISCARDED, not failed — up to RUNS - 1 of
+// them. That is sound precisely because both legs assert the fastest sample
+// (see below): contention only ever ADDS time, so a boot the rig starved
+// carries no information a faster sibling does not already carry, and a
+// regression in kind costs every sample including the one that lands. If
+// every attempt is caught, the round fails — a boot that cannot paint three
+// times running is a red worth having, and the last error is reported with it.
+//
+// This is what the spec was missing on 2026-08-29, when three gate runs went
+// red at innocent shas under concurrent cargo/test batteries, each
+// green on a same-sha re-run. None of them was a budget breach: the round ran
+// out of Playwright's whole-test deadline (60s off CI — smaller than three
+// contended boots of a 5000-note vault) while a mark poll was still pending,
+// so the failure surfaced as that poll's `expect(received).not.toBeNull()`
+// against this test's line, wearing a budget failure's clothes. The ceilings
+// were never involved and are untouched.
+//
+// Serial mode cannot help with this: what contends for the rig is the OTHER
+// gate legs — cargo, the node battery — running as separate processes beside
+// Playwright entirely, which no worker ordering inside this suite can reach.
+const ROUND_SLACK_MS = 30_000;
+
+// Both boot legs assert the FASTEST of the samples that landed, not the median.
 // A boot is the most contended thing this suite measures: it competes with
 // seven other workers for cores and disk, and the numbers show it — the cold
 // first sample of a round has landed at 883 and 924ms against an 800ms
@@ -70,36 +106,76 @@ const CONTENT_MS = 1000;
 test("the boot frame is up, and content lands, inside budget on a 5k vault", async ({
   context,
 }) => {
+  // Every attempt gets its own wall-clock allowance, so the round's deadline
+  // is the sum of them rather than a number three contended boots can quietly
+  // outgrow.
+  test.setTimeout(RUNS * SAMPLE_DEADLINE_MS + ROUND_SLACK_MS);
+
   const skeletons: number[] = [];
   const contents: number[] = [];
   const titles: number[] = [];
+  const spoiled: string[] = [];
+  let lastError: unknown;
 
   for (let run = 0; run < RUNS; run++) {
     const page = await context.newPage();
-    await seedVault(page);
-    await installMarks(page);
-    await page.goto("/");
+    // One allowance for the whole attempt — seed, boot, marks and the census
+    // below all draw down the same 40s, so a sample that spends it in any one
+    // place is caught in the same way.
+    const deadline = Date.now() + SAMPLE_DEADLINE_MS;
+    const left = () => Math.max(1_000, deadline - Date.now());
+    try {
+      await seedVault(page);
+      await installMarks(page);
+      await page.goto("/", { timeout: left() });
 
-    // the boot frame is the app's first pixels — before it the window is
-    // empty, so this leg is the whole "did we paint anything" question
-    skeletons.push(await readMark(page, "skeleton"));
+      // the boot frame is the app's first pixels — before it the window is
+      // empty, so this leg is the whole "did we paint anything" question
+      const skeleton = await readMark(page, "skeleton", left());
 
-    // and content is boot-to-usable: a row on screen means the vault answered
-    // and the pane built, ranked, windowed and painted its listing
-    contents.push(await readMark(page, "content"));
-    // the view label, for the log only — it renders from initial state, so
-    // the gap between it and content is the vault's half of the boot
-    titles.push(await readMark(page, "listTitle"));
+      // and content is boot-to-usable: a row on screen means the vault answered
+      // and the pane built, ranked, windowed and painted its listing
+      const content = await readMark(page, "content", left());
+      // the view label, for the log only — it renders from initial state, so
+      // the gap between it and content is the vault's half of the boot
+      const title = await readMark(page, "listTitle", left());
 
-    // the 5k rows really were in the listing the measured boot consumed —
-    // without this the budget could be passing on an empty vault
-    await page.locator(".side-folder", { hasText: "Inbox" }).click();
-    await expect(page.locator(".list-title")).toHaveText("Inbox");
-    await expect
-      .poll(async () => Number(await page.locator(".list-count").innerText()))
-      .toBeGreaterThanOrEqual(SEEDED_NOTES);
-    await page.close();
+      // the 5k rows really were in the listing the measured boot consumed —
+      // without this the budget could be passing on an empty vault
+      await page.locator(".side-folder", { hasText: "Inbox" }).click({ timeout: left() });
+      await expect(page.locator(".list-title")).toHaveText("Inbox", { timeout: left() });
+      await expect
+        .poll(async () => Number(await page.locator(".list-count").innerText()), {
+          timeout: left(),
+        })
+        .toBeGreaterThanOrEqual(SEEDED_NOTES);
+
+      // only a sample that got all the way here is a sample: a boot whose
+      // census never proved the 5000 rows says nothing about a 5k vault
+      skeletons.push(skeleton);
+      contents.push(content);
+      titles.push(title);
+    } catch (err) {
+      lastError = err;
+      spoiled.push(`#${run + 1} after ${Math.round(SAMPLE_DEADLINE_MS - left())}ms`);
+    } finally {
+      await page.close();
+    }
   }
+
+  if (spoiled.length) {
+    console.log(
+      `perf note — ${spoiled.length}/${RUNS} boot samples discarded, rig too loaded to ` +
+        `finish them inside ${SAMPLE_DEADLINE_MS}ms each [${spoiled.join(", ")}]`,
+    );
+  }
+  // Nothing landed: this is no longer contention's story to tell, so the
+  // round reports the failure it kept rather than an empty sample list.
+  expect(
+    skeletons.length,
+    `no boot of the 5k vault completed inside ${SAMPLE_DEADLINE_MS}ms across ${RUNS} ` +
+      `attempts — last error: ${lastError instanceof Error ? lastError.message : String(lastError)}`,
+  ).toBeGreaterThan(0);
 
   console.log(
     `perf note — list header painted (5k vault, not asserted): samples [${titles

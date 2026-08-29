@@ -15,7 +15,9 @@ import { test } from "node:test";
 import { FENCE_REGISTRY, HUB_FENCE_LANGS } from "./fenceRegistry.ts";
 import {
   BARE_MACHINE_FENCE_LANGS,
+  HUB_BARE_MACHINE_FENCE_LANGS,
   MACHINE_FENCE_RE,
+  SHEET_BARE_MACHINE_FENCE_LANGS,
   TAILED_MACHINE_FENCE_LANGS,
 } from "./fences.ts";
 import { dashFenceHint } from "./dashfencehint.ts";
@@ -32,6 +34,21 @@ test("the derived lang lists are the ones the strip pattern always carried, in o
     "calendar",
     "timeline",
   ]);
+  // The bare form is spelled in TWO branches of the strip pattern, because its
+  // two halves accept different OPENERS: the hub's bare langs take a tilde
+  // marker and a space before the info word (their readers take the info
+  // string the CommonMark way), the sheet pair does not (`findFence` matches
+  // the literal "```csv"). The split is derived from `hub` — the registry's
+  // own comment calls that field "everything but the sheet pair" — so a new
+  // bare entry lands in a branch by whether the hub draws it, and pinning both
+  // lists here is what makes that a decision someone has to confirm.
+  assert.deepEqual([...SHEET_BARE_MACHINE_FENCE_LANGS], ["csv", "formulas"]);
+  assert.deepEqual([...HUB_BARE_MACHINE_FENCE_LANGS], ["heatmap", "calendar", "timeline"]);
+  assert.deepEqual(
+    [...SHEET_BARE_MACHINE_FENCE_LANGS, ...HUB_BARE_MACHINE_FENCE_LANGS].sort(),
+    [...BARE_MACHINE_FENCE_LANGS].sort(),
+    "the two branches partition the bare form — no lang is in both or in neither"
+  );
 });
 
 test("the strip pattern is unchanged by deriving its lists from the registry", () => {
@@ -41,7 +58,7 @@ test("the strip pattern is unchanged by deriving its lists from the registry", (
   // until the Rust twin moves with it.
   assert.equal(
     MACHINE_FENCE_RE.source,
-    "```(?:(?:[Vv][Ii][Ee][Ww]|[Cc][Hh][Aa][Rr][Tt]|[Pp][Rr][Oo][Gg][Rr][Ee][Ss][Ss]|[Cc][Aa][Rr][Dd][Ss]|[Kk][Ii][Nn][Dd])(?:[ \\t][^`\\n]*)?|(?:csv|formulas|[Hh][Ee][Aa][Tt][Mm][Aa][Pp]|[Cc][Aa][Ll][Ee][Nn][Dd][Aa][Rr]|[Tt][Ii][Mm][Ee][Ll][Ii][Nn][Ee])[ \\t]*)\\r?\\n[\\s\\S]*?(?:```|$)"
+    "(?:(?:```|~~~)[ \\t]*(?:(?:[Vv][Ii][Ee][Ww]|[Cc][Hh][Aa][Rr][Tt]|[Pp][Rr][Oo][Gg][Rr][Ee][Ss][Ss]|[Cc][Aa][Rr][Dd][Ss]|[Kk][Ii][Nn][Dd])(?:[ \\t][^`\\n]*)?|(?:[Hh][Ee][Aa][Tt][Mm][Aa][Pp]|[Cc][Aa][Ll][Ee][Nn][Dd][Aa][Rr]|[Tt][Ii][Mm][Ee][Ll][Ii][Nn][Ee])[ \\t]*)|```(?:csv|formulas)[ \\t]*)\\r?\\n[\\s\\S]*?(?:```|~~~|$)"
   );
   assert.equal(MACHINE_FENCE_RE.flags, "g");
 });

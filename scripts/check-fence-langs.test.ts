@@ -11,25 +11,31 @@ import {
   type FenceInventory,
 } from "./check-fence-langs.ts";
 import {
-  BARE_MACHINE_FENCE_LANGS,
+  HUB_BARE_MACHINE_FENCE_LANGS,
   MACHINE_FENCE_RE,
+  SHEET_BARE_MACHINE_FENCE_LANGS,
   TAILED_MACHINE_FENCE_LANGS,
 } from "../src/lib/fences.ts";
 
-const JS_END = "(?:```|$)";
-const RUST_END = "(?:```|\\z)";
+const JS_END = "(?:```|~~~|$)";
+const RUST_END = "(?:```|~~~|\\z)";
 
-/** A machine-fence pattern in the current grammar, for the given lang groups. */
-const pattern = (tailed: string, bare: string, end: string) =>
-  "```(?:(?:" +
+/** A machine-fence pattern in the current grammar, for the given lang groups.
+    The sheet group defaults to the real pair: most cases here exercise the two
+    groups that share the lenient opener, and a group that is identical on both
+    sides of a comparison contributes no finding. */
+const pattern = (tailed: string, bare: string, end: string, sheet = "csv|formulas") =>
+  "(?:(?:```|~~~)[ \\t]*(?:(?:" +
   tailed +
   ")(?:[ \\t][^`\\n]*)?|(?:" +
   bare +
+  ")[ \\t]*)|```(?:" +
+  sheet +
   ")[ \\t]*)\\r?\\n[\\s\\S]*?" +
   end;
 
-const inv = (tailed: string, bare: string, end = JS_END): FenceInventory =>
-  parseFencePattern(pattern(tailed, bare, end), "test");
+const inv = (tailed: string, bare: string, end = JS_END, sheet = "csv|formulas"): FenceInventory =>
+  parseFencePattern(pattern(tailed, bare, end, sheet), "test");
 
 /* ── the real tree ──────────────────────────────────────────────────────── */
 
@@ -49,9 +55,13 @@ test("both sides still carry the declared fence languages", () => {
   const { ts, rust } = collect();
   for (const side of [ts, rust]) {
     assert.deepEqual(side.tailed, [...TAILED_MACHINE_FENCE_LANGS]);
-    assert.deepEqual(side.bare, [...BARE_MACHINE_FENCE_LANGS]);
+    assert.deepEqual(side.bare, [...HUB_BARE_MACHINE_FENCE_LANGS]);
+    assert.deepEqual(side.sheet, [...SHEET_BARE_MACHINE_FENCE_LANGS]);
   }
-  assert.ok(ts.tailed.length > 0 && ts.bare.length > 0, "neither group is empty");
+  assert.ok(
+    ts.tailed.length > 0 && ts.bare.length > 0 && ts.sheet.length > 0,
+    "no group is empty"
+  );
 });
 
 test("case-folded languages come back decoded, in both groups (SUB-1104, SUB-1128)", () => {
@@ -64,7 +74,7 @@ test("case-folded languages come back decoded, in both groups (SUB-1104, SUB-112
   for (const side of [ts, rust]) {
     assert.ok(side.tailed.includes("view"), "tailed case pairs decode");
     assert.ok(side.bare.includes("heatmap"), "bare case pairs decode");
-    for (const lang of [...side.tailed, ...side.bare]) {
+    for (const lang of [...side.tailed, ...side.bare, ...side.sheet]) {
       assert.match(lang, /^[a-z0-9-]+$/, `"${lang}" is decoded, not a run of case pairs`);
     }
   }
@@ -279,7 +289,9 @@ test("checkUseSites throws when a strip function cannot be found", () => {
  *
  * `throws` is the honest expectation for a grammar edit: the pattern stops being
  * the known shape, and the checker refuses to read past it rather than compare
- * two things it no longer understands (exit 2, not exit 1 — both are red).
+ * two things it no longer understands (exit 2, not exit 1 — both are red). An
+ * edit to the closing alternative is refused one step earlier, by
+ * `normalizeEnd` — same red, a different sentence, so `throws` accepts either.
  */
 const ONE_SIDED_EDITS: { name: string; from: string; to: string; expect: RegExp | "throws" }[] = [
   {
@@ -290,15 +302,18 @@ const ONE_SIDED_EDITS: { name: string; from: string; to: string; expect: RegExp 
   },
   {
     name: "a language moved from the tailed group to the bare one",
-    from: "|[Kk][Ii][Nn][Dd])(?:[ \\t][^`\\n]*)?|(?:csv",
-    to: ")(?:[ \\t][^`\\n]*)?|(?:[Kk][Ii][Nn][Dd]|csv",
+    from: "|[Kk][Ii][Nn][Dd])(?:[ \\t][^`\\n]*)?|(?:[Hh]",
+    to: ")(?:[ \\t][^`\\n]*)?|(?:[Kk][Ii][Nn][Dd]|[Hh]",
     expect: /tailed: src\/lib\/fences\.ts has "kind"/,
   },
   {
-    name: "a case fold added to a bare-form language",
+    // csv sits in the sheet group now, and its parser matches the literal
+    // opener — a fold on one side only means ```CSV strips there while it is
+    // an ordinary code box, and searchable prose, everywhere else
+    name: "a case fold added to a sheet-pair language",
     from: "csv|formulas",
     to: "[Cc][Ss][Vv]|formulas",
-    expect: /bare: "csv" is spelled differently/,
+    expect: /sheet: "csv" is spelled differently/,
   },
   {
     name: "a case fold removed from heatmap",
@@ -314,12 +329,62 @@ const ONE_SIDED_EDITS: { name: string; from: string; to: string; expect: RegExp 
   },
   { name: "the CRLF opener dropped (SUB-913)", from: ")\\r?\\n", to: ")\\n", expect: "throws" },
   {
+    // a ~~~view fence draws live in the editor exactly like the backtick
+    // spelling, so a side that goes back to backtick-only leaks its config
+    // into the search index while the other side strips it
+    name: "the tilde opener dropped from the marker alternation (SUB-1703)",
+    from: "(?:```|~~~)[ \\t]*(?:(?:[Vv]",
+    to: "```[ \\t]*(?:(?:[Vv]",
+    expect: "throws",
+  },
+  {
+    name: "the tilde closer dropped from the body's end alternative (SUB-1703)",
+    from: "[\\s\\S]*?(?:```|~~~|\\z)",
+    to: "[\\s\\S]*?(?:```|\\z)",
+    expect: "throws",
+  },
+  {
     // a bare-form opener typed with a stray space renders the live board, so
     // one side dropping the allowance means that board's config lands back in
     // the search index while the other side strips it
     name: "the bare group's trailing-whitespace allowance dropped",
-    from: ")[ \\t]*)\\r?\\n",
-    to: "))\\r?\\n",
+    from: "[Tt][Ii][Mm][Ee][Ll][Ii][Nn][Ee])[ \\t]*)",
+    to: "[Tt][Ii][Mm][Ee][Ll][Ii][Nn][Ee]))",
+    expect: "throws",
+  },
+  {
+    // ```csv␠ is the bare opener with a stray space and both sheet parsers
+    // read it as one, so the sheet branch keeps the allowance the marker and
+    // space-before rules stop short of
+    name: "the sheet branch's trailing-whitespace allowance dropped (SUB-1703)",
+    from: "|```(?:csv|formulas)[ \\t]*)",
+    to: "|```(?:csv|formulas))",
+    expect: "throws",
+  },
+  {
+    // no parser in the app reads ~~~csv — a side that lets the sheet pair ride
+    // the marker alternation drops a user's own tilde fence out of search with
+    // no leak closed anywhere
+    name: "the sheet branch given the tilde marker (SUB-1703)",
+    from: "|```(?:csv",
+    to: "|(?:```|~~~)(?:csv",
+    expect: "throws",
+  },
+  {
+    // findFence matches the literal "```csv", so ``` csv is prose to the sheet
+    // — the same one-sided over-strip in the other spelling
+    name: "the sheet branch given the space-before-info allowance (SUB-1703)",
+    from: "|```(?:csv",
+    to: "|```[ \\t]*(?:csv",
+    expect: "throws",
+  },
+  {
+    // "``` view" names the language `view` to CommonMark, to lezer and to the
+    // block scanner, so a side that goes back to lang-hugs-the-marker leaves
+    // that widget's config in the search index while the other side strips it
+    name: "the space-before-info allowance dropped from the opener",
+    from: "(?:```|~~~)[ \\t]*(?:(?:[Vv]",
+    to: "(?:```|~~~)(?:(?:[Vv]",
     expect: "throws",
   },
   {
@@ -330,8 +395,8 @@ const ONE_SIDED_EDITS: { name: string; from: string; to: string; expect: RegExp 
   },
   {
     name: "the body made greedy",
-    from: "[\\s\\S]*?(?:```|\\z)",
-    to: "[\\s\\S]*(?:```|\\z)",
+    from: "[\\s\\S]*?(?:```|~~~|\\z)",
+    to: "[\\s\\S]*(?:```|~~~|\\z)",
     expect: "throws",
   },
 ];
@@ -341,7 +406,7 @@ for (const edit of ONE_SIDED_EDITS) {
     const { ts, rust } = collect();
     // parseFencePattern is fed the raw dialect spelling back, so the mutated
     // pattern goes through exactly the path collect() puts the real one on.
-    const raw = rust.pattern.replace("(?:```|<END-OF-INPUT>)", "(?:```|\\z)");
+    const raw = rust.pattern.replace("(?:```|~~~|<END-OF-INPUT>)", "(?:```|~~~|\\z)");
     assert.equal(
       raw.split(edit.from).length - 1,
       1,
@@ -349,7 +414,10 @@ for (const edit of ONE_SIDED_EDITS) {
     );
     const mutate = () => parseFencePattern(raw.replace(edit.from, edit.to), "mutated");
     if (edit.expect === "throws") {
-      assert.throws(mutate, /does not match the known machine-fence shape/);
+      assert.throws(
+        mutate,
+        /does not match the known machine-fence shape|does not end in an end-of-input alternative/
+      );
       return;
     }
     const problems = crossCheck(ts, mutate());

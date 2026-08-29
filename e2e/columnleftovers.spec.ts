@@ -87,9 +87,18 @@ test("an annotations fence in a column binds to the player above it", async ({ p
   await expect(right).not.toContainText("audio: old-bounce.wav");
   const bound = right.locator(".cm-audio").last();
   await expect(bound.locator(".cm-audio-annotation-text")).toHaveText("the drop lands early");
-  // and the note written from in there is appended to that fence, not another
+  // clicking the wave inside a region seeks the player rather than falling
+  // through to the editor: the region survives the click with the same bound
+  // fence still hidden behind its player. WHERE a note written from in here
+  // lands is asserted where it can be asserted on the document text — "two
+  // players in two columns write to their own fences" in
+  // src/lib/editorColumns.component.test.ts. The composer this click opens
+  // needs decoded duration, which a fixture asset does not promise, so this
+  // surface checks the part that is about the region.
   await bound.locator(".cm-audio-wave").click({ position: { x: 60, y: 10 } });
   await expect(page.locator(".cm-columns")).toBeVisible();
+  await expect(right).not.toContainText("audio: old-bounce.wav");
+  await expect(bound.locator(".cm-audio-annotation-text")).toHaveText("the drop lands early");
 });
 
 test.describe("shots", () => {

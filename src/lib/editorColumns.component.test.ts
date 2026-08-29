@@ -724,6 +724,23 @@ test("the epoch joins the identity for a view fence in any spelling", async () =
   assert.equal(new ColumnsWidget(region("~~~viewport", "~~~"), 0).liveData, false);
 });
 
+test("a slot character pasted into a cell's text mounts nothing of its own", async (t) => {
+  // the private-use pair that holds a live mount's place is invisible, so it
+  // can ride in on a paste. Left in the author's text it reads as a slot: the
+  // player on the same line was mounted twice, once where the paste sat.
+  const PASTED = [
+    "<!-- columns -->",
+    "before \uE0000\uE001 after ![[render-v3.wav]]",
+    "<!-- /columns -->",
+  ].join("\n");
+  const { rendered } = await editor(t, PASTED);
+
+  const [cell] = rendered.all(".cm-column");
+  assert.equal(cell.querySelectorAll("[data-live-mount]").length, 1, "one player, not two");
+  assert.match(cell.textContent ?? "", /before/, "the text either side survives");
+  assert.match(cell.textContent ?? "", /after/);
+});
+
 test("emphasis opened before an embed and closed after it is still emphasis", async (t) => {
   const ACROSS = [
     "<!-- columns -->",

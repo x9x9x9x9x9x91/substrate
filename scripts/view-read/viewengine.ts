@@ -119,9 +119,12 @@ function fenceRows(
   });
 }
 
-/** The `inner` of the note's Nth ```view fence, 1-based. Top-level fences
-    only and the same scan the static surfaces use, so "the second fence" here
-    counts what a reader of the note counts. */
+/** The `inner` of the note's Nth ```view fence, 1-based. The same scan the
+    static surfaces use, so "the second fence" here counts what a reader of the
+    note counts — including a fence that is indented or sits under a list item,
+    which the scanner reads as a fence exactly as the editor does. Every
+    CommonMark spelling counts too: tildes, runs longer than three, and a space
+    before the info word. */
 export function nthViewFence(body: string, n: number): string | null {
   let seen = 0;
   for (const block of scanMdBlocks(body, { splitListsOnMarkerFlip: false })) {

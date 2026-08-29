@@ -173,12 +173,32 @@ pub struct FmState {
 /// search index. The regex follows
 /// the app parsers' semantics (```<lang>\n anywhere … next ``` or EOF);
 /// user code fences (```ts, ```python foo, …) stay searchable, tail and all.
-/// One lang pair is narrower than "anywhere" on the parser side: csv and
-/// formulas open only at the start of a line (find_fence in vault::sheetcsv,
-/// and its TS twin), so an indented ```csv block is prose to the sheet while
-/// this pattern still strips it. The strip stays the wider of the two on
-/// purpose - stripping a block nothing renders costs a little config
-/// searchability, while the reverse leaks machine content into the index.
+/// A TILDE opener (~~~view) opens the same way and a tilde run closes it:
+/// lezer parses one as a FencedCode carrying the same CodeInfo, so the editor
+/// draws a ~~~view embed live exactly like the backtick spelling, and a
+/// rendering fence whose config stays in the search index is the
+/// machine-fence leak. The two markers share ONE alternation instead of two
+/// marker-paired branches — the closer is "the next ``` or ~~~ anywhere", not
+/// "a run of the character the opener used". CommonMark pairs them and a
+/// backreference would say so, but this crate has none, so pairing would mean
+/// writing the grammar twice on both sides with four lang runs to keep in
+/// step. The cost of not pairing is one contrived shape: a machine fence
+/// whose BODY carries a bare run of the other marker closes early and leaves
+/// the rest of its config indexed. Machine-fence bodies are config lines and
+/// csv rows, so no note reaches that shape, and the body rule here was already
+/// lenient in the same direction.
+/// The sheet pair (csv, formulas) has its OWN branch, outside the marker
+/// alternation and outside the space-before-info allowance: their one parser
+/// is find_fence (vault::sheetcsv, and its TS twin), which looks for the
+/// literal "```csv" at the start of a line. ~~~csv and "``` csv" draw nothing
+/// anywhere in the app, so stripping them would take a user's own content out
+/// of the search index with no leak closed - the trade below, run backwards.
+/// The branch keeps the trailing [ \t]*, which find_fence keeps too.
+/// In one direction the pair stays narrower than its parser on purpose: csv
+/// and formulas open only at the start of a line, so an indented ```csv block
+/// is prose to the sheet while this pattern still strips it - stripping a
+/// block nothing renders costs a little config searchability, while the
+/// reverse leaks machine content into the index.
 /// The LIVE-DISPATCH languages (view, chart, progress, cards) also take an info-string
 /// tail (```view table, ```chart compact, a trailing space): the editor and
 /// hub dispatch on the FIRST WORD of the info string, so a tailed opener is
@@ -188,10 +208,24 @@ pub struct FmState {
 /// progress is the goal thermometer).
 /// csv/formulas/heatmap/calendar/timeline parsers are strict bare-form — a
 /// tailed one renders as plain code and stays searchable prose. A tail may not contain a backtick: an inline prose mention of an
-/// opener must never swallow its line and blank prose to the next fence.
+/// opener must never swallow its line and blank prose to the next fence. That
+/// guard holds for the tilde spelling too, which is narrower than CommonMark
+/// (a tilde fence's info string may carry backticks there) — the shape it
+/// refuses is the same inline mention, and refusing it costs a tail nobody
+/// writes.
 /// CRLF openers (```view\r\n) strip too.
-/// The bare-form group takes trailing horizontal whitespace ([ \t]* before the
-/// newline) because its parsers do: ```calendar␠ is a mistyped bare opener,
+/// The opener takes horizontal whitespace BEFORE the language ([ \t]* after
+/// the marker) because CommonMark strips the info string's leading
+/// whitespace and every reader on the TS side that DRAWS a machine fence does
+/// the same: lezer hands the editor `view` for "``` view", and the block
+/// scanner behind the hub takes its first word off the trimmed info string.
+/// Requiring the language to hug the marker left that spelling's config in the
+/// search index while three surfaces drew the widget - the editor at top
+/// level, the editor's column cells, and the hub canvas. Print is not one of
+/// them and never has been: it emits every fence as a code box. The sheet
+/// pair's branch is outside this allowance (see above).
+/// Both bare-form branches take trailing horizontal whitespace ([ \t]* before
+/// the newline) because their parsers do: ```calendar␠ is a mistyped bare opener,
 /// not a tail, and it renders the live board — so its config leaves the index
 /// like any other rendering fence. The live-dispatch group needs no such
 /// allowance; its tail already covers a trailing space.
@@ -226,7 +260,7 @@ fn machine_fence_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
         Regex::new(
-            r"```(?:(?:[Vv][Ii][Ee][Ww]|[Cc][Hh][Aa][Rr][Tt]|[Pp][Rr][Oo][Gg][Rr][Ee][Ss][Ss]|[Cc][Aa][Rr][Dd][Ss]|[Kk][Ii][Nn][Dd])(?:[ \t][^`\n]*)?|(?:csv|formulas|[Hh][Ee][Aa][Tt][Mm][Aa][Pp]|[Cc][Aa][Ll][Ee][Nn][Dd][Aa][Rr]|[Tt][Ii][Mm][Ee][Ll][Ii][Nn][Ee])[ \t]*)\r?\n[\s\S]*?(?:```|\z)",
+            r"(?:(?:```|~~~)[ \t]*(?:(?:[Vv][Ii][Ee][Ww]|[Cc][Hh][Aa][Rr][Tt]|[Pp][Rr][Oo][Gg][Rr][Ee][Ss][Ss]|[Cc][Aa][Rr][Dd][Ss]|[Kk][Ii][Nn][Dd])(?:[ \t][^`\n]*)?|(?:[Hh][Ee][Aa][Tt][Mm][Aa][Pp]|[Cc][Aa][Ll][Ee][Nn][Dd][Aa][Rr]|[Tt][Ii][Mm][Ee][Ll][Ii][Nn][Ee])[ \t]*)|```(?:csv|formulas)[ \t]*)\r?\n[\s\S]*?(?:```|~~~|\z)",
         )
             .unwrap()
     })
@@ -4419,6 +4453,95 @@ mod tests {
             !strip_machine_fences(timeline).contains("source: release"),
             "bare timeline strips"
         );
+    }
+
+    #[test]
+    fn machine_fence_strip_covers_tilde_openers() {
+        // lezer parses ~~~view as a FencedCode with the same CodeInfo, so the
+        // editor draws that embed live exactly like the backtick spelling —
+        // and this index-side strip was backtick-only, leaving a rendering
+        // fence's source/target lines in the SQLite search table. Lockstep
+        // twin: the "a tilde machine fence strips like its backtick twin" test
+        // in src/lib/fences.test.ts, same corpus.
+        for open in ["~~~view", "~~~view table", "~~~chart compact", "~~~calendar", "~~~HeatMap"] {
+            let body = format!("a\n{open}\nsource: releases\n~~~\nb");
+            let out = strip_machine_fences(&body);
+            assert!(!out.contains("source: releases"), "config stripped for {open:?}: {out:?}");
+            assert_eq!(out.matches('\n').count(), body.matches('\n').count(), "line map kept");
+        }
+        // csv/formulas dispatch case-sensitively, so ~~~CSV is a plain code
+        // box — prose, and prose stays searchable.
+        let upper = "a\n~~~CSV\nsecret,1\n~~~\nb";
+        assert_eq!(strip_machine_fences(upper), upper, "mixed-case tilde bare form stays prose");
+        // A user's own tilde code fence is prose, tail and all.
+        let prose = "a\n~~~ts\nconst mastering = 1;\n~~~\nb";
+        assert_eq!(strip_machine_fences(prose), prose, "user tilde fence untouched");
+        // The backtick guard holds for the tilde spelling too: an inline
+        // mention in running text names no fence and blanks no prose.
+        let mention = "see `~~~chart compact` for the syntax\nkeep this line\n";
+        assert_eq!(strip_machine_fences(mention), mention, "inline mention blanks nothing");
+    }
+
+    #[test]
+    fn machine_fence_strip_covers_space_before_the_info_word() {
+        // CommonMark strips the info string's leading whitespace, so "``` view"
+        // names the language `view` — lezer reads it that way and the block
+        // scanner behind the hub does too. This strip required the lang to hug
+        // the marker, so that spelling drew live on all three drawing surfaces
+        // (editor top level, editor column cells, hub) with its config still in
+        // the search table. Lockstep twin: the "space before the info word"
+        // test in src/lib/fences.test.ts.
+        for open in ["``` view", "```\tchart compact", "~~~  calendar", "```  HeatMap"] {
+            let body = format!("a\n{open}\nsource: releases\n```\nb");
+            let out = strip_machine_fences(&body);
+            assert!(!out.contains("source: releases"), "config stripped for {open:?}: {out:?}");
+            assert_eq!(out.matches('\n').count(), body.matches('\n').count(), "line map kept");
+        }
+        // A space and no language is still no fence of ours.
+        let empty = "a\n```   \nplain\n```\nb";
+        assert_eq!(strip_machine_fences(empty), empty, "an info-less opener stays prose");
+        // A user's code fence spelled with a space is prose in either spelling.
+        let prose = "a\n``` ts\nconst mastering = 1;\n```\nb";
+        assert_eq!(strip_machine_fences(prose), prose, "user fence untouched");
+    }
+
+    #[test]
+    fn machine_fence_strip_wants_the_sheet_pair_hugging_backticks() {
+        // csv and formulas have exactly one parser — find_fence (vault::sheetcsv)
+        // and its TS twin — and it looks for the literal "```csv" at the start
+        // of a line. ~~~csv and "``` csv" draw nothing on any surface, so
+        // stripping them would take a user's own fenced content out of the
+        // search index with no leak closed anywhere. The tilde marker and the
+        // space-before-info allowance therefore stop at this pair. Lockstep
+        // twin: the "sheet pair's opener must hug a backtick marker" test in
+        // src/lib/fences.test.ts, same corpus.
+        for lang in ["csv", "formulas"] {
+            for open in [
+                format!("~~~{lang}"),
+                format!("``` {lang}"),
+                format!("```\t{lang}"),
+                format!("~~~ {lang}"),
+            ] {
+                let body = format!("a\n{open}\nname,take\n```\nb");
+                assert_eq!(
+                    strip_machine_fences(&body),
+                    body,
+                    "{open:?} renders nothing, so it stays searchable prose"
+                );
+                assert!(
+                    super::sheetcsv::find_fence(&body, lang).is_none(),
+                    "{open:?} is no opener to the sheet"
+                );
+            }
+            // The spellings the parser DOES read still strip, trailing space
+            // and all.
+            for open in [format!("```{lang}"), format!("```{lang} "), format!("```{lang}\t")] {
+                let body = format!("a\n{open}\nname,take\n```\nb");
+                let out = strip_machine_fences(&body);
+                assert!(!out.contains("name,take"), "config stripped for {open:?}: {out:?}");
+                assert_eq!(out.matches('\n').count(), body.matches('\n').count(), "line map kept");
+            }
+        }
     }
 
     #[test]

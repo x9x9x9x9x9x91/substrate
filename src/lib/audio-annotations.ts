@@ -41,11 +41,46 @@ export interface AudioAnnotationTarget {
 }
 
 const STANDALONE_EMBED_RE = /^\s*!\[\[([^\n]+)\]\]\s*$/;
-const FENCE_OPEN_RE = /^\s*(`{3,}|~{3,})([^`]*)$/;
+/** An opener's indent is captured, not capped, because the cap it must match
+    is RELATIVE. Binding outside a column is gated on lezer's `FencedCode`,
+    and lezer opens a fence whose indent is less than four columns past its
+    CONTAINER's content column (`indent - baseIndent < 4`) — not four past
+    column 0. Accepting any indent here made a 4-space-indented `annotations`
+    fence bind inside a column while the same fence outside one is an indented
+    code block; capping at an absolute three broke the other half, a fence
+    nested two list levels deep (indent 4+, but flush with its own container)
+    that lezer calls a fence and this walk stopped binding — the write-back
+    then wrote a SECOND, flush-left fence between the embed and the existing
+    one, breaking the list. `opensFence` below carries the relative rule; the
+    CLOSER stays wide — an indented closing line still ends a fence for every
+    scanner in the app, and refusing one here would run the block to EOF. */
+const FENCE_OPEN_RE = /^([ \t]*)(`{3,}|~{3,})([^`]*)$/;
 const FENCE_CLOSE_RE = /^\s*(`{3,}|~{3,})\s*$/;
 const AUDIO_LINE_RE = /^\s*audio:\s*(.*?)\s*$/i;
 const ANNOTATION_LINE_RE =
   /^\s*(?:-\s*)?((?:\d+:)?\d+:\d{2})\s+(?:—|-)\s+(.+?)\s*$/;
+
+/** Indent in COLUMNS, CommonMark-style: a tab advances to the next multiple
+    of four, so a tab and four spaces indent a line alike. */
+function indentColumns(text: string): number {
+  let columns = 0;
+  for (const char of text) {
+    if (char === " ") columns++;
+    else if (char === "\t") columns += 4 - (columns % 4);
+    else break;
+  }
+  return columns;
+}
+
+/** Whether an opener indented `openIndent` opens a fence inside a container
+    whose content starts at `baseIndent` — lezer's own `indent - baseIndent < 4`.
+    The base is taken from the preceding embed line: the embed and its fence
+    share a container by construction (the fence binds only when it follows the
+    embed with at most one blank line between), so the embed's own indent is
+    that container's content column. */
+function opensFence(openIndent: string, baseIndent: string): boolean {
+  return indentColumns(openIndent) - indentColumns(baseIndent) < 4;
+}
 
 function sourceLine(line: Line): SourceLine {
   return {
@@ -134,16 +169,18 @@ function parseAnnotationFence(
 ): { guardedEmbed: [number, number]; block: AudioAnnotationBlock | null } | null {
   const openSource = sourceLine(openLine);
   const open = FENCE_OPEN_RE.exec(openSource.text);
-  if (!open || open[2].trim().toLowerCase() !== "annotations") return null;
+  if (!open || open[3].trim().toLowerCase() !== "annotations") return null;
   const preceding = precedingAudio(doc, openLine);
   if (!preceding) return null;
   const { line: embedLine, embed } = preceding;
+  // Indented code to lezer, so the editor never binds it either.
+  if (!opensFence(open[1], embedLine.text)) return null;
   const guardedEmbed: [number, number] = [embed.embedFrom, embed.embedTo];
 
   let closeLine: Line | null = null;
   for (let lineNumber = openLine.number + 1; lineNumber <= throughLine; lineNumber++) {
     const candidate = doc.line(lineNumber);
-    if (fenceClose(sourceLine(candidate).text, open[1])) {
+    if (fenceClose(sourceLine(candidate).text, open[2])) {
       closeLine = candidate;
       break;
     }
@@ -214,8 +251,16 @@ export function resolveAudioAnnotationTarget(
   position: number,
   expectedName: string
 ): AudioAnnotationTarget | null {
-  const at = Math.max(0, Math.min(doc.length, position));
-  const around = doc.lineAt(at);
+  // An out-of-range position is a stale address, not a nearby one. Clamping it
+  // to the document's end asked the LAST line whether it carried an embed of
+  // this name, and a note whose player was deleted while a second embed of the
+  // same file sat at the bottom answered yes — the note went to the wrong
+  // place. `toggleColumnTask` (editor-widgets.ts) already models this: a line
+  // number past the end of the document ends the write-back rather than
+  // picking the nearest line. Belt only — a retained widget's `posAtDOM`
+  // address is inside the document it was read from.
+  if (position < 0 || position > doc.length) return null;
+  const around = doc.lineAt(position);
   const candidates = [around.number];
   if (around.number > 1) candidates.push(around.number - 1);
   if (around.number < doc.lines) candidates.push(around.number + 1);
@@ -237,7 +282,11 @@ export function resolveAudioAnnotationTarget(
     }
     const openLine = doc.line(openNumber);
     const open = FENCE_OPEN_RE.exec(sourceLine(openLine).text);
-    if (!open || open[2].trim().toLowerCase() !== "annotations") {
+    if (
+      !open ||
+      open[3].trim().toLowerCase() !== "annotations" ||
+      !opensFence(open[1], embedLine.text)
+    ) {
       return {
         embedFrom: embed.embedFrom,
         embedLineTo: embedLine.to,
@@ -269,7 +318,7 @@ export function findAudioAnnotationBlocks(source: string): AudioAnnotationBlock[
     const line = sourceLine(doc.line(lineNumber));
     const genericFence = FENCE_OPEN_RE.exec(line.text);
     if (genericFence) {
-      const delimiter = genericFence[1];
+      const delimiter = genericFence[2];
       let closeNumber = lineNumber + 1;
       while (
         closeNumber <= doc.lines &&
@@ -277,7 +326,7 @@ export function findAudioAnnotationBlocks(source: string): AudioAnnotationBlock[
       ) {
         closeNumber++;
       }
-      if (genericFence[2].trim().toLowerCase() === "annotations") {
+      if (genericFence[3].trim().toLowerCase() === "annotations") {
         const close = Math.min(closeNumber, doc.lines);
         ranges.push([line.from, doc.line(close).to]);
       }

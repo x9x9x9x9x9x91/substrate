@@ -1106,7 +1106,24 @@ case-insensitively — ` ```View ` and ` ```CHART compact ` render as widgets li
 their bare lowercase forms, and their contents stay out of the search index the
 same way. The strict bare-form languages (` ```csv `, ` ```formulas `) match the
 exact lowercase opener with no tail: ` ```CSV ` parses as nothing, renders as an
-ordinary code box, and stays searchable prose.
+ordinary code box, and stays searchable prose. They are stricter about the
+opener's SHAPE as well: the sheet pair is the one pair whose language must hug a
+backtick marker — ` ~~~csv ` and ` ``` csv ` name no fence any parser in the app
+reads, so they stay searchable prose too, and the two allowances below stop
+short of them.
+
+Either fence marker opens a machine fence. CommonMark spells a fence with three
+or more backticks OR three or more tildes, and the editor draws a ` ~~~view `
+embed exactly like its backtick twin — so the tilde spelling's config lines
+leave the search index too, under the same per-language tail and case rules.
+
+Whitespace between the marker and the language is not part of the language.
+CommonMark reads an info string with its leading whitespace stripped, so
+` ``` view ` names `view` exactly like ` ```view ` — the three surfaces that draw
+a machine fence live all draw it (the editor at top level, the editor's column
+cells, and the hub canvas), and its config leaves the search index with them.
+Printing is not one of them and never has been: the print renderer emits every
+fence, machine or not, as the code box its author typed.
 
 ### 5.1 Sheets — ` ```csv ` + ` ```formulas `
 

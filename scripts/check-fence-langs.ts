@@ -5,7 +5,8 @@
  * Which fenced languages hold app-parsed config rather than prose (vault-format
  * §5) is written out TWICE, in two languages that cannot import each other:
  *
- *   1. TS   — `TAILED_MACHINE_FENCE_LANGS` / `BARE_MACHINE_FENCE_LANGS` in
+ *   1. TS   — `TAILED_MACHINE_FENCE_LANGS` / `HUB_BARE_MACHINE_FENCE_LANGS` /
+ *             `SHEET_BARE_MACHINE_FENCE_LANGS` in
  *             src/lib/fences.ts, which build `MACHINE_FENCE_RE`. The renderer
  *             side: it decides what the app's own search index skips.
  *   2. Rust — the literal regex in `machine_fence_re()`, src-tauri/src/vault/mod.rs.
@@ -33,11 +34,13 @@
  * only be a third opinion about it. The Rust literal has no such route and is
  * lifted out of the source.
  *
- * Comparison runs at three depths. The lang SETS are compared tailed-vs-tailed
- * and bare-vs-bare, because the distinction is load-bearing: the live-dispatch
- * languages accept an info-string tail (```view table), the strict bare-form
- * parsers do not, so a language that moved between the two groups on one side
- * only is drift even though the union matches. Each language present on both
+ * Comparison runs at three depths. The lang SETS are compared group by group —
+ * tailed, bare, sheet — because each distinction is load-bearing: the
+ * live-dispatch languages accept an info-string tail (```view table) and the
+ * strict bare-form parsers do not, and the sheet pair additionally wants its
+ * language hugging a backtick marker where the hub's bare langs take a tilde
+ * and a leading space. A language that moved between groups on one side only
+ * is drift even though the union matches. Each language present on both
  * sides then has its SPELLING compared, because a case-folded id and a plain
  * one are the same id and different matchers (```HeatMap once stripped on
  * one side only). Then the whole PATTERNS are compared, which catches the
@@ -80,9 +83,22 @@ const END = "<END-OF-INPUT>";
  * The pattern shape, holes and all — read it against fences.ts and it is the
  * same string. Escaped mechanically below rather than by hand, so this stays
  * legible and cannot pick up a hand-escaping typo.
+ *
+ * THREE holes, not two: the bare form is spelled twice because its two halves
+ * accept different OPENERS. The hub's bare langs ride the shared marker
+ * alternation and the space-before-info allowance, since the readers that draw
+ * them take the info string the CommonMark way; the sheet pair (csv/formulas)
+ * has its own branch requiring a hugging backtick marker, because `findFence`
+ * — their only parser, on both sides — matches the literal "```csv". A group
+ * that slid across that line would strip a spelling nothing renders, taking
+ * user content out of search, so the split is compared like the tailed/bare
+ * one.
  */
 const TEMPLATE =
-  "```(?:(?:<TAILED>)(?:[ \\t][^`\\n]*)?|(?:<BARE>)[ \\t]*)\\r?\\n[\\s\\S]*?(?:```|" + END + ")";
+  "(?:(?:```|~~~)[ \\t]*(?:(?:<TAILED>)(?:[ \\t][^`\\n]*)?|(?:<BARE>)[ \\t]*)|```(?:<SHEET>)[ \\t]*)" +
+  "\\r?\\n[\\s\\S]*?(?:```|~~~|" +
+  END +
+  ")";
 
 /**
  * One fence language id as it appears INSIDE a pattern. Not simply `[a-z0-9-]+`:
@@ -111,22 +127,29 @@ const SHAPE = new RegExp(
   "^" +
     TEMPLATE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
       .replace("<TAILED>", LANG_RUN)
-      .replace("<BARE>", LANG_RUN) +
+      .replace("<BARE>", LANG_RUN)
+      .replace("<SHEET>", LANG_RUN) +
     "$"
 );
 
-/** One side's fence inventory: the two lang groups, and its raw pattern. */
+/** The three lang groups a machine-fence pattern spells, in pattern order. */
+export const FENCE_GROUPS = ["tailed", "bare", "sheet"] as const;
+export type FenceGroup = (typeof FENCE_GROUPS)[number];
+
+/** One side's fence inventory: the three lang groups, and its raw pattern. */
 export type FenceInventory = {
   /** language ids, case pairs decoded (`[Vv][Ii][Ee][Ww]` → `view`) */
   tailed: string[];
-  /** language ids, case pairs decoded */
+  /** the bare-form langs on the lenient opener — the hub's, case pairs decoded */
   bare: string[];
+  /** the bare-form langs whose opener must hug a backtick marker (the sheet pair) */
+  sheet: string[];
   /**
-   * The same two groups as the pattern SPELLS them — `[Vv][Ii][Ee][Ww]`, `csv`
-   * — keyed by decoded id. Same ids with different spellings are two different
-   * matchers, and that difference is invisible in the decoded lists.
+   * The same three groups as the pattern SPELLS them — `[Vv][Ii][Ee][Ww]`,
+   * `csv` — keyed by decoded id. Same ids with different spellings are two
+   * different matchers, and that difference is invisible in the decoded lists.
    */
-  spelling: Record<"tailed" | "bare", Map<string, string>>;
+  spelling: Record<FenceGroup, Map<string, string>>;
   /** the pattern with the end-of-input alternative normalized to `END` */
   pattern: string;
 };
@@ -140,8 +163,10 @@ export type FenceInventory = {
  * patterns that no longer close the same way.
  */
 export function normalizeEnd(pattern: string, label: string): string {
-  for (const anchor of ["(?:```|$)", "(?:```|\\z)"]) {
-    if (pattern.endsWith(anchor)) return pattern.slice(0, -anchor.length) + "(?:```|" + END + ")";
+  for (const anchor of ["(?:```|~~~|$)", "(?:```|~~~|\\z)"]) {
+    if (pattern.endsWith(anchor)) {
+      return pattern.slice(0, -anchor.length) + "(?:```|~~~|" + END + ")";
+    }
   }
   throw new Error(
     `${label}: pattern does not end in an end-of-input alternative — got …${pattern.slice(-24)}`
@@ -165,7 +190,7 @@ export function parseFencePattern(raw: string, label: string): FenceInventory {
         "    If the grammar genuinely changed, change it on BOTH sides and update TEMPLATE here."
     );
   }
-  const groups = { tailed: m[1].split("|"), bare: m[2].split("|") };
+  const groups = { tailed: m[1].split("|"), bare: m[2].split("|"), sheet: m[3].split("|") };
   // First spelling wins on a duplicate — a repeated language is already
   // reported as a list difference, and picking one keeps that from also
   // reading as a spelling disagreement with the other side.
@@ -177,7 +202,12 @@ export function parseFencePattern(raw: string, label: string): FenceInventory {
   return {
     tailed: groups.tailed.map(decode),
     bare: groups.bare.map(decode),
-    spelling: { tailed: spell(groups.tailed), bare: spell(groups.bare) },
+    sheet: groups.sheet.map(decode),
+    spelling: {
+      tailed: spell(groups.tailed),
+      bare: spell(groups.bare),
+      sheet: spell(groups.sheet),
+    },
     pattern,
   };
 }
@@ -324,7 +354,9 @@ const list = (xs: readonly string[]) => (xs.length ? xs.join(", ") : "(none)");
 
 /** TEMPLATE with both lang holes closed up — the skeleton every SHAPE-matching
     pattern reduces to. */
-const SKELETON = TEMPLATE.replace("<TAILED>", "<LANGS>").replace("<BARE>", "<LANGS>");
+const SKELETON = TEMPLATE.replace("<TAILED>", "<LANGS>")
+  .replace("<BARE>", "<LANGS>")
+  .replace("<SHEET>", "<LANGS>");
 
 /**
  * The pattern with its two lang runs replaced by a placeholder — everything
@@ -350,7 +382,7 @@ const grammarProblem = (ts: FenceInventory, rust: FenceInventory) =>
 /** Human-readable drift between the two inventories; empty means lockstep. */
 export function crossCheck(ts: FenceInventory, rust: FenceInventory): string[] {
   const problems: string[] = [];
-  for (const group of ["tailed", "bare"] as const) {
+  for (const group of FENCE_GROUPS) {
     const a = new Set(ts[group]);
     const b = new Set(rust[group]);
     const tsOnly = ts[group].filter((l) => !b.has(l));
@@ -414,8 +446,10 @@ export function crossCheck(ts: FenceInventory, rust: FenceInventory): string[] {
     problems.push(
       "the two sides carry the same languages but not the same LIST — a reorder or a " +
         "duplicate entry, not a coverage, spelling or grammar change:\n" +
-        `      TS:   tailed [${list(ts.tailed)}], bare [${list(ts.bare)}]\n` +
-        `      Rust: tailed [${list(rust.tailed)}], bare [${list(rust.bare)}]`
+        `      TS:   tailed [${list(ts.tailed)}], bare [${list(ts.bare)}], ` +
+        `sheet [${list(ts.sheet)}]\n` +
+        `      Rust: tailed [${list(rust.tailed)}], bare [${list(rust.bare)}], ` +
+        `sheet [${list(rust.sheet)}]`
     );
   }
   return problems;
@@ -471,7 +505,8 @@ function main(): void {
 
   const problems = [...crossCheck(inv.ts, inv.rust), ...useSite];
   console.log(
-    `check-fence-langs: tailed [${list(inv.ts.tailed)}], bare [${list(inv.ts.bare)}]`
+    `check-fence-langs: tailed [${list(inv.ts.tailed)}], bare [${list(inv.ts.bare)}], ` +
+      `sheet [${list(inv.ts.sheet)}]`
   );
   if (problems.length === 0) {
     console.log("check-fence-langs: TS and Rust fence grammars agree ✓");

@@ -114,6 +114,30 @@ function fixtureVault(t: { after: (fn: () => void) => void }, extra: Record<stri
   return dir;
 }
 
+test("nthViewFence counts the fences a reader of the note counts", () => {
+  // the count rides the shared block scanner, so every spelling the editor
+  // draws is a fence here: indented, under a list item, tilde, long run, and a
+  // space before the info word. Counting only the flush-left backtick form
+  // made "the second fence" mean a different fence to this reader than to the
+  // note's author.
+  const body = [
+    "```view",
+    "from: first",
+    "```",
+    "- the board",
+    "  ~~~view",
+    "  from: second",
+    "  ~~~",
+    "``` view",
+    "from: third",
+    "```",
+  ].join("\n");
+  assert.equal(nthViewFence(body, 1), "from: first");
+  assert.equal(nthViewFence(body, 2), "from: second");
+  assert.equal(nthViewFence(body, 3), "from: third");
+  assert.equal(nthViewFence(body, 4), null);
+});
+
 test("splitFrontmatter: block at byte 0 or nothing, BOM tolerated", () => {
   assert.deepEqual(splitFrontmatter("---\na: 1\n---\nbody\n"), { fm: "a: 1", body: "body\n" });
   assert.deepEqual(splitFrontmatter("﻿---\na: 1\n---\nbody\n"), { fm: "a: 1", body: "body\n" });

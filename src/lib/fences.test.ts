@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import {
   BARE_MACHINE_FENCE_LANGS,
   hasUnclosedFence,
+  HUB_BARE_MACHINE_FENCE_LANGS,
+  SHEET_BARE_MACHINE_FENCE_LANGS,
   TAILED_MACHINE_FENCE_LANGS,
   isTailedBareFence,
   stripMachineFences,
@@ -108,6 +110,34 @@ test("stripMachineFences blanks a ```calendar body too (SUB-965)", () => {
 test("stripMachineFences: user code fences stay searchable", () => {
   const body = "prose\n\n```ts\nconst mastering = 1;\n```\nafter\n";
   assert.equal(stripMachineFences(body), body, "untouched");
+});
+
+test("stripMachineFences: a tilde machine fence strips like its backtick twin (SUB-1703)", () => {
+  // lezer parses ~~~view as a FencedCode with the same CodeInfo, so the editor
+  // draws the embed live — its config must leave the search index with it, or
+  // the fence renders while `source:`/`target:` stay findable as prose.
+  // Lockstep twin: machine_fence_strip_covers_tilde_openers in
+  // src-tauri/src/vault/mod.rs asserts the same corpus.
+  for (const open of ["~~~view", "~~~view table", "~~~chart compact", "~~~calendar", "~~~CSV"]) {
+    const body = `a\n${open}\nsource: releases\n~~~\nb`;
+    const out = stripMachineFences(body);
+    const strips = open !== "~~~CSV"; // csv dispatches case-sensitively, so ~~~CSV is prose
+    assert.equal(
+      !out.includes("source: releases"),
+      strips,
+      `${open} ${strips ? "strips" : "stays prose"}`
+    );
+    assert.equal(out.split("\n").length, body.split("\n").length, "line count preserved");
+  }
+
+  // a user's own tilde code fence is prose, tail and all
+  const prose = "prose\n\n~~~ts\nconst mastering = 1;\n~~~\nafter\n";
+  assert.equal(stripMachineFences(prose), prose, "user tilde fence untouched");
+
+  // the backtick guard holds for the tilde spelling too: an inline mention in
+  // running text names no fence and must not blank the prose after it
+  const mention = "see `~~~chart compact` for the syntax\nkeep this line\n";
+  assert.equal(stripMachineFences(mention), mention, "inline mention blanks nothing");
 });
 
 test("stripMachineFences: an unclosed fence blanks to EOF", () => {
@@ -259,6 +289,69 @@ test("every declared fence language behaves like its group (generated)", () => {
     const body = fence("```" + lang + " wide");
     assert.equal(stripMachineFences(body), body, "tailed " + lang + " stays prose");
   }
+});
+
+test("stripMachineFences: the sheet pair's opener must hug a backtick marker", () => {
+  // csv and formulas have exactly one parser — `findFence` (sheet.ts) and its
+  // Rust twin `find_fence` — and it looks for the literal "```csv" at the
+  // start of a line. `~~~csv` and "``` csv" draw NOTHING, on any surface, so
+  // stripping them would take a user's own fenced content out of the search
+  // index with no leak closed anywhere: the trade this file's comment rules
+  // out, run backwards. The two allowances the hub's bare langs carry — the
+  // tilde marker and a space before the info word — therefore stop here.
+  // Lockstep twin: machine_fence_strip_wants_the_sheet_pair_hugging_backticks
+  // in src-tauri/src/vault/mod.rs asserts this same corpus.
+  for (const lang of SHEET_BARE_MACHINE_FENCE_LANGS) {
+    for (const open of [`~~~${lang}`, `\`\`\` ${lang}`, `\`\`\`\t${lang}`, `~~~ ${lang}`]) {
+      const body = `a\n${open}\nname,take\n\`\`\`\nb`;
+      assert.equal(stripMachineFences(body), body, `${open} renders nothing, so it stays prose`);
+      assert.equal(findFence(body, lang), null, "…and the sheet parser agrees it is no opener");
+    }
+    // the spellings the parser DOES read still strip, trailing space and all
+    for (const open of [`\`\`\`${lang}`, `\`\`\`${lang} `, `\`\`\`${lang}\t`]) {
+      const body = `a\n${open}\nname,take\n\`\`\`\nb`;
+      assert.equal(stripMachineFences(body), "a\n\n\n\nb", `${open} strips`);
+    }
+  }
+  // …while the hub's bare langs keep both allowances: those spellings draw.
+  for (const lang of HUB_BARE_MACHINE_FENCE_LANGS) {
+    for (const open of [`~~~${lang}`, `\`\`\` ${lang}`]) {
+      const body = `a\n${open}\nsource: session\n\`\`\`\nb`;
+      assert.ok(
+        !stripMachineFences(body).includes("source: session"),
+        `${open} draws live, so its config leaves the index`
+      );
+    }
+  }
+});
+
+test("stripMachineFences: a space before the info word names the language", () => {
+  // CommonMark reads the info string with its leading whitespace stripped, so
+  // "``` view" is the language `view`: lezer hands the editor that, and the
+  // block scanner behind the hub takes its first word off the
+  // trimmed info string (mdblocks.ts). This strip wanted the lang to hug the
+  // marker, so the spelling drew live on three surfaces with its source/target
+  // lines still in the search index. Lockstep twin:
+  // machine_fence_strip_covers_space_before_the_info_word in
+  // src-tauri/src/vault/mod.rs asserts this same corpus.
+  for (const open of ["``` view", "```\tchart compact", "~~~  calendar", "```  HeatMap"]) {
+    const body = `a\n${open}\nsource: releases\n\`\`\`\nb`;
+    assert.ok(
+      !stripMachineFences(body).includes("source: releases"),
+      `${open} strips its config`
+    );
+    assert.equal(
+      stripMachineFences(body).split("\n").length,
+      body.split("\n").length,
+      "line count preserved"
+    );
+  }
+  // padding and no language names no fence of ours
+  const empty = "a\n```   \nplain\n```\nb";
+  assert.equal(stripMachineFences(empty), empty, "an info-less opener stays prose");
+  // and a user's own fence is prose in either spelling
+  const prose = "a\n``` ts\nconst mastering = 1;\n```\nb";
+  assert.equal(stripMachineFences(prose), prose, "user fence untouched");
 });
 
 test("stripMachineFences: a bare-form opener typed with a stray space still strips", () => {

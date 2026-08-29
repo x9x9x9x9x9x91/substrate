@@ -1420,17 +1420,28 @@ const FILE_SVG = `<svg width="12" height="12" viewBox="0 0 16 16" fill="none" st
 
 const AUDIO_CLEANUP = Symbol("audio-cleanup");
 
-/** Where in the document a player's own embed line starts. `posAtDOM` answers
-    for the widget CodeMirror mounted, which for a player inside a column
-    region is the region's first line — the offset walks from there to the
-    embed, so an annotation written from inside a region lands on the right
-    fence. Resolved at click time, never carried in the widget's identity, the
-    same discipline the column task box keeps. */
+/** Where in the document a player's own embed line starts, or -1 when the
+    offset no longer names a line. `posAtDOM` answers for the widget
+    CodeMirror mounted, which for a player inside a column region is the
+    region's first line — the offset walks from there to the embed, so an
+    annotation written from inside a region lands on the right fence. Resolved
+    at click time, never carried in the widget's identity, the same discipline
+    the column task box keeps.
+
+    An offset that runs past the end of the document ENDS the walk — the same
+    answer `toggleColumnTask` gives a task box whose line number overran. It
+    used to clamp to the last line, which asked that line whether it happened
+    to carry an embed of this name; a note whose region was cut while a second
+    embed of the same file sat at the bottom got a yes, and the annotation
+    landed on a player the writer was not looking at. Belt only: the offset is
+    computed from the same region text the widget was built from. */
 function annotationAnchor(view: EditorView, wrap: HTMLElement, offset: number): number {
   const doc = view.state.doc;
   const base = doc.lineAt(view.posAtDOM(wrap));
   if (!offset) return base.from;
-  return doc.line(Math.min(doc.lines, base.number + offset)).from;
+  const number = base.number + offset;
+  if (number > doc.lines) return -1;
+  return doc.line(number).from;
 }
 
 /** Audio embeds share one player per name (getPlayer), so a healthy widget's
@@ -2596,11 +2607,19 @@ function liveInline(
   widget: ColumnsWidget,
   mounts: ColumnMount[]
 ) {
-  for (const seg of text.split(/(`[^`]*`)/)) {
-    if (seg.startsWith("`") && seg.endsWith("`") && seg.length > 1) {
-      parent.insertAdjacentHTML("beforeend", renderInlineMd(seg, () => BLANK_PIXEL, CELL_PRINT_OPTS));
+  for (const raw of text.split(/(`[^`]*`)/)) {
+    if (raw.startsWith("`") && raw.endsWith("`") && raw.length > 1) {
+      parent.insertAdjacentHTML("beforeend", renderInlineMd(raw, () => BLANK_PIXEL, CELL_PRINT_OPTS));
       continue;
     }
+    // the author's own slot characters come out of the text FIRST — a line
+    // that carries a pasted `\uE000` reads as a slot to `fillSlots` and is
+    // either eaten (no widget at that index) or mounts a second copy of one
+    // this line already placed. Dropping the opener is enough: a slot needs
+    // it, and a stray closer left in the text is a private-use character
+    // nothing renders. (`split`/`join` rather than `replaceAll` — the
+    // tsconfig target predates it.)
+    const seg = raw.split(SLOT_OPEN).join("");
     const live: WidgetType[] = [];
     const slotted = seg.replace(/!\[\[([^[\]]+)\]\]/g, (whole, inner: string) => {
       const target = embedTarget(inner);

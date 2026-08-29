@@ -32,10 +32,12 @@ export interface MdListItem {
 export type MdBlock =
   /** A fenced block, in every spelling CommonMark calls one: three or more
       backticks or tildes, up to three spaces of indent. `lang` is the info
-      string's first word verbatim (callers that match on it fold case
-      themselves); `tail` is the rest of the info string INCLUDING its leading
-      whitespace, which is what tells a live machine fence (```calendar) from
-      a tailed opener that is only prose (```calendar month). `inner` excludes
+      string's first word verbatim, with the info string's own leading
+      whitespace already off the way CommonMark takes it (``` view is `view`;
+      callers that match on it fold case themselves); `tail` is the rest of
+      the info string INCLUDING its leading whitespace, which is what tells a
+      live machine fence (```calendar) from a tailed opener that is only prose
+      (```calendar month). `inner` excludes
       both fence lines, with the opener's indent removed from each line the
       way CommonMark removes it. */
   | { kind: "fence"; lang: string; tail: string; inner: string }
@@ -71,7 +73,15 @@ export interface MdScanOptions {
 // itself and the CommonMark rules around it (tildes, indent, runs longer than
 // three, what closes what) live in `fences.ts` — one grammar, so a spelling
 // the column parser hides markers inside is a spelling this opens.
+//
+// The info string's own LEADING whitespace comes off before the split, which
+// is CommonMark's rule and lezer's reading of it: "``` view" names the
+// language `view`, the same as "```view". Splitting the untrimmed remainder
+// gave `lang: ""` and a tail of " view", so the editor drew that fence's
+// widget live (it reads lezer's CodeInfo) while these static surfaces printed
+// its config as a code box — one note rendering two ways.
 const FENCE_INFO_RE = /^(\S*)([\s\S]*)$/;
+const FENCE_INFO_INDENT_RE = /^[ \t]+/;
 const HEADING_RE = /^(#{1,6})\s+(.*)$/;
 const HR_RE = /^\s*([-*_])\s*\1\s*\1[\s\-*_]*$/;
 const QUOTE_RE = /^\s*>/;
@@ -127,7 +137,12 @@ export function scanMdBlocks(md: string, opts: MdScanOptions): MdBlock[] {
     if (run !== null) {
       flushPara();
       const indent = line.indexOf(run[0]);
-      const info = FENCE_INFO_RE.exec(line.slice(indent + run.length).replace(/\r$/, ""))!;
+      const info = FENCE_INFO_RE.exec(
+        line
+          .slice(indent + run.length)
+          .replace(/\r$/, "")
+          .replace(FENCE_INFO_INDENT_RE, "")
+      )!;
       const code: string[] = [];
       i++;
       while (i < lines.length && !fenceCloses(lines[i], run)) code.push(stripIndent(lines[i++], indent));
