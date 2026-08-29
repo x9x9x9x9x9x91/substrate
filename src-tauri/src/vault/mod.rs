@@ -4236,6 +4236,8 @@ pub use doctor::{DoctorFinding, DoctorKind, DoctorReport, DoctorSeverity};
 
 mod assets;
 pub use assets::AssetInfo;
+// the doctor tells the two embed-target refusals apart in what it reports
+pub(crate) use assets::EmbedTargetError;
 
 mod folderfiles;
 pub use folderfiles::FolderListing;

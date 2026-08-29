@@ -422,7 +422,11 @@ Tracked in the issue tracker. Two of the shapes that used to sit here have
 since shipped and moved up: per-fact provenance receipts (0.23) and
 time-travel queries over git history — `AT()`, `PROP()` and the chart
 `history:` source (0.23), with search over the past following in 0.25. What
-remains planned here: cross-type joins.
+remains planned here: cross-type joins, and a vault that can keep a folder of
+heavy files off sync per folder — the binaries stay on the machine with the
+disk for them while the notes that embed them travel, and every other device
+still lists what is over there and says it is not here rather than showing a
+broken link.
 
 ## Maintenance
 

@@ -4,13 +4,13 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   assetBlobUrl,
   audioSource,
+  embedFilePath,
   loadPeaks,
-  pdfSource,
   PEAKS_AUTO_MAX_BYTES,
   type AudioSource,
 } from "./assets.ts";
 import { isAudioEmbed as isAudioName, isImageName, isPdfEmbed as isPdfName } from "./artwork.ts";
-import { onVaultLeft } from "./vaultcaches.ts";
+import { mountPdfViewer } from "./pdfviewer.ts";
 import { parseColumnRegions, type ColumnPart } from "./columns.ts";
 import {
   embedSize,
@@ -31,7 +31,7 @@ import { formatFileSize } from "./display.ts";
 import { renderInlineMd, renderLinearMd, renderMdBlock, type PrintOptions } from "./print.ts";
 import { scanMdBlocks, type MdBlock } from "./mdblocks.ts";
 import { parseCalloutStyle } from "./styletokens.ts";
-import { fileOpen, historyFreshness, vaultAssetInfo, vaultRoot } from "./ipc.ts";
+import { fileOpen, historyFreshness, vaultAssetInfo } from "./ipc.ts";
 import { fillAges } from "./agefill.ts";
 import {
   parseViewSpec,
@@ -39,7 +39,7 @@ import {
   type EmbedResult,
   type ViewSpecResult,
 } from "./embeds.ts";
-import { missingEmbedKind, missingEmbedLabel } from "./embedstate.ts";
+import { missingEmbedKind, missingEmbedLabel, unsyncedEmbedReason } from "./embedstate.ts";
 import { focusIntoState } from "./editorfocus.ts";
 import { isTauri } from "./tauri.ts";
 import {
@@ -110,7 +110,7 @@ function applyMissingKind(
     .then((kind) => {
       if (kind !== "unsynced" || !wrap.isConnected) return;
       wrap.classList.add("cm-embed-unsynced");
-      wrap.title = "This vault syncs notes only — assets stay on the device that made them.";
+      wrap.title = unsyncedEmbedReason(name);
       wrap.textContent = missingEmbedLabel(kind, noun, name);
       view.requestMeasure();
     })
@@ -1894,12 +1894,9 @@ export class FileWidget extends WidgetType {
     );
 
     const open = () => {
-      // bare names live in .assets/ (same resolution as the Assets pane);
-      // link-in-place path embeds open the path itself (Rust expands ~)
-      const target = /^(\/|~\/)/.test(embedName)
-        ? Promise.resolve(embedName)
-        : vaultRoot().then((root) => `${root}/.assets/${embedName}`);
-      target.then((p) => fileOpen(p)).catch((e) => console.warn("file open unavailable:", e));
+      embedFilePath(embedName)
+        .then((p) => fileOpen(p))
+        .catch((e) => console.warn("file open unavailable:", e));
     };
 
     wrap.addEventListener("mousedown", (e) => {
@@ -1932,31 +1929,6 @@ export class FileWidget extends WidgetType {
    would snap back to page 1 on every keystroke near the embed. Keyed by embed
    name rather than by file version: the same document re-imported is still the
    thing the reader was reading, and `clampPage` handles a shorter one. */
-const pdfPages = new Map<string, number>();
-
-/* One entry is a name and a number, but a long session opening document after
-   document would keep every one of them forever. Bound it: the oldest place a
-   reader has not returned to is the cheapest thing to forget, and forgetting
-   it costs that viewer its first page, not its document. */
-const MAX_REMEMBERED_PAGES = 64;
-function rememberPage(name: string, page: number) {
-  // delete before set so the key moves to the back of the insertion order —
-  // otherwise the oldest key is the first one ever written, not the one the
-  // reader has stayed away from longest
-  pdfPages.delete(name);
-  pdfPages.set(name, page);
-  while (pdfPages.size > MAX_REMEMBERED_PAGES) {
-    const oldest = pdfPages.keys().next();
-    if (oldest.done) break;
-    pdfPages.delete(oldest.value);
-  }
-}
-
-/* A vault switch leaves these page numbers pointing into documents nobody is
-   reading any more; the next vault's `report.pdf` is a different document and
-   deserves to open at its first page. */
-onVaultLeft(() => pdfPages.clear());
-
 /* How to stop a viewer that CodeMirror is taking away, keyed by the DOM it
    built. The widget instance the editor hands to `destroy` is not always the
    one whose `toDOM` made that element — equal widgets are interchangeable —
@@ -1994,46 +1966,10 @@ export class PdfWidget extends WidgetType {
     wrap.className = "cm-embed-pdf";
     wrap.tabIndex = 0;
     const embedName = this.name;
-    const asked = this.size;
-
-    const frame = document.createElement("span");
-    frame.className = "cm-pdf-frame";
-    Object.assign(frame.style, embedSizeStyle(asked));
-    const canvas = document.createElement("canvas");
-    canvas.className = "cm-pdf-canvas";
-    frame.appendChild(canvas);
-
-    const bar = document.createElement("span");
-    bar.className = "cm-pdf-bar";
-    const prev = document.createElement("button");
-    prev.type = "button";
-    prev.tabIndex = -1;
-    prev.className = "cm-pdf-step";
-    prev.textContent = "‹";
-    prev.title = "Previous page";
-    const next = document.createElement("button");
-    next.type = "button";
-    next.tabIndex = -1;
-    next.className = "cm-pdf-step";
-    next.textContent = "›";
-    next.title = "Next page";
-    const count = document.createElement("span");
-    count.className = "cm-pdf-count";
-    const nameEl = document.createElement("span");
-    nameEl.className = "cm-pdf-name";
-    nameEl.textContent = embedName.split("/").pop() || embedName;
-    nameEl.title = embedName;
-    const openBtn = document.createElement("button");
-    openBtn.type = "button";
-    openBtn.tabIndex = -1;
-    openBtn.className = "cm-pdf-open";
-    openBtn.textContent = "Open";
-    openBtn.title = "Open in the default app";
-    bar.append(prev, count, next, nameEl, openBtn);
-    wrap.append(frame, bar);
 
     const fail = (state: string, noun: string) => {
       this.failed = true;
+      viewer.destroy();
       wrap.className = "cm-embed-missing cm-pdf-missing";
       wrap.tabIndex = -1;
       wrap.replaceChildren();
@@ -2043,145 +1979,37 @@ export class PdfWidget extends WidgetType {
     };
 
     const open = () => {
-      // bare names live in .assets/ (same resolution as the file chip);
-      // link-in-place path embeds open the path itself (Rust expands ~)
-      const target = /^(\/|~\/)/.test(embedName)
-        ? Promise.resolve(embedName)
-        : vaultRoot().then((root) => `${root}/.assets/${embedName}`);
-      target.then((p) => fileOpen(p)).catch((e) => console.warn("file open unavailable:", e));
+      embedFilePath(embedName)
+        .then((p) => fileOpen(p))
+        .catch((e) => console.warn("file open unavailable:", e));
     };
 
-    /* A render in flight when the reader pages again would land after the one
-       they asked for, so each paint checks it is still the current one — and
-       stops the one it supersedes, so an abandoned page is not still being
-       drawn onto the canvas the new one is painting. */
-    let generation = 0;
-    let inFlight: { cancel(): void } | null = null;
-    let releaseDoc: (() => void) | null = null;
-    let total = 0;
-    let page = pdfPages.get(embedName) ?? 1;
-
-    const paint = async () => {
-      const mine = ++generation;
-      inFlight?.cancel();
-      inFlight = null;
-      try {
-        const [
-          { pdfDocument, renderPdfPage },
-          { clampPage, pdfBandHeight, pdfDisplayWidth, pdfFitHeight, pdfPageLabel },
-          src,
-        ] = await Promise.all([
-          import("./pdfdoc.ts"),
-          import("./pdfembed.ts"),
-          pdfSource(embedName),
-        ]);
-        /* Held from the moment it is asked for, not from when it arrives: a
-           note with more embeds than the cache keeps would otherwise have one
-           viewer's document taken apart while another's render was still in
-           the middle of it. */
-        const handle = pdfDocument(src);
-        /* Everything above is awaited, and CodeMirror can take the line away
-           inside that window — in which case the teardown has already run and
-           found nothing to release. Let this hold go here rather than park it
-           in a closure nothing will reach again: a hold nobody releases keeps
-           the cache from ever taking that document apart, for the session. */
-        if (mine !== generation) {
-          handle.release();
-          return;
-        }
-        releaseDoc?.();
-        releaseDoc = handle.release;
-        const doc = await handle.doc;
-        if (mine !== generation || !wrap.isConnected) return;
-        total = doc.numPages;
-        page = clampPage(page, total);
-        rememberPage(embedName, page);
-        count.textContent = pdfPageLabel(page, total);
-        prev.disabled = page <= 1;
-        next.disabled = page >= total;
-        // the line the embed sits on is what offers the width: the wrap itself
-        // is an inline-block with nothing in it yet and measures zero
-        const available = wrap.parentElement?.clientWidth || wrap.clientWidth;
-        const width = pdfDisplayWidth(available, asked);
-        // an unsized page shrinks to stand within the reading band, a named
-        // `300x200` box is a box the whole page fits into, and a bare width is
-        // honoured however tall it stands the page
-        const render = renderPdfPage(
-          doc,
-          page,
-          canvas,
-          width,
-          pdfFitHeight(asked, pdfBandHeight(window.innerHeight))
-        );
-        inFlight = render;
-        await render.done;
-        if (mine !== generation) return;
-        inFlight = null;
-        view.requestMeasure();
-      } catch (e) {
-        // a render the reader outran, or one CodeMirror took the DOM from, is
-        // not a fault of the file — only the current paint may fail the embed
-        if (mine !== generation || !wrap.isConnected) return;
-        // a name with no file behind it is the missing idiom (which may really
-        // be "not on this device"); a file that will not parse is its own state.
-        // A vault switch can briefly land here on a healthy embed: leaving the
-        // old vault takes its parsed documents apart, so a render still in
-        // flight rejects and the question below is asked of the new vault,
-        // where the name is not. It is one frame before the editor rebuilds
-        // for the new note, and the alternative — leaving those documents held
-        // until every viewer notices — is the leak this cache exists to avoid.
-        vaultAssetInfo(embedName).then(
-          () => fail("unreadable pdf", "pdf"),
-          () => fail("missing pdf", "pdf")
-        );
-        console.warn("pdf embed unavailable:", embedName, e);
-      }
-    };
-
-    const repaint = () => {
-      void paint();
-    };
-
-    /* CodeMirror drops the whole element when the caret enters the line. Bump
-       the generation so a landing render finds itself stale, and stop the one
-       still drawing rather than let it finish onto a canvas nobody can see. */
-    pdfTeardowns.set(wrap, () => {
-      generation++;
-      inFlight?.cancel();
-      inFlight = null;
-      releaseDoc?.();
-      releaseDoc = null;
+    /* The viewer owns the paging, the render generations and the document
+       hold; the widget owns what the EDITOR needs around it — the measure
+       pass, the caret that must not move, and the missing state, which here is
+       the note's own idiom rather than a browser row's. */
+    const viewer = mountPdfViewer(wrap, {
+      name: embedName,
+      size: this.size,
+      onMeasure: () => view.requestMeasure(),
+      onFail: (failure) =>
+        fail(failure === "unreadable" ? "unreadable pdf" : "missing pdf", "pdf"),
+      onOpen: open,
     });
+    Object.assign(viewer.frame.style, embedSizeStyle(this.size));
 
-    const step = (delta: number) => {
-      const want = page + delta;
-      if (want < 1 || (total > 0 && want > total)) return;
-      page = want;
-      rememberPage(embedName, page);
-      repaint();
-    };
+    /* CodeMirror drops the whole element when the caret enters the line, and
+       hands `destroy` an element the instance that built it may not know. */
+    pdfTeardowns.set(wrap, () => viewer.destroy());
 
-    prev.addEventListener("click", () => step(-1));
-    next.addEventListener("click", () => step(1));
-    openBtn.addEventListener("click", open);
     wrap.addEventListener("mousedown", (e) => {
       // keep the caret where it is; the viewer takes focus explicitly
-      if (e.target === wrap || e.target === frame || e.target === canvas) {
+      if (e.target === wrap || e.target === viewer.frame || e.target instanceof HTMLCanvasElement) {
         e.preventDefault();
         wrap.focus({ preventScroll: true });
       }
     });
-    wrap.addEventListener("keydown", (e) => {
-      const back = e.key === "ArrowLeft" || e.key === "PageUp";
-      const fwd = e.key === "ArrowRight" || e.key === "PageDown";
-      if (!back && !fwd && e.key !== "Enter") return;
-      e.preventDefault();
-      e.stopPropagation();
-      if (e.key === "Enter") open();
-      else step(back ? -1 : 1);
-    });
 
-    repaint();
     return wrap;
   }
 

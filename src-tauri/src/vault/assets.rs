@@ -14,6 +14,62 @@ pub struct AssetInfo {
     pub mtime_ms: u64,
 }
 
+/// Resolve a VAULT-RELATIVE embed target — `Files/Guides/setup.pdf` — against
+/// the vault root. This is the form that lets a note embed a heavy binary the
+/// vault stores under its own folder rather than in `.assets/`, which is what
+/// makes such a folder excludable from sync while the note that shows it
+/// travels.
+///
+/// Everything a target could use to name a file the grammar is not meant to
+/// reach is refused rather than normalized away: an empty segment (`a//b`),
+/// `.` or `..` in any position, a dot-prefixed segment (the vault's hidden
+/// rule — `.vault/`, `.assets/` and `.trash/` are reachable through their own
+/// doors, never through an embed), and a backslash, which is a separator in
+/// disguise on the platform this format is read on. The result carries no
+/// `..`, so it is lexically inside the vault; the canonical check after it
+/// closes the one remaining door, a symlink inside the vault pointing out of
+/// it. A path that cannot be canonicalized is left to the caller's `metadata`
+/// read, which is the missing-file answer either way.
+///
+/// The two ways a target can be refused are different facts about the vault,
+/// so they are different errors: a string the grammar never accepts is one
+/// thing, and a well-formed path that turns out to leave the vault is another.
+/// Only the doctor cares, and it says the two out loud differently.
+pub(crate) enum EmbedTargetError {
+    /// not a path this vault can address at all
+    Malformed,
+    /// well-formed, but it lands outside the vault — a symlink pointing out
+    Escapes,
+}
+
+impl EmbedTargetError {
+    fn message(self) -> String {
+        match self {
+            EmbedTargetError::Malformed => "invalid asset name".into(),
+            EmbedTargetError::Escapes => "embed target resolves outside the vault".into(),
+        }
+    }
+}
+
+fn vault_relative_embed(root: &Path, target: &str) -> Result<PathBuf, EmbedTargetError> {
+    if target.contains('\\') {
+        return Err(EmbedTargetError::Malformed);
+    }
+    let mut path = root.to_path_buf();
+    for segment in target.split('/') {
+        if segment.is_empty() || segment.starts_with('.') {
+            return Err(EmbedTargetError::Malformed);
+        }
+        path.push(segment);
+    }
+    if let (Ok(real), Ok(base)) = (path.canonicalize(), root.canonicalize()) {
+        if !real.starts_with(&base) {
+            return Err(EmbedTargetError::Escapes);
+        }
+    }
+    Ok(path)
+}
+
 impl Engine {
     /// Claim a free filename in `.assets/`, sanitized, extension intact —
     /// `bounce.wav`, `bounce 2.wav`, … Creates the directory on first use.
@@ -133,10 +189,18 @@ impl Engine {
         Ok(contract_tilde(path))
     }
 
+    /// Where a vault-relative embed target lands on disk, without asking
+    /// whether anything is there. The doctor resolves targets it is not going
+    /// to stream, and a malformed one has to stay tellable from a missing one.
+    pub(crate) fn embed_target_path(&self, target: &str) -> Result<PathBuf, EmbedTargetError> {
+        vault_relative_embed(&self.root, target)
+    }
+
     /// Absolute path + freshness facts for an embed, for streaming via the
-    /// asset protocol. A bare name resolves inside `.assets/`; an absolute or
-    /// `~/` path is a link-in-place embed (never copied) — if the file moved,
-    /// the Err becomes the editor's broken-path state.
+    /// asset protocol. A bare name resolves inside `.assets/`; a name carrying
+    /// `/` is VAULT-RELATIVE and resolves against the vault root; an absolute
+    /// or `~/` path is a link-in-place embed (never copied) — if the file
+    /// moved, the Err becomes the editor's broken-path state.
     pub fn asset_info(&self, name: &str) -> Result<AssetInfo, String> {
         let name = name.trim();
         let path = if name.starts_with('/') {
@@ -144,8 +208,10 @@ impl Engine {
         } else if let Some(rest) = name.strip_prefix("~/") {
             let home = std::env::var("HOME").map_err(|_| "no home dir".to_string())?;
             Path::new(&home).join(rest)
+        } else if name.contains('/') {
+            vault_relative_embed(&self.root, name).map_err(EmbedTargetError::message)?
         } else {
-            if name.contains('/') || name.contains('\\') || name.contains("..") {
+            if name.contains('\\') || name.contains("..") {
                 return Err("invalid asset name".into());
             }
             self.root.join(".assets").join(name)
@@ -165,8 +231,11 @@ impl Engine {
 
     /// Export one note as a portable bundle: the file itself plus every
     /// `![[...]]` asset it embeds, copied into `dest_dir/.assets/` so the
-    /// embeds still resolve. Link-in-place embeds (absolute or `~/` paths)
-    /// stay links and are never copied. Returns how many assets came along.
+    /// embeds still resolve. Link-in-place embeds (absolute or `~/` paths) and
+    /// vault-relative ones (`Files/Guides/setup.pdf`) stay references and are
+    /// never copied — a bundle is a note plus its `.assets/`, and the folders
+    /// vault-relative targets name are the ones deliberately kept out of what
+    /// travels. Returns how many assets came along.
     /// Every file lands temp+rename, so a crash mid-export leaves an
     /// invisible `.tmp-<pid>-<seq>` behind instead of a truncated note or asset
     /// under its final name — the same contract vault-internal writes get.
@@ -196,12 +265,30 @@ impl Engine {
     }
 
     /// Read an asset back as base64 for inline rendering in the editor.
+    ///
+    /// Two of the four target forms arrive here: a bare `.assets/` name, and a
+    /// path inside the vault — an image embed reads its bytes through this door
+    /// whichever form the author wrote, so refusing the second would render
+    /// `![[Files/Guides/console.png]]` as a broken picture in a vault where the
+    /// file is sitting right there. The link-in-place forms never reach here;
+    /// the editor streams those from disk.
+    ///
+    /// This is the ONLY separator-accepting reader on this side. `assets_delete`,
+    /// `export_note_bundle` and the orphan sweep all still refuse a separator
+    /// outright, and deliberately: those three write, copy or delete, and
+    /// widening them would let an embed target reach a file the `.assets/`
+    /// contract says they own.
     pub fn read_asset(&self, name: &str) -> Result<String, String> {
         use base64::Engine as _;
-        if name.contains('/') || name.contains('\\') || name.contains("..") {
-            return Err("invalid asset name".into());
-        }
-        let bytes = fs::read(self.root.join(".assets").join(name)).map_err(|e| e.to_string())?;
+        let path = if name.contains('/') {
+            vault_relative_embed(&self.root, name).map_err(EmbedTargetError::message)?
+        } else {
+            if name.contains('\\') || name.contains("..") {
+                return Err("invalid asset name".into());
+            }
+            self.root.join(".assets").join(name)
+        };
+        let bytes = fs::read(path).map_err(|e| e.to_string())?;
         Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
     }
 
@@ -210,9 +297,11 @@ impl Engine {
     /// `![[name]]`, case-insensitively (the filesystem resolves embeds the
     /// same way). Trashed notes don't count — their embeds died with them; a
     /// restore after GC just renders the broken-embed state. Link-in-place
-    /// embeds (`/abs`, `~/…`) never name a `.assets/` file, so they can't
-    /// keep one alive. `path` here is the bare filename, ready for
-    /// `assets_delete`.
+    /// embeds (`/abs`, `~/…`) and vault-relative ones
+    /// (`Files/Guides/setup.pdf`) never name a `.assets/` file, so they can't
+    /// keep one alive — and the files they DO name are not candidates here
+    /// either, because the sweep only ever lists `.assets/` itself. `path`
+    /// here is the bare filename, ready for `assets_delete`.
     pub fn assets_orphaned(&self) -> Result<Vec<AssetInfo>, String> {
         let embed_re = Regex::new(r"!\[\[([^\[\]]+)\]\]").unwrap();
         let mut referenced: HashSet<String> = HashSet::new();
@@ -477,6 +566,150 @@ mod tests {
         assert!(e.asset_info("nope.wav").is_err());
         // bare names can't traverse out of .assets/
         assert!(e.asset_info("../Welcome.md").is_err());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn asset_info_resolves_vault_relative_targets() {
+        let (e, dir) = temp_vault("info-rel");
+        fs::create_dir_all(dir.join("Files/Guides")).unwrap();
+        fs::write(dir.join("Files/Guides/setup.pdf"), [0u8; 12]).unwrap();
+        let info = e.asset_info("Files/Guides/setup.pdf").unwrap();
+        assert_eq!(info.path, dir.join("Files/Guides/setup.pdf").display().to_string());
+        assert_eq!(info.size, 12);
+        assert!(info.mtime_ms > 0);
+        // a vault-relative name is NOT looked for in .assets/, and vice versa
+        fs::create_dir_all(dir.join(".assets")).unwrap();
+        fs::write(dir.join(".assets/setup.pdf"), [0u8; 3]).unwrap();
+        assert_eq!(e.asset_info("Files/Guides/setup.pdf").unwrap().size, 12);
+        assert_eq!(e.asset_info("setup.pdf").unwrap().size, 3);
+        // a folder is not an embed target
+        assert!(e.asset_info("Files/Guides").is_err());
+        // and a target naming nothing is the ordinary missing-embed Err
+        assert!(e.asset_info("Files/Guides/gone.pdf").is_err());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// The bytes half of the same grammar. `asset_info` only says where a file
+    /// is; an image embed reads it through `read_asset`, so a resolver that
+    /// widened one and not the other renders every vault-relative picture as a
+    /// broken one while the doctor reports the vault healthy.
+    #[test]
+    fn read_asset_takes_a_vault_relative_name_and_still_refuses_the_rest() {
+        use base64::Engine as _;
+        let (e, dir) = temp_vault("read-rel");
+        fs::create_dir_all(dir.join("Files/Guides")).unwrap();
+        fs::write(dir.join("Files/Guides/console.png"), [1u8, 2, 3, 4]).unwrap();
+        let b64 = e.read_asset("Files/Guides/console.png").unwrap();
+        assert_eq!(
+            base64::engine::general_purpose::STANDARD.decode(b64).unwrap(),
+            vec![1u8, 2, 3, 4]
+        );
+
+        // a bare name still means .assets/, and the two never cross
+        fs::create_dir_all(dir.join(".assets")).unwrap();
+        fs::write(dir.join(".assets/console.png"), [9u8]).unwrap();
+        assert_eq!(
+            base64::engine::general_purpose::STANDARD
+                .decode(e.read_asset("console.png").unwrap())
+                .unwrap(),
+            vec![9u8]
+        );
+
+        // every refusal `asset_info` makes, this makes too
+        for bad in [
+            "../outside.png",
+            "Files/../Notes/x.png",
+            "Files//console.png",
+            "Files/.vault/views.json",
+            ".assets/console.png",
+            "Files\\Guides\\console.png",
+        ] {
+            assert!(e.read_asset(bad).is_err(), "{bad} must not be readable");
+        }
+        // and a name that resolves to nothing is the ordinary missing Err
+        assert!(e.read_asset("Files/Guides/gone.png").is_err());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// The confinement the reviewers checked, pinned so widening `read_asset`
+    /// cannot be mistaken for permission to widen the three that write.
+    #[test]
+    fn the_writing_asset_paths_still_refuse_a_separator() {
+        let (e, dir) = temp_vault("write-confined");
+        fs::create_dir_all(dir.join("Files/Guides")).unwrap();
+        fs::write(dir.join("Files/Guides/console.png"), [1u8, 2, 3, 4]).unwrap();
+        assert!(e.assets_delete(&["Files/Guides/console.png".to_string()]).is_err());
+        assert!(dir.join("Files/Guides/console.png").is_file(), "nothing was deleted");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn vault_relative_targets_cannot_leave_the_vault_or_reach_hidden_folders() {
+        let (e, dir) = temp_vault("info-rel-guard");
+        fs::create_dir_all(dir.join(".assets")).unwrap();
+        fs::write(dir.join(".assets/secret.png"), [0u8; 2]).unwrap();
+        fs::create_dir_all(dir.join(".vault")).unwrap();
+        fs::write(dir.join(".vault/views.json"), "{}").unwrap();
+        // a parent segment, wherever it sits
+        assert!(e.asset_info("../outside.pdf").is_err());
+        assert!(e.asset_info("Files/../../outside.pdf").is_err());
+        assert!(e.asset_info("Files/../Notes/x.pdf").is_err());
+        // a dot-prefixed segment: the hidden folders keep their own doors
+        assert!(e.asset_info(".assets/secret.png").is_err());
+        assert!(e.asset_info(".vault/views.json").is_err());
+        assert!(e.asset_info("Files/./setup.pdf").is_err());
+        // empty segments, and a backslash standing in for a separator
+        assert!(e.asset_info("Files//setup.pdf").is_err());
+        assert!(e.asset_info("Files\\setup.pdf").is_err());
+        // a symlinked escape hatch resolves outside the vault and is refused
+        #[cfg(unix)]
+        {
+            let outside = dir.parent().unwrap().join("substrate-rel-escape.pdf");
+            fs::write(&outside, [0u8; 5]).unwrap();
+            fs::create_dir_all(dir.join("Files")).unwrap();
+            std::os::unix::fs::symlink(&outside, dir.join("Files/escape.pdf")).unwrap();
+            assert!(e.asset_info("Files/escape.pdf").is_err());
+            let _ = fs::remove_file(&outside);
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_vault_relative_embed_neither_bundles_nor_keeps_an_asset_alive() {
+        let (mut e, dir) = temp_vault("rel-reconcile");
+        fs::create_dir_all(dir.join(".assets")).unwrap();
+        fs::write(dir.join(".assets/setup.pdf"), [137u8, 80]).unwrap();
+        fs::create_dir_all(dir.join("Files/Guides")).unwrap();
+        fs::write(dir.join("Files/Guides/setup.pdf"), [1u8; 4]).unwrap();
+        e.create("Workshop", "", None).unwrap();
+        e.write_body("Workshop.md", "see ![[Files/Guides/setup.pdf]]\n", None).unwrap();
+
+        // the `.assets/` file of the same NAME is still an orphan: the two
+        // targets are different files, and only one of them is embedded
+        let orphans = e.assets_orphaned().unwrap();
+        assert!(
+            orphans.iter().any(|a| a.path == "setup.pdf"),
+            "a vault-relative embed does not keep a same-named asset alive: {orphans:?}"
+        );
+
+        // …and the file it DOES name is never an orphan candidate, because the
+        // sweep only ever lists `.assets/`
+        assert!(!orphans.iter().any(|a| a.path.contains('/')));
+
+        // export references it in place rather than copying it, the way a
+        // link-in-place target is referenced
+        let dest = std::env::temp_dir().join("substrate-export-relative-test");
+        let _ = fs::remove_dir_all(&dest);
+        let copied = e.export_note_bundle("Workshop.md", dest.to_str().unwrap()).unwrap();
+        assert_eq!(copied, 0, "nothing under Files/ rides along");
+        assert!(!dest.join(".assets/setup.pdf").exists());
+        let exported = fs::read_to_string(dest.join("Workshop.md")).unwrap();
+        assert!(
+            exported.contains("![[Files/Guides/setup.pdf]]"),
+            "the reference survives verbatim"
+        );
+        let _ = fs::remove_dir_all(&dest);
         let _ = fs::remove_dir_all(&dir);
     }
 

@@ -38,6 +38,7 @@ dist-ssr
 /playwright-report/
 # evidence-only shots (SHOTS=1 specs), never product
 /shots/
+/.shots/
 
 # TS incremental build state
 *.tsbuildinfo

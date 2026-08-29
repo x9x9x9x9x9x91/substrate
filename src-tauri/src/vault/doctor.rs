@@ -110,6 +110,11 @@ impl Engine {
     ) -> Result<DoctorReport, String> {
         let mut findings: Vec<DoctorFinding> = Vec::new();
         let schema = self.schema();
+        // read once per run: the answer is the same for every embed in the
+        // vault, and asking per finding re-read and re-parsed the config file
+        // once for each missing file — worst on exactly the vault that has the
+        // most of them
+        let excluded_folders = crate::syncfolders::read_excluded(&self.root);
 
         // ---- name index: what a `[[target]]` can resolve to -------------
         // resolve_link matches title OR stem, case-insensitively, in HashMap
@@ -231,19 +236,61 @@ impl Engine {
                 if in_code(&code, m.start(), m.end()) {
                     continue;
                 }
-                // three target forms (§3): bare name lives in .assets/,
-                // absolute and ~/ are linked in place and may simply be on an
-                // unmounted volume — a warning, not a broken vault.
+                // four target forms (§3): bare name lives in .assets/, a name
+                // carrying `/` is vault-relative, and absolute or ~/ are
+                // linked in place and may simply be on an unmounted volume — a
+                // warning, not a broken vault. A vault-relative target that
+                // the grammar refuses (a `..`, a hidden segment) is still the
+                // malformed-target finding it always was.
+                let mut vault_relative = false;
                 let (abs, in_place) = if target.starts_with('/') || target.starts_with("~/") {
                     (expand_tilde(&target), true)
-                } else if target.contains('/') || target.contains('\\') || target.contains("..") {
+                } else if target.contains('/') || target.contains('\\') {
+                    match self.embed_target_path(&target) {
+                        Ok(abs) => {
+                            vault_relative = true;
+                            (abs, false)
+                        }
+                        // the two refusals are different facts and get
+                        // different sentences: a string this vault cannot
+                        // address, versus a well-formed path that turns out
+                        // to leave the vault through a symlink. Reporting the
+                        // second as a grammar problem sends the reader to
+                        // proofread a path that is spelled correctly.
+                        Err(EmbedTargetError::Escapes) => {
+                            findings.push(DoctorFinding {
+                                kind: DoctorKind::BrokenEmbed,
+                                severity: DoctorSeverity::Error,
+                                paths: vec![rel.clone()],
+                                subject: target.clone(),
+                                detail: format!(
+                                    "{target} leads out of the vault — an embed may only reach a file the vault holds"
+                                ),
+                            });
+                            continue;
+                        }
+                        Err(EmbedTargetError::Malformed) => {
+                            findings.push(DoctorFinding {
+                                kind: DoctorKind::BrokenEmbed,
+                                severity: DoctorSeverity::Error,
+                                paths: vec![rel.clone()],
+                                subject: target.clone(),
+                                detail:
+                                    "embed target is not a name in .assets/, a path inside the vault, or an absolute path"
+                                        .into(),
+                            });
+                            continue;
+                        }
+                    }
+                } else if target.contains("..") {
                     findings.push(DoctorFinding {
                         kind: DoctorKind::BrokenEmbed,
                         severity: DoctorSeverity::Error,
                         paths: vec![rel.clone()],
                         subject: target.clone(),
-                        detail: "embed target is neither a bare .assets/ name nor an absolute path"
-                            .into(),
+                        detail:
+                            "embed target is not a name in .assets/, a path inside the vault, or an absolute path"
+                                .into(),
                     });
                     continue;
                 } else {
@@ -261,15 +308,24 @@ impl Engine {
                 // train people to ignore it. Still surfaced, as a warning, so
                 // an actually-deleted recording is not silent.
                 let device_local_audio = !in_place
+                    && !vault_relative
                     && self
                         .notes
                         .get(&rel)
                         .and_then(|m| prop_str(&m.props, "type"))
                         .is_some_and(|t| t.trim().eq_ignore_ascii_case("voice"));
+                // Same reasoning one folder out: a vault-relative target
+                // inside a folder this vault leaves out of sync is absent on
+                // every device but the one holding the files, which is what
+                // that folder is FOR. An error per embed there would be a
+                // permanent red report on a healthy vault.
+                let excluded_folder =
+                    vault_relative && crate::syncfolders::is_excluded(&target, &excluded_folders);
                 findings.push(DoctorFinding {
                     kind: DoctorKind::BrokenEmbed,
                     severity: if in_place
                         || device_local_audio
+                        || excluded_folder
                     {
                         DoctorSeverity::Warn
                     } else {
@@ -281,6 +337,10 @@ impl Engine {
                         format!("linked-in-place embed target is missing: {}", abs.display())
                     } else if device_local_audio {
                         format!("voice recording {target} isn’t on this device — audio stays where it was captured")
+                    } else if excluded_folder {
+                        format!("{target} isn’t on this device — its folder is left out of sync")
+                    } else if vault_relative {
+                        format!("no {target} in this vault")
                     } else {
                         format!("no .assets/{target} in this vault")
                     },
@@ -792,6 +852,77 @@ mod tests {
         assert_eq!(broken.len(), 1, "the embed is checked once it can be read: {broken:?}");
         assert_eq!(broken[0].subject, "ghost-cover.png");
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn doctor_reads_vault_relative_embeds_and_still_refuses_malformed_ones() {
+        let (mut engine, dir) = temp_vault("doctor-relative-embeds");
+        fs::create_dir_all(dir.join("Files/Guides")).unwrap();
+        fs::create_dir_all(dir.join("Papers")).unwrap();
+        fs::write(dir.join("Files/Guides/setup.pdf"), b"%PDF").unwrap();
+        fs::write(dir.join("Papers/read.pdf"), b"%PDF").unwrap();
+        fs::write(
+            dir.join("Workshop.md"),
+            "---\n---\n![[Files/Guides/setup.pdf]] resolves.\n\
+             ![[Files/Guides/gone.pdf]] is in an excluded folder.\n\
+             ![[Papers/gone.pdf]] is not.\n\
+             ![[Papers/../../escape.pdf]] is malformed.\n",
+        )
+        .unwrap();
+        engine.rescan();
+        let report = engine.doctor(&Default::default()).unwrap();
+        let embeds = findings_of(&report, DoctorKind::BrokenEmbed);
+        let subject = |s: &str| {
+            embeds
+                .iter()
+                .find(|f| f.subject == s)
+                .unwrap_or_else(|| panic!("{s} reported: {embeds:?}"))
+        };
+        assert!(
+            !embeds.iter().any(|f| f.subject == "Files/Guides/setup.pdf"),
+            "a resolvable vault-relative target is not a finding: {embeds:?}"
+        );
+        // absent because its folder stays home — the shape the folder exists
+        // for, so a warning rather than a red report
+        let excluded = subject("Files/Guides/gone.pdf");
+        assert_eq!(excluded.severity, DoctorSeverity::Warn);
+        assert!(excluded.detail.contains("isn’t on this device"), "{}", excluded.detail);
+        // the same absence in a folder that DOES travel is real damage
+        assert_eq!(subject("Papers/gone.pdf").severity, DoctorSeverity::Error);
+        let malformed = subject("Papers/../../escape.pdf");
+        assert_eq!(malformed.severity, DoctorSeverity::Error);
+        assert!(malformed.detail.contains("absolute path"), "{}", malformed.detail);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A path that is spelled correctly and still lands outside the vault is a
+    /// different problem from a path the grammar refuses, and telling someone
+    /// to fix the spelling of a correctly spelled path is a wasted afternoon.
+    #[cfg(unix)]
+    #[test]
+    fn doctor_says_an_escaping_embed_leaves_the_vault_rather_than_calling_it_malformed() {
+        let (mut engine, dir) = temp_vault("doctor-embed-escape");
+        let outside = dir.parent().unwrap().join("doctor-embed-escape-outside");
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("secret.pdf"), b"%PDF").unwrap();
+        fs::create_dir_all(dir.join("Files")).unwrap();
+        std::os::unix::fs::symlink(&outside, dir.join("Files/Away")).unwrap();
+        fs::write(dir.join("Note.md"), "---\n---\n![[Files/Away/secret.pdf]]\n").unwrap();
+        engine.rescan();
+        let report = engine.doctor(&Default::default()).unwrap();
+        let f = findings_of(&report, DoctorKind::BrokenEmbed)
+            .into_iter()
+            .find(|f| f.subject == "Files/Away/secret.pdf")
+            .expect("the escaping target is reported");
+        assert_eq!(f.severity, DoctorSeverity::Error);
+        assert!(f.detail.contains("leads out of the vault"), "{}", f.detail);
+        assert!(
+            !f.detail.contains("absolute path"),
+            "it must not read as a spelling problem: {}",
+            f.detail
+        );
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&outside);
     }
 
     #[test]

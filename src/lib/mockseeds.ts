@@ -178,6 +178,27 @@ export const mockLooseFiles = new Map<string, string[]>([
   ["Projects", ["01 umbra rough.wav", "02 umbra bounce.wav", "umbra session.als"]],
 ]);
 
+/** What `.vault/files-index.json` remembers here. `Files/Reference` is on
+    another device: the vault knows what is in it and knows it is not here, so
+    the browse can list it greyed rather than pretend the folder is empty. */
+export const mockFilesIndex: {
+  version: number;
+  folders: Record<string, { updated: number; entries: { path: string; size: number; mtime: number }[] }>;
+} = {
+  version: 1,
+  folders: {
+    // keyed by the excluded folder, entries relative to IT — the browse joins
+    // the two into the vault-relative paths its rows are identified by
+    Files: {
+      updated: now - 2 * 86_400_000,
+      entries: [
+        { path: "Reference/mixing in mono.pdf", size: 4_812_331, mtime: now - 40 * 86_400_000 },
+        { path: "Reference/room treatment.pdf", size: 1_204_889, mtime: now - 90 * 86_400_000 },
+      ],
+    },
+  },
+};
+
 /** One stable mtime for every loose file: the player's cacheKey is built from
     path+size+mtime, so a value that moved between calls would rebind players
     mid-spec. */

@@ -217,6 +217,7 @@ export const HeroSheet = () => (
   </svg>
 );
 
+
 /** Shelf, nothing cataloged: the drive resting on its shelf line. */
 export const HeroDrive = () => (
   <svg {...hero} aria-hidden="true">

@@ -669,14 +669,47 @@ brackets. The inner text is `target#anchor|alias`, all three parts optional:
 
 ### Embeds
 
-`![[target]]`, grammar `!\[\[([^\[\]]+)\]\]`. Three target forms
+`![[target]]`, grammar `!\[\[([^\[\]]+)\]\]`. Four target forms
 (`vault/assets.rs` `asset_info`):
 
 ```markdown
 ![[bounce.wav]]                 ← bare name → <vault>/.assets/bounce.wav
+![[Files/Guides/setup.pdf]]     ← vault-relative path → <vault>/Files/Guides/setup.pdf
 ![[/Volumes/audio/master.wav]]  ← absolute path, linked in place (never copied)
 ![[~/Music/mixdown.flac]]       ← home-relative, linked in place
 ```
+
+- **A target carrying `/` is VAULT-RELATIVE**: resolved against the vault root,
+  never against `.assets/`. It is how a note embeds a heavy file the vault
+  stores in a folder of its own — a folder that can then be left off the sync
+  leg while the note that shows it travels. Rendering is unchanged: the file's
+  extension decides, so `![[Files/Guides/setup.pdf]]` draws its pages inline
+  exactly as `![[setup.pdf]]` would.
+
+  Every segment is checked, and a malformed target is refused rather than
+  normalized: no empty segment (`a//b`), no `.` or `..` in any position, no
+  dot-prefixed segment (the hidden rule of §1 — `.vault/`, `.assets/` and
+  `.trash/` have their own doors and an embed is not one of them), and no
+  backslash. The resolved path must also still be inside the vault, which
+  refuses a symlink inside it pointing out.
+
+  Three consequences worth stating, because they are the ones a reader would
+  otherwise have to discover:
+  - **Export bundles reference such a target, they do not copy it**
+    (`export_note_bundle`), the same treatment a link-in-place target gets. A
+    bundle is a note plus its `.assets/`; the folders these targets name are
+    the ones deliberately kept out of what travels.
+  - **The `.assets/` orphan sweep is untouched by them in both directions**: a
+    vault-relative target never keeps a `.assets/` file alive (it names a
+    different file, even under the same name), and the files it does name are
+    never orphan candidates, because the sweep only ever lists `.assets/`.
+  - **A missing one may be a warning rather than an error.** `vault_doctor`
+    reports a resolvable-but-absent vault-relative target inside a folder this
+    vault excludes from sync as a **warn** — that folder exists so its contents
+    stay put, and an error per embed there would be a permanent red report on a
+    healthy vault. In a folder that does travel, absence is an **error** as
+    ever. The app's own missing-embed placeholder reads the same way: "not on
+    this device" instead of "missing pdf" (§3, missing targets below).
 
 - The target may carry a **display modifier** past the first `|` —
   `![[cover.png|300]]`, `![[cover.png|300x200]]`, `![[cover.png|left]]` — the
@@ -733,7 +766,12 @@ brackets. The inner text is `target#anchor|alias`, all three parts optional:
   prop or the first image embed in the body.
 - Missing or moved targets render `missing image · <name>` / `missing audio ·
   <name>` / `missing pdf · <name>` / `missing file · <name>` — a display state,
-  not an error; the file content is untouched.
+  not an error; the file content is untouched. Two absences are DESIGNED rather
+  than damaged, and both read `not on this device · <name>` instead
+  (`src/lib/embedstate.ts`): a bare `.assets/` name on a vault that syncs, since
+  the sync leg excludes `.assets/` (§11); and a vault-relative target inside a
+  folder the vault keeps off sync. A link-in-place target is never either — it
+  names a file outside the vault, which no exclusion has anything to do with.
 
 #### Timestamped audio annotations
 

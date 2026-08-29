@@ -246,6 +246,10 @@ export interface FolderListing {
   total: number;
 }
 
+/** The vault folder heavy binaries live in, and the one folder the vault
+    leaves out of sync unless told otherwise. */
+export const FILES_ROOT = "Files";
+
 /** What a vault-doctor finding is about — mirrors `DoctorKind`. */
 export type DoctorKind =
   | "broken-link"

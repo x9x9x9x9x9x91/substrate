@@ -1,6 +1,6 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { isTauri } from "./tauri.ts";
-import { vaultAssetInfo, vaultRead, vaultReadAsset } from "./ipc.ts";
+import { vaultAssetInfo, vaultRead, vaultReadAsset, vaultRoot } from "./ipc.ts";
 import { artworkTarget, firstImageEmbed, isImageName } from "./artwork.ts";
 import type { NoteMeta } from "./types.ts";
 
@@ -65,8 +65,10 @@ export function mimeFor(name: string): string {
 
 const blobUrls = new Map<string, Promise<string>>();
 
-/** A blob URL for a `.assets/` file fetched over IPC as base64 — the editor's
- * inline image path. Small pasted images only; big files stream via
+/** A blob URL for a vault file fetched over IPC as base64 — the editor's
+ * inline image path. Takes a bare `.assets/` name or a path inside the vault,
+ * because `![[Files/Guides/console.png]]` is an image embed like any other and
+ * reads its bytes through here. Small pasted images only; big files stream via
  * `imageSource` / `audioSource` instead. */
 export function assetBlobUrl(name: string): Promise<string> {
   let p = blobUrls.get(name);
@@ -121,6 +123,19 @@ async function mockImageUrl(name: string): Promise<string> {
     if (!isImageName(name)) throw new Error("not an image");
     return synthCoverUrl(name);
   }
+}
+
+/** The absolute path an embed target names, for handing to the OS.
+ *
+ * The same four forms `asset_info` resolves, in the same order: an absolute or
+ * `~/` path opens itself (Rust expands the tilde), a target carrying `/` is a
+ * path inside the vault, and a bare name lives in `.assets/`. Kept here rather
+ * than repeated at each open button, because a resolution that disagreed with
+ * the engine's would open the wrong file rather than fail. */
+export function embedFilePath(name: string): Promise<string> {
+  if (/^(\/|~\/)/.test(name)) return Promise.resolve(name);
+  const rel = name.includes("/") ? name : `.assets/${name}`;
+  return vaultRoot().then((root) => `${root}/${rel}`);
 }
 
 const pdfs = new Map<string, Promise<AudioSource>>();

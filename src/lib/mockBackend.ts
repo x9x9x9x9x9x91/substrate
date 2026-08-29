@@ -5,6 +5,7 @@
    transport shell) imports this file eagerly, so booting outside Tauri
    always carries the mock; app code never imports it directly. */
 import { listen as tauriListen } from "@tauri-apps/api/event";
+import { embedTargetResolvable } from "./embedtarget.ts";
 import { netAllowed } from "./settings.ts";
 import type {
   AggKind,
@@ -64,6 +65,7 @@ import {
   genUpdated,
   mockAssetMtimes,
   mockAssets,
+  mockFilesIndex,
   mockLooseFiles,
   mockLooseMtime,
   mockNotes,
@@ -3485,25 +3487,12 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         knownUpdated: f.excluded ? 1767225600000 : 0,
         knownCapped: false,
       }));
+    // The ghost index is what a device WITHOUT the folder can still list, so
+    // the fixture holds real names rather than synthesizing them: the browse
+    // over it is the surface these entries exist for, and `sample-1.bin` would
+    // make every ghost row in every shot a placeholder.
     case "sync_folders_index":
-      return {
-        version: 1,
-        folders: Object.fromEntries(
-          mockSyncFolders
-            .filter((f) => f.excluded)
-            .map((f) => [
-              f.path,
-              {
-                updated: 1767225600000,
-                entries: Array.from({ length: Math.min(f.files, 3) }, (_, i) => ({
-                  path: `sample-${i + 1}.bin`,
-                  size: Math.round(f.bytes / f.files),
-                  mtime: 1767225600000,
-                })),
-              },
-            ])
-        ),
-      };
+      return mockFilesIndex;
     case "sync_folders_set": {
       const folder = mockSyncFolders.find((f) => f.path === args?.folder);
       if (!folder) throw new Error(`no such folder: ${String(args?.folder)}`);
@@ -4310,7 +4299,12 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       return name;
     }
     case "vault_read_asset": {
-      const data = mockAssets.get(args?.name as string);
+      const name = (args?.name as string) ?? "";
+      // the engine's grammar, held here too. A fixture that answers a target
+      // the packaged app refuses makes this whole lane — and every gate riding
+      // it — green over a break nobody can see until the app ships.
+      if (!embedTargetResolvable(name)) throw new Error("invalid asset name");
+      const data = mockAssets.get(name);
       if (data === undefined) throw new Error("asset not found");
       return data;
     }
@@ -4403,6 +4397,14 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         return { path: name, size: 8 + loose.rel.length, mtime_ms: mockLooseMtime };
       }
       if (name.startsWith("/") || name.startsWith("~/")) throw new Error("file not found");
+      // engine parity: a name carrying `/` is vault-relative — resolved
+      // against the vault root, never looked for in .assets/. It is what a
+      // note embedding a file the vault keeps in its own folder writes.
+      if (name.includes("/")) {
+        const rel = mockLooseByPath(mockLoosePath(name));
+        if (!rel) throw new Error("file not found");
+        return { path: mockLoosePath(name), size: 8 + rel.rel.length, mtime_ms: mockLooseMtime };
+      }
       const audio = /\.(wav|aiff?|mp3|flac|m4a)$/i.test(name);
       if (!audio && !mockAssets.has(name)) throw new Error("asset not found");
       return {

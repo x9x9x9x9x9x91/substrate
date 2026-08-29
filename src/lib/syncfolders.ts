@@ -112,3 +112,8 @@ export function includeWarning(scan: IncludeScan | null): string | null {
     scan.files === 1 ? "" : "s"
   } will now upload — the next sync will take a while.`;
 }
+
+/* The path trim itself lives in the leaf grammar module, so a pure browse model
+   can normalize a folder path without importing the IPC layer. It is named here
+   because this is where the folder-list vocabulary reads. */
+export { normalizeFolder } from "./embedtarget.ts";
