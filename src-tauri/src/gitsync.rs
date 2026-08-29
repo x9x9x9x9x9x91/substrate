@@ -1414,36 +1414,72 @@ pub fn sync_change_passphrase(
 }
 
 /// Push committed snapshots from the current branch, ungated. The app always
-/// goes through [`sync_push_gated`]; this is the plain form tests use.
+/// goes through [`sync_push_with_snapshot`]; this is the plain form tests use.
 #[cfg(test)]
 pub fn sync_push(root: &Path, credentials_path: &Path) -> Result<SyncReport, String> {
     sync_push_gated(root, credentials_path, || ())
 }
 
-/// Push with the caller's write gate around the LOCAL phase only.
-///
-/// `gate` is called once the repository is open and returns a guard (in the
-/// app: the engine `MutexGuard`) held while the working tree is inspected and
-/// the commit range is computed. The network push runs after the guard drops,
-/// so a slow link never blocks vault writes.
-///
-/// It is taken a second time for the tracking-ref write and the marker clear —
-/// the two local writes that follow the network leg and describe what it
-/// published. A purge landing while the transfer was in flight leaves this
-/// vault on a different history, and recording success against it would drop
-/// the rewrite marker that is the only local evidence the purge happened.
+/// [`sync_push_with_snapshot`] with the snapshot step left out — the shape a
+/// push had before the snapshot moved inside the gate, kept for the tests that
+/// exercise the gate itself.
+#[cfg(test)]
 pub fn sync_push_gated<G>(
     root: &Path,
     credentials_path: &Path,
+    gate: impl FnMut() -> G,
+) -> Result<SyncReport, String> {
+    sync_push_with_snapshot(root, credentials_path, |_| Ok(()), gate)
+}
+
+/// A whole push: the caller's pre-push snapshot and the local phase under ONE
+/// hold of the write gate, then the network leg.
+///
+/// `gate` is called once the repository is open and returns a guard (in the
+/// app: the history and engine `MutexGuard`s, in that order) held while the
+/// pending changes are committed, the working tree is inspected and the commit
+/// range is computed. The network push runs after the guard drops, so a slow
+/// link never blocks vault writes. With one qualification, on the hosted arm:
+/// its second take deliberately spans the ref CAS as well as the local writes
+/// after it (`blob::push`), because the publish and the purge re-check in
+/// front of it have to be one step against the purge writer. That is a single
+/// ref-envelope round trip, not the object upload.
+///
+/// `snapshot` runs INSIDE that guard and is handed it, so it can commit
+/// through the history lock the gate is already holding. The two used to be
+/// separate steps, with the caller snapshotting before it called in — and the
+/// gap between them was reachable. The drive shelf rewrites its catalog under
+/// `.vault/mounts/` from behind the engine lock, so a scan landing in that gap
+/// dirtied the tree again and the push refused with "snapshot pending changes
+/// first": an instruction to do the thing that had just been done, about a
+/// file the app itself had written. Under one hold nothing this process gates
+/// can land between the commit and the check.
+///
+/// The gate is taken a second time for the tracking-ref write and the marker
+/// clear — the two local writes that follow the network leg and describe what
+/// it published. A purge landing while the transfer was in flight leaves this
+/// vault on a different history, and recording success against it would drop
+/// the rewrite marker that is the only local evidence the purge happened.
+pub fn sync_push_with_snapshot<G>(
+    root: &Path,
+    credentials_path: &Path,
+    snapshot: impl FnOnce(&mut G) -> Result<(), String>,
     mut gate: impl FnMut() -> G,
 ) -> Result<SyncReport, String> {
-    let repo = owned_repo(root)?;
-    if let Some(base) = hosted_remote_base(&repo) {
-        let (transport, key) = hosted_transport(root, credentials_path, &base)?;
-        return blob::push(root, &key, &transport, gate);
+    {
+        let repo = owned_repo(root)?;
+        if let Some(base) = hosted_remote_base(&repo) {
+            drop(repo);
+            let (transport, key) = hosted_transport(root, credentials_path, &base)?;
+            return blob::push_with_snapshot(root, &key, &transport, snapshot, gate);
+        }
     }
+    let mut guard = gate();
+    snapshot(&mut guard)?;
+    // Opened after the snapshot: its commit moves HEAD and rewrites the index,
+    // so a handle opened before it would be describing a tree that is gone.
+    let repo = owned_repo(root)?;
     let (branch, local_oid, pushed, rewritten_at_entry) = {
-        let _guard = gate();
         ensure_clean(&repo)?;
         let (branch, local_oid) = current_branch(&repo)?;
         let tracking_ref = format!("refs/remotes/{REMOTE}/{branch}");
@@ -1453,6 +1489,7 @@ pub fn sync_push_gated<G>(
         // to clear; only one that appears mid-flight is a purge racing it.
         (branch, local_oid, pushed, history_rewritten(&repo))
     };
+    drop(guard);
     let tracking_ref = format!("refs/remotes/{REMOTE}/{branch}");
     let auth = read_auth(root, credentials_path)?;
     let mut remote = configured_remote(&repo)?;
@@ -1518,43 +1555,72 @@ pub fn sync_push_gated<G>(
 /// What it does NOT do is empty the store: the objects the old history reached
 /// stay there as ciphertext no branch points at, and only rebuilding the
 /// hosted store removes those.
+// no caller outside this file's tests, by the doc comment above
+#[allow(dead_code)]
 pub fn sync_replace_hosted_gated<G>(
     root: &Path,
     credentials_path: &Path,
     gate: impl FnMut() -> G,
 ) -> Result<SyncReport, String> {
-    let repo = owned_repo(root)?;
-    let Some(base) = hosted_remote_base(&repo) else {
-        return Err(
-            "replacing the server's copy is only possible for an end-to-end-encrypted remote"
-                .into(),
-        );
-    };
-    // Ahead of the rewrite check, because a device can be in both states at
-    // once and this is the one that has to win. A device paused on someone
-    // else's replacement still holds the history that replacement removed —
-    // it never adopted. Sealing a note here would set the rewrite marker too,
-    // and pressing Replace would then publish this device's pre-adoption
-    // history over the store: the other device's purge undone, on the server
-    // and from there on every device, with both panes reading Ready. A purge
-    // is a privacy operation, so reversing one silently is worse than losing a
-    // snapshot. The order out of the two pauses is fixed: adopt first, then
-    // purge again here if that is still wanted.
-    if store_replaced(&repo) {
-        return Err("replacing the server's copy is refused while this vault's sync is paused on \
+    sync_replace_hosted_with_snapshot(root, credentials_path, |_| Ok(()), gate)
+}
+
+/// [`sync_replace_hosted_gated`] with the caller's pre-push snapshot taken
+/// inside the write gate, immediately before the clean-tree check — the same
+/// pairing, and the same reason, as [`sync_push_with_snapshot`].
+///
+/// One visible consequence of the move: the refusals below now run BEFORE the
+/// snapshot rather than after it, so a Replace this function turns away no
+/// longer leaves a stray `snapshot (sync)` commit behind. They are all marker
+/// reads, so none of them needs a committed tree to answer.
+pub fn sync_replace_hosted_with_snapshot<G>(
+    root: &Path,
+    credentials_path: &Path,
+    snapshot: impl FnOnce(&mut G) -> Result<(), String>,
+    gate: impl FnMut() -> G,
+) -> Result<SyncReport, String> {
+    // Scoped, for the reason [`sync_push_with_snapshot`] gives: the snapshot
+    // taken inside the push commits, and a handle opened out here would then
+    // be describing a tree that is gone.
+    let base = {
+        let repo = owned_repo(root)?;
+        let Some(base) = hosted_remote_base(&repo) else {
+            return Err(
+                "replacing the server's copy is only possible for an end-to-end-encrypted remote"
+                    .into(),
+            );
+        };
+        // Ahead of the rewrite check, because a device can be in both states at
+        // once and this is the one that has to win. A device paused on someone
+        // else's replacement still holds the history that replacement removed —
+        // it never adopted. Sealing a note here would set the rewrite marker too,
+        // and pressing Replace would then publish this device's pre-adoption
+        // history over the store: the other device's purge undone, on the server
+        // and from there on every device, with both panes reading Ready. A purge
+        // is a privacy operation, so reversing one silently is worse than losing a
+        // snapshot. The order out of the two pauses is fixed: adopt first, then
+        // purge again here if that is still wanted.
+        if store_replaced(&repo) {
+            return Err(
+                "replacing the server's copy is refused while this vault's sync is paused on \
              a history another device published: this device still holds what that device \
              removed, so replacing would put it back on the server and on every device. Move \
              this device onto the server's history first, from the Vault sync pane — a purge \
              here can be published as usual once that pause is resolved"
-            .into());
-    }
-    if !history_rewritten(&repo) {
-        return Err("this vault's history has not been rewritten here, so there is nothing for a \
+                    .into(),
+            );
+        }
+        if !history_rewritten(&repo) {
+            return Err(
+                "this vault's history has not been rewritten here, so there is nothing for a \
              replacement to repair; use Push"
-            .into());
-    }
+                    .into(),
+            );
+        }
+        base
+    };
     let (transport, key) = hosted_transport(root, credentials_path, &base)?;
-    blob::push_replacing_remote(root, &key, &transport, gate)
+    blob::push_replacing_remote_with_snapshot(root, &key, &transport, snapshot, gate)
 }
 
 /// Move this device onto the history another device published over the store,
@@ -6658,6 +6724,137 @@ mod tests {
         assert_eq!(fs::read_to_string(pair.b.join("Note.md")).unwrap(), "remote edit\n");
         // and the edit that was loose in the tree survived the checkout
         assert_eq!(fs::read_to_string(pair.b.join("Other.md")).unwrap(), "typed just now\n");
+    }
+
+    /// A push takes its snapshot INSIDE the write gate, so nothing the app
+    /// itself writes can land between the commit and the clean-tree check.
+    ///
+    /// The drive shelf is what found this. It rewrites its catalog under
+    /// `.vault/mounts/` from behind the engine lock, and cataloguing a large
+    /// disk takes minutes — so with the snapshot taken before the gate, a scan
+    /// finishing in that window dirtied the tree again and the push refused
+    /// with "snapshot pending changes first", about a file the user never
+    /// touched and could not have snapshotted. The gate here writes the
+    /// catalog exactly where the scan did: after the caller asked to push, at
+    /// the last instant before the local phase.
+    #[test]
+    fn a_catalog_write_that_races_the_push_is_committed_rather_than_refused() {
+        let pair = paired_vaults(&[("Note.md", "base\n")]);
+        const CATALOG: &str = ".vault/mounts/9d1f4c2a.json";
+
+        // The gate is counted from both sides: the closure below counts takes,
+        // the guard counts releases. Order alone would not pin the hold — a
+        // push that took the gate, snapshotted, dropped it and took it again
+        // before the clean check would satisfy every other assertion here while
+        // leaving the race exactly where it was. What refuses that shape is the
+        // take count checked after the call returns: it would read three.
+        struct Hold(std::rc::Rc<std::cell::Cell<usize>>);
+        impl Drop for Hold {
+            fn drop(&mut self) {
+                self.0.set(self.0.get() + 1);
+            }
+        }
+
+        let releases = std::rc::Rc::new(std::cell::Cell::new(0));
+        let holds = std::cell::Cell::new(0);
+        let report = sync_push_with_snapshot(
+            &pair.b,
+            &pair.credentials_b,
+            |hold: &mut Hold| {
+                assert_eq!(hold.0.get(), 0, "the gate was let go before the snapshot ran");
+                pair.history_b.snapshot("snapshot (sync)").map(|_| ())
+            },
+            || {
+                holds.set(holds.get() + 1);
+                if holds.get() == 1 {
+                    write_note(&pair.b, CATALOG, "{\"files\":[],\"scanned\":\"just now\"}\n");
+                }
+                Hold(std::rc::Rc::clone(&releases))
+            },
+        )
+        .unwrap();
+
+        // Two takes and no more: one around the snapshot and the local phase
+        // it makes clean, one around the tracking-ref write after the network
+        // leg. A drop-and-retake between the snapshot and the check reads three
+        // here. Both holds are let go by the time the call returns.
+        assert_eq!(holds.get(), 2, "the push did not hold the write gate in two takes");
+        assert_eq!(releases.get(), 2, "the push returned still holding the write gate");
+
+        // The catalog was committed by the snapshot the gate now covers, and
+        // went out with the push rather than blocking it.
+        assert!(report.pushed >= 1, "the racing catalog write never reached the remote");
+        let repo = Repository::open(&pair.b).unwrap();
+        assert!(!working_tree_is_dirty(&repo).unwrap(), "the push left the tree dirty");
+        assert!(
+            repo.head().unwrap().peel_to_tree().unwrap().get_path(Path::new(CATALOG)).is_ok(),
+            "the catalog is not in the pushed history"
+        );
+
+        // The old shape, for contrast, and the reason a retry could not have
+        // fixed this on its own: with the snapshot taken before the gate
+        // instead of inside it, the very same write is what the push refuses
+        // over — and on a multi-terabyte volume the next write is minutes away,
+        // not milliseconds.
+        pair.history_b.snapshot("snapshot (sync)").unwrap();
+        let refused = sync_push_gated(&pair.b, &pair.credentials_b, || {
+            write_note(&pair.b, CATALOG, "{\"files\":[],\"scanned\":\"a moment later\"}\n");
+        })
+        .unwrap_err();
+        assert!(refused.contains("requires a clean working tree"), "{refused}");
+
+        // …and the check itself is not softened, as the refusal just above
+        // shows: a dirty tree the snapshot did not cover still refuses. What
+        // changed is only what the snapshot reaches — a note the user is still
+        // typing is captured by it and ships with the push, and is left in the
+        // tree exactly as typed rather than waved through by the check.
+        write_note(&pair.b, "Typed.md", "still typing\n");
+        let pushed = sync_push_with_snapshot(
+            &pair.b,
+            &pair.credentials_b,
+            |_| pair.history_b.snapshot("snapshot (sync)").map(|_| ()),
+            || (),
+        )
+        .unwrap();
+        assert_eq!(pushed.pushed, 1);
+        assert_eq!(fs::read_to_string(pair.b.join("Typed.md")).unwrap(), "still typing\n");
+    }
+
+    /// A snapshot that cannot commit still stops the push: the capture is part
+    /// of the attempt, so its failure is the attempt's failure and never a
+    /// push that quietly leaves this machine's writing behind.
+    #[test]
+    fn a_push_whose_snapshot_fails_does_not_push() {
+        let pair = paired_vaults(&[("Note.md", "base\n")]);
+        write_note(&pair.b, "Note.md", "typed just now\n");
+        let remote = remote_head(&pair.b);
+        let head_before = Repository::open(&pair.b).unwrap().head().unwrap().target().unwrap();
+
+        let error = sync_push_with_snapshot(
+            &pair.b,
+            &pair.credentials_b,
+            |_| Err("the index is locked".to_string()),
+            || (),
+        )
+        .unwrap_err();
+        assert_eq!(error, "the index is locked");
+
+        // Nothing left this machine and nothing was committed behind the
+        // failure: the edit is still sitting in the tree, where the next
+        // attempt will find it.
+        assert_eq!(remote_head(&pair.b), remote, "the remote moved for a push that failed");
+        let repo = Repository::open(&pair.b).unwrap();
+        assert_eq!(repo.head().unwrap().target().unwrap(), head_before);
+        assert!(working_tree_is_dirty(&repo).unwrap(), "the failed snapshot committed anyway");
+    }
+
+    /// The tip the vault's remote is holding, read from the bare repo itself
+    /// rather than from this side's tracking refs.
+    fn remote_head(vault: &Path) -> Option<Oid> {
+        let repo = Repository::open(vault).unwrap();
+        let url = repo.find_remote(REMOTE).unwrap().url().unwrap().to_string();
+        let bare = Repository::open(Path::new(url.trim_start_matches("file://"))).unwrap();
+        bare.head().ok().and_then(|head| head.target())
     }
 
     /// A merge pull reports the files the merge commit moved relative to the

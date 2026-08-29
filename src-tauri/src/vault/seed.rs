@@ -571,6 +571,43 @@ pub(crate) fn seed_hash(text: &str) -> u64 {
 /// where that file tells an agent where the app keeps its own state.
 const BUNDLE_ID: &str = "com.example.substrate";
 
+/// What the public build calls itself. The two builds are two applications to
+/// macOS — separate Application Support containers, separate preferences — so
+/// the seeded text has to name the one whose state the reader can actually go
+/// and look at, or it sends an agent to a directory that does not exist.
+///
+/// Derived from [`BUNDLE_ID`] by the release script the same way
+/// (`scripts/lib/release-profile.sh`), and the identity gate there reads the
+/// built app's `CFBundleIdentifier` back to hold the two in step.
+const BUNDLE_ID_PUBLIC: &str = "com.example.substrate.public";
+
+/// The identifier of the build doing the seeding. The public artifact is the
+/// one built without the default features, which is the same switch that
+/// applies the identifier overlay.
+const fn active_bundle_id() -> &'static str {
+    if cfg!(feature = "private-surfaces") {
+        BUNDLE_ID
+    } else {
+        BUNDLE_ID_PUBLIC
+    }
+}
+
+/// A seed text as *this* build writes it into a vault. The source names the
+/// full build's identifier — it is the file a full build ships verbatim — so
+/// only a public build has anything to substitute.
+///
+/// This is a rendering step, not a revision: `normalize` folds either
+/// identifier to the same placeholder, so a vault seeded by either build still
+/// hashes to the revision the tables pin and is still recognized as untouched.
+fn render(text: &str) -> std::borrow::Cow<'_, str> {
+    let id = active_bundle_id();
+    if id == BUNDLE_ID || !text.contains(BUNDLE_ID) {
+        std::borrow::Cow::Borrowed(text)
+    } else {
+        std::borrow::Cow::Owned(text.replace(BUNDLE_ID, id))
+    }
+}
+
 /// What the frozen revisions under `src/seed/revisions/` carry in its place.
 /// The public mirror rewrites the real identifier to this placeholder
 /// (`scripts/share-mirror.sh`), so the two trees would otherwise hash the same
@@ -589,6 +626,12 @@ const BUNDLE_ID_PLACEHOLDER: &str = "com.example.substrate";
 /// for the reason above: a vault seeded by a private build holds the real id
 /// where the mirror's frozen revision holds the placeholder, and those are the
 /// same untouched file.
+///
+/// *Either* real identifier folds, the public build's included — that build
+/// writes its own (see `render`), and a vault it seeded is no less untouched
+/// than one a full build seeded. The public one is folded first because the
+/// full identifier is a prefix of it: the other order would leave a stray
+/// `.public` behind and split one file into two revisions.
 fn normalize(text: &str) -> std::borrow::Cow<'_, str> {
     let mut bytes = text.as_bytes();
     while let [rest @ .., b'\n' | b'\r'] = bytes {
@@ -597,7 +640,11 @@ fn normalize(text: &str) -> std::borrow::Cow<'_, str> {
     // safe: only whole ASCII bytes were trimmed off the end of a &str
     let trimmed = std::str::from_utf8(bytes).unwrap_or(text);
     if trimmed.contains(BUNDLE_ID) {
-        std::borrow::Cow::Owned(trimmed.replace(BUNDLE_ID, BUNDLE_ID_PLACEHOLDER))
+        std::borrow::Cow::Owned(
+            trimmed
+                .replace(BUNDLE_ID_PUBLIC, BUNDLE_ID_PLACEHOLDER)
+                .replace(BUNDLE_ID, BUNDLE_ID_PLACEHOLDER),
+        )
     } else {
         std::borrow::Cow::Borrowed(trimmed)
     }
@@ -745,7 +792,7 @@ fn seed_or_refresh_with(abs: &Path, current: &str, revisions: &[&str], hash: fn(
                 return;
             }
             if matches_a_shipped_revision(&on_disk, revisions, hash) {
-                write_atomic(abs, current).ok();
+                write_atomic(abs, render(current).as_ref()).ok();
             }
             return;
         }
@@ -755,7 +802,7 @@ fn seed_or_refresh_with(abs: &Path, current: &str, revisions: &[&str], hash: fn(
     if let Some(dir) = abs.parent() {
         fs::create_dir_all(dir).ok();
     }
-    write_atomic(abs, current).ok();
+    write_atomic(abs, render(current).as_ref()).ok();
 }
 
 /// Is `on_disk` — already normalized — a copy of something this app shipped?
@@ -1382,6 +1429,8 @@ mod tests {
         // one, since the shipped list has only r1 until the text first changes.
         let old_text = "# Substrate vault (an older shipped revision)\n";
         let current = SEED_FILES[0].current;
+        // what lands on disk: this build's identifier, not the source's
+        let written = render(current).into_owned();
         let shipped = [old_text, current];
         let abs = root.join(AGENTS_REL_PATH);
 
@@ -1390,14 +1439,14 @@ mod tests {
         seed_or_refresh(&abs, current, &shipped);
         assert_eq!(
             fs::read_to_string(&abs).unwrap(),
-            current,
+            written,
             "an untouched copy of an older revision was not upgraded"
         );
 
         // …and once upgraded it is stable: a second pass rewrites nothing
         let stamp = fs::metadata(&abs).unwrap().modified().unwrap();
         seed_or_refresh(&abs, current, &shipped);
-        assert_eq!(fs::read_to_string(&abs).unwrap(), current);
+        assert_eq!(fs::read_to_string(&abs).unwrap(), written);
         assert_eq!(
             fs::metadata(&abs).unwrap().modified().unwrap(),
             stamp,
@@ -1413,7 +1462,7 @@ mod tests {
         // missing: still backfilled, and into a folder that doesn't exist yet
         let nested = root.join("nested").join(SETUP_SKILL_REL_PATH);
         seed_or_refresh(&nested, current, &shipped);
-        assert_eq!(fs::read_to_string(&nested).unwrap(), current);
+        assert_eq!(fs::read_to_string(&nested).unwrap(), written);
 
         // the real seeding path, end to end: missing → backfilled, current →
         // untouched, edited → untouched
@@ -1421,7 +1470,12 @@ mod tests {
         fs::create_dir_all(&v).unwrap();
         seed_agent_files(&v);
         for f in SEED_FILES {
-            assert_eq!(fs::read_to_string(v.join(f.rel)).unwrap(), f.current, "{}", f.rel);
+            assert_eq!(
+                fs::read_to_string(v.join(f.rel)).unwrap(),
+                render(f.current).as_ref(),
+                "{}",
+                f.rel
+            );
         }
         let mine = "# hands off\n";
         fs::write(v.join(CLAUDE_REL_PATH), mine).unwrap();
@@ -1478,6 +1532,69 @@ mod tests {
         assert_eq!(fs::read_to_string(&abs).unwrap(), edited, "an edited file was overwritten");
     }
 
+    /// The public build is a second application with its own container, so it
+    /// writes its own identifier into the seed — and a vault it seeded has to
+    /// be just as recognizable as one a full build seeded, or every public
+    /// user's copy freezes on first launch.
+    #[test]
+    fn a_vault_seeded_by_the_public_build_still_matches_a_placeholder_revision() {
+        if BUNDLE_ID == BUNDLE_ID_PLACEHOLDER {
+            return;
+        }
+        let t = tempfile::tempdir().unwrap();
+        let abs = t.path().join(AGENTS_REL_PATH);
+
+        let stored = "# Substrate vault\n\nState lives under `com.example.substrate`.\n";
+        let on_disk = stored.replace(BUNDLE_ID_PLACEHOLDER, BUNDLE_ID_PUBLIC);
+        let current = "# Substrate vault (r2)\n";
+        let shipped = [stored, current];
+
+        fs::write(&abs, &on_disk).unwrap();
+        seed_or_refresh(&abs, current, &shipped);
+        assert_eq!(
+            fs::read_to_string(&abs).unwrap(),
+            current,
+            "a vault seeded by the public build was not recognized as an untouched seed"
+        );
+    }
+
+    /// The fold has to take the longer identifier first. The full id is a
+    /// prefix of the public one, so folding it first would leave `.public`
+    /// stranded on the end and turn one untouched file into a stranger.
+    #[test]
+    fn both_identifiers_fold_to_the_same_normalized_text() {
+        if BUNDLE_ID == BUNDLE_ID_PLACEHOLDER {
+            return;
+        }
+        let stored = "state lives under `com.example.substrate` today";
+        assert_eq!(
+            normalize(&stored.replace(BUNDLE_ID_PLACEHOLDER, BUNDLE_ID_PUBLIC)),
+            normalize(stored),
+            "the public identifier folded to something other than the placeholder"
+        );
+        assert_eq!(normalize(&stored.replace(BUNDLE_ID_PLACEHOLDER, BUNDLE_ID)), normalize(stored),);
+    }
+
+    /// What actually lands in the vault names the build that wrote it: a
+    /// reader following the seeded text to "where the app keeps its state"
+    /// has to arrive at a directory that exists.
+    #[test]
+    fn the_seed_names_the_identifier_of_the_build_that_wrote_it() {
+        let text = "state lives under `com.example.substrate` on disk";
+        assert!(
+            render(text).contains(active_bundle_id()),
+            "the rendered seed does not name this build's identifier"
+        );
+        if active_bundle_id() != BUNDLE_ID {
+            assert!(
+                !render(text).contains("`com.example.substrate`"),
+                "the public build left the full build's identifier in the text"
+            );
+        }
+        // and a text that never mentions it is passed through untouched
+        assert!(matches!(render("no identifier here"), std::borrow::Cow::Borrowed(_)));
+    }
+
     /// Every form a stored revision could plausibly be sitting in on a real
     /// user's disk: as frozen, as a private build actually wrote it (real
     /// bundle identifier), and after a filesystem round-trip that added a
@@ -1487,6 +1604,9 @@ mod tests {
         let real = revision.replace(BUNDLE_ID_PLACEHOLDER, BUNDLE_ID);
         if real != revision {
             forms.push(real);
+            // and as a public build wrote it — a second application, its own
+            // identifier, the same untouched file
+            forms.push(revision.replace(BUNDLE_ID_PLACEHOLDER, BUNDLE_ID_PUBLIC));
         }
         forms
     }
@@ -1560,6 +1680,8 @@ mod tests {
         let t = tempfile::tempdir().unwrap();
         let root = t.path();
         let current = SEED_FILES[0].current;
+        // what lands on disk: this build's identifier, not the source's
+        let written = render(current).into_owned();
         let old_text = "# Substrate vault (an older shipped revision)\n";
         let shipped = [old_text, current];
 
@@ -1594,7 +1716,7 @@ mod tests {
         let plain = root.join("plain-AGENTS.md");
         fs::write(&plain, old_text).unwrap();
         seed_or_refresh(&plain, current, &shipped);
-        assert_eq!(fs::read_to_string(&plain).unwrap(), current);
+        assert_eq!(fs::read_to_string(&plain).unwrap(), written);
         // …an edited one still does not…
         let mine = format!("{old_text}my own notes\n");
         fs::write(&plain, &mine).unwrap();
@@ -1603,7 +1725,7 @@ mod tests {
         // …and a missing one is still backfilled
         let absent = root.join("absent-AGENTS.md");
         seed_or_refresh(&absent, current, &shipped);
-        assert_eq!(fs::read_to_string(&absent).unwrap(), current);
+        assert_eq!(fs::read_to_string(&absent).unwrap(), written);
 
         // Settings.md goes through its own function and needs the same guard
         let linked = root.join("linked-vault");
@@ -1654,6 +1776,8 @@ mod tests {
         let t = tempfile::tempdir().unwrap();
         let root = t.path();
         let current = SEED_FILES[0].current;
+        // what lands on disk: this build's identifier, not the source's
+        let written = render(current).into_owned();
         let old_text = "# Substrate vault (an older shipped revision)\n";
         let shipped = [old_text, current];
         let abs = root.join(AGENTS_REL_PATH);
@@ -1673,7 +1797,7 @@ mod tests {
         // that DO match a shipped revision still refresh
         fs::write(&abs, old_text).unwrap();
         seed_or_refresh_with(&abs, current, &shipped, collide);
-        assert_eq!(fs::read_to_string(&abs).unwrap(), current);
+        assert_eq!(fs::read_to_string(&abs).unwrap(), written);
 
         // the Settings.md body half has the same rule
         let v = root.join("vault");

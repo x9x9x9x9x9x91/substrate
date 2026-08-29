@@ -3,6 +3,7 @@
 
 use crate::commands::history::with_history;
 use crate::gitsync::{self, SyncReport};
+use crate::history::History;
 use crate::{blocking, AppState, AutoFail, HistoryState, VaultSyncLast, VaultSyncState};
 use std::path::Path;
 use std::time::Instant;
@@ -660,6 +661,24 @@ pub(crate) fn vault_sync_status(
     }
 }
 
+/// The pre-sync snapshot, taken through the history guard the sync gate is
+/// already holding.
+///
+/// A push commits what is loose in the tree and then refuses if anything is
+/// still loose, and those two answers have to be about one instant — so the
+/// gate covers both, and the snapshot cannot go looking for the history lock
+/// itself (it would deadlock against the guard it is standing inside). It is
+/// handed the guard instead. `E` is whatever else the gate carries; only the
+/// history half is this function's business.
+fn snapshot_under<E>(
+    gates: &mut (std::sync::MutexGuard<'_, Option<History>>, E),
+) -> Result<(), String> {
+    match gates.0.as_ref() {
+        Some(hist) => hist.snapshot("snapshot (sync)").map(|_| ()),
+        None => Err("version history unavailable — git could not be initialized".into()),
+    }
+}
+
 /// A sync leg and the class its failure records under.
 ///
 /// A hosted remote loads a token and a master key before it can do anything,
@@ -800,24 +819,41 @@ pub(crate) async fn vault_sync_push(
         // it guards no data, and one panicked sync must not brick every later
         // one for the life of the process.
         let _op = sync.op.lock().unwrap_or_else(|e| e.into_inner());
-        // The pre-push snapshot is part of the attempt, so its failure is an
-        // outcome and not an early exit: a stuck index lock or a full disk here
-        // means nothing this machine wrote is leaving it, and returning without
-        // a word would leave the freshness record standing at the last leg that
-        // did get through — green, indefinitely, for a vault that is stuck.
-        if let Err(error) = with_history(&history, |hist| hist.snapshot("snapshot (sync)")) {
-            let result: Result<SyncReport, String> = Err(error);
-            record_outcome(&sync, &result, origin.as_deref() == Some("auto"), FailureClass::Local);
-            record_health(&sync, &sync_root(&state), SyncLeg::Push, &result, FailureClass::Local);
-            return result;
-        }
-        // Gate: the engine mutex is held only while the working tree is
-        // inspected, never across the network push.
+        // Gate: history first, then engine (the repo-wide lock order), held
+        // across the pre-push snapshot AND the local phase it makes clean, and
+        // never across the network push. The two share one hold because a
+        // writer landing between them — the drive shelf finishing a scan and
+        // rewriting its catalog is the one users met — dirtied the tree again
+        // and turned the push into a refusal naming the app's own file.
+        // The snapshot now rides inside the leg, so a hosted preflight failure
+        // (a missing or denied token or key) returns before it runs where the
+        // old shape snapshotted first. Deliberate: nothing leaves this machine
+        // on that path either, so the edits simply stay loose in the tree for
+        // the next attempt, and the class is Local either way.
+        let snapshot_failed = std::cell::Cell::new(false);
         let (result, class) = classified_leg(&sync_root(&state), &sync.credentials_path, || {
-            gitsync::sync_push_gated(&sync_root(&state), &sync.credentials_path, || {
-                state.0.lock().unwrap()
-            })
+            gitsync::sync_push_with_snapshot(
+                &sync_root(&state),
+                &sync.credentials_path,
+                |gates| {
+                    let outcome = snapshot_under(gates);
+                    snapshot_failed.set(outcome.is_err());
+                    outcome
+                },
+                || {
+                    let history = history.0.lock().unwrap();
+                    let engine = state.0.lock().unwrap();
+                    (history, engine)
+                },
+            )
         });
+        // The snapshot is part of the attempt, so its failure is an outcome
+        // and not an early exit: a stuck index lock or a full disk here means
+        // nothing this machine wrote is leaving it, and returning without a
+        // word would leave the freshness record standing at the last leg that
+        // did get through — green, indefinitely, for a vault that is stuck.
+        // It is local by construction, whatever the leg's own class would say.
+        let class = if snapshot_failed.get() { FailureClass::Local } else { class };
         record_outcome(&sync, &result, origin.as_deref() == Some("auto"), class);
         record_store_notice(&mut sync.last.lock().unwrap(), &result);
         record_health(&sync, &sync_root(&state), SyncLeg::Push, &result, class);
@@ -844,21 +880,29 @@ pub(crate) async fn vault_sync_replace_hosted(app: tauri::AppHandle) -> Result<S
         // Same one-network-leg gate and lock order as push, poison-tolerant
         // for the same reason.
         let _op = sync.op.lock().unwrap_or_else(|e| e.into_inner());
-        // Same reasoning as the pre-push snapshot: what this publishes is the
-        // vault as it stands, so edits that never made it into history would
-        // otherwise be left out of the copy that replaces the server's — and
-        // the failure to capture them is an outcome, not an early exit.
-        if let Err(error) = with_history(&history, |hist| hist.snapshot("snapshot (sync)")) {
-            let result: Result<SyncReport, String> = Err(error);
-            record_outcome(&sync, &result, false, FailureClass::Local);
-            record_health(&sync, &sync_root(&state), SyncLeg::Push, &result, FailureClass::Local);
-            return result;
-        }
+        // Same reasoning as the pre-push snapshot, gate and all: what this
+        // publishes is the vault as it stands, so edits that never made it
+        // into history would otherwise be left out of the copy that replaces
+        // the server's — and the failure to capture them is an outcome, not an
+        // early exit.
+        let snapshot_failed = std::cell::Cell::new(false);
         let (result, class) = classified_leg(&sync_root(&state), &sync.credentials_path, || {
-            gitsync::sync_replace_hosted_gated(&sync_root(&state), &sync.credentials_path, || {
-                state.0.lock().unwrap()
-            })
+            gitsync::sync_replace_hosted_with_snapshot(
+                &sync_root(&state),
+                &sync.credentials_path,
+                |gates| {
+                    let outcome = snapshot_under(gates);
+                    snapshot_failed.set(outcome.is_err());
+                    outcome
+                },
+                || {
+                    let history = history.0.lock().unwrap();
+                    let engine = state.0.lock().unwrap();
+                    (history, engine)
+                },
+            )
         });
+        let class = if snapshot_failed.get() { FailureClass::Local } else { class };
         record_outcome(&sync, &result, false, class);
         record_store_notice(&mut sync.last.lock().unwrap(), &result);
         record_health(&sync, &sync_root(&state), SyncLeg::Push, &result, class);

@@ -216,6 +216,8 @@ function AboutRow({ onCheckUpdates }: { onCheckUpdates: () => Promise<UpdateChec
               ? "the app looks for a new release on its own every few hours; this asks now"
               : answer.state === "current"
               ? "up to date"
+              : answer.state === "unconfigured"
+              ? "this build has no update feed — new versions arrive as a new download"
               : answer.state === "unreachable"
               ? "couldn't reach the update feed — no answer from the release server"
               : answer.stage === "ready"

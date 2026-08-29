@@ -5,19 +5,36 @@ import { isTauri } from "../lib/tauri";
 import type { ToastAction, ToastOpts } from "./useToast";
 
 /**
- * What one on-demand check found. The background cycle stays silent on two of
- * these three — nothing new, and a feed it could not reach — so the answer
- * only has somewhere to go when a person asked the question.
+ * What one on-demand check found. The background cycle stays silent on all but
+ * one of these — nothing new, a feed it could not reach, no feed at all — so
+ * the answer only has somewhere to go when a person asked the question.
  *
  * `available` also covers an update this session already picked up: an offer
  * standing in the toast, a download running, or bytes installed and waiting
  * for a restart. Saying which one keeps a second press from starting a second
  * download.
+ *
+ * `unconfigured` is the public build, which ships with no endpoint: there is
+ * nothing to reach, so "couldn't reach the feed" would name a fault that does
+ * not exist. It updates by being downloaded again.
  */
 export type UpdateCheck =
   | { state: "current" }
   | { state: "available"; version: string; stage: "offered" | "downloading" | "ready" }
-  | { state: "unreachable" };
+  | { state: "unreachable" }
+  | { state: "unconfigured" };
+
+/* The plugin's own words for a build with an empty endpoint list — the one
+   thing that distinguishes "no feed configured" from "the feed did not
+   answer", and it only reaches here as the text of a thrown error. */
+const NO_ENDPOINTS = "does not have any endpoints set";
+
+/** Which kind of failure a check threw: a build with no feed, or a feed that
+    would not answer. Anything unrecognizable reads as unreachable, which is
+    the answer that was already given to everything. */
+function failureState(e: unknown): UpdateCheck {
+  return String(e).includes(NO_ENDPOINTS) ? { state: "unconfigured" } : { state: "unreachable" };
+}
 
 /** launch check waits this long so it never competes with vault load/index */
 const FIRST_CHECK_MS = 20_000;
@@ -199,8 +216,8 @@ export function useUpdater(
           return { state: "current" };
         }
         return { state: "available", version: offer(update), stage: "offered" };
-      } catch {
-        return { state: "unreachable" };
+      } catch (e) {
+        return failureState(e);
       }
     };
 

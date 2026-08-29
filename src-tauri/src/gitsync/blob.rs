@@ -1420,7 +1420,23 @@ pub(crate) fn push<G>(
     transport: &impl BlobTransport,
     gate: impl FnMut() -> G,
 ) -> Result<SyncReport, String> {
-    push_inner(root, key, transport, gate, Replace::No)
+    push_inner(root, key, transport, |_| Ok(()), gate, Replace::No)
+}
+
+/// The same push with the caller's pre-push snapshot taken inside the first
+/// guard, immediately before the clean-tree check.
+///
+/// The vault's own push goes through here; the space pushes above have no
+/// snapshot to take. Why the two steps have to share one hold of the gate is
+/// written at [`super::sync_push_with_snapshot`].
+pub(crate) fn push_with_snapshot<G>(
+    root: &Path,
+    key: &MasterKey,
+    transport: &impl BlobTransport,
+    snapshot: impl FnOnce(&mut G) -> Result<(), String>,
+    gate: impl FnMut() -> G,
+) -> Result<SyncReport, String> {
+    push_inner(root, key, transport, snapshot, gate, Replace::No)
 }
 
 /// The same push, told to publish this device's history over whatever the
@@ -1436,13 +1452,30 @@ pub(crate) fn push<G>(
 /// race rather than being overwritten unseen, and the objects the old history
 /// reached stay in the store as unreferenced ciphertext until the store itself
 /// is rebuilt. Callers owe the user both of those facts in plain words.
+// no caller outside this file's tests since the vault's own
+// replacement grew a snapshot; kept as the plain shape they drive
+#[allow(dead_code)]
 pub(crate) fn push_replacing_remote<G>(
     root: &Path,
     key: &MasterKey,
     transport: &impl BlobTransport,
     gate: impl FnMut() -> G,
 ) -> Result<SyncReport, String> {
-    push_inner(root, key, transport, gate, Replace::Yes)
+    push_inner(root, key, transport, |_| Ok(()), gate, Replace::Yes)
+}
+
+/// [`push_replacing_remote`] with the caller's pre-push snapshot inside the
+/// first guard, for the same reason [`push_with_snapshot`] has one: what this
+/// publishes is the vault as it stands, so the capture and the clean check
+/// have to be answering about one instant.
+pub(crate) fn push_replacing_remote_with_snapshot<G>(
+    root: &Path,
+    key: &MasterKey,
+    transport: &impl BlobTransport,
+    snapshot: impl FnOnce(&mut G) -> Result<(), String>,
+    gate: impl FnMut() -> G,
+) -> Result<SyncReport, String> {
+    push_inner(root, key, transport, snapshot, gate, Replace::Yes)
 }
 
 /// Whether a push may publish over a head it cannot fast-forward from.
@@ -1456,12 +1489,16 @@ fn push_inner<G>(
     root: &Path,
     key: &MasterKey,
     transport: &impl BlobTransport,
+    snapshot: impl FnOnce(&mut G) -> Result<(), String>,
     mut gate: impl FnMut() -> G,
     replace: Replace,
 ) -> Result<SyncReport, String> {
+    let mut guard = gate();
+    snapshot(&mut guard)?;
+    // Opened after the snapshot: its commit moves HEAD and rewrites the index,
+    // so a handle opened before it would be describing a tree that is gone.
     let repo = owned_repo(root)?;
     let (branch, local_oid, pushed, rewritten_at_entry) = {
-        let _guard = gate();
         ensure_clean(&repo)?;
         let (branch, local_oid) = current_branch(&repo)?;
         let tracking_ref = format!("refs/remotes/{REMOTE}/{branch}");
@@ -1473,6 +1510,7 @@ fn push_inner<G>(
         // racing it.
         (branch, local_oid, pushed, history_rewritten(&repo))
     };
+    drop(guard);
 
     let tracking_ref = format!("refs/remotes/{REMOTE}/{branch}");
     let store_key = cache_store_key(&transport.store_identity());
@@ -3527,6 +3565,75 @@ mod tests {
             fs::create_dir_all(parent).unwrap();
         }
         fs::write(full, body).unwrap();
+    }
+
+    /// The encrypted push takes its snapshot inside the write gate too, which
+    /// is the half a real vault meets: the drive shelf writes its catalog
+    /// under `.vault/mounts/` from behind the engine lock, and a scan landing
+    /// between a snapshot taken outside the gate and the clean-tree check
+    /// turned the first push of a freshly configured vault into a refusal
+    /// naming the app's own file.
+    #[test]
+    fn a_catalog_write_that_races_the_encrypted_push_is_committed_rather_than_refused() {
+        let scratch = TempDir::new().unwrap();
+        let a = scratch.path().join("vault-a");
+        let history = vault(&a);
+        let store = FileBlobStore::new(scratch.path().join("blob-store")).unwrap();
+        let key = MasterKey::from_bytes([37; 32]);
+
+        write_note(&a, "Note.md", "base\n");
+        history.snapshot("base").unwrap();
+
+        // As in the plain push's twin of this test, the gate is counted from
+        // both sides — closure takes, guard releases — because the point is one
+        // unbroken hold and not merely the order. A push that dropped the gate
+        // after the snapshot and took it again before the clean check would
+        // pass every other assertion here and reopen the race; the take count
+        // after the call returns is what refuses it.
+        struct Hold(std::rc::Rc<std::cell::Cell<usize>>);
+        impl Drop for Hold {
+            fn drop(&mut self) {
+                self.0.set(self.0.get() + 1);
+            }
+        }
+
+        let releases = std::rc::Rc::new(std::cell::Cell::new(0));
+        let holds = std::cell::Cell::new(0);
+        let report = push_with_snapshot(
+            &a,
+            &key,
+            &store,
+            |hold: &mut Hold| {
+                assert_eq!(hold.0.get(), 0, "the gate was let go before the snapshot ran");
+                history.snapshot("snapshot (sync)").map(|_| ())
+            },
+            || {
+                holds.set(holds.get() + 1);
+                if holds.get() == 1 {
+                    write_note(&a, ".vault/mounts/9d1f4c2a.json", "{\"files\":[]}\n");
+                }
+                Hold(std::rc::Rc::clone(&releases))
+            },
+        )
+        .unwrap();
+
+        // Two takes and no more: one around the snapshot and the local phase,
+        // one around the publish — the CAS, the tracking-ref write and the
+        // marker clear. A drop-and-retake before the clean check reads three.
+        assert_eq!(holds.get(), 2, "the push did not hold the write gate in two takes");
+        assert_eq!(releases.get(), 2, "the push returned still holding the write gate");
+
+        assert!(report.pushed >= 1, "the racing catalog write never reached the store");
+        let repo = Repository::open(&a).unwrap();
+        assert!(!super::working_tree_is_dirty(&repo).unwrap(), "the push left the tree dirty");
+
+        // The old shape, for contrast: a write the snapshot did not cover is
+        // still what the local phase refuses over.
+        let refused = push(&a, &key, &store, || {
+            write_note(&a, ".vault/mounts/9d1f4c2a.json", "{\"files\":[0]}\n");
+        })
+        .unwrap_err();
+        assert!(refused.contains("requires a clean working tree"), "{refused}");
     }
 
     fn put_plain_object(

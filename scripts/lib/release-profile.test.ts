@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const LIB = fileURLToPath(new URL("./release-profile.sh", import.meta.url));
+const TAURI_CONF = JSON.parse(readFileSync(`${ROOT}src-tauri/tauri.conf.json`, "utf8"));
 
 /** Source the library with a given environment and read back what it derived. */
 function derive(profile: string, env: Record<string, string>): Record<string, string> {
@@ -26,6 +27,8 @@ function derive(profile: string, env: Record<string, string>): Record<string, st
     echo "public=\${SUBSTRATE_PUBLIC-<unset>}"
     echo "target=$(release_target_dir ${JSON.stringify(profile)})"
     echo "dmg=$(release_dmg_name ${JSON.stringify(profile)} 9.9.9)"
+    echo "id=$(release_bundle_id ${JSON.stringify(profile)})"
+    echo "overlay=$(release_config_overlay ${JSON.stringify(profile)})"
     # exported, not merely set: the build's two halves are separate processes
     echo "seen_by_child=$(env | grep '^SUBSTRATE_PUBLIC=' || echo '<unset>')"
   `;
@@ -108,4 +111,87 @@ test("nothing downstream of the flags reassigns PROFILE", () => {
     .filter(([i, line]) => i > parsed + 1 && /(^|[^A-Za-z0-9_])PROFILE=/.test(line))
     .map(([i, line]) => `${i}: ${line.trim()}`);
   assert.deepEqual(reassigned, [], "PROFILE is the build profile from the arg parse on — give this one another name");
+});
+
+test("the two profiles are two applications, derived from the one configured id", () => {
+  const full = TAURI_CONF.identifier;
+  assert.equal(derive("full", {}).id, full, "the full build keeps the identifier tauri.conf.json names");
+  assert.equal(
+    derive("public", {}).id,
+    `${full}.public`,
+    "the public identifier is derived from the full one, so a rename can only move both",
+  );
+  assert.notEqual(derive("public", {}).id, derive("full", {}).id);
+});
+
+test("only the public profile builds through an overlay, and it moves exactly two things", () => {
+  assert.equal(derive("full", {}).overlay, "", "a full build builds tauri.conf.json as committed");
+
+  const overlay = JSON.parse(derive("public", {}).overlay);
+  assert.deepEqual(overlay, {
+    identifier: `${TAURI_CONF.identifier}.public`,
+    plugins: { updater: { endpoints: [] } },
+  });
+
+  // The merge is RFC 7386, so what the overlay does NOT name is inherited.
+  // The pubkey has to be one of those: the updater plugin's config will not
+  // deserialize without it and the app fails to start. An empty endpoint list
+  // is what makes the key inert.
+  assert.ok(TAURI_CONF.plugins.updater.pubkey, "tauri.conf.json still carries the pubkey the overlay inherits");
+  assert.ok(!("pubkey" in overlay.plugins.updater), "the overlay must not restate the pubkey");
+  assert.ok(
+    TAURI_CONF.plugins.updater.endpoints.length > 0,
+    "the full build still has the feed it always had",
+  );
+});
+
+test("the release script applies the overlay and asserts the identity it produced", () => {
+  const src = readFileSync(`${ROOT}scripts/release-macos.sh`, "utf8");
+  for (const fn of ["release_bundle_id", "release_config_overlay"]) {
+    assert.ok(src.includes(`${fn} `) || src.includes(`${fn}(`), `release-macos.sh never calls ${fn}`);
+  }
+  assert.match(src, /--config/, "the overlay never reaches tauri build");
+  // Deriving it is not the same as shipping it: the identity gate reads the
+  // built artifact, which is the only place an overlay that silently failed to
+  // apply becomes visible.
+  assert.match(src, /CFBundleIdentifier/, "nothing reads the identifier back off the artifact");
+});
+
+/** RFC 7386 merge patch — the merge `tauri build --config` applies (the CLI
+    reads it, and tauri-build re-applies it over tauri.conf.json through
+    `json_patch::merge` when it embeds the config in the binary). Named keys
+    replace, arrays replace whole, everything unnamed is inherited. */
+function mergePatch(target: unknown, patch: unknown): unknown {
+  if (patch === null || typeof patch !== "object" || Array.isArray(patch)) return patch;
+  const base: Record<string, unknown> =
+    target !== null && typeof target === "object" && !Array.isArray(target)
+      ? { ...(target as Record<string, unknown>) }
+      : {};
+  for (const [k, v] of Object.entries(patch as Record<string, unknown>)) {
+    if (v === null) delete base[k];
+    else base[k] = mergePatch(base[k], v);
+  }
+  return base;
+}
+
+test("merged over the real config, the overlay changes the identity and the feed and nothing else", () => {
+  const overlay = JSON.parse(derive("public", {}).overlay);
+  const merged = mergePatch(TAURI_CONF, overlay) as typeof TAURI_CONF;
+
+  assert.equal(merged.identifier, `${TAURI_CONF.identifier}.public`);
+  assert.deepEqual(merged.plugins.updater.endpoints, [], "a public build polls nothing");
+  assert.equal(
+    merged.plugins.updater.pubkey,
+    TAURI_CONF.plugins.updater.pubkey,
+    "the pubkey is inherited, not dropped — the plugin's config will not deserialize without it and the app would fail to start",
+  );
+
+  // Everything the release depends on is untouched: the signing identity, the
+  // entitlements, the product name the DMG is named after, the bundled
+  // resources. An overlay that reached further than the identity would be
+  // shipping a differently-configured app under the same review.
+  const rest = (c: typeof TAURI_CONF) => ({ ...c, identifier: null, plugins: null });
+  assert.deepEqual(rest(merged), rest(TAURI_CONF), "the overlay touched something outside identity and feed");
+  const otherPlugins = (c: typeof TAURI_CONF) => ({ ...c.plugins, updater: null });
+  assert.deepEqual(otherPlugins(merged), otherPlugins(TAURI_CONF), "the overlay touched a plugin other than the updater");
 });

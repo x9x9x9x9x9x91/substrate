@@ -2,6 +2,16 @@
 
 set -u
 
+# Pin the shared cargo target for the tree just checked out, before anything
+# else: `git worktree add` fires this hook, and a fresh worktree is exactly
+# where a bare `cargo build` used to write a private src-tauri/target and be
+# left behind. The helper is idempotent and never fatal — a hook must not be
+# able to fail a checkout. cwd is the checked-out tree's top level.
+if [[ -r scripts/lib/cargo-target.sh ]]; then
+  # shellcheck source=scripts/lib/cargo-target.sh
+  . scripts/lib/cargo-target.sh 2>/dev/null && substrate_pin_cargo_target_config
+fi
+
 git_dir_raw="$(git rev-parse --git-dir 2>/dev/null)" || exit 0
 common_dir_raw="$(git rev-parse --git-common-dir 2>/dev/null)" || exit 0
 git_dir="$(cd "$git_dir_raw" 2>/dev/null && pwd -P)" || exit 0

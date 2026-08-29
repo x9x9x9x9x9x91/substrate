@@ -50,3 +50,21 @@ printf '%s\n' "$checkout_output" | grep -Fq \
   "WARNING: primary checkout detached HEAD is 1 commit(s) behind origin/main" ||
   fail "post-checkout did not warn about the stale detached HEAD"
 printf 'ok: post-checkout warned when primary was behind origin/main\n'
+
+# A fresh worktree is where a bare `cargo build` used to write its own
+# src-tauri/target, so post-checkout pins the tree at creation.
+mkdir -p "$linked/scripts/lib" "$linked/src-tauri"
+cp "$repo_root/scripts/lib/cargo-target.sh" "$linked/scripts/lib/cargo-target.sh"
+: >"$linked/src-tauri/Cargo.toml"
+git -C "$linked" add scripts/lib/cargo-target.sh src-tauri/Cargo.toml
+git -C "$linked" commit -qm "cargo target lib"
+pinned="$scratch/pinned"
+# -u CARGO_TARGET_DIR: a gate run exports one, and the pin deliberately
+# declines to write an ad-hoc override into a checkout.
+env -u CARGO_TARGET_DIR XDG_CACHE_HOME="$scratch/cache" \
+  git -C "$primary" worktree add -q "$pinned" -b pinned-branch main
+[[ -f "$pinned/.cargo/config.toml" ]] ||
+  fail "post-checkout did not pin the new worktree's cargo target dir"
+grep -Fq "target-dir = \"$scratch/cache/substrate-cargo-target\"" "$pinned/.cargo/config.toml" ||
+  fail "pinned config does not point at the shared cache"
+printf 'ok: post-checkout pinned a new worktree to the shared cargo target dir\n'
