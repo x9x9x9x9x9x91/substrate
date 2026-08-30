@@ -248,6 +248,7 @@ test("6d: the gesture's entry keeps the FIRST half's id, so a toast button runs 
   const first = undo.nextUndoId();
   let s = push(emptyUndo, entry({ label: "home", group: g, id: first }));
   s = push(s, entry({ label: "reveal", group: g }));
+  assert.equal(s.entries.length, 1, "the halves never folded — the id below proves nothing");
   assert.equal(s.entries[0].id, first);
   assert.equal(undo.pendingById(s, first)?.label, "home");
 });
@@ -306,6 +307,73 @@ test("6g: a gesture never folds onto a stale half, nor half-redoes", () => {
   assert.equal(t.entries.length, 1);
   t = advance(t, peekUndo(t)!.id, -1);
   assert.equal(peekRedo(t), null);
+});
+
+test("6h: a gesture is N-ary — a third push carrying the token folds too", async () => {
+  const log: string[] = [];
+  const g = undo.nextUndoGroup();
+  let s = push(emptyUndo, halfEntry(log, "home", { group: g, paths: ["schema.json"] }));
+  s = push(s, halfEntry(log, "reveal", { group: g, paths: ["views.json"] }));
+  s = push(s, halfEntry(log, "sort", { group: g, paths: ["order.json"] }));
+
+  assert.equal(s.entries.length, 1, "three stores, one gesture, one entry");
+  const only = peekUndo(s)!;
+  assert.equal(only.label, "home", "the FIRST half still names the gesture");
+  assert.deepEqual(only.paths, ["schema.json", "views.json", "order.json"]);
+  await only.undo();
+  assert.deepEqual(log, ["undo:sort", "undo:reveal", "undo:home"], "reverse push order, all three");
+  log.length = 0;
+  await only.redo!();
+  assert.deepEqual(log, ["redo:home", "redo:reveal", "redo:sort"]);
+});
+
+test("6i: a half pushed while the first half is being undone lands on its own", () => {
+  const g = undo.nextUndoGroup();
+  const log: string[] = [];
+  let s = push(emptyUndo, halfEntry(log, "home", { group: g, paths: ["schema.json"] }));
+  const home = s.entries[0].id;
+
+  // ⌘Z has picked `home` and is awaiting its vault write; the cursor still
+  // points at it, so only the running mark can say the fold is unsafe
+  s = undo.beginRun(s, home);
+  s = push(s, halfEntry(log, "reveal", { group: g, paths: ["views.json"] }));
+  assert.deepEqual(
+    s.entries.map((e) => e.label),
+    ["home", "reveal"],
+    "the reveal folded into the entry being unwound"
+  );
+
+  // the write lands: `home` is retired (it was undone), the reveal is left at
+  // the cursor for a second ⌘Z — the pre-grouping shape of an interrupted
+  // gesture, never wrong, only two-deep
+  s = undo.endRun(advance(s, home, -1), home);
+  assert.deepEqual(
+    s.entries.map((e) => e.label),
+    ["reveal"]
+  );
+  const left = peekUndo(s)!;
+  assert.equal(left.label, "reveal", "the reveal is unreachable — stranded on the redo side");
+  s = advance(s, left.id, -1);
+  assert.equal(peekUndo(s), null);
+  assert.equal(peekRedo(s)?.label, "reveal", "and it redoes from there");
+
+  // the mark is gone with the run, so the next gesture folds as usual
+  const g2 = undo.nextUndoGroup();
+  let t = push(s, halfEntry(log, "a", { group: g2 }));
+  t = push(t, halfEntry(log, "b", { group: g2 }));
+  assert.equal(t.entries.length, 1, "a later gesture stopped folding — the mark outlived its run");
+});
+
+test("6j: the running mark only clears for the run that set it", () => {
+  const g = undo.nextUndoGroup();
+  let s = push(emptyUndo, entry({ label: "home", group: g }));
+  const home = s.entries[0].id;
+  s = undo.beginRun(s, home);
+  // a late clear from some earlier entry's run must not open the window
+  s = undo.endRun(s, home + 999);
+  s = push(s, entry({ label: "reveal", group: g }));
+  assert.equal(s.entries.length, 2, "a stale clear unmarked the run in flight");
+  assert.deepEqual(undo.endRun(s, home), { entries: s.entries, cursor: s.cursor });
 });
 
 /* ── 7–9: the setPropUndoable helper, over the mock backend ───────────── */

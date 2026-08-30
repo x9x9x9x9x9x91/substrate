@@ -45,6 +45,12 @@ export type UndoState = {
   entries: UndoEntry[];
   /** index of the next entry ⌘Z would undo; -1 = nothing left to undo */
   cursor: number;
+  /** the entry whose inverse is running RIGHT NOW, while its write is in
+      flight. The cursor can't say this: it only moves once the write lands
+      (`advance`), so between the two an entry that is already being unwound
+      still sits at the top of the stack and would take a fold (see `push`).
+      Absent = nothing in flight, which is every moment but those few. */
+  running?: number;
 };
 
 export const MAX_UNDO = 50;
@@ -73,16 +79,27 @@ export function nextUndoGroup(): number {
     forked branch is gone. Oldest entries fall off the end past MAX_UNDO.
 
     A push carrying the same `group` token as the entry already on top folds
-    INTO it rather than landing beside it: one gesture, one entry, one ⌘Z. It
+    INTO it rather than landing beside it: one gesture, one entry, one ⌘Z. The
+    fold is N-ary — the merged entry keeps the token, so a third push carrying
+    it folds again, and the whole gesture stays one keystroke however many
+    stores it writes. Two halves is only what the app records today. It
     is the stack's job because the alternative is every multi-store gesture
     inventing an inverse that reaches across stores it doesn't own — the
     re-home of a hidden database (schema home + `$sidebar` hidden set) walked
     into exactly that. The fold is deliberately narrow:
 
-    - CONSECUTIVE only. Anything else landing between the two halves — another
-      action while the first write was in flight — leaves them as two entries,
-      which is the behaviour that existed before grouping and is never wrong,
-      only two-deep.
+    - CONSECUTIVE only. Anything else landing between two halves — another
+      action while the first write was in flight — leaves them as separate
+      entries, which is the behaviour that existed before grouping and is
+      never wrong, only two-deep.
+    - Never onto the entry an undo is RUNNING (`s.running`). The cursor hasn't
+      moved yet — it moves when the write lands — so an in-flight entry still
+      looks like the top of the stack, and folding a half into it would attach
+      that half to work already being taken back: `advance` then matches the
+      merged entry by the first half's id and steps the cursor below it,
+      stranding the second half on the redo side. Declining leaves the late
+      half as its own entry, which is exactly the interrupted-gesture case
+      above: two-deep, and a second ⌘Z takes it back.
     - The first half's LABEL and ID win. The label is the gesture's own name
       ("Home “X” in “Y”"), not the housekeeping the second half did; the id
       keeps a pre-minted toast button pointing at the whole gesture, so a
@@ -99,13 +116,31 @@ export function push(s: UndoState, e: Omit<UndoEntry, "id"> & { id?: number }): 
   const kept = s.entries.slice(0, s.cursor + 1);
   const top = kept[kept.length - 1];
   const entry: UndoEntry = { ...e, id: e.id ?? nextUndoId() };
-  if (e.group !== undefined && top && top.group === e.group && !top.stale) {
+  if (e.group !== undefined && top && top.group === e.group && !top.stale && top.id !== s.running) {
     kept[kept.length - 1] = mergeGesture(top, entry);
   } else {
     kept.push(entry);
   }
   const entries = kept.length > MAX_UNDO ? kept.slice(kept.length - MAX_UNDO) : kept;
-  return { entries, cursor: entries.length - 1 };
+  return { ...s, entries, cursor: entries.length - 1 };
+}
+
+/** Mark the entry whose inverse the runner is about to await — an undo or a
+    redo, both of which leave the stack looking unchanged until the write
+    lands. Only `push` reads it, and only to decline a fold (§2.7). */
+export function beginRun(s: UndoState, id: number): UndoState {
+  return s.running === id ? s : { ...s, running: id };
+}
+
+/** Clear the mark once that inverse has landed, or thrown. By id, so a stale
+    clear from an earlier run can't unmark the run that followed it — the
+    runner serialises, but the mark has to be honest under any order. The key
+    is dropped rather than set to undefined: an idle stack should compare
+    equal to one that has never run anything. */
+export function endRun(s: UndoState, id: number): UndoState {
+  if (s.running !== id) return s;
+  const { running: _cleared, ...rest } = s;
+  return rest;
 }
 
 /** Two halves of one gesture as a single entry. Undo unwinds in reverse push
@@ -190,7 +225,7 @@ export function evictScope(s: UndoState, scope: UndoScope): UndoState {
   if (entries.length === s.entries.length) return s;
   // the cursor follows the entries that survived at or before it
   const cursor = s.entries.slice(0, s.cursor + 1).filter((e) => e.scope !== scope).length - 1;
-  return { entries, cursor };
+  return { ...s, entries, cursor };
 }
 
 /** Retire an entry whose inverse actually ran. Keyed by id, not by position:
@@ -221,7 +256,7 @@ export function advance(s: UndoState, id: number, dir: -1 | 1): UndoState {
   if (at === -1 || at > s.cursor) return s;
   const entries = s.entries.slice();
   entries.splice(at, 1);
-  return { entries, cursor: s.cursor - 1 };
+  return { ...s, entries, cursor: s.cursor - 1 };
 }
 
 /** The nearest stale entry ⌘Z would have run had it not gone stale — the

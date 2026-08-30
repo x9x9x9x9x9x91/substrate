@@ -309,6 +309,11 @@ export type UndoEntry = {
 };
 ```
 
+The state around them is the entry list, the cursor, and one more field the
+cursor cannot express: `running`, the id of the entry whose inverse is in
+flight. The cursor moves only once that write lands, so `running` is what tells
+`push` not to fold a gesture's late half into work already being undone (§2.7).
+
 **Inverse operations, not snapshots.** Each entry closes over the minimum prior
 state needed to reverse itself. Per class:
 
@@ -504,9 +509,22 @@ What the fold guarantees, and what it deliberately does not:
 - **The first half's label and id win.** The label is the gesture's own name;
   the id keeps a pre-minted toast button (§6.5) pointing at the whole gesture,
   so a surface that needs one holds the id of the *first* recorder it calls.
+- **N-ary, not two-way.** The merged entry keeps the token, so a third push
+  carrying it folds again and the gesture is still one keystroke. Two halves is
+  what the app writes today, not the limit of the fold.
 - **Consecutive only.** Anything landing between the halves — another action
   while the first write was in flight — leaves them as two entries: the
   pre-grouping behaviour, never wrong, only two-deep.
+- **Never onto an entry a ⌘Z is already unwinding.** The cursor is positional
+  and moves only when the inverse's write lands, so for the length of that
+  write the entry being undone still looks like the top of the stack. A half
+  folded into it would be attached to work already being taken back — `advance`
+  matches the merged entry by the first half's id, steps the cursor below it,
+  and the late half is stranded on the redo side with the home reverted and the
+  row still revealed. So the runner marks what it is running (`beginRun` /
+  `endRun` around the await, cleared on both the success and the failure path)
+  and `push` declines the fold: the late half lands as its own entry, which is
+  the interrupted-gesture case above.
 - **Never onto a stale entry, and no half-redo.** A fold onto a dead entry
   would take the live half down with it; a merged entry is redoable only when
   both halves are, because replaying one side is the very intermediate state
@@ -796,10 +814,15 @@ export type UndoEntry = {
       a disk conflict sends the reader hunting a sync problem that never
       happened. */
   stale?: "external" | "failed";
+  /** one gesture's token — consecutive pushes carrying it fold into one
+      entry (§2.7). Absent = an entry of its own. */
+  group?: number;
 };
 
-/** Pure stack mechanics — no React, no IPC. Unit-testable in isolation. */
-export type UndoState = { entries: UndoEntry[]; cursor: number };
+/** Pure stack mechanics — no React, no IPC. Unit-testable in isolation.
+    `running` is the id of the entry whose inverse is in flight (§2.1) —
+    set around the runner's await, and the one thing the cursor can't say. */
+export type UndoState = { entries: UndoEntry[]; cursor: number; running?: number };
 
 export const MAX_UNDO = 50;
 

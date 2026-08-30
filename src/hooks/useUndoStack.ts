@@ -21,7 +21,12 @@ export type UndoAction =
   | { t: "invalidate"; paths: string[] }
   | { t: "markStale"; id: number }
   | { t: "evictScope"; scope: UndoEntry["scope"] }
-  | { t: "advance"; id: number; dir: -1 | 1 };
+  | { t: "advance"; id: number; dir: -1 | 1 }
+  /** the runner opening and closing the window where an inverse is in flight
+      and the cursor has not moved yet — a push arriving inside it must not
+      fold onto the entry being run (lib/undo.ts `push`) */
+  | { t: "beginRun"; id: number }
+  | { t: "endRun"; id: number };
 
 function undoReducer(s: UndoState, a: UndoAction): UndoState {
   switch (a.t) {
@@ -48,6 +53,10 @@ function undoReducer(s: UndoState, a: UndoAction): UndoState {
       return undoStack.evictScope(s, a.scope);
     case "advance":
       return undoStack.advance(s, a.id, a.dir);
+    case "beginRun":
+      return undoStack.beginRun(s, a.id);
+    case "endRun":
+      return undoStack.endRun(s, a.id);
   }
 }
 
@@ -101,6 +110,14 @@ export function useUndoStack(
       if (!entry) return;
       const run = dir === -1 ? entry.undo : entry.redo;
       if (!run) return;
+      /* Say which entry is in flight before awaiting it. The cursor still
+         points AT this entry for as long as the write takes, so a gesture's
+         second half pushed inside that window would fold into work already
+         being taken back — the merged entry then rides `advance` below the
+         cursor and the late half can never be undone. The mark closes in
+         `finally`: a throw stales the entry (which also blocks the fold), but
+         a conflict does not, and neither may leave the window propped open. */
+      undoDispatch({ t: "beginRun", id: entry.id });
       try {
         await run();
         undoDispatch({ t: "advance", id: entry.id, dir });
@@ -125,6 +142,8 @@ export function useUndoStack(
           undoDispatch({ t: "markStale", id: entry.id });
           showToast(`Undo failed: ${msg}`);
         }
+      } finally {
+        undoDispatch({ t: "endRun", id: entry.id });
       }
     },
     [refresh, showToast, undoDispatch]

@@ -161,6 +161,71 @@ function gatedEntry(label: string, ran: string[]): {
   };
 }
 
+test("a gesture's second half never folds into the entry an in-flight ⌘Z is unwinding", async (t) => {
+  /* The narrow race grouping opened: the cursor only moves once the inverse's
+     write lands, so a half pushed while the FIRST half is being undone sees a
+     stack that still looks foldable. Folded, the late half rides the merged
+     entry below the cursor when `advance` matches it by the first half's id —
+     home reverted, row still revealed, and no keystroke can reach it. The
+     runner marks what it is running so the push lands as its own entry. */
+  undoStack.__resetUndoIds();
+  const toasts: string[] = [];
+  const ran: string[] = [];
+  const hook = await mountHook(t, toasts);
+
+  const g = undoStack.nextUndoGroup();
+  const held = gatedEntry("home", ran);
+  await act(async () => {
+    hook().undoApi.record({ ...held.entry, group: g });
+  });
+
+  const pick = () => ({ entry: undoStack.peekUndo(hook().undoStateRef.current) });
+  let undoingHome: Promise<void>;
+  await act(async () => {
+    undoingHome = hook().runUndoEntry(pick, -1);
+    await new Promise((r) => setTimeout(r, 0));
+    // the gesture's other store finishes writing while the undo is in the air
+    hook().undoApi.record({
+      ...entry("reveal", ran),
+      group: g,
+      redo: async () => {
+        ran.push("redo:reveal");
+      },
+    });
+  });
+  assert.equal(
+    hook().undoStateRef.current.entries.length,
+    2,
+    "the reveal folded into the entry being unwound"
+  );
+
+  await act(async () => {
+    held.release();
+    await undoingHome!;
+  });
+
+  assert.deepEqual(ran, ["home"], "home's inverse ran once");
+  assert.deepEqual(
+    hook().undoState.entries.map((e) => e.label),
+    ["reveal"],
+    "the reveal is stranded — it should be sitting at the cursor for a second ⌘Z"
+  );
+
+  // a second ⌘Z takes the reveal back, and the redo side is sane afterwards
+  await act(async () => {
+    await hook().runUndoEntry(pick, -1);
+  });
+  assert.deepEqual(ran, ["home", "reveal"]);
+  assert.equal(hook().undoState.cursor, -1);
+  assert.equal(undoStack.peekRedo(hook().undoState)?.label, "reveal");
+  assert.equal(
+    hook().undoState.entries.filter((e) => e.stale).length,
+    0,
+    "an entry went stale: something ran an inverse twice"
+  );
+  assert.deepEqual(toasts, ["Undid home", "Undid reveal"]);
+});
+
 test("an action recorded during an in-flight undo retires the entry being undone", async (t) => {
   undoStack.__resetUndoIds();
   const toasts: string[] = [];
