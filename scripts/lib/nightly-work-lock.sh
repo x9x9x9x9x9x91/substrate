@@ -24,7 +24,9 @@
 # break a live long night; a dead pid alone would race a run that has just
 # taken the lock and not yet written its owner file. The owner line's third
 # field is the pid, matching the rig lock's `<host> pid <n> …` layout, and the
-# owner is on THIS machine, so `kill -0` is a real liveness answer here.
+# owner is on THIS machine, so `kill -0` is a real liveness answer here — it
+# establishes that SOME live process holds that pid, not that it is the run
+# that wrote the file.
 #
 # Usage:
 #   . "$SCRIPT_DIR/lib/nightly-work-lock.sh"
@@ -35,7 +37,13 @@
 # budget and then builds, covers and shoots — comfortably under this — and the
 # canary is shorter still, so nothing legitimate is ever this old. It is well
 # under the 24h between firings, so a run killed hard (a reboot, a SIGKILL)
-# never costs more than one night.
+# has usually aged past this by the next firing — but ageing out is only half
+# the test. The break also needs the recorded pid to be gone, and after a
+# reboot that number can belong to an unrelated live process of the same user,
+# which answers `kill -0` and holds the lock until that process exits — the
+# first night after that breaks it normally. That is
+# the safe direction to be wrong in — two runs never share the clone — but it
+# is a lock that can outlive its run, not a guaranteed one-night cost.
 NIGHTLY_WORK_LOCK_STALE_S="${SUBSTRATE_NIGHTLY_LOCK_STALE_S:-21600}"
 
 # Set by nightly_work_lock on refusal — the sentence the caller puts in the
@@ -60,11 +68,22 @@ nightly_work_lock() { # lockdir label — 0 = taken (released at exit), 1 = busy
   if [ -d "$lock" ]; then
     now=$(date +%s)
     started=$(cat "$lock/started" 2>/dev/null || echo "")
-    # A half-written lock (mkdir landed, the owner and started files did not
-    # yet) reads as age 0 with no owner: brand new, so it is respected rather
-    # than broken. The run that is mid-take gets its files written a
-    # microsecond later.
-    case "$started" in ''|*[!0-9]*) started="$now" ;; esac
+    case "$started" in ''|*[!0-9]*) started="" ;; esac
+    if [ -z "$started" ]; then
+      # No readable `started`: the mkdir landed and the owner/started writes
+      # did not — either because the run is mid-take right now, or because it
+      # died in that two-fork window and left an empty dir behind. Falling
+      # back to `now` would read age 0 on every later check and make such a
+      # dir permanently unbreakable, so the dir's own mtime carries the age
+      # instead: a lock mid-take is still brand new and respected, and an
+      # abandoned empty one ages out like any other. Each stat spelling fails
+      # cleanly where it doesn't belong (BSD refuses -c; GNU reads `-f %m` as
+      # a file operand and errors), so the chain lands on the right flavour.
+      started=$(stat -c %Y "$lock" 2>/dev/null) || started=$(stat -f %m "$lock" 2>/dev/null) || started=""
+      # No mtime either (a stat neither flavour answers): treat it as new
+      # rather than break a lock whose age is unknown.
+      case "$started" in ''|*[!0-9]*) started="$now" ;; esac
+    fi
     age=$(( now - started ))
     owner_pid=$(awk '{print $3}' "$lock/owner" 2>/dev/null || echo "")
     case "$owner_pid" in ''|*[!0-9]*) owner_pid="" ;; esac
