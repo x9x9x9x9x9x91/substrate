@@ -7,7 +7,7 @@
  */
 import { strict as assert } from "node:assert";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -108,4 +108,44 @@ test("the CLI exits 1 naming the byte, and 0 on a clean tree", () => {
     assert.equal(ok.status, 0, ok.stdout + ok.stderr);
     assert.match(ok.stdout, /no raw control bytes/);
   });
+});
+
+// ── Wired into a leg, not just into package.json ───────────────────────────
+// The guard shipped with a script name and nothing calling it: for two weeks
+// `npm run check:bytes` ran only when someone remembered a fault whose whole
+// signature is that nobody notices it. It now rides the `lint` leg, first,
+// because it costs a second against eslint's minute and because a tree that
+// has gone binary is worth hearing about before a style verdict. What is
+// pinned here is the wiring — that the chain names the guard, that the named
+// invocation really reds on a NUL, and that the leg still runs the chain.
+
+test("the lint leg runs the control-byte guard, and the guard reds on a NUL", () => {
+  const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as {
+    scripts: Record<string, string>;
+  };
+  const segments = pkg.scripts.lint.split("&&").map((s) => s.trim());
+  const guard = segments.find((s) => s.includes("check-control-bytes"));
+  assert.ok(guard, `the lint chain no longer invokes the guard: ${pkg.scripts.lint}`);
+  assert.ok(
+    segments.some((s) => s.startsWith("eslint")),
+    "chaining the guard must not have cost the leg its eslint run",
+  );
+
+  // The segment as package.json spells it, run against a tree with one NUL:
+  // a name in the chain that does not exit nonzero is the same silence the
+  // guard exists to end.
+  withRepo({ "docs/b.md": "a \0 here\n" }, (dir) => {
+    const red = spawnSync("bash", ["-c", `${guard} "$1"`, "lint-chain", dir], {
+      cwd: ROOT,
+      encoding: "utf8",
+    });
+    assert.equal(red.status, 1, red.stdout + red.stderr);
+    assert.match(red.stderr, /docs\/b\.md/);
+  });
+
+  // …and the leg is the chain: verify-gates.sh runs the npm script verbatim,
+  // so editing package.json is what puts the guard on every battery that
+  // carries `lint`.
+  const legs = readFileSync(join(ROOT, "scripts/verify-gates.sh"), "utf8");
+  assert.match(legs, /lint\)\s+run_gate lint\s+npm run lint/);
 });

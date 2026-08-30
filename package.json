@@ -11,7 +11,7 @@
     "dev": "vite",
     "test": "node scripts/run-node-tests.ts",
     "coverage": "node scripts/coverage-report.ts",
-    "lint": "eslint .",
+    "lint": "node scripts/check-control-bytes.ts && eslint .",
     "e2e": "playwright test",
     "build": "tsc && vite build",
     "preview": "vite preview",
