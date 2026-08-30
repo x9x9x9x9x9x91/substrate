@@ -304,6 +304,8 @@ export type UndoEntry = {
   undo: () => Promise<void>;
   /** re-apply. Absent = this action is undo-only, and undoing it clears redo. */
   redo?: () => Promise<void>;
+  /** one gesture's token — consecutive pushes sharing it are one entry (§2.7) */
+  group?: number;
 };
 ```
 
@@ -478,6 +480,46 @@ answer: the user has since navigated. Two safe forms, both in use:
 Everything else the forward path does still applies, including the seed-first trick:
 seed the moved meta into `notes` synchronously before switching the view, or the
 destination list has no row for the note yet and the guard snaps straight back.
+
+### 2.7 One gesture, one entry — grouped pushes
+
+Some gestures write two stores. Re-homing a **hidden** database moves its home
+in `schema.json` and takes it out of `$sidebar.hidden_dbs` in `views.json`, and
+each of those writes has its own perfectly correct inverse. Recorded
+separately, they cost two ⌘Z presses and the first lands on a state no gesture
+produced — home moved, row still hidden. The stack was never wrong, only
+two-deep for one action.
+
+The fix is on the stack rather than at the call site. A caller about to write
+more than one store mints a token (`nextUndoGroup()`) and hands the same token
+to every recorder it calls; `push` folds a token-carrying entry into the entry
+already on top when the tokens match. The alternative — one store's inverse
+reaching into the other's — puts cross-store knowledge in helpers that own one
+file each, which is what makes it the wrong seam.
+
+What the fold guarantees, and what it deliberately does not:
+
+- **Undo unwinds in reverse push order, redo replays forward.** One keystroke
+  lands on a state some gesture actually produced, in both directions.
+- **The first half's label and id win.** The label is the gesture's own name;
+  the id keeps a pre-minted toast button (§6.5) pointing at the whole gesture,
+  so a surface that needs one holds the id of the *first* recorder it calls.
+- **Consecutive only.** Anything landing between the halves — another action
+  while the first write was in flight — leaves them as two entries: the
+  pre-grouping behaviour, never wrong, only two-deep.
+- **Never onto a stale entry, and no half-redo.** A fold onto a dead entry
+  would take the live half down with it; a merged entry is redoable only when
+  both halves are, because replaying one side is the very intermediate state
+  grouping exists to prevent.
+- **A half that throws mid-unwind leaves the gesture partly reverted** and the
+  entry stale, with the runner's failure toast naming the error — the same
+  exposure any inverse that writes twice already carries (§6.7's create-type
+  inverse strips properties one at a time).
+
+Consumer today: `setDbHome` (`App.tsx`), whose reveal rides the home entry's
+token. A gesture whose second half never records — a no-op edit, a refused
+write — simply leaves the first entry standing alone; an unmatched token costs
+nothing.
 
 ---
 

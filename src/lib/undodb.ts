@@ -152,7 +152,15 @@ export function recordSchemaIconUndo(
     not a disk conflict — the entry goes stale with the engine's own words and
     the stack moves on rather than retrying into the same wall. */
 export function recordSchemaHomeUndo(
-  opts: Common & { db: string; before: string | null; cfg: SchemaConfig }
+  opts: Common & {
+    db: string;
+    before: string | null;
+    cfg: SchemaConfig;
+    /** the gesture this write belongs to (undo.nextUndoGroup()), when the
+        caller writes another store in the same breath — re-homing a HIDDEN
+        database also reveals it, and the two are one ⌘Z */
+    group?: number;
+  }
 ): void {
   const { db, before, cfg, record, adopt } = opts;
   const after = typeHome(typeSchemaFor(cfg, db)) ?? null;
@@ -166,6 +174,7 @@ export function recordSchemaHomeUndo(
     id: opts.id,
     label: opts.label ?? (after ? `Home “${db}” in “${after}”` : `Unhome “${db}”`),
     scope: opts.scope ?? "vault",
+    group: opts.group,
     at: Date.now(),
     paths: [SCHEMA_CONFIG_PATH],
     undo: write(before, after),

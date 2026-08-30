@@ -1340,7 +1340,9 @@ export default function App() {
 
   // `setDbHidden`'s home is the sidebar order model, destructured hundreds of
   // lines below — this ref is how `setDbHome` reaches it from up here
-  const setDbHiddenRef = useRef<((dbType: string, hidden: boolean) => void) | null>(null);
+  const setDbHiddenRef = useRef<
+    ((dbType: string, hidden: boolean, group?: number) => void) | null
+  >(null);
 
   // a database's home folder, set/cleared from the All databases
   // manager, a folder's "Open as database…", or the
@@ -1350,6 +1352,12 @@ export default function App() {
     (dbType: string, home: string | null) => {
       const storedDb = schemaDbKey(dbType);
       const before = typeHome(typeSchemaFor(schema, storedDb)) ?? null;
+      /* One gesture, two stores: the home lands in schema.json and the reveal
+         below in views.json, and without a shared token each would cost its
+         own ⌘Z — the first landing on a state the user never asked for (home
+         moved, row still hidden). The token is minted whether or not the
+         reveal turns out to write anything; an unmatched one folds nothing. */
+      const gesture = undoStack.nextUndoGroup();
       vaultSchemaHomeSet(storedDb, home)
         .then((cfg) => {
           setSchema(cfg);
@@ -1357,6 +1365,7 @@ export default function App() {
             db: storedDb,
             before,
             cfg,
+            group: gesture,
             record: undoApi.record,
             adopt: setSchema,
           });
@@ -1365,7 +1374,7 @@ export default function App() {
           // Here and not around the call, so a REFUSED move (a taken folder)
           // changes nothing and every caller reveals on success. Through a
           // ref because `setDbHidden` is destructured further down the file.
-          setDbHiddenRef.current?.(dbType, false);
+          setDbHiddenRef.current?.(dbType, false, gesture);
           showToast(
             home
               ? `“${dbType}” now lives in “${home}”`

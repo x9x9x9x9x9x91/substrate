@@ -30,6 +30,11 @@ export type UndoEntry = {
       hunting a sync conflict that never happened, so the reason is carried
       rather than assumed. Absent = runnable. */
   stale?: StaleReason;
+  /** One gesture's token. Consecutive pushes carrying the same token fold
+      into a single entry, so a gesture that writes two stores is still one
+      ⌘Z (see `push`). Absent = an entry of its own, which is every entry the
+      app records today apart from the grouped gestures. */
+  group?: number;
 };
 
 /** (c) somebody else wrote a path this entry would rewrite; (d′) this entry's
@@ -55,14 +60,85 @@ export function nextUndoId(): number {
   return nextId++;
 }
 
+/** Mint a gesture token — the thing that makes several pushes one undo step.
+    A caller that is about to write more than one store from a single gesture
+    mints one of these and hands the same token to every recorder it calls.
+    Same counter as the ids, so a token is unique for the session. */
+export function nextUndoGroup(): number {
+  return nextId++;
+}
+
 /** Push a new action. Anything ahead of the cursor (the redo side) is dropped
     — the standard editor rule: acting after undoing forks the history and the
-    forked branch is gone. Oldest entries fall off the end past MAX_UNDO. */
+    forked branch is gone. Oldest entries fall off the end past MAX_UNDO.
+
+    A push carrying the same `group` token as the entry already on top folds
+    INTO it rather than landing beside it: one gesture, one entry, one ⌘Z. It
+    is the stack's job because the alternative is every multi-store gesture
+    inventing an inverse that reaches across stores it doesn't own — the
+    re-home of a hidden database (schema home + `$sidebar` hidden set) walked
+    into exactly that. The fold is deliberately narrow:
+
+    - CONSECUTIVE only. Anything else landing between the two halves — another
+      action while the first write was in flight — leaves them as two entries,
+      which is the behaviour that existed before grouping and is never wrong,
+      only two-deep.
+    - The first half's LABEL and ID win. The label is the gesture's own name
+      ("Home “X” in “Y”"), not the housekeeping the second half did; the id
+      keeps a pre-minted toast button pointing at the whole gesture, so a
+      surface that needs a button holds the id of the FIRST recorder it calls.
+    - REDO needs both halves to be redoable. If either half recorded no redo,
+      the merged entry has none — half a gesture replayed is a state no
+      gesture produced, which is the very thing grouping exists to prevent.
+    - Never onto a STALE entry: its inverse can't run, so folding a live half
+      into it would take that half down too.
+
+    A gesture whose second half never records (a no-op edit, a refused write)
+    simply leaves the first entry standing alone — the token costs nothing. */
 export function push(s: UndoState, e: Omit<UndoEntry, "id"> & { id?: number }): UndoState {
   const kept = s.entries.slice(0, s.cursor + 1);
-  kept.push({ ...e, id: e.id ?? nextUndoId() });
+  const top = kept[kept.length - 1];
+  const entry: UndoEntry = { ...e, id: e.id ?? nextUndoId() };
+  if (e.group !== undefined && top && top.group === e.group && !top.stale) {
+    kept[kept.length - 1] = mergeGesture(top, entry);
+  } else {
+    kept.push(entry);
+  }
   const entries = kept.length > MAX_UNDO ? kept.slice(kept.length - MAX_UNDO) : kept;
   return { entries, cursor: entries.length - 1 };
+}
+
+/** Two halves of one gesture as a single entry. Undo unwinds in reverse push
+    order — the last write is the first taken back — and redo replays in push
+    order, which is what makes one ⌘Z land on a state some gesture actually
+    produced.
+
+    A half that throws mid-way leaves the gesture partly reverted and the
+    entry stale, with the runner's failure toast naming the error: the same
+    exposure any inverse that writes twice already carries (the create-type
+    inverse strips properties one at a time), and better than the alternative
+    of pretending the halves are independent. */
+function mergeGesture(first: UndoEntry, second: UndoEntry): UndoEntry {
+  const undo = async () => {
+    await second.undo();
+    await first.undo();
+  };
+  const firstRedo = first.redo;
+  const secondRedo = second.redo;
+  const redo =
+    firstRedo && secondRedo
+      ? async () => {
+          await firstRedo();
+          await secondRedo();
+        }
+      : undefined;
+  return {
+    ...first,
+    at: second.at,
+    paths: [...new Set([...first.paths, ...second.paths])],
+    undo,
+    redo,
+  };
 }
 
 /** The entry ⌘Z would run, skipping stale ones (they stay in the list so the
@@ -203,8 +279,9 @@ export function pendingById(s: UndoState, id: number): UndoEntry | null {
   return at >= 0 && at <= s.cursor && !s.entries[at].stale ? s.entries[at] : null;
 }
 
-/** Test seam: ids are module-global and monotonic, which is right in the app
-    and awkward across test cases that assert on them. */
+/** Test seam: ids (and the gesture tokens minted from the same counter) are
+    module-global and monotonic, which is right in the app and awkward across
+    test cases that assert on them. */
 export function __resetUndoIds(): void {
   nextId = 1;
 }

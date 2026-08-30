@@ -347,6 +347,9 @@ export async function setSidebarOrderUndoable(
     before: SidebarOrder;
     next: SidebarOrder;
     adopt: (order: SidebarOrder) => void;
+    /** the gesture this write belongs to (undo.nextUndoGroup()), when another
+        store was written in the same breath and the two are one ⌘Z */
+    group?: number;
   }
 ): Promise<SidebarOrder> {
   const { before, next, record, apply, adopt } = opts;
@@ -361,6 +364,7 @@ export async function setSidebarOrderUndoable(
     id: opts.id,
     label: opts.label ?? "Sidebar order",
     scope: opts.scope ?? "vault",
+    group: opts.group,
     at: Date.now(),
     paths: [VIEWS_CONFIG_PATH],
     undo: write(before, after),

@@ -204,6 +204,110 @@ test("6b: a failed inverse goes stale so ⌘Z walks past it instead of jamming",
   assert.equal(markStale(s, 9999), s, "same object: unknown id");
 });
 
+/* ── 6c–6g: one gesture, one entry (grouped pushes) ───────────────────── */
+
+/** an entry that reports each half's runs into `log`, so the merged inverse's
+    ORDER is assertable and not merely its arity */
+function halfEntry(log: string[], name: string, over: Partial<Parameters<typeof push>[1]> = {}) {
+  return entry({
+    label: name,
+    undo: async () => {
+      log.push(`undo:${name}`);
+    },
+    redo: async () => {
+      log.push(`redo:${name}`);
+    },
+    ...over,
+  });
+}
+
+test("6c: two pushes in one gesture are one entry, one ⌘Z, in reverse order", async () => {
+  const log: string[] = [];
+  const g = undo.nextUndoGroup();
+  let s = push(emptyUndo, halfEntry(log, "home", { group: g, paths: ["schema.json"] }));
+  s = push(s, halfEntry(log, "reveal", { group: g, paths: ["views.json"] }));
+
+  assert.equal(s.entries.length, 1, "the gesture's second half landed as its own entry");
+  const only = peekUndo(s)!;
+  assert.equal(only.label, "home", "the gesture keeps its own name, not the housekeeping's");
+  assert.deepEqual(only.paths, ["schema.json", "views.json"], "both halves' paths ride the entry");
+
+  await only.undo();
+  assert.deepEqual(log, ["undo:reveal", "undo:home"], "the last write is the first taken back");
+
+  // one keystroke was enough: nothing left below, and the whole gesture redoes
+  s = advance(s, only.id, -1);
+  assert.equal(peekUndo(s), null, "a second ⌘Z would land on an intermediate state");
+  log.length = 0;
+  await peekRedo(s)!.redo!();
+  assert.deepEqual(log, ["redo:home", "redo:reveal"], "redo replays both halves, in gesture order");
+});
+
+test("6d: the gesture's entry keeps the FIRST half's id, so a toast button runs it all", () => {
+  const g = undo.nextUndoGroup();
+  const first = undo.nextUndoId();
+  let s = push(emptyUndo, entry({ label: "home", group: g, id: first }));
+  s = push(s, entry({ label: "reveal", group: g }));
+  assert.equal(s.entries[0].id, first);
+  assert.equal(undo.pendingById(s, first)?.label, "home");
+});
+
+test("6e: a gesture whose second half never records leaves one ordinary entry", () => {
+  const g = undo.nextUndoGroup();
+  const s = push(emptyUndo, entry({ label: "home", group: g }));
+  assert.equal(s.entries.length, 1);
+  assert.equal(peekUndo(s)?.label, "home", "the lone half is undoable on its own");
+});
+
+test("6f: ungrouped pushes are untouched, and a group only folds onto its own", () => {
+  // the ordinary case: no tokens, two entries, two keystrokes
+  let s = push(push(emptyUndo, entry({ label: "a" })), entry({ label: "b" }));
+  assert.equal(s.entries.length, 2);
+
+  // different gestures never fold into each other
+  s = push(s, entry({ label: "g1", group: undo.nextUndoGroup() }));
+  s = push(s, entry({ label: "g2", group: undo.nextUndoGroup() }));
+  assert.deepEqual(
+    s.entries.map((e) => e.label),
+    ["a", "b", "g1", "g2"]
+  );
+
+  // and an interrupted gesture stays two entries rather than folding across
+  // the action that landed between its halves — two-deep, never wrong
+  const g = undo.nextUndoGroup();
+  s = push(s, entry({ label: "half1", group: g }));
+  s = push(s, entry({ label: "between" }));
+  s = push(s, entry({ label: "half2", group: g }));
+  assert.deepEqual(
+    s.entries.slice(-3).map((e) => e.label),
+    ["half1", "between", "half2"]
+  );
+});
+
+test("6g: a gesture never folds onto a stale half, nor half-redoes", () => {
+  const g = undo.nextUndoGroup();
+  let s = push(emptyUndo, entry({ label: "home", group: g, paths: ["A.md"] }));
+  s = invalidate(s, ["A.md"]);
+  s = push(s, entry({ label: "reveal", group: g }));
+  assert.deepEqual(
+    s.entries.map((e) => [e.label, !!e.stale]),
+    [
+      ["home", true],
+      ["reveal", false],
+    ],
+    "folding a live half into a dead entry would take it down too"
+  );
+
+  // a half with no redo makes the whole gesture un-redoable: replaying one
+  // side lands on a state no gesture produced
+  const g2 = undo.nextUndoGroup();
+  let t = push(emptyUndo, entry({ label: "home", group: g2 }));
+  t = push(t, entry({ label: "reveal", group: g2, redo: undefined }));
+  assert.equal(t.entries.length, 1);
+  t = advance(t, peekUndo(t)!.id, -1);
+  assert.equal(peekRedo(t), null);
+});
+
 /* ── 7–9: the setPropUndoable helper, over the mock backend ───────────── */
 
 async function freshNote(title: string) {

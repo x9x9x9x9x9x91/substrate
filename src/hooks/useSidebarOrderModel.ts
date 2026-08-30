@@ -52,14 +52,19 @@ export function useSidebarOrderModel(opts: {
 
   /** One persisted sidebar edit: adopt it optimistically, queue the write,
       and record the whole prior order as its inverse (every one of these is a
-      whole-object replace, so the prior object IS the undo). */
+      whole-object replace, so the prior object IS the undo).
+
+      `group` is the caller's gesture token when this write is half of one —
+      the stack folds it into the other half rather than costing a second ⌘Z
+      (lib/undo.ts `push`). Absent for every edit that stands alone. */
   const commit = useCallback(
-    (before: SidebarOrder, next: SidebarOrder, label: string) => {
+    (before: SidebarOrder, next: SidebarOrder, label: string, group?: number) => {
       setSidebarOrder(next);
       void setSidebarOrderUndoable({
         before,
         next,
         label,
+        group,
         record,
         apply,
         adopt: setSidebarOrder,
@@ -160,8 +165,11 @@ export function useSidebarOrderModel(opts: {
   // row back where it was.
   const hiddenDbs = useMemo(() => sidebarOrder.hidden_dbs ?? [], [sidebarOrder]);
 
+  /** `group` is set by the callers that reveal a database as part of a larger
+      gesture — re-homing a hidden one both moves its home and shows it, and
+      the pair is one ⌘Z rather than two. */
   const setDbHidden = useCallback(
-    (type: string, hidden: boolean) => {
+    (type: string, hidden: boolean, group?: number) => {
       const cur = sidebarOrderRef.current;
       const set = cur.hidden_dbs ?? [];
       if (isDbHidden(set, type) === hidden) return;
@@ -172,7 +180,7 @@ export function useSidebarOrderModel(opts: {
         ? [...set, type]
         : set.filter((t) => t.toLowerCase() !== type.toLowerCase());
       const next: SidebarOrder = { ...cur, hidden_dbs: pruneHiddenDbs(edited, homeByDb) };
-      commit(cur, next, hidden ? "Remove from sidebar" : "Show in sidebar");
+      commit(cur, next, hidden ? "Remove from sidebar" : "Show in sidebar", group);
     },
     [sidebarOrderRef, homeByDb, commit]
   );
