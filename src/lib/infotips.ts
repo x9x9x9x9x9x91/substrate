@@ -1448,19 +1448,30 @@ export function infoTipForView(view: View): InfoTip {
     buttons teach the info view before a dedicated prose entry is added. */
 export function infoTipForElement(target: Element): InfoTip | null {
   const custom = target.closest<HTMLElement>("[data-info-title], [data-info-body]");
-  if (custom) {
-    return {
-      title: cleanText(custom.dataset.infoTitle) || elementLabel(custom, "Control"),
-      body: cleanText(custom.dataset.infoBody) || "Use this control on the current surface.",
-    };
-  }
+  const customTip = custom
+    ? {
+        title: cleanText(custom.dataset.infoTitle) || elementLabel(custom, "Control"),
+        body: cleanText(custom.dataset.infoBody) || "Use this control on the current surface.",
+      }
+    : null;
 
   for (const entry of TIPS) {
     const match = target.closest(entry.selector);
-    if (match) return typeof entry.tip === "function" ? entry.tip(match) : entry.tip;
+    if (!match) continue;
+    /* A `data-info-*` on the element itself still beats every selector. One
+       carried by a SURFACE around it does not: a pane that publishes its own
+       prose — the Rigs pane states the cadence its collector reported — would
+       otherwise swallow the tip of every control inside it, which is the
+       opposite of what the info view is for. */
+    if (customTip && custom && custom !== match && !custom.contains?.(match)) return customTip;
+    if (customTip && custom === match) return customTip;
+    return typeof entry.tip === "function" ? entry.tip(match) : entry.tip;
   }
 
   const labelled = target.closest<HTMLElement>("[aria-label], [title]");
+  if (labelled && customTip && custom && (custom === labelled || !custom.contains?.(labelled))) {
+    return customTip;
+  }
   if (labelled) {
     const rawTitle = cleanText(labelled.getAttribute("title"));
     const label = elementLabel(labelled, "Control");
@@ -1480,6 +1491,9 @@ export function infoTipForElement(target: Element): InfoTip | null {
       body: cleanText(input.placeholder) || "Enter a value here.",
     };
   }
+
+  // nothing more specific answered: a surface that published its own prose
+  if (customTip) return customTip;
 
   if (target.closest(".sidebar")) {
     return {
