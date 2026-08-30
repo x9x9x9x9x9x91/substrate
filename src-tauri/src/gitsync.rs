@@ -1844,11 +1844,11 @@ pub fn sync_pull_gated<G>(
     credentials_path: &Path,
     mut gate: impl FnMut() -> G,
 ) -> Result<SyncReport, String> {
-    sync_pull_with_snapshot(root, credentials_path, || Ok(()), gate)
+    sync_pull_with_snapshot(root, credentials_path, |_| Ok(()), gate)
 }
 
-/// A whole pull: fetch, then the caller's pre-checkout snapshot, then
-/// integrate under the caller's write gate.
+/// A whole pull: fetch, then the caller's pre-checkout snapshot and the local
+/// phase under ONE hold of the caller's write gate.
 ///
 /// The snapshot runs ONLY when the fetch brought something this vault does not
 /// already have. It exists to protect edits a checkout would overwrite, so a
@@ -1859,21 +1859,31 @@ pub fn sync_pull_gated<G>(
 ///
 /// The two steps live here rather than in the caller so the ordering stays in
 /// one place: the snapshot has to run after the network leg (it is the thing
-/// that makes a mid-edit vault pullable at all) and before the gate (it takes
-/// the same history lock the gate holds). A fetch that brought nothing returns
-/// right there, without the snapshot and without the gate — which is also what
-/// keeps a mid-edit vault quiet, since the local phase refuses a dirty tree
-/// and the snapshot that would have cleaned it is exactly what was skipped.
+/// that makes a mid-edit vault pullable at all) and inside the gate that the
+/// clean-tree re-check and the checkout run under. It used to run in front of
+/// that gate, because it takes the history lock the gate holds — and that gap
+/// was reachable, the same one the push closed: the drive shelf rewrites its
+/// catalog under `.vault/mounts/` from behind the engine lock, so a scan
+/// landing between the snapshot and the gate dirtied the tree again and the
+/// pull refused with "snapshot pending changes first", naming a file the app
+/// itself had written. On the timer-driven lane that refusal lands in the sync
+/// health record with no one having asked for anything. `snapshot` is handed
+/// the guard instead, exactly as [`sync_push_with_snapshot`] hands it, so it
+/// commits through the history lock the gate is already holding.
+///
+/// A fetch that brought nothing returns before both — which is also what keeps
+/// a mid-edit vault quiet, since the local phase refuses a dirty tree and the
+/// snapshot that would have cleaned it is exactly what was skipped.
 ///
 /// What the idle tick still owes is the app-file backfill, which is about this
 /// vault rather than the remote's commit — see [`sync_pull_idle_gated`].
 pub fn sync_pull_with_snapshot<G>(
     root: &Path,
     credentials_path: &Path,
-    snapshot: impl FnOnce() -> Result<(), String>,
-    // `FnMut` rather than `FnOnce` because the hosted pull now takes the gate
-    // twice: once to decide whether the store was replaced, before the
-    // snapshot, and once around the integration after it.
+    snapshot: impl FnOnce(&mut G) -> Result<(), String>,
+    // `FnMut` rather than `FnOnce` because the hosted pull takes the gate
+    // twice: once to decide whether the store was replaced, ahead of the
+    // snapshot, and once around the snapshot and the integration after it.
     mut gate: impl FnMut() -> G,
 ) -> Result<SyncReport, String> {
     {
@@ -1888,8 +1898,7 @@ pub fn sync_pull_with_snapshot<G>(
     if fetched.brings_nothing() {
         return sync_pull_idle_gated(root, fetched, gate);
     }
-    snapshot()?;
-    sync_pull_integrate_gated(root, fetched, gate)
+    sync_pull_integrate_with_snapshot(root, fetched, snapshot, gate)
 }
 
 /// What a fetch found, handed from the network phase to the local one.
@@ -1959,24 +1968,33 @@ pub fn sync_pull_fetch(root: &Path, credentials_path: &Path) -> Result<PullFetch
     Ok(PullFetch { branch, remote_oid, local_oid, integrated })
 }
 
-/// The local half of a pull, with the caller's write gate around all of it. A
-/// three-way merge is built in memory; a conflicted index is inspected and
-/// then dropped, leaving the repository's real index, HEAD, and working tree
-/// untouched.
+/// The local half of a pull, with the caller's pre-checkout snapshot and the
+/// write gate around all of it. A three-way merge is built in memory; a
+/// conflicted index is inspected and then dropped, leaving the repository's
+/// real index, HEAD, and working tree untouched.
 ///
 /// `gate` returns a guard (in the app: history and engine `MutexGuard`s, in
-/// that order) held for the whole local phase — the clean-tree re-check,
-/// merge, checkout, and branch update. Nothing can write through the engine or
-/// move HEAD through history between those steps, so the pull either applies
-/// cleanly or refuses; it can no longer half-apply over a concurrent edit or
-/// snapshot.
-pub fn sync_pull_integrate_gated<G>(
+/// that order) held for the whole local phase — the snapshot, the clean-tree
+/// re-check, merge, checkout, and branch update. Nothing can write through the
+/// engine or move HEAD through history between those steps, so the pull either
+/// applies cleanly or refuses; it can no longer half-apply over a concurrent
+/// edit or snapshot, and nothing this process gates can re-dirty the tree
+/// between the snapshot that cleaned it and the check that reads it.
+///
+/// `snapshot` runs INSIDE that guard and is handed it, so it can commit
+/// through the history lock the gate is already holding — see
+/// [`sync_pull_with_snapshot`] for what a snapshot outside the gate cost.
+pub fn sync_pull_integrate_with_snapshot<G>(
     root: &Path,
     fetched: PullFetch,
+    snapshot: impl FnOnce(&mut G) -> Result<(), String>,
     gate: impl FnOnce() -> G,
 ) -> Result<SyncReport, String> {
+    let mut guard = gate();
+    snapshot(&mut guard)?;
+    // Opened after the snapshot: its commit moves HEAD and rewrites the index,
+    // so a handle opened before it would be describing a tree that is gone.
     let repo = owned_repo(root)?;
-    let _guard = gate();
     pull_local_phase(&repo, &fetched.branch, fetched.remote_oid, RepoKind::Vault)
 }
 
@@ -4525,7 +4543,7 @@ mod tests {
         fs::create_dir_all(&b).unwrap();
         let _history_b = owned(&b);
         sync_set_remote(&b, &credentials_b, &url, "test-token-0123456789", None, PHRASE).unwrap();
-        sync_pull_with_snapshot(&b, &credentials_b, || Ok(()), || ()).unwrap();
+        sync_pull_with_snapshot(&b, &credentials_b, |_| Ok(()), || ()).unwrap();
         assert!(b.join("After.md").is_file());
         assert!(!b.join("Secret.md").exists(), "the purged note reached the new device");
     }
@@ -4569,13 +4587,13 @@ mod tests {
         fs::create_dir_all(&b).unwrap();
         let _history_b = owned(&b);
         sync_set_remote(&b, &credentials_b, &url, "test-token-0123456789", None, PHRASE).unwrap();
-        sync_pull_with_snapshot(&b, &credentials_b, || Ok(()), || ()).unwrap();
+        sync_pull_with_snapshot(&b, &credentials_b, |_| Ok(()), || ()).unwrap();
         assert!(b.join("Secret.md").is_file());
         // Pushed, so the store holds everything B has so far — which buys B
         // nothing once the store is replaced: the purge reissues every commit,
         // so the replacement has no line to any of them either.
         sync_push_gated(&b, &credentials_b, || ()).unwrap();
-        sync_pull_with_snapshot(&a, &credentials_a, || Ok(()), || ()).unwrap();
+        sync_pull_with_snapshot(&a, &credentials_a, |_| Ok(()), || ()).unwrap();
         fs::write(b.join("Mine.md"), "written on device B\n").unwrap();
         assert!(history_snapshot(&b, "mine").unwrap());
         fs::write(b.join("Draft.md"), "still being typed\n").unwrap();
@@ -4592,7 +4610,7 @@ mod tests {
         let error = sync_pull_with_snapshot(
             &b,
             &credentials_b,
-            || {
+            |_| {
                 snapshotted.set(true);
                 Ok(())
             },
@@ -4629,7 +4647,7 @@ mod tests {
         // Ignored, it stays a refusal. If the tracking ref had moved the
         // second pull would read the store as ordinary and MERGE — putting
         // Secret.md back on this device and, from its next push, on the store.
-        let again = sync_pull_with_snapshot(&b, &credentials_b, || Ok(()), || ()).unwrap_err();
+        let again = sync_pull_with_snapshot(&b, &credentials_b, |_| Ok(()), || ()).unwrap_err();
         assert!(again.contains("4 snapshots taken here"), "{again}");
         assert!(b.join("Secret.md").is_file(), "the second refusal already checked something out");
 
@@ -4747,12 +4765,12 @@ mod tests {
         fs::create_dir_all(&b).unwrap();
         let history_b = owned(&b);
         sync_set_remote(&b, &credentials_b, &url, "test-token-0123456789", None, PHRASE).unwrap();
-        sync_pull_with_snapshot(&b, &credentials_b, || Ok(()), || ()).unwrap();
+        sync_pull_with_snapshot(&b, &credentials_b, |_| Ok(()), || ()).unwrap();
 
         fs::remove_file(a.join("Secret.md")).unwrap();
         history_a.purge_files(&["Secret.md"]).unwrap();
         sync_replace_hosted_gated(&a, &credentials_a, || ()).unwrap();
-        sync_pull_with_snapshot(&b, &credentials_b, || Ok(()), || ()).unwrap_err();
+        sync_pull_with_snapshot(&b, &credentials_b, |_| Ok(()), || ()).unwrap_err();
         assert!(hosted_sync_replaced_store(&b).is_some(), "device B was never paused");
 
         // B now purges something of its own — the one state where the pane
@@ -4839,7 +4857,7 @@ mod tests {
         fs::create_dir_all(&b).unwrap();
         let history_b = owned(&b);
         sync_set_remote(&b, &credentials_b, &url, "test-token-0123456789", None, PHRASE).unwrap();
-        sync_pull_with_snapshot(&b, &credentials_b, || Ok(()), || ()).unwrap();
+        sync_pull_with_snapshot(&b, &credentials_b, |_| Ok(()), || ()).unwrap();
 
         // B rewrites its own history and stops pulling — so it never learns,
         // through a pull, that the store moved under it.
@@ -4878,7 +4896,7 @@ mod tests {
         let again = sync_replace_hosted_gated(&b, &credentials_b, || ()).unwrap_err();
         assert!(again.contains("paused"), "{again}");
         assert!(again.contains("Vault sync pane"), "{again}");
-        sync_pull_with_snapshot(&a, &credentials_a, || Ok(()), || ()).unwrap();
+        sync_pull_with_snapshot(&a, &credentials_a, |_| Ok(()), || ()).unwrap();
         assert!(!a.join("Secret.md").exists(), "the refused replace carried the purged note back");
         assert!(a.join("Keep.md").is_file(), "the pull took more than the purge did");
     }
@@ -4921,7 +4939,7 @@ mod tests {
         fs::create_dir_all(&b).unwrap();
         let history_b = owned(&b);
         sync_set_remote(&b, &credentials_b, &url, "test-token-0123456789", None, PHRASE).unwrap();
-        sync_pull_with_snapshot(&b, &credentials_b, || Ok(()), || ()).unwrap();
+        sync_pull_with_snapshot(&b, &credentials_b, |_| Ok(()), || ()).unwrap();
 
         // Two seals in a row: the second one used to truncate the marker and
         // re-read tracking refs the first had already deleted — no position
@@ -4981,7 +4999,7 @@ mod tests {
             })
             .unwrap();
         assert_eq!(objects_before, objects_after, "the refusing replace imported objects");
-        sync_pull_with_snapshot(&a, &credentials_a, || Ok(()), || ()).unwrap();
+        sync_pull_with_snapshot(&a, &credentials_a, |_| Ok(()), || ()).unwrap();
         assert!(!a.join("Secret.md").exists(), "the refused replace carried the purged note back");
     }
 
@@ -5022,7 +5040,7 @@ mod tests {
         fs::create_dir_all(&b).unwrap();
         let history_b = owned(&b);
         sync_set_remote(&b, &credentials_b, &url, "test-token-0123456789", None, PHRASE).unwrap();
-        sync_pull_with_snapshot(&b, &credentials_b, || Ok(()), || ()).unwrap();
+        sync_pull_with_snapshot(&b, &credentials_b, |_| Ok(()), || ()).unwrap();
 
         fs::write(b.join("Local.md"), "b's own secret\n").unwrap();
         assert!(history_snapshot(&b, "local").unwrap());
@@ -5056,7 +5074,7 @@ mod tests {
         sync_replace_hosted_gated(&b, &credentials_b, || ()).unwrap();
         // A is now the device on the wrong side of a replacement: its pull
         // pauses, and adopting brings it onto the redone history.
-        let paused = sync_pull_with_snapshot(&a, &credentials_a, || Ok(()), || ()).unwrap_err();
+        let paused = sync_pull_with_snapshot(&a, &credentials_a, |_| Ok(()), || ()).unwrap_err();
         assert!(paused.contains("Vault sync pane"), "{paused}");
         sync_adopt_replaced_gated(&a, &credentials_a, || ()).unwrap();
         assert!(!a.join("Later.md").exists(), "the redo's purge did not hold");
@@ -5096,7 +5114,7 @@ mod tests {
         fs::create_dir_all(&b).unwrap();
         let history_b = owned(&b);
         sync_set_remote(&b, &credentials_b, &url, "test-token-0123456789", None, PHRASE).unwrap();
-        sync_pull_with_snapshot(&b, &credentials_b, || Ok(()), || ()).unwrap();
+        sync_pull_with_snapshot(&b, &credentials_b, |_| Ok(()), || ()).unwrap();
 
         fs::write(b.join("Local.md"), "b's own secret\n").unwrap();
         assert!(history_snapshot(&b, "local").unwrap());
@@ -5122,7 +5140,7 @@ mod tests {
 
         // The other device lands in the pause the gate copy warned about, and
         // adopting brings it onto the replacement — its unadopted work behind.
-        let paused = sync_pull_with_snapshot(&a, &credentials_a, || Ok(()), || ()).unwrap_err();
+        let paused = sync_pull_with_snapshot(&a, &credentials_a, |_| Ok(()), || ()).unwrap_err();
         assert!(paused.contains("Vault sync pane"), "{paused}");
         sync_adopt_replaced_gated(&a, &credentials_a, || ()).unwrap();
         assert!(a.join("Keep.md").is_file(), "the replace took more than the store's line");
@@ -5198,7 +5216,7 @@ mod tests {
         fs::create_dir_all(&b).unwrap();
         let _history_b = owned(&b);
         sync_set_remote(&b, &credentials_b, &url, "test-token-0123456789", None, PHRASE).unwrap();
-        let pulled = sync_pull_with_snapshot(&b, &credentials_b, || Ok(()), || ()).unwrap();
+        let pulled = sync_pull_with_snapshot(&b, &credentials_b, |_| Ok(()), || ()).unwrap();
         assert_eq!(pulled.pulled, 1);
         assert_eq!(fs::read_to_string(b.join("Welcome.md")).unwrap(), "hosted hello\n");
 
@@ -5302,7 +5320,7 @@ mod tests {
             "a device joining an existing vault must not be told it set the passphrase"
         );
         assert_eq!(
-            sync_pull_with_snapshot(&b, &credentials_b, || Ok(()), || ()).unwrap().pulled,
+            sync_pull_with_snapshot(&b, &credentials_b, |_| Ok(()), || ()).unwrap().pulled,
             2
         );
         assert_eq!(fs::read_to_string(b.join("Welcome.md")).unwrap(), "hosted hello\n");
@@ -5466,7 +5484,7 @@ mod tests {
         repo.remote(REMOTE, "blob+http://attacker.example/blob").unwrap();
         let error = sync_push_gated(&root, &credentials, || ()).unwrap_err();
         assert!(error.contains("blob+https"), "{error}");
-        let error = sync_pull_with_snapshot(&root, &credentials, || Ok(()), || ()).unwrap_err();
+        let error = sync_pull_with_snapshot(&root, &credentials, |_| Ok(()), || ()).unwrap_err();
         assert!(error.contains("blob+https"), "{error}");
     }
 
@@ -5487,7 +5505,7 @@ mod tests {
 
         let error = sync_push_gated(&root, &credentials, || ()).unwrap_err();
         assert!(error.contains("shared space"), "{error}");
-        let error = sync_pull_with_snapshot(&root, &credentials, || Ok(()), || ()).unwrap_err();
+        let error = sync_pull_with_snapshot(&root, &credentials, |_| Ok(()), || ()).unwrap_err();
         assert!(error.contains("shared space"), "{error}");
         // And the preflight names it as a configuration problem rather than an
         // unreachable server.
@@ -7029,7 +7047,7 @@ mod tests {
             sync_pull_with_snapshot(
                 &pair.b,
                 &pair.credentials_b,
-                || {
+                |_| {
                     snapshots.set(snapshots.get() + 1);
                     pair.history_b.snapshot("snapshot (sync)").map(|_| ())
                 },
@@ -7099,7 +7117,7 @@ mod tests {
         let report = sync_pull_with_snapshot(
             &pair.b,
             &pair.credentials_b,
-            || {
+            |_| {
                 snapshots.set(snapshots.get() + 1);
                 // the checkout has not run yet: the remote's edit is still
                 // absent from the working tree at snapshot time
@@ -7115,6 +7133,111 @@ mod tests {
         assert_eq!(fs::read_to_string(pair.b.join("Note.md")).unwrap(), "remote edit\n");
         // and the edit that was loose in the tree survived the checkout
         assert_eq!(fs::read_to_string(pair.b.join("Other.md")).unwrap(), "typed just now\n");
+    }
+
+    /// A pull takes its snapshot INSIDE the write gate for the same reason the
+    /// push does: nothing the app itself writes may land between the commit
+    /// and the clean-tree check the local phase opens with.
+    ///
+    /// Same finder, and on this leg it is worse. The drive shelf rewrites its
+    /// catalog under `.vault/mounts/` from behind the engine lock, and with the
+    /// snapshot taken outside the gate a scan finishing while the pull waited
+    /// for the gate dirtied the tree again — so the pull refused with "snapshot
+    /// pending changes first", about a file the user never touched. The timer
+    /// lane pulls unprompted, so that refusal reached the sync health record
+    /// with nobody having pressed anything.
+    #[test]
+    fn a_catalog_write_that_races_the_pull_is_committed_rather_than_refused() {
+        let pair = paired_vaults(&[("Note.md", "base\n")]);
+        const CATALOG: &str = ".vault/mounts/9d1f4c2a.json";
+
+        // Something for the pull to actually bring: the snapshot only runs on a
+        // fetch that moved this vault's remote.
+        write_note(&pair.a, "Note.md", "remote edit\n");
+        pair.history_a.snapshot("snapshot").unwrap();
+        sync_push(&pair.a, &pair.credentials_a).unwrap();
+
+        // Counted from both sides — closure takes, guard releases — because
+        // order alone would not pin one unbroken hold. A pull that took the
+        // gate, snapshotted, dropped it and took it again before the clean
+        // check would satisfy every other assertion here and leave the race
+        // exactly where it was; the take count after the call is what refuses
+        // that shape.
+        struct Hold(std::rc::Rc<std::cell::Cell<usize>>);
+        impl Drop for Hold {
+            fn drop(&mut self) {
+                self.0.set(self.0.get() + 1);
+            }
+        }
+
+        let releases = std::rc::Rc::new(std::cell::Cell::new(0));
+        let holds = std::cell::Cell::new(0);
+        let report = sync_pull_with_snapshot(
+            &pair.b,
+            &pair.credentials_b,
+            |hold: &mut Hold| {
+                assert_eq!(hold.0.get(), 0, "the gate was let go before the snapshot ran");
+                pair.history_b.snapshot("snapshot (sync)").map(|_| ())
+            },
+            || {
+                holds.set(holds.get() + 1);
+                // Exactly where the scan wrote: after the caller asked to pull
+                // and the fetch came back, at the last instant before the local
+                // phase reads the tree.
+                if holds.get() == 1 {
+                    write_note(&pair.b, CATALOG, "{\"files\":[],\"scanned\":\"just now\"}\n");
+                }
+                Hold(std::rc::Rc::clone(&releases))
+            },
+        )
+        .unwrap();
+
+        // One take and no more: the snapshot and the local phase it makes clean
+        // share it. A drop-and-retake between them reads two here, and the hold
+        // is let go by the time the call returns.
+        assert_eq!(holds.get(), 1, "the pull did not hold the write gate in one take");
+        assert_eq!(releases.get(), 1, "the pull returned still holding the write gate");
+
+        // The remote's commit landed, and the racing catalog write was
+        // committed by the snapshot the gate now covers rather than blocking it.
+        assert_eq!(report.changed, vec!["Note.md".to_string()]);
+        assert_eq!(fs::read_to_string(pair.b.join("Note.md")).unwrap(), "remote edit\n");
+        let repo = Repository::open(&pair.b).unwrap();
+        assert!(!working_tree_is_dirty(&repo).unwrap(), "the pull left the tree dirty");
+        assert!(
+            repo.head().unwrap().peel_to_tree().unwrap().get_path(Path::new(CATALOG)).is_ok(),
+            "the catalog is not in the merged history"
+        );
+
+        // The old shape, for contrast, and the reason a retry could not have
+        // fixed this on its own: with no snapshot inside the gate, the very
+        // same write is what the pull refuses over — and on a multi-terabyte
+        // volume the next write is minutes away, not milliseconds.
+        write_note(&pair.a, "Note.md", "a later remote edit\n");
+        pair.history_a.snapshot("snapshot").unwrap();
+        sync_push(&pair.a, &pair.credentials_a).unwrap();
+        let refused = sync_pull_gated(&pair.b, &pair.credentials_b, || {
+            write_note(&pair.b, CATALOG, "{\"files\":[],\"scanned\":\"a moment later\"}\n");
+        })
+        .unwrap_err();
+        assert!(refused.contains("requires a clean working tree"), "{refused}");
+
+        // …and the check itself is not softened, as that refusal shows: a dirty
+        // tree the snapshot did not cover still refuses. What changed is only
+        // what the snapshot reaches — the note being typed when the pull
+        // arrived is committed by it and survives the checkout, in the tree
+        // exactly as typed.
+        write_note(&pair.b, "Typed.md", "still typing\n");
+        let pulled = sync_pull_with_snapshot(
+            &pair.b,
+            &pair.credentials_b,
+            |_| pair.history_b.snapshot("snapshot (sync)").map(|_| ()),
+            || (),
+        )
+        .unwrap();
+        assert_eq!(fs::read_to_string(pair.b.join("Note.md")).unwrap(), "a later remote edit\n");
+        assert_eq!(fs::read_to_string(pair.b.join("Typed.md")).unwrap(), "still typing\n");
+        assert!(pulled.conflicted.is_empty(), "{:?}", pulled.conflicted);
     }
 
     /// A push takes its snapshot INSIDE the write gate, so nothing the app

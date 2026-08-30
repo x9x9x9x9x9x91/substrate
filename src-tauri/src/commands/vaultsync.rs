@@ -1038,15 +1038,19 @@ pub(crate) async fn vault_sync_pull(
         // Fetch, then protect edits made since the last idle snapshot — but
         // only when the fetch brought something a checkout would overwrite.
         // Gate: history first, then engine (the repo-wide lock order), held
-        // through the whole local phase. The fetch stays unlocked, but neither
-        // an auto-snapshot nor a vault write can land between the final HEAD /
-        // clean checks and checkout + branch update.
+        // across that snapshot AND the whole local phase it makes clean. The
+        // fetch stays unlocked, but neither an auto-snapshot nor a vault write
+        // can land between the final HEAD / clean checks and checkout + branch
+        // update — nor, since the snapshot moved inside the same hold, between
+        // the snapshot and those checks. The drive shelf finishing a scan and
+        // rewriting its catalog is the write users met there, and it turned an
+        // unprompted timer pull into a refusal naming the app's own file.
         let (mut result, mut class) =
             classified_leg(&sync_root(&state), &sync.credentials_path, || {
                 gitsync::sync_pull_with_snapshot(
                     &sync_root(&state),
                     &sync.credentials_path,
-                    || with_history(&history, |hist| hist.snapshot("snapshot (sync)")).map(|_| ()),
+                    snapshot_under,
                     || {
                         let history = history.0.lock().unwrap();
                         let engine = state.0.lock().unwrap();

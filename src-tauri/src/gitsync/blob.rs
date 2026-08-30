@@ -1909,7 +1909,7 @@ pub(crate) fn pull<G>(
     transport: &impl BlobTransport,
     mut gate: impl FnMut() -> G,
 ) -> Result<SyncReport, String> {
-    pull_inner(root, key, transport, || Ok(()), gate, AdoptConsent::Withheld, RepoKind::Vault)
+    pull_inner(root, key, transport, |_| Ok(()), gate, AdoptConsent::Withheld, RepoKind::Vault)
 }
 
 /// The same pull into a SPACE rather than a vault.
@@ -1925,7 +1925,7 @@ pub(crate) fn pull_space<G>(
     transport: &impl BlobTransport,
     gate: impl FnMut() -> G,
 ) -> Result<SyncReport, String> {
-    pull_inner(root, key, transport, || Ok(()), gate, AdoptConsent::Withheld, RepoKind::Space)
+    pull_inner(root, key, transport, |_| Ok(()), gate, AdoptConsent::Withheld, RepoKind::Space)
 }
 
 /// The shape the app's auto-sync lane needs, mirroring
@@ -1946,13 +1946,20 @@ pub(crate) fn pull_space<G>(
 ///   costs one gate acquisition and owes only the app-file backfill.
 ///
 /// Ordering is load-bearing and matches the Git path: network read first, then
-/// the snapshot (it takes the history lock the gate holds, so it cannot run
-/// inside), then the gate around import and integration. The purge-marker
-/// re-check and the object GETs stay inside the gate — see [`pull`]'s note; the
-/// snapshot moving in front of the gate does not move them.
+/// the replacement decision under a gate of its own, then the snapshot and the
+/// integration under ONE further hold of it. The purge-marker re-check and the
+/// object GETs stay inside the first gate — see [`pull`]'s note; the snapshot
+/// does not move them.
 ///
-/// Whether the store was REPLACED is decided ahead of the snapshot, in a gate
-/// of its own, and that ordering is a data-safety property rather than a
+/// The snapshot rides INSIDE that second hold and is handed the guard, for the
+/// reason [`super::sync_pull_with_snapshot`] gives: taken in front of the gate,
+/// it left a window a vault write could land in, and a pull that resumed to a
+/// re-dirtied tree refused with an instruction to snapshot what had just been
+/// snapshotted. It cannot go looking for the history lock itself from in there,
+/// so the guard is passed to it.
+///
+/// Whether the store was REPLACED is still decided ahead of the snapshot, in
+/// the first gate, and that ordering is a data-safety property rather than a
 /// tidiness one. Snapshot first and a mid-sentence edit becomes a commit; the
 /// adoption that may follow resets that commit away and sweeps its objects, so
 /// the edit would be destroyed without ever having been something its author
@@ -1966,7 +1973,7 @@ pub(crate) fn pull_with_snapshot<G>(
     root: &Path,
     key: &MasterKey,
     transport: &impl BlobTransport,
-    snapshot: impl FnOnce() -> Result<(), String>,
+    snapshot: impl FnOnce(&mut G) -> Result<(), String>,
     mut gate: impl FnMut() -> G,
 ) -> Result<SyncReport, String> {
     pull_inner(root, key, transport, snapshot, gate, AdoptConsent::Withheld, RepoKind::Vault)
@@ -1985,7 +1992,7 @@ pub(crate) fn pull_adopting_replaced<G>(
     transport: &impl BlobTransport,
     mut gate: impl FnMut() -> G,
 ) -> Result<SyncReport, String> {
-    pull_inner(root, key, transport, || Ok(()), gate, AdoptConsent::Given, RepoKind::Vault)
+    pull_inner(root, key, transport, |_| Ok(()), gate, AdoptConsent::Given, RepoKind::Vault)
 }
 
 /// Whether this pull may reset the device onto a store some other device
@@ -2004,7 +2011,7 @@ fn pull_inner<G>(
     root: &Path,
     key: &MasterKey,
     transport: &impl BlobTransport,
-    snapshot: impl FnOnce() -> Result<(), String>,
+    snapshot: impl FnOnce(&mut G) -> Result<(), String>,
     mut gate: impl FnMut() -> G,
     consent: AdoptConsent,
     kind: RepoKind,
@@ -2160,9 +2167,12 @@ fn pull_inner<G>(
         super::clear_store_replaced(&repo)?;
     }
 
-    snapshot()?;
-
-    let _guard = gate();
+    // One hold from here to the end: the snapshot commits what is loose in
+    // the tree, and the local phase below refuses if anything still is. Those
+    // two answers have to be about one instant, so the guard is handed to the
+    // snapshot rather than taken again after it.
+    let mut guard = gate();
+    snapshot(&mut guard)?;
     if history_rewritten(&repo) {
         return Err(rewritten_history_pull_error());
     }
@@ -3631,6 +3641,102 @@ mod tests {
         // still what the local phase refuses over.
         let refused = push(&a, &key, &store, || {
             write_note(&a, ".vault/mounts/9d1f4c2a.json", "{\"files\":[0]}\n");
+        })
+        .unwrap_err();
+        assert!(refused.contains("requires a clean working tree"), "{refused}");
+    }
+
+    /// The encrypted pull pairs its snapshot with the gate the same way, and
+    /// this is the leg a timer drives: the drive shelf's catalog write landing
+    /// between a snapshot taken outside the gate and the clean-tree check made
+    /// an unprompted auto-pull fail, naming the app's own file back at a user
+    /// who had asked for nothing.
+    ///
+    /// The write here rides the SECOND gate take, which is where the old shape
+    /// left the window — the replacement decision holds the first, the
+    /// snapshot ran ungated between them, and the integration took it again.
+    #[test]
+    fn a_catalog_write_that_races_the_encrypted_pull_is_committed_rather_than_refused() {
+        let scratch = TempDir::new().unwrap();
+        let a = scratch.path().join("vault-a");
+        let b = scratch.path().join("vault-b");
+        let history_a = vault(&a);
+        let history_b = vault(&b);
+        let store = FileBlobStore::new(scratch.path().join("blob-store")).unwrap();
+        let key = MasterKey::from_bytes([41; 32]);
+        const CATALOG: &str = ".vault/mounts/9d1f4c2a.json";
+
+        write_note(&a, "Note.md", "base\n");
+        history_a.snapshot("base").unwrap();
+        push(&a, &key, &store, || ()).unwrap();
+        pull(&b, &key, &store, || ()).unwrap();
+
+        // Something for the pull to bring: the snapshot only runs on a fetch
+        // that moved this vault.
+        write_note(&a, "Note.md", "remote edit\n");
+        history_a.snapshot("later").unwrap();
+        push(&a, &key, &store, || ()).unwrap();
+
+        // Counted from both sides, as in the push's twin of this test: the
+        // closure counts takes, the guard counts releases, so a pull that let
+        // the integration gate go and took it again around the clean check is
+        // refused by the numbers rather than passing on ordering alone.
+        struct Hold(std::rc::Rc<std::cell::Cell<usize>>);
+        impl Drop for Hold {
+            fn drop(&mut self) {
+                self.0.set(self.0.get() + 1);
+            }
+        }
+
+        let releases = std::rc::Rc::new(std::cell::Cell::new(0));
+        let holds = std::cell::Cell::new(0);
+        let pulled = pull_with_snapshot(
+            &b,
+            &key,
+            &store,
+            |hold: &mut Hold| {
+                // One release by now — the gate that decided the store was not
+                // replaced — and the hold this snapshot is standing inside is
+                // not among them.
+                assert_eq!(hold.0.get(), 1, "the gate was let go before the snapshot ran");
+                history_b.snapshot("snapshot (sync)").map(|_| ())
+            },
+            || {
+                holds.set(holds.get() + 1);
+                if holds.get() == 2 {
+                    write_note(&b, CATALOG, "{\"files\":[],\"scanned\":\"just now\"}\n");
+                }
+                Hold(std::rc::Rc::clone(&releases))
+            },
+        )
+        .unwrap();
+
+        // Two takes and no more: one around the replacement decision and the
+        // graph fetch, one around the snapshot and the integration it makes
+        // clean. A drop-and-retake between those two reads three.
+        assert_eq!(holds.get(), 2, "the pull did not hold the write gate in two takes");
+        assert_eq!(releases.get(), 2, "the pull returned still holding the write gate");
+
+        assert!(pulled.conflicted.is_empty(), "unexpected conflicts: {pulled:?}");
+        assert_eq!(fs::read_to_string(b.join("Note.md")).unwrap(), "remote edit\n");
+        let repo = Repository::open(&b).unwrap();
+        assert!(!super::working_tree_is_dirty(&repo).unwrap(), "the pull left the tree dirty");
+        assert!(
+            repo.head().unwrap().peel_to_tree().unwrap().get_path(Path::new(CATALOG)).is_ok(),
+            "the catalog is not in the merged history"
+        );
+
+        // The old shape, for contrast: with no snapshot inside the gate the
+        // same write is what the local phase refuses over.
+        write_note(&a, "Note.md", "a later remote edit\n");
+        history_a.snapshot("later still").unwrap();
+        push(&a, &key, &store, || ()).unwrap();
+        let takes = std::cell::Cell::new(0);
+        let refused = pull(&b, &key, &store, || {
+            takes.set(takes.get() + 1);
+            if takes.get() == 2 {
+                write_note(&b, CATALOG, "{\"files\":[],\"scanned\":\"a moment later\"}\n");
+            }
         })
         .unwrap_err();
         assert!(refused.contains("requires a clean working tree"), "{refused}");
@@ -7431,7 +7537,7 @@ mod tests {
             &b,
             &key,
             &transport,
-            || history_b.snapshot("auto-sync").map(|_| ()),
+            |_| history_b.snapshot("auto-sync").map(|_| ()),
             || (),
         )
         .unwrap();
