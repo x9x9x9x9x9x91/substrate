@@ -679,6 +679,38 @@ fn snapshot_under<E>(
     }
 }
 
+/// A leg that takes the pre-sync snapshot, with the snapshot's own failure
+/// recorded [`FailureClass::Local`] whatever the leg's class would say.
+///
+/// The snapshot is part of the attempt, so its failure is an outcome and not
+/// an early exit: a stuck index lock or a full disk there means nothing this
+/// machine wrote is leaving it, and returning without a word would leave the
+/// freshness record standing at the last leg that did get through — green,
+/// indefinitely, for a vault that is stuck. It is local by construction, so
+/// the auto lane's quiet window must not sit on it for hours as if the
+/// network had blipped while the pane reads "Ready".
+///
+/// Every leg that snapshots first goes through here — the pull included,
+/// where a bare snapshot used to fall through to [`class_for_failure`] and
+/// record a broken local snapshot as a transport miss.
+fn snapshot_classified_leg<E>(
+    root: &Path,
+    credentials_path: &Path,
+    leg: impl FnOnce(
+        &mut dyn FnMut(&mut (std::sync::MutexGuard<'_, Option<History>>, E)) -> Result<(), String>,
+    ) -> Result<SyncReport, String>,
+) -> (Result<SyncReport, String>, FailureClass) {
+    let snapshot_failed = std::cell::Cell::new(false);
+    let (result, class) = classified_leg(root, credentials_path, || {
+        leg(&mut |gates| {
+            let outcome = snapshot_under(gates);
+            snapshot_failed.set(outcome.is_err());
+            outcome
+        })
+    });
+    (result, if snapshot_failed.get() { FailureClass::Local } else { class })
+}
+
 /// A sync leg and the class its failure records under.
 ///
 /// A hosted remote loads a token and a master key before it can do anything,
@@ -837,30 +869,19 @@ pub(crate) async fn vault_sync_push(
         // old shape snapshotted first. Deliberate: nothing leaves this machine
         // on that path either, so the edits simply stay loose in the tree for
         // the next attempt, and the class is Local either way.
-        let snapshot_failed = std::cell::Cell::new(false);
-        let (result, class) = classified_leg(&sync_root(&state), &sync.credentials_path, || {
-            gitsync::sync_push_with_snapshot(
-                &sync_root(&state),
-                &sync.credentials_path,
-                |gates| {
-                    let outcome = snapshot_under(gates);
-                    snapshot_failed.set(outcome.is_err());
-                    outcome
-                },
-                || {
-                    let history = history.0.lock().unwrap();
-                    let engine = state.0.lock().unwrap();
-                    (history, engine)
-                },
-            )
-        });
-        // The snapshot is part of the attempt, so its failure is an outcome
-        // and not an early exit: a stuck index lock or a full disk here means
-        // nothing this machine wrote is leaving it, and returning without a
-        // word would leave the freshness record standing at the last leg that
-        // did get through — green, indefinitely, for a vault that is stuck.
-        // It is local by construction, whatever the leg's own class would say.
-        let class = if snapshot_failed.get() { FailureClass::Local } else { class };
+        let (result, class) =
+            snapshot_classified_leg(&sync_root(&state), &sync.credentials_path, |snapshot| {
+                gitsync::sync_push_with_snapshot(
+                    &sync_root(&state),
+                    &sync.credentials_path,
+                    snapshot,
+                    || {
+                        let history = history.0.lock().unwrap();
+                        let engine = state.0.lock().unwrap();
+                        (history, engine)
+                    },
+                )
+            });
         record_outcome(&sync, &result, origin.as_deref() == Some("auto"), class);
         record_store_notice(&mut sync.last.lock().unwrap(), &result);
         record_health(&sync, &sync_root(&state), SyncLeg::Push, &result, class);
@@ -892,24 +913,19 @@ pub(crate) async fn vault_sync_replace_hosted(app: tauri::AppHandle) -> Result<S
         // into history would otherwise be left out of the copy that replaces
         // the server's — and the failure to capture them is an outcome, not an
         // early exit.
-        let snapshot_failed = std::cell::Cell::new(false);
-        let (result, class) = classified_leg(&sync_root(&state), &sync.credentials_path, || {
-            gitsync::sync_replace_hosted_with_snapshot(
-                &sync_root(&state),
-                &sync.credentials_path,
-                |gates| {
-                    let outcome = snapshot_under(gates);
-                    snapshot_failed.set(outcome.is_err());
-                    outcome
-                },
-                || {
-                    let history = history.0.lock().unwrap();
-                    let engine = state.0.lock().unwrap();
-                    (history, engine)
-                },
-            )
-        });
-        let class = if snapshot_failed.get() { FailureClass::Local } else { class };
+        let (result, class) =
+            snapshot_classified_leg(&sync_root(&state), &sync.credentials_path, |snapshot| {
+                gitsync::sync_replace_hosted_with_snapshot(
+                    &sync_root(&state),
+                    &sync.credentials_path,
+                    snapshot,
+                    || {
+                        let history = history.0.lock().unwrap();
+                        let engine = state.0.lock().unwrap();
+                        (history, engine)
+                    },
+                )
+            });
         record_outcome(&sync, &result, false, class);
         record_store_notice(&mut sync.last.lock().unwrap(), &result);
         record_health(&sync, &sync_root(&state), SyncLeg::Push, &result, class);
@@ -1045,12 +1061,16 @@ pub(crate) async fn vault_sync_pull(
         // the snapshot and those checks. The drive shelf finishing a scan and
         // rewriting its catalog is the write users met there, and it turned an
         // unprompted timer pull into a refusal naming the app's own file.
+        // The snapshot goes through the classifier for the same reason the
+        // push's does: a snapshot this machine could not take is a local
+        // failure, and passed bare it read as a transport miss the quiet
+        // window then sat on for hours.
         let (mut result, mut class) =
-            classified_leg(&sync_root(&state), &sync.credentials_path, || {
+            snapshot_classified_leg(&sync_root(&state), &sync.credentials_path, |snapshot| {
                 gitsync::sync_pull_with_snapshot(
                     &sync_root(&state),
                     &sync.credentials_path,
-                    snapshot_under,
+                    snapshot,
                     || {
                         let history = history.0.lock().unwrap();
                         let engine = state.0.lock().unwrap();
@@ -1163,8 +1183,8 @@ mod tests {
     use super::{
         class_for_failure, classified_leg, clear_privacy_into, fold_health, load_health,
         load_privacy, note_privacy_into, record_outcome_into, record_store_notice,
-        run_privacy_cleanup, store_health, store_privacy, FailureClass, SyncHealth, SyncLeg,
-        SYNC_HEALTH_VERSION,
+        run_privacy_cleanup, snapshot_classified_leg, store_health, store_privacy, FailureClass,
+        SyncHealth, SyncLeg, SYNC_HEALTH_VERSION,
     };
     use crate::gitsync::SyncReport;
     use crate::history::History;
@@ -1505,6 +1525,53 @@ mod tests {
         let mut fail = AutoFail::default();
         record_outcome_into(&mut last, &mut fail, &result, true, class, Instant::now());
         assert!(last.error.is_some(), "a broken hosted credential waited out the quiet window");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// A snapshot this machine could not take is a local failure whatever the
+    /// leg would have said: the tree stays dirty, every later leg stops on the
+    /// same thing, and recorded as Transport it sits out the auto lane's quiet
+    /// window while the pane reads "Ready". The pull used to hand its snapshot
+    /// straight to the leg and land exactly there.
+    #[test]
+    fn a_leg_whose_snapshot_fails_records_local() {
+        let root = std::env::temp_dir().join(format!(
+            "substrate-snapshot-class-{}-{}",
+            std::process::id(),
+            line!()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let _history = History::new(root.clone()).unwrap();
+        // A plain remote and empty credentials: nothing hosted to preflight, so
+        // the leg runs and its own failure would keep the transport class.
+        let credentials = root.join("config/sync.json");
+
+        // No history behind the gate — what the snapshot meets when git could
+        // not be initialized, and the one failure it can be handed here.
+        let unavailable: std::sync::Mutex<Option<History>> = std::sync::Mutex::new(None);
+        let (result, class) = snapshot_classified_leg(&root, &credentials, |snapshot| {
+            let mut gates = (unavailable.lock().unwrap(), ());
+            snapshot(&mut gates)?;
+            unreachable!("the leg carried on past a snapshot that failed")
+        });
+        assert_eq!(class, FailureClass::Local, "a failed snapshot recorded as a network problem");
+        assert!(result.is_err());
+
+        // Local is what gets it past the quiet window on the very first tick.
+        let mut last = VaultSyncLast::default();
+        let mut fail = AutoFail::default();
+        record_outcome_into(&mut last, &mut fail, &result, true, class, Instant::now());
+        assert!(last.error.is_some(), "a broken local snapshot waited out the quiet window");
+
+        // The forcing is the snapshot's alone: a leg that got its snapshot and
+        // then failed on the wire keeps the transport class and the quiet
+        // window it is owed.
+        let (result, class) =
+            snapshot_classified_leg::<()>(&root, &credentials, |_snapshot| Err("no route".into()));
+        assert_eq!(class, FailureClass::Transport);
+        assert_eq!(result.unwrap_err(), "no route");
 
         let _ = fs::remove_dir_all(&root);
     }
