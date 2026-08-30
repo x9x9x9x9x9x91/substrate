@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# lane-prepush.sh — the two seconds-cheap checks a lane owes before it pushes.
+# lane-prepush.sh — the seconds-cheap checks a lane owes before it pushes.
 #
 # Usage: bash scripts/lane-prepush.sh [--base <ref>]
 #   --base <ref>   what "changed" is measured against (default origin/main)
@@ -7,6 +7,7 @@
 # Runs, in order:
 #   1. eslint over the files this branch changed
 #   2. the comment-vocabulary check (no internal tracker ids in shipped comments)
+#   3. the seed byte-twins, when this branch touched either side of them
 #
 # Why it exists. Both rules already had a gate — lint and check-comment-vocab
 # are legs of the full suite — and both were being discovered ~40 minutes into
@@ -15,8 +16,8 @@
 # and pushes; the suite is then the first thing that reads its new files. That
 # is a forty-minute round trip for a class of fault that takes seconds to see.
 #
-# So this is not a new rule. It is the same two rules, moved to where a lane
-# already stands. Neither check needs a build, a rig or a lock.
+# So this is not a new rule. It is the same rules, moved to where a lane
+# already stands. No check here needs a build, a rig or a lock.
 #
 # It deliberately does NOT run as a git hook. Lanes push `wip:` checkpoints on
 # purpose — committed history is the resume point — and a hook that refuses
@@ -83,10 +84,31 @@ if ! node scripts/check-comment-vocab.ts; then
   RC=1
 fi
 
+# The three agent files the app seeds also ship verbatim in the demo vault, and
+# example-vault.test.ts asserts they are byte-identical. That coupling lives
+# nowhere a seed-editing lane has a reason to open, so the drift is discovered
+# on the rig: a whole suite red on one assertion a `cmp` answers here. Only
+# checked when the branch touched a side of it, so the usual lane pays nothing.
+TWINS="src-tauri/src/seed/AGENTS.md:examples/vault/AGENTS.md
+src-tauri/src/seed/CLAUDE.md:examples/vault/CLAUDE.md
+src-tauri/src/seed/setup-skill.md:examples/vault/.claude/skills/setup/SKILL.md"
+
+if [ -n "$(git diff --name-only "$BASE...HEAD" -- src-tauri/src/seed examples/vault)" ]; then
+  echo "lane-prepush: seed byte-twins"
+  while IFS=: read -r SRC DST; do
+    if ! cmp -s "$SRC" "$DST"; then
+      echo "lane-prepush: $DST has drifted from $SRC — copy the seed across" >&2
+      RC=1
+    fi
+  done <<TWIN_LIST
+$TWINS
+TWIN_LIST
+fi
+
 if [ "$RC" -ne 0 ]; then
   echo >&2
   echo "lane-prepush: FAILED — fix the above before pushing." >&2
   exit 1
 fi
 
-echo "lane-prepush: both checks clean"
+echo "lane-prepush: checks clean"

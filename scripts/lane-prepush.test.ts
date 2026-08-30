@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // lane-prepush.sh moves two checks that already existed — eslint and the
@@ -17,6 +17,9 @@ import { fileURLToPath } from "node:url";
 //      buries the one new error.
 //   2. That the second check runs even when the first failed, and that either
 //      failure alone is a nonzero exit.
+//   3. That the seed byte-twin comparison is scoped to branches that touched a
+//      side of it — it reads real files, so an unscoped one would fire on every
+//      unrelated lane.
 //
 // Both legs are stubbed by shims first on PATH, which record their argv. That
 // keeps the rig a plain git repo with no node_modules: a real `npx eslint`
@@ -165,5 +168,62 @@ test("an unresolvable base is refused rather than silently linting nothing", () 
     assert.equal(res.status, 2);
     assert.match(res.stderr, /no such base ref/);
     assert.deepEqual(argvOf(rig, "npx"), []);
+  });
+});
+
+/** The three seeded agent files and their example-vault twins, written into the
+    rig. `drift` leaves the AGENTS.md copy stale, the fault the check exists for. */
+function writeTwins(rig: Rig, drift: boolean): void {
+  const pairs = [
+    ["src-tauri/src/seed/AGENTS.md", "examples/vault/AGENTS.md"],
+    ["src-tauri/src/seed/CLAUDE.md", "examples/vault/CLAUDE.md"],
+    ["src-tauri/src/seed/setup-skill.md", "examples/vault/.claude/skills/setup/SKILL.md"],
+  ];
+  for (const [src, dst] of pairs) {
+    for (const rel of [src, dst]) mkdirSync(join(rig.repo, dirname(rel)), { recursive: true });
+    writeFileSync(join(rig.repo, src), `seeded ${src}\n`);
+    writeFileSync(join(rig.repo, dst), drift && dst.endsWith("vault/AGENTS.md") ? "stale copy\n" : `seeded ${src}\n`);
+  }
+}
+
+test("a seed edit whose example-vault twin was not re-copied fails the run", () => {
+  withRig((rig) => {
+    writeTwins(rig, true);
+    git(rig.repo, "add", "-A");
+    git(rig.repo, "commit", "-qm", "seed edit, twin forgotten");
+
+    const res = run(rig);
+    assert.equal(res.status, 1);
+    assert.match(res.stderr, /examples\/vault\/AGENTS\.md has drifted/);
+    assert.doesNotMatch(res.stderr, /CLAUDE\.md has drifted/, "the twins that match are not reported");
+  });
+});
+
+test("a seed edit carrying its twin passes", () => {
+  withRig((rig) => {
+    writeTwins(rig, false);
+    git(rig.repo, "add", "-A");
+    git(rig.repo, "commit", "-qm", "seed edit with twin");
+
+    const res = run(rig);
+    assert.equal(res.status, 0, res.stderr);
+    assert.match(res.stdout, /seed byte-twins/);
+  });
+});
+
+test("a branch that touched no seed file is not asked about the twins", () => {
+  withRig((rig) => {
+    // The twins exist and are drifted, but on the base, not on this branch:
+    // pre-existing drift is not this lane's to answer for, and the paths are
+    // not even in its tree.
+    git(rig.repo, "checkout", "-q", "base-ref");
+    writeTwins(rig, true);
+    git(rig.repo, "add", "-A");
+    git(rig.repo, "commit", "-qm", "their seed");
+    git(rig.repo, "checkout", "-q", "main");
+
+    const res = run(rig);
+    assert.equal(res.status, 0, res.stderr);
+    assert.doesNotMatch(res.stdout, /seed byte-twins/);
   });
 });

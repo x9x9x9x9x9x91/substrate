@@ -5704,7 +5704,13 @@ Plain notes the app treats specially — all optional, all just files:
   unchanged. Changing a seed's text means freezing the outgoing text as a new
   `revisions/` file and appending it in the same commit — a unit test
   (`seed_revisions_stay_in_lockstep_with_the_seed_text`) fails until it is
-  there, since a missing entry would freeze every existing copy. They carry no
+  there, since a missing entry would freeze every existing copy. It also means
+  re-syncing the **example-vault twin** in the same commit: the repo's demo
+  vault ships all three of these files verbatim (`examples/vault/AGENTS.md`,
+  `examples/vault/CLAUDE.md`, `examples/vault/.claude/skills/setup/SKILL.md`),
+  a node test asserts each is byte-identical to the seed, and
+  `scripts/lane-prepush.sh` catches the drift locally rather than forty minutes
+  into the suite. They carry no
   format version of their own, so the boot-time write is guarded at vault level
   by `vaultfmt::vault_written_by_newer_app` (§5b) — a vault a newer Substrate
   has written gets no backfill. It is also **skipped whenever the vault has a

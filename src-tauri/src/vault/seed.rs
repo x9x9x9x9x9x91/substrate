@@ -676,6 +676,15 @@ pub(crate) struct SeedFile {
 /// history in the test — never editing an existing entry, which would erase the
 /// revision users still have on disk and freeze their copies.
 /// `seed_revisions_stay_in_lockstep_with_the_seed_text` fails until you do.
+///
+/// The same commit also re-syncs the **example-vault twin**. The repo's demo
+/// vault ships these three files verbatim — `examples/vault/AGENTS.md`,
+/// `examples/vault/CLAUDE.md`, `examples/vault/.claude/skills/setup/SKILL.md` —
+/// and `scripts/example-vault.test.ts` asserts each one is byte-identical to
+/// the text below, so a seed edit without the copy reds the suite rather than
+/// cargo. Copy the new bytes across in the same commit;
+/// `scripts/lane-prepush.sh` says so in seconds, the full suite in forty
+/// minutes.
 pub(crate) const SEED_FILES: &[SeedFile] = &[
     SeedFile {
         rel: AGENTS_REL_PATH,
