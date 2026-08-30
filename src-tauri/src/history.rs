@@ -823,6 +823,21 @@ impl History {
     /// repo's configured identity, so the two are never confused for each
     /// other. Whole-tree rather than path-scoped, because the caller is
     /// committing a whole space it owns rather than fencing off one write.
+    ///
+    /// It weighs what it staged exactly as [`snapshot`](Self::snapshot) does,
+    /// and for the same reason: whether somebody typed a display name on this
+    /// device decides nothing about what the transport can carry. A space
+    /// refuses oversize files as it copies them IN, but a file dropped into
+    /// the space folder afterwards — by Finder, by another app — reaches this
+    /// staging having been weighed by nobody, and one object past the
+    /// per-object ceiling fails every push that space ever makes again. So the
+    /// staging is taken back here too, the bytes are left where they are, and
+    /// the file reads as the pending change it is.
+    ///
+    /// The staged column is what decides whether to commit, not the whole
+    /// status: a file this refuses is still a working-tree change, and reading
+    /// that as "something to commit" would run `git commit` with an empty
+    /// index and fail the snapshot over the file it meant to skip.
     #[cfg(not(mobile))]
     pub fn snapshot_as(
         &self,
@@ -834,7 +849,13 @@ impl History {
             return Ok(false);
         }
         self.git(&["add", "-A", "."])?;
-        if self.git(&["status", "--porcelain"])?.trim().is_empty() {
+        let mut status = self.git(&["status", "--porcelain", "-z"])?;
+        let refused = self.refuse_oversize_staging(&status)?;
+        if !refused.is_empty() {
+            applog!("space snapshot: {}", refused.sentence());
+            status = self.git(&["status", "--porcelain", "-z"])?;
+        }
+        if !has_staged_change(&status) {
             return Ok(false);
         }
         self.git_env(
@@ -1573,6 +1594,96 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+    /// A space commits through `snapshot_as` the moment somebody typed a
+    /// display name on this device — and a file dropped into the space folder
+    /// from outside the app (Finder, another app) is staged by that snapshot
+    /// having been weighed by nobody. The copy-in check never saw it. Past the
+    /// commit it is an object no push can carry, and it fails every push that
+    /// space makes afterwards, for good.
+    #[test]
+    fn a_named_space_snapshot_refuses_a_file_dropped_in_from_outside() {
+        let (space, dir) = temp_space("spacedrop");
+        fs::write(dir.join("Plan.md"), "meet at seven\n").unwrap();
+        assert!(space.snapshot_as("Ada wrote the plan", "Ada", MEMBER_TEST_EMAIL).unwrap());
+
+        // Finder drops a video into the shared folder, and the member edits a
+        // note in the same sitting: the note has to travel, the video must not.
+        let dropped = dir.join("take.wav");
+        let oversize = crate::syncfolders::transport_limit_bytes() + 1;
+        fs::File::create(&dropped).unwrap().set_len(oversize).unwrap();
+        fs::write(dir.join("Plan.md"), "meet at eight\n").unwrap();
+        assert!(space.snapshot_as("Ada moved the time", "Ada", MEMBER_TEST_EMAIL).unwrap());
+
+        let tracked = space.git(&["ls-tree", "-r", "--name-only", "HEAD"]).unwrap();
+        assert!(
+            !tracked.contains("take.wav"),
+            "an object past the transport ceiling reached a space's history: {tracked:?}"
+        );
+        assert!(tracked.contains("Plan.md"), "the member's own edit did not travel: {tracked:?}");
+        assert_eq!(
+            space.git(&["log", "-1", "--pretty=%an"]).unwrap().trim(),
+            "Ada",
+            "the commit stopped being signed by the member who made it"
+        );
+        // the bytes are exactly where the member left them, and read as the
+        // pending change they are
+        assert_eq!(fs::metadata(&dropped).unwrap().len(), oversize);
+        assert!(space.git(&["status", "--porcelain"]).unwrap().contains("take.wav"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// The bug this closes: the same repository was committing under two
+    /// different weigh semantics depending on whether a display name had been
+    /// typed on the device. Whether it was typed decides who signs the commit
+    /// and nothing else.
+    #[test]
+    fn a_space_weighs_the_same_named_or_unnamed() {
+        let oversize = crate::syncfolders::transport_limit_bytes() + 1;
+        let drop_a_big_file = |dir: &PathBuf| {
+            fs::File::create(dir.join("take.wav")).unwrap().set_len(oversize).unwrap();
+        };
+
+        let (named, named_dir) = temp_space("spacenamed");
+        let (unnamed, unnamed_dir) = temp_space("spaceunnamed");
+        for (space, dir) in [(&named, &named_dir), (&unnamed, &unnamed_dir)] {
+            fs::write(dir.join("Plan.md"), "meet at seven\n").unwrap();
+            assert!(space.snapshot("first").unwrap());
+            drop_a_big_file(dir);
+        }
+        assert!(
+            !named.snapshot_as("Ada dropped a video in", "Ada", MEMBER_TEST_EMAIL).unwrap(),
+            "a snapshot with nothing left to stage must not commit"
+        );
+        assert!(!unnamed.snapshot("somebody dropped a video in").unwrap());
+
+        for space in [&named, &unnamed] {
+            let tracked = space.git(&["ls-tree", "-r", "--name-only", "HEAD"]).unwrap();
+            assert!(!tracked.contains("take.wav"), "{tracked:?}");
+        }
+        let _ = fs::remove_dir_all(&named_dir);
+        let _ = fs::remove_dir_all(&unnamed_dir);
+    }
+
+    /// The ceiling is a ceiling, not a fence a file has to stay clear of: a
+    /// file the transport can carry exactly commits, under a name as under
+    /// none.
+    #[test]
+    fn a_space_snapshot_still_commits_a_file_at_the_ceiling() {
+        let (space, dir) = temp_space("spaceatlimit");
+        let at_limit = dir.join("take.wav");
+        fs::File::create(&at_limit)
+            .unwrap()
+            .set_len(crate::syncfolders::transport_limit_bytes())
+            .unwrap();
+        assert!(space.snapshot_as("Ada added the take", "Ada", MEMBER_TEST_EMAIL).unwrap());
+        let tracked = space.git(&["ls-tree", "-r", "--name-only", "HEAD"]).unwrap();
+        assert!(
+            tracked.contains("take.wav"),
+            "a file the transport can carry did not: {tracked:?}"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
     /// A refused rename takes back BOTH halves, end to end through `snapshot`.
     ///
     /// The staging of a rename is a new path's content plus the old path's
@@ -1623,6 +1734,21 @@ mod tests {
         let h = History::new(dir.clone()).unwrap();
         (h, dir)
     }
+
+    /// The same scratch repository opened as a SPACE — the shape a shared
+    /// folder's commits are actually taken through.
+    fn temp_space(name: &str) -> (History, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("hist-test-{}-{}", std::process::id(), name));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        let h = History::new_space(dir.clone()).unwrap();
+        (h, dir)
+    }
+
+    /// The address a space's member commits carry
+    /// ([`crate::gitsync::space::MEMBER_EMAIL`]).
+    const MEMBER_TEST_EMAIL: &str = "member@local";
 
     fn all_history_patches(h: &History) -> String {
         h.git(&["log", "--all", "-p"]).unwrap_or_default()
