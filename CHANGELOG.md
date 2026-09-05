@@ -3,6 +3,8 @@
 <!-- Generated from src/lib/changelog.ts by scripts/gen-changelog.ts.
      Edit that file, then run `node scripts/gen-changelog.ts`. -->
 
+## 0.30.1 — 2026-09-02 — Loaned subscriptions in the Proxy pane
+
 ## 0.30.0 — 2026-08-29 — Columns on the page, history in your hand
 
 ### Highlights

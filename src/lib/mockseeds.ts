@@ -171,6 +171,11 @@ export const mockAssets = new Map<string, string>([
   // routing stand-in for the wide image set (heic renders inline, not as a
   // chip) — payload is a png pixel; e2e asserts the widget, not the decode
   ["IMG_0231.heic", PIXEL_PNG],
+  /* Vault-relative payloads, keyed by the path an embed names them by: the
+     browser lane has no asset protocol, so a document read out of the vault's
+     own folder needs bytes here the same way a `.assets/` one does. */
+  ["Files/Guides/patch bay wiring.pdf", MOCK_PDF],
+  ["Files/Guides/console layout.png", PIXEL_PNG],
 ]);
 
 // one real stored asset so the §6 inline-image path and the gallery's
@@ -201,6 +206,11 @@ export const mockAssetMtimes = new Map<string, number>();
    (the open/reveal row). */
 export const mockLooseFiles = new Map<string, string[]>([
   ["Projects", ["01 umbra rough.wav", "02 umbra bounce.wav", "umbra session.als"]],
+  /* The heavy-binary folder, one level down so the browse has a crumb to
+     climb: a document to preview, a picture, and an archive that can only be
+     handed to the OS. `Files/Reference` deliberately has no rows of its own —
+     the seed for the folder that lives entirely in the index below. */
+  ["Files/Guides", ["patch bay wiring.pdf", "console layout.png", "session templates.zip"]],
 ]);
 
 /** What `.vault/files-index.json` remembers here. `Files/Reference` is on

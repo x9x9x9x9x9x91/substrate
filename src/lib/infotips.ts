@@ -59,6 +59,10 @@ const STATIC_VIEW_TIPS: Record<View["kind"], InfoTip> = {
     title: "Drive",
     body: "One disk's catalog. With the drive unplugged this is what the last scan saw, and it says when that was — nothing here is read from the disk itself.",
   },
+  files: {
+    title: "Files",
+    body: "The vault's own heavy binaries — documents, archives, anything too big to want on every device. Notes embed them by path, and a device that keeps this folder off sync still lists what is in it and says the file isn't here.",
+  },
   saved: {
     title: "Saved view",
     body: "A named cut of one database with its own query, sorting, layout, and visible columns.",

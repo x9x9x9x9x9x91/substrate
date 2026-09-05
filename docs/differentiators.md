@@ -282,6 +282,19 @@ Capacities, Affine).*
   sources. What no one else offers is the *preview contract*: a dry read whose
   skips and conversions are shown as a document to judge, and provenance stamps
   in plain frontmatter that make the run repeatable rather than a one-shot.
+- **A folder too heavy to sync, still browsable everywhere** — `Files/` is the
+  vault's home for documents, archives and anything else too big to want on
+  every device, and it ships excluded from sync: the binaries stay on the
+  machine with the disk for them while the notes that embed them travel. The
+  half nobody else has is what the other devices see — the Files browse lists
+  what is over there from the index the holding device wrote, greyed and saying
+  the file is not on this device, so an embed inside an excluded folder reads
+  as *elsewhere* rather than as damage. Notes embed by vault-relative path
+  (`![[Files/Guides/setup.pdf]]`), documents preview inline, and the exclusion
+  list is one plain `.vault/sync-folders.json` that syncs like any other
+  config. Careful claim: selective sync exists elsewhere (Dropbox, Obsidian
+  Sync); what does not is a notes app where the excluded folder still has a
+  readable index and a missing binary is classified rather than broken.
 - **Terminal HUD** (⌘⇧T) with PTY trust checks — a notes app that can host
   your shell.
 - **Scoped MCP door** — cloud-backed desktop AI clients can operate the vault
@@ -422,11 +435,8 @@ Tracked in the issue tracker. Two of the shapes that used to sit here have
 since shipped and moved up: per-fact provenance receipts (0.23) and
 time-travel queries over git history — `AT()`, `PROP()` and the chart
 `history:` source (0.23), with search over the past following in 0.25. What
-remains planned here: cross-type joins, and a vault that can keep a folder of
-heavy files off sync per folder — the binaries stay on the machine with the
-disk for them while the notes that embed them travel, and every other device
-still lists what is over there and says it is not here rather than showing a
-broken link.
+remains planned here: cross-type joins. The folder of heavy files kept off sync
+shipped too, and has moved up to the surface set.
 
 ## Maintenance
 

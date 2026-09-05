@@ -53,4 +53,5 @@
 @import "./styles/workbench.css"; /* Workbench tabs, tag folders, the transport and receipt peeks */
 @import "./styles/import.css"; /* Settings → Import: the preview counts, tree and reading line */
 @import "./styles/syncfolders.css"; /* Settings → Vault: the folders that don't sync, and the refusal when one is too heavy */
+@import "./styles/files.css"; /* The Files browse — type badges, remembered rows, the document panel */
 @import "./styles/boot.css"; /* The boot frame — the empty shell painted before the vault index is up */

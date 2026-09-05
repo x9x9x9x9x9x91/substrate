@@ -485,6 +485,12 @@ export type View =
   /** one drive's catalog, browsable with the disk unplugged. `id` is the
       mount id; `prefix` is where in the catalog the browse currently is */
   | { kind: "drive"; id: string; prefix: string }
+  /** the vault's own heavy binaries, browsed a folder at a time. `prefix` is
+      where the browse currently is; `""` is `Files/` itself. Keyed like the
+      drive browse for the same reason — one destination, and coming back
+      means coming back to the folder, not to wherever you were three levels
+      down in it */
+  | { kind: "files"; prefix: string }
   | { kind: "saved"; id: string }
   | { kind: "dashboard"; path: string }
   | { kind: "folder"; path: string }
@@ -1194,6 +1200,9 @@ export function viewKey(v: View): string {
   // it: coming back to a drive means coming back to the drive, not to the
   // folder you happened to be three levels down in
   if (v.kind === "drive") return `drive:${v.id}`;
+  // and the browse prefix is deliberately not in this one either, for the
+  // reason above it: there is one Files destination
+  if (v.kind === "files") return "files";
   if (v.kind === "tagfolder") return `tagfolder:${v.id}`;
   // folded, so #Demo and #demo are one destination — the same rule matching
   // uses

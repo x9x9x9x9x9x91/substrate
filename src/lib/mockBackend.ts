@@ -770,6 +770,10 @@ function mockAddFolder(path: string) {
 for (const n of mockNotes) mockAddFolder(n.folder);
 mockAddFolder("Projects/Active");
 mockAddFolder("Projects/Archive");
+/* The heavy-binary folder holds no notes at all, so nothing above puts it on
+   the map — but the engine's folder walk sees every real directory, note-bearing
+   or not, and the browse over it needs the same. */
+for (const folder of mockLooseFiles.keys()) mockAddFolder(folder);
 
 function mockFolderOf(path: string): string {
   const i = path.lastIndexOf("/");

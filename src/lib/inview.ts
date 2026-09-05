@@ -33,6 +33,9 @@ export function inView(n: NoteMeta, view: View, tagFolders: TagFolder[] = []): b
     // its index
     case "shelf":
     case "drive":
+    // the heavy-binary folder holds files, not notes — a note that happened to
+    // sit in it is still a note, and belongs to its folder view
+    case "files":
     case "doctor":
     case "calendar":
     case "today":

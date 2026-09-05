@@ -173,7 +173,27 @@ test("collapsing removes the children from the rows keyboard nav walks (SUB-1300
   // keyboard nav walks the VISIBLE rows: from Alpha's status cell, one
   // ArrowDown lands on the row that now follows it, never on a folded child
   const alphaRow = folded.indexOf("Alpha");
-  await page.locator(`td[data-fc="1"][data-fr="${alphaRow}"]`).focus();
+  // Take the cell, then wait until the pane agrees it is ours. The fold moved
+  // the row the pane already held focus on (Echo, from the last newEntry) from
+  // r=4 to r=2, and the pane re-seats a focus it owns onto the new coordinate —
+  // so the moment this focus() hands the composite back ownership, a re-seat
+  // still carrying Echo can take the cell straight back, and the walk starts
+  // from the last row, where ArrowDown clamps in place — the collapse flake. Settle on
+  // the real signal: the pane's own focused cell being the document's active
+  // element at the coordinate asked for, re-taking it if the re-seat won.
+  const statusCell = page.locator(`td[data-fc="1"][data-fr="${alphaRow}"]`);
+  await expect
+    .poll(async () => {
+      await statusCell.focus();
+      return page.evaluate(async () => {
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(null))));
+        const marked = document.querySelector("td.db-cell.focused");
+        return marked && marked === document.activeElement
+          ? `${marked.getAttribute("data-fc")},${marked.getAttribute("data-fr")}`
+          : "unsettled";
+      });
+    })
+    .toBe(`1,${alphaRow}`);
   await page.keyboard.press("ArrowDown");
   const focused = page.locator("td.db-cell.focused");
   await expect(focused).toHaveCount(1);

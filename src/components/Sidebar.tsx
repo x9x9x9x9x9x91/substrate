@@ -1,6 +1,7 @@
 import { memo, useEffect, useState } from "react";
 import type { DbIcon, DriveInfo, FolderMetaMap, NoteMeta, SavedView, TagFolder, View } from "../lib/types";
 import { viewKey } from "../lib/types";
+import { FILES_ROOT } from "../lib/types";
 import { vaultRoot } from "../lib/ipc";
 import {
   applyOrder,
@@ -35,6 +36,7 @@ import {
   CookbookIcon,
   DbIcon as DbGlyphIcon,
   DriveIcon,
+  FileIcon,
   FolderIcon,
   FolderOpenIcon,
   GearIcon,
@@ -100,6 +102,10 @@ interface SidebarProps {
       the shelf is that the rail lists the disks you own, not the disks
       currently plugged in. */
   drives: DriveInfo[];
+  /** whether this vault has a heavy-binary folder to browse — on disk here, or
+      remembered by the index a device that holds the files wrote. It gates the
+      section the way `drives.length` gates the one above it. */
+  filesPresent: boolean;
   /** collapsed sidebar sections from `$sidebar.collapsed`:
       section ids ("dashboards" | "pinned" | "folders") plus one
       `dashgroup:<folder>` id per collapsed Dashboards subfolder group */
@@ -235,6 +241,7 @@ function Sidebar({
   onToggleHidden,
   scratchCount,
   drives,
+  filesPresent,
   collapsedIds,
   onToggleCollapse,
   icons,
@@ -293,6 +300,7 @@ function Sidebar({
   const dashboardsOpen = !collapsedIds.includes("dashboards");
   const pinnedOpen = !collapsedIds.includes("pinned");
   const drivesOpen = !collapsedIds.includes("drives");
+  const filesOpen = !collapsedIds.includes("files");
   // a note dragged over the Pinned section highlights the section
   const [pinDrop, setPinDrop] = useState(false);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -1470,6 +1478,33 @@ function Sidebar({
           </>
         )}
 
+        {/* The heavy-binary folder's rail half, and the same shape as Drives
+            above for the same reason: the section only exists once there is
+            something to browse, and then it stays even on a device that keeps
+            the folder off sync — "what is in there" is a question you ask
+            precisely when the files are somewhere else. */}
+        {filesPresent && (
+          <>
+            <div className="side-label side-label-row">
+              <button
+                type="button"
+                className="side-section-toggle"
+                onClick={() => onToggleCollapse("files")}
+                {...tooltip(filesOpen ? "Collapse" : "Expand", { label: false })}
+                aria-expanded={filesOpen}
+              >
+                <span className={`side-chevron${filesOpen ? " open" : ""}`}>
+                  <ChevronIcon />
+                </span>
+                <span>{FILES_ROOT}</span>
+              </button>
+            </div>
+            {filesOpen &&
+              item("files", `All ${FILES_ROOT.toLowerCase()}`, <FileIcon />, () =>
+                setView({ kind: "files", prefix: "" })
+              )}
+          </>
+        )}
 
       </div>
 

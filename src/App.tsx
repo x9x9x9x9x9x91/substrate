@@ -173,6 +173,7 @@ import { useShortcutRouter } from "./hooks/useShortcutRouter";
 import { useToast } from "./hooks/useToast";
 import { useUpdater } from "./hooks/useUpdater";
 import { useWidgetSummary } from "./hooks/useWidgets";
+import { useFilesSurface } from "./hooks/useFilesSurface";
 import { useSearch } from "./hooks/useSearch";
 import { useVaultIndex } from "./hooks/useVaultIndex";
 import { queueViewsWrite, useVaultConfigs } from "./hooks/useVaultConfigs";
@@ -292,6 +293,7 @@ export default function App() {
   const { zoom, applyZoom } = useZoom(showToast);
   const { checkNow: checkUpdates } = useUpdater(showToast);
   useWidgetSummary(indexedNotes, vaultEpoch);
+  const filesPresent = useFilesSurface(vaultEpoch);
   // The note whose share door is open
   const [share, setShare] = useState<NoteMeta | null>(null);
   const editorFocusRef = useRef<(() => void) | null>(null);
@@ -3823,6 +3825,7 @@ export default function App() {
         onMobileClose={closeMobileSidebar}
         scratchCount={scratchCount}
         drives={drives}
+        filesPresent={filesPresent}
         collapsedIds={collapsedIds}
         onToggleCollapse={toggleCollapsed}
         icons={dbIcons}

@@ -1,0 +1,72 @@
+/* The Files browse — the vault's own heavy binaries.
+   The rows are the trash pane's rows (`.trash-row`, `.trash-row-main`) and the
+   crumbs are the shelf's (`.shelf-crumbs`), because this is the same gesture:
+   a browse over a listing. Everything here is what that shape does NOT already
+   have — the type badge, the row that is remembered rather than present, and
+   the document panel a row opens under itself. */
+
+.files-item {
+  display: block;
+}
+
+/* The extension badge. Quiet by design: it is a type mark beside a filename
+   that already ends in the same three letters, so it earns its place by being
+   scannable in a column, never by being loud. */
+.files-ext {
+  flex: none;
+  min-width: 34px;
+  padding: 1px 4px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-1);
+  color: var(--text-3);
+  font-size: var(--fs-1);
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+
+/* A row the vault remembers and this device does not have. It reads as
+   present-but-out-of-reach — dimmed the way a missing embed and an
+   uncataloged drive row are, never struck through or tinted, because nothing
+   is wrong with it. */
+.files-row.is-missing {
+  cursor: default;
+}
+
+.files-row.is-missing .files-ext {
+  opacity: 0.7;
+}
+
+/* The document panel a row opens under itself, inset so it reads as belonging
+   to the row above rather than as the next row. */
+.files-preview {
+  margin: 0 0 8px 34px;
+  padding: 8px 10px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-3);
+  background: var(--bg-panel);
+}
+
+.files-preview-host {
+  display: block;
+  outline: none;
+}
+
+.files-preview-host:focus-visible {
+  outline: 1px solid var(--border-strong);
+  outline-offset: 2px;
+  border-radius: var(--r-2);
+}
+
+.files-preview-fail {
+  color: var(--text-3);
+  font-size: var(--fs-3);
+}
+
+/* The listing is capped, so the count says what it is not showing rather than
+   letting a folder of ten thousand files quietly become a folder of two
+   thousand. */
+.files-capped {
+  padding: 8px 16px;
+  color: var(--text-3);
+  font-size: var(--fs-3);
+}

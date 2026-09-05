@@ -39,6 +39,10 @@ import { HeroMount, HeroNote, HeroPin } from "./HeroIcons";
    NotePane and ListPane — they are the cold-open path itself. */
 const CalendarPane = lazy(() => import("./CalendarPane"));
 const VaultSyncPane = lazy(() => import("./VaultSyncPane"));
+/* Lazy for the reason above and one of its own: the browse is the only pane
+   that mounts a document viewer, and keeping it off the cold-open path keeps
+   the page renderer's import behind two doors rather than one. */
+const FilesPane = lazy(() => import("./FilesPane"));
 
 type SearchProps = ComponentProps<typeof SearchPane>;
 type DbManagerProps = ComponentProps<typeof DbManagerPane>;
@@ -469,6 +473,12 @@ export default function PaneRouter(props: PaneRouterProps) {
       ) : view.kind === "assets" ? (
         <div className="main">
           <AssetsPane vaultEpoch={vaultEpoch} />
+        </div>
+      ) : view.kind === "files" ? (
+        <div className="main">
+          <Suspense fallback={null}>
+            <FilesPane view={view} setView={setView} vaultEpoch={vaultEpoch} />
+          </Suspense>
         </div>
       ) : view.kind === "shelf" || view.kind === "drive" ? (
         <div className="main">

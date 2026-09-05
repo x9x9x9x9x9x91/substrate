@@ -217,6 +217,19 @@ export const HeroSheet = () => (
   </svg>
 );
 
+/** The heavy-binary folder, empty or absent: a document slab with two more
+    stacked behind it — a pile of files rather than one file, and deliberately
+    not the attachments mark, whose picture read would name a third of what
+    goes in here. */
+export const HeroFiles = () => (
+  <svg {...hero} aria-hidden="true">
+    <path d="M17 9h14" opacity="0.3" />
+    <path d="M14 12h20" opacity="0.5" />
+    <SlabFace id="hero-files" x={11} y={15} w={26} h={28} r={4} />
+    <path d="M17 27h14" opacity="0.6" />
+    <path d="M17 33h9" opacity="0.35" />
+  </svg>
+);
 
 /** Shelf, nothing cataloged: the drive resting on its shelf line. */
 export const HeroDrive = () => (

@@ -110,6 +110,13 @@ export function splitLead(text: string): { lead: string; rest: string } | null {
 
 export const CHANGELOG: ChangelogRelease[] = [
   {
+    version: "0.30.1",
+    date: "2026-09-02",
+    title: "Loaned subscriptions in the Proxy pane",
+    items: [
+    ],
+  },
+  {
     version: "0.30.0",
     date: "2026-08-29",
     title: "Columns on the page, history in your hand",

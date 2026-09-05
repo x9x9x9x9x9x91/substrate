@@ -236,6 +236,7 @@ export const FIXED_VIEW_COMMANDS: ViewCommand[] = [
   { id: "cmd:trash", label: "Open Trash", dest: "Trash", view: { kind: "trash" } },
   { id: "cmd:assets", label: "Clean up orphaned assets…", view: { kind: "assets" } },
   { id: "cmd:shelf", label: "Drives", dest: "Drives", view: { kind: "shelf" } },
+  { id: "cmd:files", label: "Files", dest: "Files", view: { kind: "files", prefix: "" } },
   { id: "cmd:doctor", label: "Vault doctor", dest: "Vault doctor", view: { kind: "doctor" } },
   { id: "cmd:vaultsync", label: "Vault sync", dest: "Vault sync", view: { kind: "vaultsync" } },
   // the sidebar's sparkle glyph, in words — the glyph carries its name in a

@@ -142,6 +142,8 @@ export function targetView(target: string): View | null {
       return { kind: "assets" };
     case "shelf":
       return { kind: "shelf" };
+    case "files":
+      return { kind: "files", prefix: "" };
     case "calendar":
       return { kind: "calendar" };
     case "vaultsync":
